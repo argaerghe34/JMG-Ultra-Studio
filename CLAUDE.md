@@ -7,6 +7,7 @@ The repository is private on GitHub and the user works on both a Mac and a PC.
 - **Before starting work:** get the latest – `git pull --rebase` (or tell the user to Fetch/Pull in GitHub Desktop if there are no command-line credentials).
 - **After every change you make:** commit with a plain message and push, so the other computer can pull it. Don't leave work only on one computer.
 - **When a version is built and installed** (`dev/monday.sh` on the Mac): commit, tag it `v<version>`, push the tag, and publish a GitHub Release with `dist/JMG-Ultra-Studio-<version>.zip` attached.
+- Repository: https://github.com/argaerghe34/JMG-Ultra-Studio (private). On the Mac the GitHub CLI is at `~/.local/bin/gh` (not on PATH by default), logged in as argaerghe34; git uses it for credentials. On the PC, install Git and the GitHub CLI and log in once (`gh auth login --web`, then `gh auth setup-git`).
 - Never commit API keys, `dist/`, `node_modules`, the test project's generated files, or the large test clips listed in `.gitignore`.
 
 ## Rules that always apply
