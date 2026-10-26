@@ -53,6 +53,17 @@ try {
   T.assert(tr.lines.length >= 12 && tr.lines.length <= 15, 'lines: ' + tr.lines.length);
   const cue = await US.host.call('storyCue', { id: clip.id, seconds: 20, play: false });
   T.near(cue.position, 20, 0.05, 'Source Monitor position');
+  // ▶ plays from the exact line – also straight after another clip was in the Source Monitor (it loads in the background)
+  const [other] = await T.importOnce([T.media('concert', 'C001_sharp_static.mp4')], 'Test – E2E');
+  const pos = () => US.host.rawEval('(function(){ return String(app.sourceMonitor.getPosition().seconds); })()').then(Number);
+  for (const at of [tr.lines[2].start, tr.lines[7].start, tr.lines[tr.lines.length - 1].start]) {
+    await US.host.call('showInSource', { id: other.id, seconds: 1 });
+    const r = await US.host.cue(clip.id, Math.max(0, at - 0.2), { play: true });
+    await T.sleep(400);
+    const p = await pos();
+    await US.host.call('storyStop');
+    T.assert(r.landed && p >= at - 0.35 && p <= at + 1.2, `▶ at ${at.toFixed(2)} s: playing from ${p.toFixed(2)} s`);
+  }
   const L = tr.lines;
   st.themes = [theme('t1', 'Opening', 7, [L[0].id, L[1].id]), theme('t2', 'Legacy', 5, [L[L.length - 2].id, L[L.length - 1].id])];
   S.save();

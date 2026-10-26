@@ -658,6 +658,8 @@
       }
       if (inG.length) lastEnd = inG[inG.length - 1].placed.end;
     });
+    // a marker on each clip that says what it is (moments: “Funny – laughter”), in its group's colour
+    for (const c of plan.clips) { const mk = c.placed && groups[c.group] && groups[c.group].lineMarks && groups[c.group].lineMarks[c.lineId]; if (mk) markers.push({ start: c.placed.start, end: c.placed.end, name: mk.name, comment: mk.comment || '', color: groups[c.group].label != null ? LABEL_TO_MARKER[groups[c.group].label] : 2 }); }
     if (look.strong.highlight) for (const c of plan.clips) if (c.strong && c.placed) { const l = lineById.get(c.lineId); markers.push({ start: c.placed.start, end: c.placed.end, name: '★ Strongest', comment: l.text.slice(0, 200), color: LABEL_TO_MARKER[look.strong.label] }); }
     if (markers.length) { job.set({ msg: 'Adding markers' }); await US.host.call('addSequenceMarkers', { seqId: seq.id, markers }); }
     if ((look.themeNames === 'layer' || look.themeNames === 'both') && sections.length) {
@@ -1237,13 +1239,41 @@
     ensureColours(); saveNow();
     return n;
   }
-  /** A theme from moments (“Moments · Bloopers”), each line noting why; lines already in it are skipped. -> {theme, added} */
+  /**
+   * Themes from moments, one per type in that type's colour (“Moments · Funny” in Mango, “Moments · Bloopers” in Rose…),
+   * so they stay told apart when built, highlighted or shared. -> {theme (the first), themes, added}
+   */
   function momentsTheme(list, type = 'all') {
-    const name = type === 'all' ? 'Moments' : `Moments · ${MO().TYPES[type].plural}`;
-    const ids = list.filter(m => lineById.has(m.lineId)).map(m => m.lineId);
-    let th = state.themes.find(t => t.custom && t.name === name);
-    if (!th) { th = newThemeFrom(name, ids); if (type !== 'all') { const want = MO().TYPES[type].label; if (!state.themes.some(t => t !== th && t.label === want)) th.label = want; } saveNow(); return { theme: th, added: th.lineIds.length }; }
-    return { theme: th, added: addLinesToTheme(th, ids, { manual: true }) };
+    const types = type === 'all' ? MO().ORDER : [type], themes = []; let added = 0;
+    for (const ty of types) {
+      const ids = list.filter(m => m.type === ty && lineById.has(m.lineId)).map(m => m.lineId);
+      if (!ids.length && type === 'all') continue;
+      const name = `Moments · ${MO().TYPES[ty].plural}`, want = MO().TYPES[ty].label;
+      let th = state.themes.find(t => t.custom && t.name === name);
+      if (!th) { th = newThemeFrom(name, ids); added += th.lineIds.length; }
+      else added += addLinesToTheme(th, ids, { manual: true });
+      th.label = want;    // the type's own colour, as on the markers and the Moments list
+      themes.push(th);
+    }
+    saveNow();
+    return { theme: themes[0] || null, themes, added };
+  }
+  /**
+   * A sequence of moments grouped by type: each type in its own colour (colour) and every clip with a marker saying
+   * what it is and why (labels: “Funny – laughter”). Story's other timeline options (handles, theme names) apply.
+   */
+  async function buildMoments(job, list, { colour = true, labels = true, name = 'Story – moments' } = {}) {
+    loadState();
+    const T5 = MO().TYPES, groups = [];
+    for (const ty of MO().ORDER) {
+      const ms = list.filter(m => m.type === ty && lineById.has(m.lineId));
+      if (!ms.length) continue;
+      groups.push({ name: T5[ty].plural, label: T5[ty].label, lineIds: ms.map(m => m.lineId), pinned: new Set(), ideas: [], trims: {},
+        lineMarks: labels ? Object.fromEntries(ms.map(m => [m.lineId, { name: `${T5[ty].name}${m.reasons && m.reasons[0] ? ' – ' + m.reasons[0].replace(/\s*\(.*$/, '') : ''}`.slice(0, 60), comment: (m.reasons || []).join(' · ') }])) : null });
+    }
+    if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no moments to build.', action: 'Find moments first, or choose another type.' });
+    const look = Object.assign(lookOptions(), { colour, strong: Object.assign({}, lookOptions().strong, { highlight: false, first: false }) });
+    return buildSequence(job, { name, groups, look });
   }
   /** Range markers on a string-out for the moments heard in it, coloured by type. Running again replaces them. */
   async function markMoments(job, { seqId, list }) {
@@ -1547,6 +1577,7 @@
       let lastQuery = '', strongOnly = US.settings.get('story.strong', false), results = [], targetTheme = null, targetColumn = null;
       let moreMode = false, moreResults = [], moreTopic = '', moreInfo = '';
       let momentsMode = false, momentType = 'all', momentsAI = US.settings.get('story.momentsAI', true), momSeq = '';
+      let momColours = US.settings.get('story.momentColours', true), momLabels = US.settings.get('story.momentLabels', true);
       let moreAI = US.settings.get('story.moreAI', true), notInCut = false, cutSeq = '';
       const picked = () => new Set(state.picked || []);
       /** Open Find more (from Search, a theme or a board column) and run it. */
@@ -1635,7 +1666,10 @@
         box.appendChild(h('div.story-moments-bar',
           h('div.row', h('span.field-hint.grow', `${US.plural(shown.length, 'moment')} shown${list.length > kept.length ? ` · ${list.length - kept.length} more at a less picky setting` : ''}`),
             BOARD ? ui.button('Add to board', { small: true, icon: 'story', title: 'A board group per type: Moments · Bloopers, Moments · Funny…', onClick: () => { const n = addMomentsToBoard(shown); ui.toast({ type: 'ok', title: n ? `${US.plural(n, 'moment')} added to the board` : 'They’re all on the board already', action: n ? { label: 'Open board', fn: () => show('wall') } : null }); } })
-              : ui.button('Make a theme of these', { small: true, icon: 'story', title: 'A theme with these moments – “Moments · Bloopers” and so on – to build, put in bins or share', onClick: () => { const r = momentsTheme(shown, momentType); ui.toast({ type: 'ok', title: r.added ? `${US.plural(r.added, 'moment')} in the theme “${r.theme.name}”` : `They’re all in “${r.theme.name}” already`, action: { label: 'Open Themes', fn: () => show('themes') } }); } })),
+              : ui.button('Make themes of these', { small: true, icon: 'story', title: 'A theme per type – “Moments · Funny”, “Moments · Bloopers”… – each in its type’s colour, to build, put in bins or share', onClick: () => { const r = momentsTheme(shown, momentType); ui.toast({ type: 'ok', title: r.added ? `${US.plural(r.added, 'moment')} in ${r.themes.length === 1 ? `the theme “${r.theme.name}”` : `${r.themes.length} themes (one per type)`}` : 'They’re all in their themes already', action: { label: 'Open Themes', fn: () => show('themes') } }); } }),
+            ui.button('Build these moments', { small: true, kind: 'primary', icon: 'film', title: 'A new sequence, grouped by type, each type in its own colour and every clip labelled', onClick: () => US.jobs.run({ title: 'Building the moments', tool: 'story' }, job => buildMoments(job, shown, { colour: momColours, labels: momLabels, name: `Story – moments${momentType === 'all' ? '' : ' – ' + M.TYPES[momentType].plural.toLowerCase()}` })) })),
+          h('div.row', ui.toggle({ label: 'Colour by type', hint: 'Bloopers Rose, Funny Mango, Off camera Teal, Poignant Purple', value: momColours, onChange: x => { momColours = x; US.settings.set('story.momentColours', x); } }),
+            ui.toggle({ label: 'Label each moment', hint: 'A marker on every clip: “Funny – laughter”', value: momLabels, onChange: x => { momLabels = x; US.settings.set('story.momentLabels', x); } })),
           h('div.row', h('div.grow', seqSel),
             ui.button('Mark on string-out', { small: true, icon: 'target', title: 'Range markers coloured by type – Bloopers red, Funny orange, Off camera cyan, Poignant purple', onClick: () => US.jobs.run({ title: 'Marking moments on the string-out', tool: 'story' }, async job => { const r = await markMoments(job, { seqId: momSeq, list: shown }); render(); return r; }) }),
             marked ? ui.button('Remove markers', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Removing moment markers', tool: 'story' }, async job => { const r = await removeMomentMarkers(job, momSeq); render(); return r; }) }) : null)));
@@ -1736,7 +1770,7 @@
             const items = await resolveItems([t]);
             const id = items.get(t.key);
             if (!id) throw new US.UserError('NOT_FOUND', { title: `“${t.name}” isn’t linked to a clip.`, action: 'Link it in Story › 1 Interviews › Interviews and speakers, then try again.' });
-            await US.host.call('storyCue', { id, seconds: Math.max(0, at - 0.2), play: true });
+            await US.host.cue(id, Math.max(0, at - 0.2), { play: true });
           } catch (err) { ui.showError(err); }
         } }, US.icon('play', 15));
       }
@@ -2411,7 +2445,7 @@
               h('div.story-who-main', h('div.row', h('div.grow', input), h('span.field-hint', US.fmtDur(sp.talk))),
                 h('div.story-meta', `${sp.clipName}${TL().GENERIC.test(sp.label || '') ? (sp.label ? ' · ' + sp.label : '') : ' · named “' + sp.label + '” in Premiere'}`),
                 sp.sample ? h('div.story-who-sample', `“${sp.sample.text}”`) : null),
-              sp.sample ? h('button.icon-btn', { title: 'Hear this voice', onclick: async () => { try { await US.host.call('storyCue', { id: sp.sample.itemId, seconds: Math.max(0, sp.sample.srcIn - 0.2), play: true }); } catch (e) { ui.showError(e); } } }, US.icon('play', 15)) : null);
+              sp.sample ? h('button.icon-btn', { title: 'Hear this voice', onclick: async () => { try { await US.host.cue(sp.sample.itemId, Math.max(0, sp.sample.srcIn - 0.2), { play: true }); } catch (e) { ui.showError(e); } } }, US.icon('play', 15)) : null);
           }), peopleEl));
         // export
         const fmt = ui.segmented({ options: [{ value: 'docx', label: 'Word' }, { value: 'txt', label: 'Text' }, { value: 'srt', label: 'Subtitles' }, { value: 'csv', label: 'Spreadsheet' }], value: tlFormat, onChange: v => { tlFormat = v; US.settings.set('story.exportFormat', v); } });
@@ -2811,7 +2845,7 @@
     selectionMap, highlightStringOut, removeHighlights, guessStringOut,
     narrativePool, makeNarrative, narrativeColumn, narrativeGroups, buildNarrative, makePromo, latestNarrative: id => latestNarrative(id), trimOf,
     readsFor, setReads, readsPlan, rankCandidates,
-    findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, themeGroups, BOARD, markMoments, removeMomentMarkers,
+    findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,
     /** tests only: use a state object without a project */
     _useState(s) { state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }
   };

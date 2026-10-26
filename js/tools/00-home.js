@@ -4,6 +4,7 @@
   const US = window.US, h = US.h, ui = US.ui;
 
   const WHATS_NEW = [
+    'New in 1.3 – Selects names every camera move (pan left/right, tilt, push-in, pull-out, reveals) and how smooth it is, and smooth moves count. Colour previews appear by themselves as you move the playhead, with a before/after viewer. Moments are colour-coded and labelled by type in the timeline. ▶ in Story plays from the exact line.',
     'Story is the heart of Ultra Studio, now step by step: 1 Interviews · 2 Themes · 3 Find · 4 Build · 5 Share, each with a Next button. Choose what to work on once – all interviews, some of them, or just the lines in a sequence such as your selects (between its In and Out if you like).',
     'Type your own themes and Story finds them and its own in one pass – the AI reads your lines once. Then: How picky per theme, a sequence from your themes in their colours, a narrative cut from one sentence (and a promo with B-roll, captions and a vertical version), Moments, highlights in your string-outs, an interview log with a summary of each interview, a paper edit, and word-timed captions.',
     'Selects works on any footage: it keeps everything usable as B-roll and leaves out only what’s technically unusable (blurry, far too dark or bright, too shaky). It also works on sequences, sorts selects into bins by type, marks the best with a magenta ★, and saves full-size stills.',

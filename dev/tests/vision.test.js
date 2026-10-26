@@ -229,3 +229,32 @@ test('any footage (the default): only technical faults are rejected – no genre
   // it keeps at least as much as the strictest genre on the same clips
   assert.ok(r.selects.length >= typed('interview').selects.length && r.selects.length >= typed('travel').selects.length);
 });
+
+test('camera movement: direction and smoothness in words; smooth moves rank higher when asked; reveals named', () => {
+  const V = US.vision;
+  // the measured left-to-right pan (C009) reads as panning right, smooth; the pull-back is named as a reveal
+  const r = V.score(fresh(synth), Object.assign(V.settingsFor('any'), { movement: 'smooth' }));
+  const pan = byName(r, 'C009')[0], rev = byName(r, 'C007')[0];
+  assert.ok(pan.moveLabel === 'Pan right' && pan.smooth >= 80 && pan.flags.cinematic, JSON.stringify(pan));
+  assert.ok(/reveal/.test(rev.moveLabel) && rev.flags.cinematic, rev.moveLabel);
+  assert.ok(byName(r, 'C001')[0].moveLabel === 'Static' && !byName(r, 'C001')[0].flags.cinematic);
+  // shown scores stay 0–100; the ranking puts smooth moves first among equally clean shots
+  assert.ok(r.selects.every(s => s.score <= 100));
+  const order = V.order(r.selects, 'score').map(s => s.clipName);
+  assert.ok(order.indexOf(pan.clipName) < order.indexOf('C001_sharp_static.mp4'), order.join(','));
+  const off = V.score(fresh(synth), Object.assign(V.settingsFor('any'), { movement: '' }));
+  assert.strictEqual(off.selects.length, r.selects.length, 'movement changes the ranking, never what is kept');
+  // smoothest moves first
+  assert.strictEqual(V.order(r.selects, 'smooth')[0].flags.cinematic, true);
+  // pure: an even pan vs a jerky one; directions; a wobbly move is never cinematic
+  const even = Array.from({ length: 8 }, () => ({ lx: -0.02, ly: 0, zm: 0, k: 1 }));
+  const jerky = [-0.04, 0, -0.035, 0.002, -0.05, 0, -0.03, 0.001].map(lx => ({ lx, ly: 0, zm: 0, k: 0.9 }));
+  assert.ok(V.cameraMove('pan', even).smooth > 90 && V.cameraMove('pan', even).cinematic);
+  assert.ok(V.cameraMove('pan', jerky).smooth < 60 && !V.cameraMove('pan', jerky).cinematic, JSON.stringify(V.cameraMove('pan', jerky)));
+  assert.strictEqual(V.cameraMove('pan', even.map(x => ({ ...x, lx: 0.02 }))).label, 'Pan left');
+  assert.strictEqual(V.cameraMove('tilt', even.map(x => ({ ...x, lx: 0, ly: 0.02 }))).label, 'Tilt up');
+  assert.strictEqual(V.cameraMove('push-in', even.map(x => ({ ...x, lx: 0, zm: 0.04 }))).label, 'Push-in');
+  assert.ok(!V.cameraMove('handheld', even).cinematic);
+  // a bin of smooth camera moves
+  assert.ok(V.categories(r.selects, ['special']).some(c => c.name === 'Smooth camera moves' && c.selects.includes(pan)));
+});

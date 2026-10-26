@@ -45,6 +45,15 @@ try {
   for (const ty of M.ORDER) S.momentsTheme(mine.filter(m => m.type === ty), ty);
   const mt = st.themes.filter(t => /^Moments · /.test(t.name));
   T.assert(mt.length === 4 && mt.reduce((n, t) => n + t.lineIds.length, 0) === mine.length, 'four Moments themes: ' + mt.map(t => `${t.name} ${t.lineIds.length}`).join(', '));
+  T.assert(mt.every(t => M.ORDER.some(ty => t.name === `Moments · ${M.TYPES[ty].plural}` && t.label === M.TYPES[ty].label)), 'each Moments theme in its type’s colour');
+  // Build these moments: grouped by type, each clip labelled with a marker in its type's colour
+  const oldB = await T.seqByName('Test – Story moments built'); if (oldB) await US.host.call('deleteSequence', { seqId: oldB.id });
+  const bm = await S.buildMoments(job, mine, { colour: true, labels: true, name: 'Test – Story moments built' });
+  const bi = await US.host.call('sequenceInfo', { seqId: bm.seq.id });
+  const labelled = bi.markers.filter(m => M.ORDER.some(ty => m.name.startsWith(M.TYPES[ty].name)));
+  T.assert(bi.video[0].clips.length === mine.length && labelled.length === mine.length, `built ${bi.video[0].clips.length} clips, ${labelled.length} labelled`);
+  for (const m of labelled) { const ty = M.ORDER.find(t => m.name.startsWith(M.TYPES[t].name)); T.assert(m.color === S.LABEL_TO_MARKER[M.TYPES[ty].label], `${m.name}: marker colour ${m.color}`); }
+  T.assert(new Set(labelled.map(m => m.color)).size === 4, 'four colours for four types');
   // a string-out of the whole interview, then markers
   const old = await T.seqByName(SEQ); if (old) await US.host.call('deleteSequence', { seqId: old.id });
   const seq = await US.host.call('newSequence', { name: SEQ, binPath: BIN, likeId: ruth.id });

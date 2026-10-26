@@ -73,7 +73,7 @@
 
   /** Jump Premiere to a time: the playhead for sequences, the Source Monitor for clips. */
   kit.goTo = function (target, seconds, offset = 0) {
-    const p = target.kind === 'sequence' ? US.host.call('setPlayhead', { seqId: target.id, seconds }) : US.host.call('showInSource', { id: target.id, seconds: seconds + offset });
+    const p = target.kind === 'sequence' ? US.host.call('setPlayhead', { seqId: target.id, seconds }) : US.host.cue(target.id, seconds + offset);
     return p.catch(e => US.ui.showError(e));
   };
 

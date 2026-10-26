@@ -127,8 +127,10 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   const blRows = tool.el.querySelectorAll('.story-results .story-row').length;
   if (!blRows || blRows >= momentRows) errors.push(`filter by type: ${blRows} of ${momentRows}`);
   checks.push(`moments: ${momentRows} rows, ${blRows} bloopers`);
-  const mk = Array.from(tool.el.querySelectorAll('.story-moments-bar .btn')).find(b => /Make a theme of these/.test(b.textContent));
-  if (!mk) errors.push('no “Make a theme of these”'); else { mk.click(); await new Promise(r => setTimeout(r, 20)); if (!st.themes.some(t => t.name === 'Moments · Bloopers' && t.lineIds.length === blRows)) errors.push('moments theme not made'); }
+  const mk = Array.from(tool.el.querySelectorAll('.story-moments-bar .btn')).find(b => /Make themes of these/.test(b.textContent));
+  if (!mk) errors.push('no “Make themes of these”'); else { mk.click(); await new Promise(r => setTimeout(r, 20)); if (!st.themes.some(t => t.name === 'Moments · Bloopers' && t.lineIds.length === blRows && t.label === US.storyMoments.TYPES.blooper.label)) errors.push('moments theme not made in the blooper colour'); }
+  if (!Array.from(tool.el.querySelectorAll('.story-moments-bar .btn')).some(b => /Build these moments/.test(b.textContent))) errors.push('no “Build these moments”');
+  if (Array.from(tool.el.querySelectorAll('.story-moments-bar .toggle')).filter(t => /Colour by type|Label each moment/.test(t.textContent)).length !== 2) errors.push('no colour / label switches for moments');
   // Search › Find more renders results with reasons (lines not yet selected)
   st.picky = { s: S.PICKY_LEVELS.all };
   st.themes = st.themes.filter(t => t.custom && !t.picked);

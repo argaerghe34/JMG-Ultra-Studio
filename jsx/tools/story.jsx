@@ -61,9 +61,11 @@
     };
 
     /** Open a clip in the Source Monitor at a time (seconds from the start of the media) and optionally play. */
+    /** Cue (and play) a clip in the Source Monitor at a.seconds from the start of its media. a.open === false skips
+        opening it again (the panel calls this again until the monitor has loaded the clip and lands on the time). */
     fn.storyCue = function (a) {
         var it = U.needItem(a.id);
-        app.sourceMonitor.openProjectItem(it);
+        if (a.open !== false) app.sourceMonitor.openProjectItem(it);
         var t = clipTiming(it);
         app.enableQE();
         var p = qe.source.player;

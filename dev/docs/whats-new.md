@@ -1,3 +1,10 @@
+## What's new in 1.3
+
+- **Selects counts camera movement.** Every select names its move – *Pan left/right*, *Tilt up/down*, *Push-in*, *Pull-out*, *Static*, *Handheld* or a *reveal* – and how smooth it is. **Camera movement** sets how much smooth moves count (**Smooth moves count** by default, or **Moves first**), and **Smooth camera moves** finds them all.
+- **Colour previews appear by themselves.** Rest the playhead on a shot and every look or LUT is shown on it – no “Preview on this frame”, no extra sequence. A big before/after viewer, ← → to step through, and a strip of the shots in your sequence. Premiere's looks are made ready once, then preview instantly.
+- **Moments in colour.** **Build these moments** groups them by type, each in its own colour with a label on every clip (*Funny – laughter*); themes made from moments get the same colours. Both can be switched off.
+- **▶ plays from the exact line** in Story (and Selects shows the exact moment), even when the clip takes a moment to load.
+
 ## What's new in 1.2
 
 **Story is now the heart of Ultra Studio – step by step.** It opens first, and Home shows where your project is up to. Story runs in five steps, each with a **Next** button: **1 Interviews · 2 Themes · 3 Find · 4 Build · 5 Share**.

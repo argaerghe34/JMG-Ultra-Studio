@@ -303,6 +303,115 @@
   }
   US.bus.on('ready', () => setTimeout(cleanupPreview, 3000));
 
+  /* ---------- the frame under the playhead, taken automatically from your own sequence ---------- */
+  // No preview sequence: Premiere exports the frame you're looking at (with any grade already on it), and every
+  // preview is then made here from that frame – LUT files directly, Premiere's looks from a colour table captured once.
+  let frame = null;   // {key, seqId, t, base:{data,url} at PW×PH (RGBA), small: RGB at SW×SH}
+  const shotFrames = new Map();   // seqId|start -> frame of a shot in the sequence (the strip under the viewer)
+  async function grabFrame(seqId, t) {
+    const p = await US.host.call('exportFrame', { seqId, seconds: t, outBase: path.join(US.fsx.tempDir(), 'col-frame-' + Date.now()) });
+    try { const base = await framePixels(p); const small = toRGB((await framePixels(p, SW, SH)).data); return { key: `${seqId}@${t.toFixed(2)}`, seqId, t, base, small }; }
+    finally { try { fs.unlinkSync(p); } catch (e) { /* gone */ } }
+  }
+
+  /* ---------- Premiere's looks as colour tables: captured once per look, then applied here to any frame ---------- */
+  // A 32×32×32 colour table laid out as 8×4 tiles of 32×32 (red across, green down, one tile per blue step). Premiere
+  // renders a look on it once; the result is that look as a LUT. Looks that also blur, sharpen or vignette are previewed
+  // without that part.
+  const TN = 32, TW = 256, TH = 128;
+  const tableFile = () => path.join(US.fsx.cacheDir(), 'colour', 'colour-table-32.png');
+  function tablePixels() {
+    const px = new Uint8ClampedArray(TW * TH * 4);
+    for (let b = 0; b < TN; b++) for (let g = 0; g < TN; g++) for (let r = 0; r < TN; r++) {
+      const x = (b % 8) * TN + r, y = Math.floor(b / 8) * TN + g, i = (y * TW + x) * 4;
+      px[i] = Math.round(r * 255 / (TN - 1)); px[i + 1] = Math.round(g * 255 / (TN - 1)); px[i + 2] = Math.round(b * 255 / (TN - 1)); px[i + 3] = 255;
+    }
+    return px;
+  }
+  /** A rendered colour table (RGBA, TW×TH) -> a LUT in parseCube's form. */
+  function tableToLut(px) {
+    const data = new Float32Array(TN * TN * TN * 3);
+    for (let b = 0; b < TN; b++) for (let g = 0; g < TN; g++) for (let r = 0; r < TN; r++) {
+      const x = (b % 8) * TN + r, y = Math.floor(b / 8) * TN + g, i = (y * TW + x) * 4, o = ((b * TN + g) * TN + r) * 3;
+      data[o] = px[i] / 255; data[o + 1] = px[i + 1] / 255; data[o + 2] = px[i + 2] / 255;
+    }
+    return { size: TN, min: [0, 0, 0], max: [1, 1, 1], data };
+  }
+  function ensureTableFile() {
+    const f = tableFile(); if (fs.existsSync(f)) return f;
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    const c = document.createElement('canvas'); c.width = TW; c.height = TH;
+    c.getContext('2d').putImageData(new ImageData(tablePixels(), TW, TH), 0, 0);
+    fs.writeFileSync(f, Buffer.from(c.toDataURL('image/png').split(',')[1], 'base64'));
+    return f;
+  }
+  // kept per Premiere version (a new Premiere may change its looks)
+  const tablesDir = () => path.join(US.fsx.cacheDir(), 'colour-looks', String((US.ctx && US.ctx.app) || 'premiere').replace(/[^\w.-]+/g, '_'));
+  const tables = new Map();   // look name -> LUT
+  function lookTable(name) {
+    if (tables.has(name)) return tables.get(name);
+    let t = null;
+    try { const j = JSON.parse(fs.readFileSync(path.join(tablesDir(), US.fsx.hash(name) + '.json'), 'utf8')); if (j.name === name && j.w === TW && j.h === TH) t = tableToLut(decodeStored(j)); } catch (e) { t = null; }
+    if (t) tables.set(name, t);
+    return t;
+  }
+  // stored as the rendered table's raw RGBA bytes (base64), so reading one back needs no image decoding
+  function decodeStored(j) { return new Uint8ClampedArray(Buffer.from(j.png, 'base64')); }
+  function saveTable(name, rgba) {
+    fs.mkdirSync(tablesDir(), { recursive: true });
+    fs.writeFileSync(path.join(tablesDir(), US.fsx.hash(name) + '.json'), JSON.stringify({ name, w: TW, h: TH, png: Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength).toString('base64') }));
+    tables.set(name, tableToLut(rgba));
+  }
+  /** Capture the colour tables for these looks (Premiere renders each once on the table image). -> how many were made */
+  async function captureTables(job, looks) {
+    const todo = looks.filter(l => !lookTable(l.name));
+    if (!todo.length) return 0;
+    const user = US.ctx.sequence && US.ctx.sequence.id;
+    job.set({ who: 'premiere', msg: 'Getting the look previews ready' });
+    const r = await US.host.call('colourPreviewSetup', { still: ensureTableFile() });
+    preview = null;    // the hidden sequence now holds the table, not a frame
+    let made = 0;
+    try {
+      for (let i = 0; i < todo.length; i++) {
+        job.check(); job.progress(i / todo.length, `Look ${i + 1} of ${todo.length} · ${todo[i].label}`);
+        try {
+          const p = await US.host.call('colourPreviewRender', { seqId: r.seqId, stillId: r.stillId, preset: todo[i].name, out: path.join(US.fsx.tempDir(), 'col-table-' + Date.now()) });
+          const px = await framePixels(p, TW, TH); try { fs.unlinkSync(p); } catch (e) { /* gone */ }
+          saveTable(todo[i].name, px.data); made++;
+        } catch (e) { US.log('info', `Look “${todo[i].name}” couldn’t be captured`, US.errors.explain(e).detail, 'colour'); }
+      }
+    } finally {
+      if (user) { try { await US.host.call('openSequence', { seqId: user }); await US.refreshContext(); } catch (e) { /* ignore */ } }
+      try { await US.host.call('colourPreviewCleanup'); } catch (e) { /* ignore */ }
+    }
+    return made;
+  }
+
+  /* ---------- a quick grade preview made here (the grade you apply is Lumetri's own) ---------- */
+  /** Approximates Lumetri's basic controls on RGBA pixels: exposure, contrast, highlights, shadows, warmth, tint,
+      saturation, vibrance, faded film and vignette. w, hh: image size (for the vignette). */
+  function quickGrade(px, values, w, hh) {
+    const v = Object.assign(neutral(), values), out = new Uint8ClampedArray(px.length);
+    const ev = Math.pow(2, v.exposure), k = 1 + v.contrast / 100 * 0.6, fade = v.faded / 100;
+    const warm = v.temperature / 100, tint = v.tint / 100, sat = v.saturation / 100, vib = v.vibrance / 100;
+    const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    for (let i = 0, n = 0; i < px.length; i += 4, n++) {
+      let c = [px[i] / 255, px[i + 1] / 255, px[i + 2] / 255];
+      c = c.map(x => Math.pow(Math.pow(x, 2.2) * ev, 1 / 2.2));
+      c[0] *= 1 + warm * 0.18; c[2] *= 1 - warm * 0.18; c[1] *= 1 - tint * 0.1;
+      let L = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+      const tone = (v.highlights / 100) * 0.18 * sm(0.45, 1, L) + (v.shadows / 100) * 0.18 * (1 - sm(0, 0.55, L));
+      c = c.map(x => 0.5 + (x + tone - 0.5) * k);
+      L = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+      const spread = Math.max(...c) - Math.min(...c), s2 = sat * (1 + vib * (1 - Math.min(1, spread * 2)));
+      c = c.map(x => L + (x - L) * s2);
+      if (fade) c = c.map(x => x * (1 - fade * 0.22) + fade * 0.1);
+      if (v.vignette) { const x = (n % w) / w - 0.5, y = Math.floor(n / w) / hh - 0.5; const f = 1 + v.vignette * 0.22 * (x * x + y * y) * 2; c = c.map(q => q * f); }
+      out[i] = c[0] * 255; out[i + 1] = c[1] * 255; out[i + 2] = c[2] * 255; out[i + 3] = 255;
+    }
+    return out;
+  }
+
   /* Lumetri's Look menu can only be set by number, so a LUT file is found in it once per session: each number is
      rendered on the preview still and compared with the LUT applied by Ultra Studio. */
   let lookMenu = null;            // [RGB render per menu number] for the current still
@@ -451,8 +560,9 @@
     create() {
       const v = ui.toolView({ icon: 'palette', title: 'Colour', blurb: 'Looks and LUTs previewed on your own shot, quick grading, camera matching and log footage – all as Lumetri you can open and tweak.',
         help: h('div', h('ul',
-          h('li', 'Looks are Premiere’s own Lumetri looks, rendered by Premiere on the frame under your playhead, so the previews are exact.'),
-          h('li', 'LUTs are your own .cube files. Their previews are made by Ultra Studio from the LUT itself; applying one uses Lumetri’s Look menu, so Premiere has to know the LUT (Ultra Studio can copy it to the right folder; Premiere picks it up after a restart).'),
+          h('li', 'Previews appear by themselves: when the playhead rests on a frame, Ultra Studio takes that frame from your sequence and shows every look or LUT on it. Use ← → to step through them, Before / After to compare, and the strip of shots to jump around the sequence.'),
+          h('li', 'Looks are Premiere’s own Lumetri looks. Each is captured once as a colour table (Premiere renders it on a test image), so afterwards its preview is instant on any shot. LUTs are your own .cube files, previewed straight from the file.'),
+          h('li', 'Applying a LUT uses Lumetri’s Look menu, so Premiere has to know the LUT (Ultra Studio can copy it to the right folder; Premiere picks it up after a restart).'),
           h('li', 'Ultra Studio adds its own Lumetri Color effect to a clip the first time and only changes that one – any grade you made yourself is left alone.'),
           h('li', 'Match cameras measures the reference shot and each selected clip, then adjusts exposure, contrast, warmth, tint and saturation step by step until they match.'),
           h('li', 'Log tells Premiere which log profile (e.g. Lumix V-Log) a clip was filmed in, the same as right-click › Modify › Color. Premiere then shows it in normal colour – better than a LUT, and it applies everywhere that clip is used.'))) });
@@ -471,6 +581,44 @@
       };
       const thumb = (key, label, url, on, onPick) => h('button.colour-thumb' + (on ? '.on' : ''), { title: label, onclick: onPick }, h('img', { src: url || '', alt: label }), h('span', label));
 
+      /* ---------- the viewer: your frame, before and after, with ◀ ▶ through the looks (or LUTs) ---------- */
+      const viewImg = h('img.colour-preview', { alt: 'Preview' }), viewName = h('b.grow'), viewNote = h('div.field-hint');
+      let viewList = [], viewAt = -1, showBefore = false;   // viewList: [{key, label, url()}]
+      const ba = ui.segmented({ options: [{ value: 'after', label: 'After' }, { value: 'before', label: 'Before' }], value: 'after', onChange: x => { showBefore = x === 'before'; drawView(); } });
+      const step = d => { if (!viewList.length) return; viewAt = (viewAt + d + viewList.length) % viewList.length; viewList[viewAt].pick(); };
+      const viewer = h('div.colour-viewer', { tabIndex: 0, onkeydown: e => { if (e.key === 'ArrowRight') { step(1); e.preventDefault(); } if (e.key === 'ArrowLeft') { step(-1); e.preventDefault(); } } },
+        viewImg, h('div.row', ui.button('', { small: true, kind: 'ghost', icon: 'chevron-left', title: 'Previous (←)', onClick: () => step(-1) }), viewName, ba, ui.button('', { small: true, kind: 'ghost', icon: 'chevron-right', title: 'Next (→)', onClick: () => step(1) })), viewNote);
+      function drawView() {
+        const it = viewList[viewAt];
+        if (!frame) { viewImg.removeAttribute('src'); viewName.textContent = ''; viewNote.textContent = US.ctx.sequence ? 'Park the playhead on a shot – the preview appears by itself.' : 'Open a sequence in the Timeline first.'; return; }
+        viewImg.src = showBefore || !it ? frame.base.url : (it.url() || frame.base.url);
+        viewName.textContent = it ? `${it.label}${showBefore ? ' – before' : ''}` : 'Your shot';
+        viewNote.textContent = `The frame at ${US.fmtDur(frame.t, true)} in “${(US.ctx.sequence && US.ctx.sequence.name) || ''}”. ← → step through; click a picture to choose it.`;
+      }
+      // the shots in the sequence, to jump between (frames taken quietly, one at a time, while nothing else is running)
+      const strip = h('div.colour-strip');
+      let stripSeq = '', stripClips = [], stripBusy = false;
+      async function drawStrip() {
+        const s = US.ctx.sequence; if (!s) { US.clear(strip); return; }
+        if (stripSeq !== s.id) { stripSeq = s.id; stripClips = []; try { stripClips = (await US.host.call('colourClips', { seqId: s.id, which: 'all' })).slice(0, 60); } catch (e) { stripClips = []; } }
+        US.clear(strip);
+        for (const c of stripClips) {
+          const k = `${s.id}|${c.start.toFixed(2)}`, f = shotFrames.get(k);
+          strip.appendChild(h('button.colour-shot' + (frame && frame.t >= c.start && frame.t < c.end ? '.on' : ''), { title: c.name, onclick: async () => {
+            const mid = c.start + (c.end - c.start) / 2;
+            try { await US.host.call('setPlayhead', { seqId: s.id, seconds: mid }); } catch (e) { /* ignore */ }
+            if (f) { frame = f; onFrame(); }
+          } }, f ? h('img', { src: f.base.url, alt: c.name }) : h('span', c.name)));
+        }
+      }
+      async function fillStrip() {
+        const s = US.ctx.sequence;
+        if (stripBusy || !visible || US.jobs.current || !s || s.id !== stripSeq) return;
+        const c = stripClips.find(x => !shotFrames.has(`${s.id}|${x.start.toFixed(2)}`)); if (!c) return;
+        stripBusy = true;
+        try { shotFrames.set(`${s.id}|${c.start.toFixed(2)}`, await grabFrame(s.id, c.start + (c.end - c.start) / 2)); drawStrip(); } catch (e) { shotFrames.set(`${s.id}|${c.start.toFixed(2)}`, null); } finally { stripBusy = false; }
+      }
+
       /* Looks */
       let groups = null, chosen = null;
       const grid = h('div.colour-grid'), filter = ui.input({ placeholder: 'Filter looks (e.g. Fuji, blue, gold)…', onInput: () => drawGrid() });
@@ -478,17 +626,38 @@
       const camera = ui.select({ options: [{ value: 'Universal', label: 'Universal' }], value: US.settings.get('colour.slCamera', 'Universal'), onChange: x => { US.settings.set('colour.slCamera', x); drawGrid(); } });
       const camField = ui.field('Camera', camera, 'SpeedLooks come tuned for each camera; Universal suits most footage.');
       const intensity = ui.slider({ label: 'Strength', min: 10, max: 100, step: 5, value: US.settings.get('colour.intensity', 100), fmt: x => x + '%', onChange: x => US.settings.set('colour.intensity', x) });
+      const prepNote = h('div');
       function currentLooks() {
         if (!groups) return [];
         const f = family.get();
         return f === 'speed' ? (groups.speed[camera.get()] || []) : groups[f] || [];
       }
+      const lookUrl = l => {
+        if (!frame) return '';
+        const k = frame.key + '|' + l.name; if (thumbs.has(k)) return thumbs.get(k);
+        const t = lookTable(l.name); if (!t) return '';
+        const url = rgbaToUrl(applyLut(t, frame.base.data, 4), PW, PH); thumbs.set(k, url); return url;
+      };
+      // thumbnails are made a few at a time so the panel never stalls
+      let fillTimer = null;
+      function fillThumbs(imgs) { clearTimeout(fillTimer); let i = 0; const next = () => { const t0 = performance.now(); while (i < imgs.length && performance.now() - t0 < 25) { const [img, fn] = imgs[i++]; const u = fn(); if (u) img.src = u; } if (i < imgs.length) fillTimer = setTimeout(next, 0); }; next(); }
       function drawGrid() {
         US.clear(grid);
         const q = filter.value.trim().toLowerCase(), list = currentLooks().filter(l => !q || l.label.toLowerCase().includes(q));
-        if (preview) grid.appendChild(thumb('', 'Original', preview.base.url, false, () => {}));
-        for (const l of list) grid.appendChild(thumb(l.name, l.label, thumbs.get(l.name), chosen === l.name, () => { chosen = l.name; drawGrid(); applyLook.setEnabled(true); }));
-        if (!preview) grid.appendChild(ui.empty({ icon: 'palette', title: 'No previews yet', text: 'Park the playhead on a shot and press “Preview on this frame”.' }));
+        const missing = list.filter(l => !lookTable(l.name)).length;
+        US.clear(prepNote);
+        if (groups && missing) prepNote.appendChild(ui.note(h('div', h('div', `${missing === list.length ? 'These' : missing} looks need getting ready once (about ${Math.max(5, Math.round(missing * 0.8))} s). Premiere briefly shows a hidden preview sequence while it does; after that every preview appears instantly, on any shot.`),
+          h('div.row', ui.actionButton(`Get ${US.plural(missing, 'look')} ready`, () => US.jobs.run({ title: 'Getting look previews ready', tool: 'colour' }, async job => { const n = await captureTables(job, list); drawGrid(); return { summary: `${US.plural(n, 'look')} ready` }; }), { icon: 'palette', block: false, small: true }))), 'info'));
+        const imgs = [];
+        viewList = list.map((l, i) => ({ key: l.name, label: l.label, url: () => lookUrl(l), pick: () => { chosen = l.name; viewAt = i; applyLook.setEnabled(true); drawGrid(); } }));
+        viewAt = Math.max(-1, list.findIndex(l => l.name === chosen));
+        for (const l of list) {
+          const b = thumb(l.name, l.label, '', chosen === l.name, () => viewList[list.indexOf(l)].pick());
+          imgs.push([b.querySelector('img'), () => lookUrl(l)]); grid.appendChild(b);
+        }
+        if (!list.length && groups) grid.appendChild(ui.empty({ icon: 'palette', title: 'No looks here', text: 'Try another family or clear the filter.' }));
+        if (tab === 'looks') drawView();
+        fillThumbs(imgs);
       }
       async function loadGroups() {
         if (groups) return groups;
@@ -496,22 +665,6 @@
         camera.setOptions(speedCameras(groups).map(c => ({ value: c, label: c })), US.settings.get('colour.slCamera', 'Universal'));
         return groups;
       }
-      const previewBtn = ui.actionButton('Preview on this frame', () => US.jobs.run({ title: 'Previewing looks', tool: 'colour' }, async job => {
-        await ensurePreview(job); await loadGroups();
-        const todo = currentLooks().filter(l => !thumbs.has(l.name));
-        drawGrid();
-        let failed = 0;
-        try {
-          for (let i = 0; i < todo.length; i++) {
-            job.check(); job.set({ who: 'premiere' }).progress(i / todo.length, `Rendering look ${i + 1} of ${todo.length} · ${todo[i].label}`);
-            try { thumbs.set(todo[i].name, await renderPreview({ preset: todo[i].name })); } catch (e) { failed++; US.log('info', `Look “${todo[i].name}” couldn’t be previewed`, US.errors.explain(e).detail, 'colour'); }
-            if (i % 4 === 3) drawGrid();
-          }
-        } finally { await backToUser(); }
-        drawGrid();
-        if (failed && failed === todo.length) throw new US.UserError('RENDER_FAILED', { title: 'Premiere couldn’t render the look previews.', action: 'Try again. If it keeps happening, open the activity log (☰) and send the details.' });
-        return { summary: `${currentLooks().length - failed} looks previewed` + (failed ? ` (${failed} couldn’t be)` : '') };
-      }), { icon: 'palette' });
       const applyLook = ui.actionButton('Apply this look', () => US.jobs.run({ title: 'Applying a look', tool: 'colour' }, async job => {
         const { s, clips } = await resolveClips();
         job.set({ who: 'premiere' }).progress(0.3, `Applying “${chosen}” to ${US.plural(clips.length, 'clip')}`);
@@ -520,31 +673,33 @@
         return { summary: `“${chosen}” on ${US.plural(clips.length, 'clip')}` };
       }));
       applyLook.setEnabled(false);
-      panes.looks.append(ui.card(family, camField, h('div.row', h('div.grow', previewBtn)), filter, grid, intensity, applyLook,
-        h('div.field-hint', 'Each look is added as its own Lumetri effect, so you can switch it off or delete it in Effect Controls.')));
+      panes.looks.append(ui.card(family, camField, prepNote, filter, grid, intensity, applyLook,
+        h('div.field-hint', 'Each look is added as its own Lumetri effect, so you can switch it off or delete it in Effect Controls. Previews show the look’s colour; a look that also blurs, sharpens or vignettes does that only when applied.')));
       camField.classList.toggle('hidden', family.get() !== 'speed');
-      drawGrid();
 
       /* LUTs */
       let luts = [], chosenLut = null;
       const lutGrid = h('div.colour-grid'), lutNote = h('div.field-hint');
       const lutStrength = ui.slider({ label: 'Strength', min: 10, max: 100, step: 5, value: 100, fmt: x => x + '%' });
-      const lutUrls = new Map();
+      const lutUrls = new Map(), lutCache = new Map();
       function lutPreview(l) {
-        if (!preview) return '';
-        const k = preview.frameKey + '|' + l.file; if (lutUrls.has(k)) return lutUrls.get(k);
+        if (!frame) return '';
+        const k = frame.key + '|' + l.file; if (lutUrls.has(k)) return lutUrls.get(k);
         let url = '';
-        try { const lut = parseCube(fs.readFileSync(l.file, 'utf8')); if (lut) url = rgbaToUrl(applyLut(lut, preview.base.data, 4), PW, PH); } catch (e) { /* unreadable */ }
+        try { if (!lutCache.has(l.file)) lutCache.set(l.file, parseCube(fs.readFileSync(l.file, 'utf8'))); const lut = lutCache.get(l.file); if (lut) url = rgbaToUrl(applyLut(lut, frame.base.data, 4), PW, PH); } catch (e) { /* unreadable */ }
         lutUrls.set(k, url); return url;
       }
       function drawLuts() {
         luts = listLuts(); US.clear(lutGrid);
-        if (preview) lutGrid.appendChild(thumb('', 'Original', preview.base.url, false, () => {}));
-        for (const l of luts) lutGrid.appendChild(thumb(l.file, l.name, lutPreview(l), chosenLut === l.file, () => { chosenLut = l.file; drawLuts(); applyLut_.setEnabled(true); }));
+        const imgs = [];
+        viewList = luts.map((l, i) => ({ key: l.file, label: l.name, url: () => lutPreview(l), pick: () => { chosenLut = l.file; viewAt = i; applyLut_.setEnabled(true); drawLuts(); } }));
+        viewAt = Math.max(-1, luts.findIndex(l => l.file === chosenLut));
+        for (const l of luts) { const b = thumb(l.file, l.name, '', chosenLut === l.file, () => viewList[luts.indexOf(l)].pick()); imgs.push([b.querySelector('img'), () => lutPreview(l)]); lutGrid.appendChild(b); }
         if (!luts.length) lutGrid.appendChild(ui.empty({ icon: 'palette', title: 'No LUT files found', text: 'Add a .cube file with the button above. Ultra Studio also lists LUTs in Adobe’s LUT folders.' }));
-        lutNote.textContent = preview ? 'Previews are made by Ultra Studio from each LUT file on the frame under your playhead.' : 'Press “Preview on this frame” to see each LUT on your shot.';
+        lutNote.textContent = 'Previews are made by Ultra Studio from each LUT file, on the frame under your playhead.';
+        if (tab === 'luts') drawView();
+        fillThumbs(imgs);
       }
-      const lutFrameBtn = ui.actionButton('Preview on this frame', () => US.jobs.run({ title: 'Previewing LUTs', tool: 'colour' }, async job => { try { await ensurePreview(job); } finally { await backToUser(); } drawLuts(); return { summary: `${luts.length} LUTs previewed` }; }), { icon: 'palette' });
       const addLut = ui.button('Add a LUT file…', { small: true, icon: 'plus', onClick: () => {
         const r = window.cep && window.cep.fs ? window.cep.fs.showOpenDialogEx(true, false, 'Choose LUT files', '', ['cube']) : null;
         const files = ((r && r.data) || []).map(US.normPath); if (!files.length) return;
@@ -566,26 +721,22 @@
         return { summary: `“${path.basename(chosenLut, '.cube')}” on ${US.plural(clips.length, 'clip')}` };
       }));
       applyLut_.setEnabled(false);
-      panes.luts.append(ui.card(h('div.row', h('div.grow', lutFrameBtn), addLut), lutNote, lutGrid, lutStrength, applyLut_,
-        h('div.field-hint', 'The LUT goes into Ultra Studio’s Lumetri effect (Creative › Look), so you can change its strength or switch it off there. For log footage, the Log tab is usually better than a conversion LUT.')));
-      drawLuts();
+      panes.luts.append(ui.card(h('div.row', h('div.grow', lutNote), addLut), lutGrid, lutStrength, applyLut_,
+        h('div.field-hint', 'The LUT goes into Ultra Studio’s Lumetri effect (Creative › Look), so you can change its strength or switch it off there. The first LUT you apply in a session takes about 20 seconds while Ultra Studio finds it in Lumetri’s Look menu. For log footage, the Log tab is usually better than a conversion LUT.')));
 
       /* Grade */
       let values = neutral();
-      const prevImg = h('img.colour-preview', { alt: 'Preview' });
-      const prevNote = h('div.field-hint', 'Move a slider to preview it on the frame under your playhead.');
+      const gradeUrl = () => (frame ? rgbaToUrl(quickGrade(frame.base.data, values, PW, PH), PW, PH) : '');
+      const gradeNote = h('div.field-hint', 'A quick preview made by Ultra Studio – the grade you apply is Lumetri’s own and can look slightly different. “Exact preview” asks Premiere.');
       const sliders = SLIDERS.map(sl => ui.slider({ label: sl.label, min: sl.min, max: sl.max, step: sl.step, value: sl.def, fmt: sl.fmt || (x => String(x)), onInput: x => { values[sl.key] = x; schedulePreview(); } }));
-      const setAll = vals => { values = Object.assign(neutral(), vals); SLIDERS.forEach((sl, i) => sliders[i].set(values[sl.key])); schedulePreview(); };
-      const presetRow = h('div.row', Object.entries(GRADES).map(([k, g]) => ui.button(g.label, { small: true, onClick: () => setAll(g.values) })));
-      let busy = false, again = false;
-      const schedulePreview = US.debounce(async () => {
-        if (US.jobs.current || !visible) return;     // never in the background (it would bring back the preview sequence)
-        if (busy) { again = true; return; }
-        busy = true;
-        try { await ensurePreview(); prevImg.src = await renderPreview({ values }); prevNote.textContent = 'Preview rendered by Premiere.'; }
-        catch (e) { prevNote.textContent = US.errors.explain(e).title; }
-        finally { await backToUser(); busy = false; if (again) { again = false; schedulePreview(); } }
-      }, 500);
+      const setAll = (vals, label) => { values = Object.assign(neutral(), vals); SLIDERS.forEach((sl, i) => sliders[i].set(values[sl.key])); gradeLabel = label || 'Your grade'; schedulePreview(); };
+      let gradeLabel = 'Your grade';
+      const presetRow = h('div.row', Object.entries(GRADES).map(([k, g]) => ui.button(g.label, { small: true, onClick: () => setAll(g.values, g.label) })));
+      const schedulePreview = US.debounce(() => { if (tab !== 'grade') return; viewList = [{ key: 'grade', label: gradeLabel, url: gradeUrl, pick: () => {} }]; viewAt = 0; drawView(); }, 60);
+      const exactBtn = ui.button('Exact preview', { small: true, kind: 'ghost', title: 'Premiere renders this grade on the frame (it briefly shows a hidden preview sequence)', onClick: () => US.jobs.run({ title: 'Exact preview', tool: 'colour' }, async job => {
+        try { await ensurePreview(job); const url = await renderPreview({ values }); viewList = [{ key: 'grade', label: `${gradeLabel} (exact, by Premiere)`, url: () => url, pick: () => {} }]; viewAt = 0; showBefore = false; ba.set('after'); drawView(); } finally { await backToUser(); }
+        return { summary: 'Exact preview rendered by Premiere' };
+      }) });
       const applyGrade = ui.actionButton('Apply grade', () => US.jobs.run({ title: 'Applying a grade', tool: 'colour' }, async job => {
         const { s, clips } = await resolveClips();
         job.set({ who: 'premiere' }).progress(0.3, `Grading ${US.plural(clips.length, 'clip')}`);
@@ -595,7 +746,7 @@
       const resetBtn = ui.button('Reset Ultra Studio’s grade on these clips', { kind: 'ghost', small: true, onClick: async () => {
         US.jobs.run({ title: 'Resetting the grade', tool: 'colour' }, async () => { const { s, clips } = await resolveClips(); const n = await resetOurs(s.id, clips); return { summary: n ? `Ultra Studio’s grade reset on ${US.plural(n, 'clip')}` : 'These clips have no Ultra Studio grade' }; });
       } });
-      panes.grade.append(ui.card(prevImg, prevNote), ui.card(h('div.card-title', 'Start from'), presetRow), ui.card(h('div.grid2', sliders)), applyGrade, h('div.row', resetBtn));
+      panes.grade.append(ui.card(h('div.row', h('div.grow', gradeNote), exactBtn)), ui.card(h('div.card-title', 'Start from'), presetRow), ui.card(h('div.grid2', sliders)), applyGrade, h('div.row', resetBtn));
 
       /* Match cameras */
       const matchList = h('div');
@@ -645,17 +796,38 @@
         h('div.field-hint', 'This is the same as right-click › Modify › Color in Premiere: it changes the clip everywhere it’s used in the project, and you can undo it here.')),
         checkLog, logList, ui.field('Camera profile', logSel), applyLog, logCompare);
 
-      function show(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); whichField.classList.toggle('hidden', t === 'match'); }
+      let tab = 'looks';
+      function show(t) {
+        tab = t; Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); whichField.classList.toggle('hidden', t === 'match');
+        const previews = ['looks', 'luts', 'grade'].includes(t); viewBox.classList.toggle('hidden', !previews);
+        if (t === 'looks') loadGroups().then(drawGrid).catch(() => drawGrid()); else if (t === 'luts') drawLuts(); else if (t === 'grade') schedulePreview();
+      }
+      const viewBox = h('div.card.colour-viewbox', viewer, strip);
+      /** A new frame: redraw what's showing. */
+      function onFrame() { if (tab === 'looks') drawGrid(); else if (tab === 'luts') drawLuts(); else if (tab === 'grade') schedulePreview(); drawStrip(); }
+      // watch the playhead while Colour is open: when it rests on a new frame for a moment, take that frame
+      let pendKey = '', pendAt = 0, grabbing = false;
+      setInterval(async () => {
+        if (!visible || grabbing || US.jobs.current || document.hidden) return;
+        await US.refreshContext();
+        const s = US.ctx.sequence; if (!s) { if (frame) { frame = null; onFrame(); } return; }
+        if (stripSeq !== s.id) drawStrip();
+        const t = s.playhead || 0, key = `${s.id}@${t.toFixed(2)}`;
+        if (frame && frame.key === key) { fillStrip(); return; }
+        if (key !== pendKey) { pendKey = key; pendAt = Date.now(); return; }
+        if (Date.now() - pendAt < 500) return;
+        grabbing = true;
+        try { frame = await grabFrame(s.id, t); onFrame(); } catch (e) { viewNote.textContent = US.errors.explain(e).title; } finally { grabbing = false; }
+      }, 700);
       function renderCtx() { seqLine.textContent = US.ctx.sequence ? `Sequence: ${US.ctx.sequence.name}` : 'Open a sequence in the Timeline first.'; }
       US.bus.on('context', renderCtx);
-      US.bus.on('colour-frame', () => { drawGrid(); drawLuts(); });
-      v.body.append(seqLine, tabs, whichField, ...Object.values(panes));
+      v.body.append(seqLine, tabs, viewBox, whichField, ...Object.values(panes));
       show('looks');
-      return { el: v.el, onShow() { visible = true; renderCtx(); }, onHide() { visible = false; cleanupPreview(); }, show };
+      return { el: v.el, onShow() { visible = true; renderCtx(); show(tab); }, onHide() { visible = false; cleanupPreview(); }, show };
     }
   });
 
-  US.colour = { stats, difference, matchLoop, rgbToLab, parseCube, applyLut, pixelDistance, pickLookIndex, groupLooks, speedCameras, guessLog, looksFlat, lutFolders, KNOBS, GRADES,
+  US.colour = { tablePixels, tableToLut, quickGrade, lookTable: n => lookTable(n), TN, TW, TH, stats, difference, matchLoop, rgbToLab, parseCube, applyLut, pixelDistance, pickLookIndex, groupLooks, speedCameras, guessLog, looksFlat, lutFolders, KNOBS, GRADES,
     // for the end-to-end tests
-    _ensurePreview: ensurePreview, _findLut: findLut, _readLookMenu: readLookMenu, _preview: () => preview, _backToUser: backToUser, _renderPreviewPixels: renderPreviewPixels, _toRGB: toRGB };
+    _captureTables: (job, looks) => captureTables(job, looks), _grabFrame: grabFrame, _tables: tables, _tablesDir: () => tablesDir(), _ensurePreview: ensurePreview, _findLut: findLut, _readLookMenu: readLookMenu, _preview: () => preview, _backToUser: backToUser, _renderPreviewPixels: renderPreviewPixels, _toRGB: toRGB };
 })();

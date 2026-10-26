@@ -683,6 +683,32 @@
    * st: settings (settingsFor / PRESETS) plus optional forced: [{clipId, mode:'in', start, end} | {clipId, mode:'out', t}]
    * and heroCount (number, or 'pct' for the top 10 %). Returns {selects, rejected, stats}. Pure and fast.
    */
+  /**
+   * A select's camera move in words and how smooth it is. samples: [{lx, ly, zm, k, shake}] (fast moments left out).
+   * lx < 0 is the picture moving left, i.e. the camera panning right; ly > 0 the picture moving down (tilting up).
+   * smooth 0–100: steady speed and direction, no wobble. cinematic: a pan, tilt, push-in or pull-out that's smooth.
+   * -> {label, smooth, cinematic, strength (0–1, how much a smooth move counts)}
+   */
+  const rankOf = s => (s.rank != null ? s.rank : s.score);
+  function cameraMove(move, samples) {
+    if (!samples.length) return { label: MOVE_LABEL[move] || 'Static', smooth: null, cinematic: false, strength: 0 };
+    const axis = move === 'pan' ? 'lx' : move === 'tilt' ? 'ly' : move === 'push-in' || move === 'pull-out' ? 'zm' : null;
+    let label = MOVE_LABEL[move] || 'Static';
+    if (move === 'pan') label = median(samples.map(x => x.lx)) < 0 ? 'Pan right' : 'Pan left';
+    if (move === 'tilt') label = median(samples.map(x => x.ly)) > 0 ? 'Tilt up' : 'Tilt down';
+    const steady = US.clamp(US.mean(samples.map(x => x.k)), 0, 1);
+    if (!axis) return { label, smooth: move === 'static' ? Math.round(steady * 100) : Math.round(steady * 50), cinematic: false, strength: 0 };
+    // even speed: how little the speed along the move varies (coefficient of variation), and it keeps one direction
+    // (median-based, so one odd measurement doesn't spoil a good move)
+    const v = samples.map(x => x[axis]), mid = median(v), abs = Math.abs(mid);
+    const spread = 1.4826 * median(v.map(x => Math.abs(x - mid)));
+    const even = abs > 1e-6 ? US.clamp(1 - spread / (abs * 1.5), 0, 1) : 0;
+    const oneWay = v.filter(x => Math.sign(x) === Math.sign(mid)).length / v.length;
+    const smooth = Math.round(100 * steady * (0.25 + 0.75 * even) * (oneWay >= 0.9 ? 1 : oneWay));
+    const cinematic = smooth >= 60 && samples.length >= 3;
+    return { label, smooth, cinematic, strength: cinematic ? US.clamp((smooth - 60) / 30, 0.35, 1) : 0 };
+  }
+
   function score(clips, st) {
     st = Object.assign({}, BASE, PRESETS.concert, st || {});
     const T = thresholds(st), forced = st.forced || [];
@@ -745,12 +771,13 @@
         let k0 = -1, k1 = -1;
         for (let i = 0; i < n; i++) if (sc[i].t >= seg.start - 0.01 && sc[i].t <= seg.end + 0.01) { if (k0 < 0) k0 = i; k1 = i; covered[i] = true; }
         if (k0 < 0) continue;
-        const q = [], fs = [], es = [], ks = [], shots = [], cxs = [], mids = [], pans = [], moves = [], energy = [];
+        const q = [], fs = [], es = [], ks = [], shots = [], cxs = [], mids = [], pans = [], moves = [], energy = [], mv = [];
         let faces = 0, faceChecks = 0, pumpBad = 0, flickBad = 0, colBad = 0, walkBad = 0, bored = 0;
         for (let i = k0; i <= k1; i++) {
           const x = sc[i], sm = S[i], g = at(i);
           q.push(seg.reveal ? revealQ(x) : x.score);
           fs.push(x.f); es.push(x.e); ks.push(x.k); pans.push(Math.abs(sm.lx)); shots.push(x.shot); moves.push(P.move[g] === 'fast' ? null : P.move[g]); energy.push(P.energy[g]);
+          if (!x.fast) mv.push({ lx: sm.lx || 0, ly: sm.ly || 0, zm: sm.zm || 0, k: x.k, shake: P.shake[g] });
           if (sm.fc != null && sm.fc >= 0) { faceChecks++; if (sm.fc > 0) faces++; }
           if (P.pump[g] > 0.08) pumpBad++; if (P.flicker[g] > 0.15) flickBad++; if (P.colShift[g] > 0.05) colBad++; if ((P.act[g] || 0) > 0.12) walkBad++; if (x.boring) bored++;
           if (sm.fc > 0 && sm.fx != null) cxs.push(sm.fx); else { cxs.push(sm.cx); mids.push(sm.mid == null ? 0.33 : sm.mid); }
@@ -760,6 +787,15 @@
         if (seg.reveal) segScore = Math.max(segScore, st.good);
         const shot = majority(shots) || 'unknown', move = majority(moves) || 'static';
         const af = US.mean(fs), ae = US.mean(es), ak = US.mean(ks), en = median(energy);
+        // the camera move in words (with its direction) and how smooth it is; smooth moves can count in their favour
+        const cam = cameraMove(move, mv);
+        // a reveal is named as such; a moving one (pull-back, crane…) counts as a smooth camera move, lights coming up doesn't
+        if (seg.reveal) Object.assign(cam, { label: `${seg.reveal} (reveal)` }, seg.reveal !== 'Dark to lit' ? { cinematic: true, strength: Math.max(cam.strength, 0.6) } : {});
+        // the ranking can go past 100 (most clean shots already score 100); the score shown stays 0–100
+        let rank = segScore;
+        if (st.movement && cam.cinematic) rank += (st.movement === 'moves' ? 16 : 9) * cam.strength;
+        else if (st.movement === 'moves' && move === 'static') rank -= 4;
+        segScore = Math.min(100, Math.max(segScore, rank));
         const issues = [];
         if (flickBad >= cnt * 0.3) issues.push('Flicker');
         if (pumpBad >= cnt * 0.3) issues.push('Exposure pumping');
@@ -770,7 +806,7 @@
         if (seg.reveal) reasons.push(`Reveal: ${seg.revealLabel}`);
         reasons.push(af > 0.9 ? 'sharp' : af > 0.6 ? 'mostly sharp' : 'a little soft');
         if (!seg.reveal) reasons.push(ae > 0.9 ? 'well exposed' : ae > 0.6 ? 'exposure OK' : 'exposure borderline');
-        reasons.push(ak > 0.9 ? (move === 'static' ? 'steady' : MOVE_LABEL[move].toLowerCase()) : ak > 0.6 ? 'slight shake' : 'shaky in places');
+        reasons.push(move === 'static' ? (ak > 0.9 ? 'steady' : ak > 0.6 ? 'slight shake' : 'shaky in places') : `${cam.label.toLowerCase()}${cam.smooth != null ? ` (${cam.smooth >= 80 ? 'very smooth' : cam.smooth >= 60 ? 'smooth' : cam.smooth >= 40 ? 'a little uneven' : 'uneven'})` : ''}`);
         if (shot !== 'unknown') reasons.push(shot === 'close' ? 'close-up' : shot === 'mid' ? 'mid shot' : 'wide shot');
         for (const iss of issues) reasons.push(iss.toLowerCase());
         const id = idOf(item);
@@ -780,8 +816,8 @@
         const sel = {
           key, clipId: id, clipName: item.name, path: item.path,
           start: +seg.start.toFixed(3), end: +seg.end.toFixed(3), dur: +(seg.end - seg.start).toFixed(3),
-          score: Math.round(segScore), shot, move, energy: +en.toFixed(3), faces: faceChecks ? faces / faceChecks >= 0.5 : false, issues, reasons,
-          flags: { reveal: seg.reveal || null, vertical: Math.abs(median(cxs) - 0.5) <= 0.1 && (!mids.length || median(mids) >= 0.45), slowmo: (item.fps || 0) >= 49, hero: false, forced: null, action: en >= 0.25 }
+          score: Math.round(segScore), rank: +rank.toFixed(2), shot, move, moveLabel: cam.label, smooth: cam.smooth, energy: +en.toFixed(3), faces: faceChecks ? faces / faceChecks >= 0.5 : false, issues, reasons,
+          flags: { reveal: seg.reveal || null, vertical: Math.abs(median(cxs) - 0.5) <= 0.1 && (!mids.length || median(mids) >= 0.45), slowmo: (item.fps || 0) >= 49, hero: false, forced: null, action: en >= 0.25, cinematic: cam.cinematic }
         };
         if (item.seq) sel.tl = +(item.seq.start + (seg.start - item.range[0]) / (item.seq.speed || 1)).toFixed(3);
         clipSelects.push(sel); selects.push(sel);
@@ -835,14 +871,14 @@
         for (let k = rejected.length - 1; k >= 0; k--) { const r = rejected[k]; if (r.clipId === f.clipId && Math.abs(r.start - f.start) < 0.3) rejected.splice(k, 1); }
         if (!selects.some(s => s.clipId === f.clipId && Math.abs(s.start - f.start) < 0.3)) {
           const c = clips.find(x => idOf(x.item) === f.clipId);
-          selects.push({ key: `${f.clipId}@${(+f.start).toFixed(1)}`, clipId: f.clipId, clipName: c ? c.item.name : '', path: c ? c.item.path : '', start: +f.start, end: +f.end, dur: f.end - f.start, score: Math.max(st.ok, f.score || st.ok), shot: 'unknown', move: 'static', energy: 0, faces: false, issues: [], reasons: ['kept by you'], flags: { reveal: null, vertical: false, slowmo: c ? (c.item.fps || 0) >= 49 : false, hero: false, forced: 'in', action: false } });
+          selects.push({ key: `${f.clipId}@${(+f.start).toFixed(1)}`, clipId: f.clipId, clipName: c ? c.item.name : '', path: c ? c.item.path : '', start: +f.start, end: +f.end, dur: f.end - f.start, score: Math.max(st.ok, f.score || st.ok), shot: 'unknown', move: 'static', moveLabel: 'Static', smooth: null, energy: 0, faces: false, issues: [], reasons: ['kept by you'], flags: { reveal: null, vertical: false, slowmo: c ? (c.item.fps || 0) >= 49 : false, hero: false, forced: 'in', action: false, cinematic: false } });
         }
       }
     }
 
     for (const s of selects) s.tier = s.score >= st.best ? 'BEST' : s.score >= st.good ? 'GOOD' : 'OK';
     const heroN = st.heroCount === 'pct' ? Math.max(1, Math.round(selects.length * 0.1)) : (st.heroCount || 5);
-    selects.filter(s => s.tier !== 'OK').sort((a, b) => b.score - a.score || b.dur - a.dur).slice(0, heroN).forEach(s => { s.flags.hero = true; });
+    selects.filter(s => s.tier !== 'OK').sort((a, b) => rankOf(b) - rankOf(a) || b.dur - a.dur).slice(0, heroN).forEach(s => { s.flags.hero = true; });
     const footage = US.sum(clips.map(c => c.item.range ? c.item.range[1] - c.item.range[0] : (c.data && c.data.range ? c.data.range[1] - c.data.range[0] : (c.data && c.data.duration) || c.item.duration || 0)));
     const count = fn => selects.filter(fn).length;
     return {
@@ -859,12 +895,13 @@
   function order(selects, how, { heroFirst = false } = {}) {
     const a = selects.slice();
     const nat = (x, y) => x.clipName.localeCompare(y.clipName, undefined, { numeric: true }) || x.start - y.start;
-    const byScore = (x, y) => (y.score - x.score) || nat(x, y);
+    const byScore = (x, y) => (rankOf(y) - rankOf(x)) || nat(x, y);
     if (how === 'time') a.sort(nat);
     else if (how === 'sequence') a.sort((x, y) => (x.tl != null && y.tl != null ? x.tl - y.tl : nat(x, y)));
     else if (how === 'shot') a.sort((x, y) => (SHOT_ORDER[x.shot] - SHOT_ORDER[y.shot]) || byScore(x, y));
     else if (how === 'move') a.sort((x, y) => (MOVES.indexOf(x.move) - MOVES.indexOf(y.move)) || byScore(x, y));
     else if (how === 'action') a.sort((x, y) => (y.energy - x.energy) || byScore(x, y));
+    else if (how === 'smooth') a.sort((x, y) => (+!!y.flags.cinematic - +!!x.flags.cinematic) || ((y.flags.cinematic ? y.smooth || 0 : 0) - (x.flags.cinematic ? x.smooth || 0 : 0)) || byScore(x, y));
     else a.sort(byScore);
     if (heroFirst) { const h = a.filter(s => s.flags.hero), r = a.filter(s => !s.flags.hero); return h.concat(r); }
     return a;
@@ -878,7 +915,7 @@
     grade: { name: 'By grade', cats: [['BEST', 5, s => s.tier === 'BEST'], ['GOOD', 15, s => s.tier === 'GOOD'], ['OK', 9, s => s.tier === 'OK']] },
     shot: { name: 'By shot size', cats: [['Close-ups', 6, s => s.shot === 'close'], ['Mid shots', 7, s => s.shot === 'mid'], ['Wide shots', 4, s => s.shot === 'wide']] },
     move: { name: 'By camera move', cats: [['Static', 12, s => s.move === 'static'], ['Pans', 2, s => s.move === 'pan'], ['Tilts', 10, s => s.move === 'tilt'], ['Push-ins', 3, s => s.move === 'push-in'], ['Pull-outs', 0, s => s.move === 'pull-out'], ['Handheld', 14, s => s.move === 'handheld']] },
-    special: { name: 'Special', cats: [['Hero shots', 11, s => s.flags.hero], ['Reveals', 8, s => !!s.flags.reveal], ['Good for 9-16', 13, s => s.flags.vertical], ['Slow-mo', 1, s => s.flags.slowmo], ['Faces', 6, s => s.faces], ['Action', 7, s => s.flags.action]] }
+    special: { name: 'Special', cats: [['Smooth camera moves', 2, s => !!s.flags.cinematic], ['Hero shots', 11, s => s.flags.hero], ['Reveals', 8, s => !!s.flags.reveal], ['Good for 9-16', 13, s => s.flags.vertical], ['Slow-mo', 1, s => s.flags.slowmo], ['Faces', 6, s => s.faces], ['Action', 7, s => s.flags.action]] }
   };
   function categories(selects, groups, { heroFirst = false } = {}) {
     const out = [];
@@ -895,5 +932,5 @@
   /** Quick check used by Home › Check my setup. */
   async function probe(item) { const s = await pickSource(item); return s; }
 
-  US.vision = { VERSION, PRESETS, FOOTAGE, PICKY, CATEGORIES, MOVE_LABEL, settingsFor, probe, pickSource, analysisCopyPath, analysisPreset, makeAnalysisCopies, analyseClip, analyseMany, score, order, categories, fileUrl, _internal: { sharpness, exposure, shift, pyramid, normalise, scaleBetween, sampleScores, reveals, sigDistance, isDuplicate, prepare, thresholds } };
+  US.vision = { cameraMove, VERSION, PRESETS, FOOTAGE, PICKY, CATEGORIES, MOVE_LABEL, settingsFor, probe, pickSource, analysisCopyPath, analysisPreset, makeAnalysisCopies, analyseClip, analyseMany, score, order, categories, fileUrl, _internal: { sharpness, exposure, shift, pyramid, normalise, scaleBetween, sampleScores, reveals, sigDistance, isDuplicate, prepare, thresholds } };
 })();

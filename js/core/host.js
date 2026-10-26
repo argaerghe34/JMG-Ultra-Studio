@@ -121,5 +121,21 @@
     return files.length;
   }
 
-  US.host = { call, rawEval, loadScripts, extensionDir, lastMs: 0 };
+  /**
+   * Put the Source Monitor on a clip at a time (seconds from the start of its media) and optionally play from there.
+   * Premiere loads a clip into the monitor in the background, and a jump made before it has loaded is ignored (it then
+   * plays from wherever the clip was) – so the panel checks where the monitor landed and jumps again until it's there.
+   */
+  async function cue(id, seconds, { play = false } = {}) {
+    const there = r => r && (Math.abs(r.position - seconds) < 0.12 || (r.timing && Math.abs(r.position - (r.timing.start + seconds)) < 0.12));
+    let r = null;
+    for (let i = 0; i < 16 && !there(r); i++) {
+      if (i) await new Promise(res => setTimeout(res, i < 4 ? 80 : 160));
+      r = await call('storyCue', { id, seconds, play: false, open: i === 0 });
+    }
+    if (play) r = await call('storyCue', { id, seconds, play: true, open: false });
+    return Object.assign({ landed: there(r) }, r);
+  }
+
+  US.host = { call, rawEval, loadScripts, extensionDir, cue, lastMs: 0 };
 })();

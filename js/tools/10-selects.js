@@ -19,7 +19,7 @@
   const SHOT_NAME = { close: 'Close-up', mid: 'Mid shot', wide: 'Wide shot', unknown: '' };
 
   /* ---------- settings ---------- */
-  const DEFAULTS = { footage: 'any', picky: 'normal', overrides: {}, heroCount: 5, autoCopies: true, attachProxies: false, allTracks: false, anyFirst: true };
+  const DEFAULTS = { footage: 'any', picky: 'normal', movement: 'smooth', overrides: {}, heroCount: 5, autoCopies: true, attachProxies: false, allTracks: false, anyFirst: true };
   function loadSettings() {
     const saved = US.settings.get('selects.v2', null);
     // 1.2: Selects is genre-independent by default – a footage type chosen before then is replaced once by Any footage
@@ -45,7 +45,7 @@
   const changed = () => listeners.forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
   const saveSettings = () => US.settings.set('selects.v2', state.settings);
   /** The numbers the scorer uses: footage type at a pickiness, plus any fine-tuning. */
-  const effective = () => Object.assign(V().settingsFor(state.settings.footage, state.settings.picky), state.settings.overrides, { heroCount: state.settings.heroCount });
+  const effective = () => Object.assign(V().settingsFor(state.settings.footage, state.settings.picky), state.settings.overrides, { heroCount: state.settings.heroCount, movement: state.settings.movement || '' });
 
   function rescore() {
     if (!state.clips.length) { state.result = null; return; }
@@ -204,7 +204,7 @@
     const rankOf = new Map(V().order(chosen, 'score', { heroFirst }).map((s, i) => [s.key, i + 1]));
     const labelFor = (s, fallback) => (o.markBest && s.flags.hero ? HERO.label : fallback);
     const nameFor = (s, rank) => [String(rank).padStart(3, '0'), o.markBest && s.flags.hero ? '★' : null, tierOf(s), shortShot(s) || null, String(s.score)].filter(Boolean).join('_');
-    const markName = s => `${o.markBest && s.flags.hero ? '★ ' : ''}${tierOf(s)} ${s.score}`;
+    const markName = s => `${o.markBest && s.flags.hero ? '★ ' : ''}${tierOf(s)} ${s.score}${s.moveLabel ? ` · ${s.moveLabel}` : ''}`;
     const markColor = s => (o.markBest && s.flags.hero ? HERO.marker : TIER[tierOf(s)].marker);
 
     /** subclips for a list into a bin; returns Map key -> subclip id */
@@ -428,7 +428,7 @@
   US.tools.register({
     id: 'selects', name: 'Selects', short: 'Selects', icon: 'selects', group: 'find', order: 10,
     blurb: 'Grades any footage BEST / GOOD / OK; sorts it by shot, move and more.',
-    hostFns: ['selectsPlaceWhole', 'selectsSequenceUses', 'selectsAttachProxy', 'createSubclips', 'newSequence', 'addClipMarkers', 'removeClipMarkers', 'addSequenceMarkers', 'removeSequenceMarkers', 'setLabels', 'showInSource', 'setPlayhead', 'itemsInfo', 'encoderPresets'],
+    hostFns: ['selectsPlaceWhole', 'selectsSequenceUses', 'selectsAttachProxy', 'createSubclips', 'newSequence', 'addClipMarkers', 'removeClipMarkers', 'addSequenceMarkers', 'removeSequenceMarkers', 'setLabels', 'showInSource', 'storyCue', 'setPlayhead', 'itemsInfo', 'encoderPresets'],
     create() {
       const help = h('div',
         h('p', h('b', 'What it looks at. '), 'Selects plays each clip quickly on this computer (nothing is uploaded) and looks at about three frames a second. For each frame it measures:'),
@@ -458,10 +458,11 @@
       const PICK = ['loose', 'normal', 'strict'];
       const pickySeg = ui.segmented({ options: PICK.map(k => ({ value: k, label: V().PICKY[k].label, title: V().PICKY[k].desc })), value: S.picky, onChange: k => { S.picky = k; S.overrides = {}; syncSliders(); touch(); } });
       const pickyLine = h('div.field-hint');
+      const moveSeg = ui.segmented({ options: [{ value: '', label: 'Doesn’t matter', title: 'Technical quality only' }, { value: 'smooth', label: 'Smooth moves count', title: 'A smooth camera move ranks a select higher' }, { value: 'moves', label: 'Moves first', title: 'Smooth moves first; static shots a little lower' }], value: S.movement || '', onChange: x => { S.movement = x; touch(); } });
       /** live counts on the three choices, like Story: "Everything useful (42)" */
       const countPicky = US.debounce(() => {
         if (!state.clips.length) { pickySeg.querySelectorAll('.seg').forEach((b, i) => { b.textContent = V().PICKY[PICK[i]].label; }); pickyLine.textContent = V().PICKY[S.picky].desc; return; }
-        const n = PICK.map(k => k === S.picky && state.result ? state.result.selects.length : V().score(state.clips, Object.assign(V().settingsFor(S.footage, k), { heroCount: S.heroCount, forced: state.forced })).selects.length);
+        const n = PICK.map(k => k === S.picky && state.result ? state.result.selects.length : V().score(state.clips, Object.assign(V().settingsFor(S.footage, k), { heroCount: S.heroCount, movement: S.movement || '', forced: state.forced })).selects.length);
         pickySeg.querySelectorAll('.seg').forEach((b, i) => { b.textContent = `${V().PICKY[PICK[i]].label} (${n[i]})`; });
         const custom = Object.keys(S.overrides).length;
         pickyLine.textContent = `${custom ? 'Custom (fine-tuned)' : V().PICKY[S.picky].label}: ${US.plural(state.result ? state.result.selects.length : 0, 'select')} – ${V().PICKY[S.picky].desc}`;
@@ -506,6 +507,7 @@
       v.body.append(
         ui.card(src.el, allTracks),
         ui.card(h('div.card-title', 'What counts as usable'), typeDesc, ui.field('How picky', pickySeg), pickyLine,
+          ui.field('Camera movement', moveSeg, 'Smooth pans, tilts, push-ins and pull-outs make videos feel alive. Wobbly or jerky moves never get a bonus.'),
           ui.section('Kind of footage (optional)', [h('div.field-hint', 'Any footage suits B-roll of every kind. Choose a kind only if you want its style to count too – Interviews want a steady face, Sports wants movement.'), footSel], { open: S.footage !== 'any', hint: V().FOOTAGE[S.footage].label }),
           fine),
         ui.card(copies, attach),
@@ -518,7 +520,7 @@
       const outOpts = Object.assign({ sequence: true, order: 'score', perTier: false, subclips: false, markers: false, seqMarkers: false, labels: false, tiers: 'all', markBest: true, byTypeOn: false, groups: ['grade', 'shot', 'move', 'special'], catSequences: false, stills: false }, US.settings.get('selects.output', {}));
       const saveOut = () => US.settings.set('selects.output', outOpts);
       const FILTERS = [
-        ['all', 'All selects', () => true], ['BEST', 'BEST', s => s.tier === 'BEST'], ['GOOD', 'GOOD', s => s.tier === 'GOOD'], ['OK', 'OK', s => s.tier === 'OK'],
+        ['all', 'All selects', () => true], ['cinematic', 'Smooth camera moves', s => !!s.flags.cinematic], ['BEST', 'BEST', s => s.tier === 'BEST'], ['GOOD', 'GOOD', s => s.tier === 'GOOD'], ['OK', 'OK', s => s.tier === 'OK'],
         ['hero', 'The best (★)', s => s.flags.hero], ['reveal', 'Reveals', s => !!s.flags.reveal], ['vertical', 'Good for 9:16', s => s.flags.vertical], ['slowmo', 'Slow-mo candidates', s => s.flags.slowmo],
         ['faces', 'With faces', s => s.faces], ['action', 'Action', s => s.flags.action],
         ['close', 'Close-ups', s => s.shot === 'close'], ['mid', 'Mid shots', s => s.shot === 'mid'], ['wide', 'Wide shots', s => s.shot === 'wide'],
@@ -554,7 +556,8 @@
         if (!isRej) {
           if (s.flags.hero) pills.push(ui.pill('★ Best', HERO.color));
           if (s.flags.reveal) pills.push(ui.pill('Reveal', '#b18cff'));
-          if (s.move && s.move !== 'static') pills.push(ui.pill(V().MOVE_LABEL[s.move] || s.move, '#57a6ff'));
+          // the camera move on every select, with how smooth it is
+          if (s.moveLabel || s.move) pills.push(ui.pill(`${s.moveLabel || V().MOVE_LABEL[s.move] || s.move}${s.move !== 'static' && s.smooth != null ? ` · ${s.smooth >= 80 ? 'very smooth' : s.smooth >= 60 ? 'smooth' : s.smooth >= 40 ? 'a bit uneven' : 'uneven'}` : ''}`, s.flags.cinematic ? '#57a6ff' : 'var(--text-2)'));
           if (s.flags.vertical) pills.push(ui.pill('9:16', '#3ecf8e'));
           if (s.flags.slowmo) pills.push(ui.pill('Slow-mo', '#57a6ff'));
           if (s.flags.forced) pills.push(ui.pill('Kept by you'));
@@ -564,7 +567,7 @@
           ? ui.button('Keep', { small: true, kind: 'ghost', title: 'Keep this moment anyway', onClick: e => { e.stopPropagation(); state.forced = state.forced.filter(f => !(f.clipId === s.clipId && f.mode === 'out' && f.t >= s.start && f.t <= s.end)); state.forced.push({ clipId: s.clipId, mode: 'in', start: s.start, end: s.end }); rescore(); changed(); } })
           : ui.button('', { small: true, kind: 'ghost', icon: 'close', title: 'Leave this one out', onClick: e => { e.stopPropagation(); state.forced = state.forced.filter(f => !(f.clipId === s.clipId && f.mode === 'in' && Math.abs(f.start - s.start) < 0.3)); state.forced.push({ clipId: s.clipId, mode: 'out', t: (s.start + s.end) / 2 }); rescore(); changed(); } });
         const where = s.tl != null ? ` · at ${US.fmtDur(s.tl)} in the sequence` : '';
-        const goTo = () => (s.tl != null && state.seq ? US.host.call('setPlayhead', { seqId: state.seq.id, seconds: s.tl }) : US.host.call('showInSource', { id: s.clipId, seconds: s.start })).catch(e => ui.showError(e));
+        const goTo = () => (s.tl != null && state.seq ? US.host.call('setPlayhead', { seqId: state.seq.id, seconds: s.tl }) : US.host.cue(s.clipId, s.start)).catch(e => ui.showError(e));
         return h('div.list-row.clickable', { title: s.tl != null ? 'Go to this moment in the sequence' : 'Show in the Source Monitor', onclick: goTo },
           h('span.swatch', { style: { background: color } }),
           h('div.list-main',
@@ -593,7 +596,7 @@
           r.selects.length ? chart(r.selects) : null,
           h('div.legend', h('span', h('i', { style: { background: TIER.BEST.color } }), 'BEST'), h('span', h('i', { style: { background: TIER.GOOD.color } }), 'GOOD'), h('span', h('i', { style: { background: TIER.OK.color } }), 'OK'), h('span', h('i', { style: { background: TIER.REVEAL.color } }), 'Reveal'), outOpts.markBest ? h('span', h('i', { style: { background: HERO.color } }), '★ Best') : null, st.dupes ? h('span', `${US.plural(st.dupes, 'duplicate')} dropped`) : null),
           failedNote());
-        const sortSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size (close-ups first)' }, { value: 'move', label: 'Camera move' }, { value: 'action', label: 'Most action first' }]), value: sortBy, onChange: x => { sortBy = x; limit = 120; render(); } });
+        const sortSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size (close-ups first)' }, { value: 'move', label: 'Camera move' }, { value: 'smooth', label: 'Smoothest moves first' }, { value: 'action', label: 'Most action first' }]), value: sortBy, onChange: x => { sortBy = x; limit = 120; render(); } });
         const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, r.selects.filter(fn).length]));
         const filt = ui.select({
           options: FILTERS.filter(([k]) => k === 'all' || counts[k]).map(([k, label]) => ({ value: k, label: `${label} (${counts[k]})` })).concat([{ value: 'rejected', label: `Left out (${r.rejected.length})` }]),
@@ -614,7 +617,7 @@
       /* outputs */
       function outputCard(r) {
         const tog = (key, label, hint, after) => ui.toggle({ label, hint, value: outOpts[key], onChange: x => { outOpts[key] = x; saveOut(); if (after) after(x); } });
-        const orderSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size' }, { value: 'move', label: 'Camera move' }, { value: 'action', label: 'Most action first' }]), value: outOpts.order, onChange: x => { outOpts.order = x; saveOut(); } });
+        const orderSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size' }, { value: 'move', label: 'Camera move' }, { value: 'smooth', label: 'Smoothest moves first' }, { value: 'action', label: 'Most action first' }]), value: outOpts.order, onChange: x => { outOpts.order = x; saveOut(); } });
         const tiersSeg = ui.segmented({ options: [{ value: 'all', label: 'All' }, { value: 'bestgood', label: 'BEST + GOOD' }, { value: 'best', label: 'BEST only' }], value: outOpts.tiers, onChange: x => { outOpts.tiers = x; saveOut(); preview(); } });
         // sort into bins by type
         const GROUP_NAMES = { grade: 'Grade (BEST / GOOD / OK)', shot: 'Shot size (close-ups, mids, wides)', move: 'Camera move (static, pans, push-ins…)', special: 'Special (best, reveals, 9:16, slow-mo, faces, action)' };

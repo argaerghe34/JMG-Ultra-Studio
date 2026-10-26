@@ -8,8 +8,8 @@
       const fs = require('fs'), path = require('path');
       let p = decodeURIComponent(location.pathname); if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
       const m = /ExtensionBundleVersion="([^"]+)"/.exec(fs.readFileSync(path.join(path.dirname(p), 'CSXS', 'manifest.xml'), 'utf8'));
-      return m ? m[1] : '1.2.0';
-    } catch (e) { return '1.2.0'; }
+      return m ? m[1] : '1.3.0';
+    } catch (e) { return '1.3.0'; }
   })();
   US.name = 'JMG Ultra Studio';
 
@@ -125,6 +125,7 @@
     error: 'M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM7.5 7.5l5 5m0-5-5 5',
     ok: 'M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM7 10l2 2 4-4',
     chevron: 'M8 5l5 5-5 5',
+    'chevron-left': 'M12 5l-5 5 5 5', 'chevron-right': 'M8 5l5 5-5 5',
     plus: 'M10 4v12M4 10h12',
     target: 'M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zm0-4a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
     folder: 'M3 6a1 1 0 0 1 1-1h4l2 2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',

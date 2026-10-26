@@ -123,3 +123,29 @@ test('a LUT is found in the Look menu only when the match is clear', () => {
   assert.strictEqual(C.pickLookIndex([null, img(50), img(53)], img(51)), null, 'two similar candidates');
   assert.strictEqual(C.pickLookIndex([null, img(50), img(50)], img(51)), 1, 'same LUT listed twice');
 });
+
+test('look tables: the test image read back unchanged is an identity LUT; a rendered table becomes that look', () => {
+  const px = C.tablePixels();
+  assert.strictEqual(px.length, C.TW * C.TH * 4);
+  const id = C.tableToLut(px);
+  const img = new Uint8ClampedArray([10, 200, 30, 255, 128, 64, 250, 255, 0, 0, 0, 255, 255, 255, 255, 255]);
+  const same = C.applyLut(id, img, 4);
+  for (let i = 0; i < img.length; i++) if (i % 4 !== 3) assert.ok(Math.abs(same[i] - img[i]) <= 1, `${i}: ${img[i]} → ${same[i]}`);
+  // a "render" that swaps red and blue: the table applies the same swap to any colour
+  const swapped = px.slice(); for (let i = 0; i < swapped.length; i += 4) { const r = swapped[i]; swapped[i] = swapped[i + 2]; swapped[i + 2] = r; }
+  const out = C.applyLut(C.tableToLut(swapped), img, 4);
+  assert.ok(Math.abs(out[0] - 30) <= 1 && Math.abs(out[2] - 10) <= 1 && Math.abs(out[1] - 200) <= 1, Array.from(out.slice(0, 3)).join(','));
+});
+
+test('quick grade preview: neutral changes nothing; warmer is warmer, black & white has no colour, brighter is brighter', () => {
+  const w = 8, h = 4, px = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < px.length; i += 4) { px[i] = 150; px[i + 1] = 120; px[i + 2] = 90; px[i + 3] = 255; }
+  const mean = (a, c) => { let s = 0, n = 0; for (let i = c; i < a.length; i += 4) { s += a[i]; n++; } return s / n; };
+  const n0 = C.quickGrade(px, {}, w, h);
+  assert.ok(Math.abs(mean(n0, 0) - 150) <= 1 && Math.abs(mean(n0, 2) - 90) <= 1, 'neutral');
+  const warm = C.quickGrade(px, C.GRADES.warm.values, w, h);
+  assert.ok(mean(warm, 0) - mean(warm, 2) > 60, 'warmer');
+  const bw = C.quickGrade(px, C.GRADES.bw.values, w, h);
+  assert.ok(Math.abs(mean(bw, 0) - mean(bw, 2)) < 1, 'black & white');
+  assert.ok(mean(C.quickGrade(px, { exposure: 1 }, w, h), 1) > 150, 'brighter');
+});

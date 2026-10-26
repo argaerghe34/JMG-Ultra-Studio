@@ -120,7 +120,7 @@
     }
     job.range(0, 1);
     const clips = items.filter(it => data.has(it.id)).map(it => ({ item: it, data: data.get(it.id) }));
-    const st = Object.assign(V().settingsFor(footage, 'normal'), { minLen: Math.min(len, 2) });
+    const st = Object.assign(V().settingsFor(footage, 'normal'), { minLen: Math.min(len, 2), movement: 'smooth' });   // smooth moves make good cutaways
     const sel = V().score(clips, st).selects;
     const pathOf = new Map(items.map(it => [it.id, it.path]));
     const moments = sel.map(s => ({ clipId: s.clipId, path: pathOf.get(s.clipId), name: s.clipName, start: s.start, end: s.end, score: s.score, tier: s.tier }));
