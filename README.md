@@ -17,7 +17,7 @@ Your settings, analysis cache and logs live in `%APPDATA%\JMG Ultra Studio` (Win
 ## Working on the code on the PC
 
 1. Install **Git** (or GitHub Desktop) and **Node.js**, then clone this repository – in GitHub Desktop: *File › Clone repository* › `JMG-Ultra-Studio`.
-2. Open the folder in Claude Code (Claude desktop app › Code) and say *“set up Windows testing”*. The development scripts in `dev/` (`link-dev.sh`, `restart-premiere.sh`, `monday.sh`, `with-premiere.sh`) are Mac-only so far and need Windows versions.
+2. Open the folder in Claude Code (Claude desktop app › Code) and say *“Read dev/WINDOWS-TESTING.md and follow it.”* Claude tests the panel on the PC, writes Windows versions of the Mac-only development scripts, and reports back as GitHub issues, a pull request and `dev/WINDOWS-REPORT.md`.
 3. Unit tests run anywhere: `cd dev && npm install && cd .. && node dev/tests/run.js`.
 
 Not in the repository: built packages (`dist/` – see Releases), `dev/node_modules`, the test project's generated files, and two large test clips (`dev/test-media/real/P1003525.MOV`, a real Lumix V-Log clip, and `dev/test-media/unreadable/C006_whip_pan_prores.mov`). Copy those two by hand if you need every Premiere test.
