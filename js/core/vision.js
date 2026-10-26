@@ -691,7 +691,7 @@
    */
   const rankOf = s => (s.rank != null ? s.rank : s.score);
   function cameraMove(move, samples) {
-    if (!samples.length) return { label: MOVE_LABEL[move] || 'Static', smooth: null, cinematic: false, strength: 0 };
+    if (samples.length < 3) return { label: MOVE_LABEL[move] || 'Static', smooth: null, cinematic: false, strength: 0 };
     const axis = move === 'pan' ? 'lx' : move === 'tilt' ? 'ly' : move === 'push-in' || move === 'pull-out' ? 'zm' : null;
     let label = MOVE_LABEL[move] || 'Static';
     if (move === 'pan') label = median(samples.map(x => x.lx)) < 0 ? 'Pan right' : 'Pan left';
@@ -700,12 +700,14 @@
     if (!axis) return { label, smooth: move === 'static' ? Math.round(steady * 100) : Math.round(steady * 50), cinematic: false, strength: 0 };
     // even speed: how little the speed along the move varies (coefficient of variation), and it keeps one direction
     // (median-based, so one odd measurement doesn't spoil a good move)
-    const v = samples.map(x => x[axis]), mid = median(v), abs = Math.abs(mid);
+    const v = samples.map(x => x[axis]).filter(x => x != null);
+    if (v.length < 3) return { label, smooth: null, cinematic: false, strength: 0 };
+    const mid = median(v), abs = Math.abs(mid);
     const spread = 1.4826 * median(v.map(x => Math.abs(x - mid)));
     const even = abs > 1e-6 ? US.clamp(1 - spread / (abs * 1.5), 0, 1) : 0;
     const oneWay = v.filter(x => Math.sign(x) === Math.sign(mid)).length / v.length;
     const smooth = Math.round(100 * steady * (0.25 + 0.75 * even) * (oneWay >= 0.9 ? 1 : oneWay));
-    const cinematic = smooth >= 60 && samples.length >= 3;
+    const cinematic = smooth >= 60;
     return { label, smooth, cinematic, strength: cinematic ? US.clamp((smooth - 60) / 30, 0.35, 1) : 0 };
   }
 
@@ -777,7 +779,7 @@
           const x = sc[i], sm = S[i], g = at(i);
           q.push(seg.reveal ? revealQ(x) : x.score);
           fs.push(x.f); es.push(x.e); ks.push(x.k); pans.push(Math.abs(sm.lx)); shots.push(x.shot); moves.push(P.move[g] === 'fast' ? null : P.move[g]); energy.push(P.energy[g]);
-          if (!x.fast) mv.push({ lx: sm.lx || 0, ly: sm.ly || 0, zm: sm.zm || 0, k: x.k, shake: P.shake[g] });
+          if (!x.fast) mv.push({ lx: sm.lx || 0, ly: sm.ly || 0, zm: sm.zm, k: x.k, shake: P.shake[g] });   // zm null = no confident zoom reading
           if (sm.fc != null && sm.fc >= 0) { faceChecks++; if (sm.fc > 0) faces++; }
           if (P.pump[g] > 0.08) pumpBad++; if (P.flicker[g] > 0.15) flickBad++; if (P.colShift[g] > 0.05) colBad++; if ((P.act[g] || 0) > 0.12) walkBad++; if (x.boring) bored++;
           if (sm.fc > 0 && sm.fx != null) cxs.push(sm.fx); else { cxs.push(sm.cx); mids.push(sm.mid == null ? 0.33 : sm.mid); }
@@ -791,11 +793,10 @@
         const cam = cameraMove(move, mv);
         // a reveal is named as such; a moving one (pull-back, crane…) counts as a smooth camera move, lights coming up doesn't
         if (seg.reveal) Object.assign(cam, { label: `${seg.reveal} (reveal)` }, seg.reveal !== 'Dark to lit' ? { cinematic: true, strength: Math.max(cam.strength, 0.6) } : {});
-        // the ranking can go past 100 (most clean shots already score 100); the score shown stays 0–100
+        // movement changes the order (and which selects are marked best), never the technical score or grade
         let rank = segScore;
         if (st.movement && cam.cinematic) rank += (st.movement === 'moves' ? 16 : 9) * cam.strength;
         else if (st.movement === 'moves' && move === 'static') rank -= 4;
-        segScore = Math.min(100, Math.max(segScore, rank));
         const issues = [];
         if (flickBad >= cnt * 0.3) issues.push('Flicker');
         if (pumpBad >= cnt * 0.3) issues.push('Exposure pumping');

@@ -127,9 +127,10 @@
    * plays from wherever the clip was) – so the panel checks where the monitor landed and jumps again until it's there.
    */
   async function cue(id, seconds, { play = false } = {}) {
-    const there = r => r && (Math.abs(r.position - seconds) < 0.12 || (r.timing && Math.abs(r.position - (r.timing.start + seconds)) < 0.12));
+    // the clip asked for must be the one loaded (a jump made while the last clip is still showing would move that one)
+    const there = r => r && (!r.loaded || r.loaded === '?' || r.loaded === id) && (Math.abs(r.position - seconds) < 0.12 || (r.timing && Math.abs(r.position - (r.timing.start + seconds)) < 0.12));
     let r = null;
-    for (let i = 0; i < 16 && !there(r); i++) {
+    for (let i = 0; i < 12 && !there(r); i++) {
       if (i) await new Promise(res => setTimeout(res, i < 4 ? 80 : 160));
       r = await call('storyCue', { id, seconds, play: false, open: i === 0 });
     }

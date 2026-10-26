@@ -72,7 +72,8 @@
         try { p.stop(); } catch (e) { }
         p.startScrubbing(); p.scrubTo(tc(t.start + Math.max(0, a.seconds || 0), t)); p.endScrubbing();
         if (a.play) app.sourceMonitor.play(1);
-        return { position: app.sourceMonitor.getPosition().seconds, timing: t };
+        var loaded = ''; try { var pi = app.sourceMonitor.getProjectItem(); loaded = pi ? pi.nodeId : ''; } catch (e) { loaded = '?'; }
+        return { position: app.sourceMonitor.getPosition().seconds, timing: t, loaded: loaded };
     };
     fn.storyStop = function () { try { app.enableQE(); qe.source.player.stop(); } catch (e) { } return true; };
 

@@ -258,3 +258,14 @@ test('camera movement: direction and smoothness in words; smooth moves rank high
   // a bin of smooth camera moves
   assert.ok(V.categories(r.selects, ['special']).some(c => c.name === 'Smooth camera moves' && c.selects.includes(pan)));
 });
+
+test('review fixes: missing zoom readings don\'t spoil a smooth push-in; movement never changes score or grade', () => {
+  const V = US.vision;
+  const zs = [0.04, null, null, 0.04, 0.041, 0.039].map(zm => ({ lx: 0, ly: 0, zm, k: 1 }));
+  assert.ok(V.cameraMove('push-in', zs).cinematic, JSON.stringify(V.cameraMove('push-in', zs)));
+  assert.strictEqual(V.cameraMove('pan', [{ lx: -0.02, ly: 0, zm: 0, k: 1 }]).smooth, null, 'too few samples to judge');
+  const a = V.score(fresh(synth), Object.assign(V.settingsFor('any'), { movement: '' }));
+  const b = V.score(fresh(synth), Object.assign(V.settingsFor('any'), { movement: 'moves' }));
+  const key = r => r.selects.map(s => `${s.key}:${s.score}:${s.tier}`).sort().join('|');
+  assert.strictEqual(key(a), key(b));
+});

@@ -591,16 +591,17 @@
       function drawView() {
         const it = viewList[viewAt];
         if (!frame) { viewImg.removeAttribute('src'); viewName.textContent = ''; viewNote.textContent = US.ctx.sequence ? 'Park the playhead on a shot – the preview appears by itself.' : 'Open a sequence in the Timeline first.'; return; }
-        viewImg.src = showBefore || !it ? frame.base.url : (it.url() || frame.base.url);
-        viewName.textContent = it ? `${it.label}${showBefore ? ' – before' : ''}` : 'Your shot';
+        const after = !showBefore && it ? it.url() : '';
+        viewImg.src = after || frame.base.url;
+        viewName.textContent = it ? `${it.label}${showBefore ? ' – before' : !after ? ' – not ready yet (see above)' : ''}` : 'Your shot';
         viewNote.textContent = `The frame at ${US.fmtDur(frame.t, true)} in “${(US.ctx.sequence && US.ctx.sequence.name) || ''}”. ← → step through; click a picture to choose it.`;
       }
       // the shots in the sequence, to jump between (frames taken quietly, one at a time, while nothing else is running)
       const strip = h('div.colour-strip');
-      let stripSeq = '', stripClips = [], stripBusy = false;
+      let stripSeq = '', stripClips = [], stripBusy = false, stripStale = false;
       async function drawStrip() {
         const s = US.ctx.sequence; if (!s) { US.clear(strip); return; }
-        if (stripSeq !== s.id) { stripSeq = s.id; stripClips = []; try { stripClips = (await US.host.call('colourClips', { seqId: s.id, which: 'all' })).slice(0, 60); } catch (e) { stripClips = []; } }
+        if (stripSeq !== s.id || stripStale) { if (stripSeq !== s.id) shotFrames.clear(); stripSeq = s.id; stripStale = false; stripClips = []; try { stripClips = (await US.host.call('colourClips', { seqId: s.id, which: 'all' })).slice(0, 60); } catch (e) { stripClips = []; } }
         US.clear(strip);
         for (const c of stripClips) {
           const k = `${s.id}|${c.start.toFixed(2)}`, f = shotFrames.get(k);
@@ -639,8 +640,8 @@
         const url = rgbaToUrl(applyLut(t, frame.base.data, 4), PW, PH); thumbs.set(k, url); return url;
       };
       // thumbnails are made a few at a time so the panel never stalls
-      let fillTimer = null;
-      function fillThumbs(imgs) { clearTimeout(fillTimer); let i = 0; const next = () => { const t0 = performance.now(); while (i < imgs.length && performance.now() - t0 < 25) { const [img, fn] = imgs[i++]; const u = fn(); if (u) img.src = u; } if (i < imgs.length) fillTimer = setTimeout(next, 0); }; next(); }
+      const fillTimers = {};
+      function fillThumbs(imgs, which) { clearTimeout(fillTimers[which]); let i = 0; const next = () => { const t0 = performance.now(); while (i < imgs.length && performance.now() - t0 < 25) { const [img, fn] = imgs[i++]; const u = fn(); if (u) img.src = u; } if (i < imgs.length) fillTimers[which] = setTimeout(next, 0); }; next(); }
       function drawGrid() {
         US.clear(grid);
         const q = filter.value.trim().toLowerCase(), list = currentLooks().filter(l => !q || l.label.toLowerCase().includes(q));
@@ -649,15 +650,15 @@
         if (groups && missing) prepNote.appendChild(ui.note(h('div', h('div', `${missing === list.length ? 'These' : missing} looks need getting ready once (about ${Math.max(5, Math.round(missing * 0.8))} s). Premiere briefly shows a hidden preview sequence while it does; after that every preview appears instantly, on any shot.`),
           h('div.row', ui.actionButton(`Get ${US.plural(missing, 'look')} ready`, () => US.jobs.run({ title: 'Getting look previews ready', tool: 'colour' }, async job => { const n = await captureTables(job, list); drawGrid(); return { summary: `${US.plural(n, 'look')} ready` }; }), { icon: 'palette', block: false, small: true }))), 'info'));
         const imgs = [];
-        viewList = list.map((l, i) => ({ key: l.name, label: l.label, url: () => lookUrl(l), pick: () => { chosen = l.name; viewAt = i; applyLook.setEnabled(true); drawGrid(); } }));
-        viewAt = Math.max(-1, list.findIndex(l => l.name === chosen));
-        for (const l of list) {
-          const b = thumb(l.name, l.label, '', chosen === l.name, () => viewList[list.indexOf(l)].pick());
+        const items = list.map((l, i) => ({ key: l.name, label: l.label, ready: !!lookTable(l.name), url: () => lookUrl(l), pick: () => { chosen = l.name; if (tab === 'looks') viewAt = i; applyLook.setEnabled(true); drawGrid(); } }));
+        if (tab === 'looks') { viewList = items; viewAt = Math.max(-1, list.findIndex(l => l.name === chosen)); }
+        for (const [i, l] of list.entries()) {
+          const b = thumb(l.name, l.label, '', chosen === l.name, () => items[i].pick());
           imgs.push([b.querySelector('img'), () => lookUrl(l)]); grid.appendChild(b);
         }
         if (!list.length && groups) grid.appendChild(ui.empty({ icon: 'palette', title: 'No looks here', text: 'Try another family or clear the filter.' }));
         if (tab === 'looks') drawView();
-        fillThumbs(imgs);
+        fillThumbs(imgs, 'looks');
       }
       async function loadGroups() {
         if (groups) return groups;
@@ -692,13 +693,13 @@
       function drawLuts() {
         luts = listLuts(); US.clear(lutGrid);
         const imgs = [];
-        viewList = luts.map((l, i) => ({ key: l.file, label: l.name, url: () => lutPreview(l), pick: () => { chosenLut = l.file; viewAt = i; applyLut_.setEnabled(true); drawLuts(); } }));
-        viewAt = Math.max(-1, luts.findIndex(l => l.file === chosenLut));
-        for (const l of luts) { const b = thumb(l.file, l.name, '', chosenLut === l.file, () => viewList[luts.indexOf(l)].pick()); imgs.push([b.querySelector('img'), () => lutPreview(l)]); lutGrid.appendChild(b); }
+        const items = luts.map((l, i) => ({ key: l.file, label: l.name, ready: true, url: () => lutPreview(l), pick: () => { chosenLut = l.file; if (tab === 'luts') viewAt = i; applyLut_.setEnabled(true); drawLuts(); } }));
+        if (tab === 'luts') { viewList = items; viewAt = Math.max(-1, luts.findIndex(l => l.file === chosenLut)); }
+        for (const [i, l] of luts.entries()) { const b = thumb(l.file, l.name, '', chosenLut === l.file, () => items[i].pick()); imgs.push([b.querySelector('img'), () => lutPreview(l)]); lutGrid.appendChild(b); }
         if (!luts.length) lutGrid.appendChild(ui.empty({ icon: 'palette', title: 'No LUT files found', text: 'Add a .cube file with the button above. Ultra Studio also lists LUTs in Adobe’s LUT folders.' }));
         lutNote.textContent = 'Previews are made by Ultra Studio from each LUT file, on the frame under your playhead.';
         if (tab === 'luts') drawView();
-        fillThumbs(imgs);
+        fillThumbs(imgs, 'luts');
       }
       const addLut = ui.button('Add a LUT file…', { small: true, icon: 'plus', onClick: () => {
         const r = window.cep && window.cep.fs ? window.cep.fs.showOpenDialogEx(true, false, 'Choose LUT files', '', ['cube']) : null;
@@ -803,13 +804,16 @@
         if (t === 'looks') loadGroups().then(drawGrid).catch(() => drawGrid()); else if (t === 'luts') drawLuts(); else if (t === 'grade') schedulePreview();
       }
       const viewBox = h('div.card.colour-viewbox', viewer, strip);
-      /** A new frame: redraw what's showing. */
-      function onFrame() { if (tab === 'looks') drawGrid(); else if (tab === 'luts') drawLuts(); else if (tab === 'grade') schedulePreview(); drawStrip(); }
+      /** A new frame: redraw what's showing (previews of earlier frames are let go). */
+      function onFrame() {
+        for (const m of [thumbs, lutUrls]) for (const k of Array.from(m.keys())) if (!frame || !k.startsWith(frame.key + '|')) m.delete(k); if (tab === 'looks') drawGrid(); else if (tab === 'luts') drawLuts(); else if (tab === 'grade') schedulePreview(); drawStrip(); }
       // watch the playhead while Colour is open: when it rests on a new frame for a moment, take that frame
-      let pendKey = '', pendAt = 0, grabbing = false;
+      let pendKey = '', pendAt = 0, grabbing = false, ticking = false;
       setInterval(async () => {
-        if (!visible || grabbing || US.jobs.current || document.hidden) return;
-        await US.refreshContext();
+        if (!visible || grabbing || ticking || US.jobs.current || document.hidden) return;
+        ticking = true;
+        try { await US.refreshContext(); } finally { ticking = false; }
+        if (!visible || grabbing || US.jobs.current) return;
         const s = US.ctx.sequence; if (!s) { if (frame) { frame = null; onFrame(); } return; }
         if (stripSeq !== s.id) drawStrip();
         const t = s.playhead || 0, key = `${s.id}@${t.toFixed(2)}`;
@@ -823,7 +827,7 @@
       US.bus.on('context', renderCtx);
       v.body.append(seqLine, tabs, viewBox, whichField, ...Object.values(panes));
       show('looks');
-      return { el: v.el, onShow() { visible = true; renderCtx(); show(tab); }, onHide() { visible = false; cleanupPreview(); }, show };
+      return { el: v.el, onShow() { visible = true; stripStale = true; renderCtx(); show(tab); drawStrip(); }, onHide() { visible = false; cleanupPreview(); }, show };
     }
   });
 

@@ -659,7 +659,7 @@
       if (inG.length) lastEnd = inG[inG.length - 1].placed.end;
     });
     // a marker on each clip that says what it is (moments: “Funny – laughter”), in its group's colour
-    for (const c of plan.clips) { const mk = c.placed && groups[c.group] && groups[c.group].lineMarks && groups[c.group].lineMarks[c.lineId]; if (mk) markers.push({ start: c.placed.start, end: c.placed.end, name: mk.name, comment: mk.comment || '', color: groups[c.group].label != null ? LABEL_TO_MARKER[groups[c.group].label] : 2 }); }
+    for (const c of plan.clips) { const mk = c.placed && groups[c.group] && groups[c.group].lineMarks && groups[c.group].lineMarks[c.lineId]; if (mk) markers.push({ start: c.placed.start, end: c.placed.end, name: mk.name, comment: mk.comment || '', color: look.colour && groups[c.group].label != null ? LABEL_TO_MARKER[groups[c.group].label] : 5 }); }
     if (look.strong.highlight) for (const c of plan.clips) if (c.strong && c.placed) { const l = lineById.get(c.lineId); markers.push({ start: c.placed.start, end: c.placed.end, name: '★ Strongest', comment: l.text.slice(0, 200), color: LABEL_TO_MARKER[look.strong.label] }); }
     if (markers.length) { job.set({ msg: 'Adding markers' }); await US.host.call('addSequenceMarkers', { seqId: seq.id, markers }); }
     if ((look.themeNames === 'layer' || look.themeNames === 'both') && sections.length) {
