@@ -1,0 +1,20 @@
+### Colour – looks, LUTs, grading and matching cameras
+
+Everything Colour adds is an ordinary **Lumetri Color** effect, so you can open it in Effect Controls and carry on by hand. Ultra Studio adds its own Lumetri to a clip the first time and only ever changes that one – a grade you made yourself is never touched. **Apply to** chooses the clips: **Selected clips** in the timeline, the **Clip at the playhead**, or **All clips on V1**.
+
+**Looks.** Premiere's own looks, previewed on your shot. Park the playhead on a frame and press **Preview on this frame**: Premiere renders every look on that frame, so what you see is exactly what you'll get. Choose a family – **Film** (Fuji and Kodak film stocks, Cinespace), **SpeedLooks** (with a **Camera** choice; Universal suits most footage), **Black & white** or **Technical** – or type in **Filter looks**. Pick one, set the **Strength** and press **Apply this look**. Each look goes on as its own Lumetri effect, so you can switch it off or delete it.
+
+**LUTs.** Your own LUT files (.cube). Ultra Studio lists the LUTs in Adobe's LUT folders, and **Add a LUT file…** adds any other. **Preview on this frame** shows each one on your shot. **Apply this LUT** puts it into Ultra Studio's Lumetri (Creative › Look) at the **Strength** you choose. Lumetri can only use LUTs from its Look menu: if Premiere doesn't know a LUT yet, Ultra Studio offers to copy it to the right folder, and it's ready after you restart Premiere. The first LUT you apply in a session takes about 20 seconds while Ultra Studio finds it in the menu.
+
+**Grade.** A quick grade with a live preview rendered by Premiere. Start from **Natural**, **Warm**, **Cool**, **Punchy**, **Soft**, **Moody** or **Black & white**, then adjust **Exposure**, **Contrast**, **Highlights**, **Shadows**, **Warmth**, **Tint**, **Saturation**, **Vibrance**, **Faded film** and **Vignette**. **Apply grade** grades the clips; grading again changes the same Lumetri rather than stacking another. **Reset Ultra Studio's grade on these clips** puts it back to neutral.
+
+**Match.** Makes other cameras look like your main one.
+1. Park the playhead on the shot whose colour you like (camera A).
+2. Select the clips from the other camera(s) in the timeline.
+3. Press **Match selected clips to the shot at the playhead**.
+
+Ultra Studio measures the reference at the playhead and each clip on its own (angles stacked above it are switched off while it looks), then adjusts exposure, contrast, warmth, tint and saturation step by step, checking Premiere's picture each time, until they match. The list shows the difference before and after for each clip (under 3 is hard to see). It works best on shots from the same event and time of day. If one camera shot log, set it up in **Log** first.
+
+**Log.** Footage filmed in a log profile (Lumix V-Log, Sony S-Log, DJI D-Log, Canon Log and others) looks flat and grey. Select the clips and press **Check these clips**: Ultra Studio shows how Premiere is reading each one (Premiere often recognises log files by itself – your Lumix V-Log clips show as **converted by Premiere**), which look flat, and which camera they probably came from (Lumix files named like *P1003525.MOV* suggest **Panasonic V-Log/V-Gamut**). Choose the **Camera profile** and press **Apply camera profile**; you see the shot before and after. Premiere then converts the clip to normal colour itself – usually better than a conversion LUT. This is the same as right-click › **Modify › Color** in Premiere, so it changes the clip everywhere it's used in the project; choose **The clip's own colour (undo)** to put it back. Needs Premiere Pro 2025 or later.
+
+The Assistant understands requests like *“match the cameras”*, *“black and white”*, *“make it warmer”* and *“these clips are V-Log”*.

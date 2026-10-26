@@ -1,0 +1,20 @@
+const [c1, c9] = await T.importOnce([T.media('concert', 'C001_sharp_static.mp4'), T.media('concert', 'C009_slow_pan_good.mp4')], 'Test – E2E');
+const seq = await T.freshSequence('E2E Deliver', c1.id, 'Test – E2E');
+await US.host.call('placeClips', { seqId: seq.id, clips: [{ id: c1.id, in: 1, out: 4 }, { id: c9.id, in: 2, out: 5 }] });
+await US.host.call('addSequenceMarkers', { seqId: seq.id, markers: [{ start: 3, name: 'Second half' }] });
+await T.open(seq.id);
+const r = await T.action('deliver.pack', { outputs: 'master,v916,s11,wav,thumb' });
+T.assert(r.dir && T.fs.existsSync(r.dir), 'export folder exists');
+const files = T.fs.readdirSync(r.dir).filter(f => f.startsWith('E2E Deliver'));
+async function dims(f) { const v = document.createElement('video'); v.muted = true; v.src = 'file://' + T.path.join(r.dir, f).split('/').map(encodeURIComponent).join('/'); await new Promise(res => { v.onloadedmetadata = res; v.onerror = res; setTimeout(res, 5000); }); const d = [v.videoWidth, v.videoHeight, v.duration]; v.removeAttribute('src'); v.load(); return d; }
+const newest = suffix => files.filter(f => f.includes(suffix)).sort((a, b) => T.fs.statSync(T.path.join(r.dir, b)).mtimeMs - T.fs.statSync(T.path.join(r.dir, a)).mtimeMs)[0];
+const m = await dims(newest('Master')), v = await dims(newest('9x16')), s = await dims(newest('1x1'));
+T.assert(m[0] === 1920 && m[1] === 1080, 'master 1920x1080, got ' + m);
+T.assert(v[0] === 1080 && v[1] === 1920, 'vertical 1080x1920, got ' + v);
+T.assert(s[0] === 1080 && s[1] === 1080, 'square 1080x1080, got ' + s);
+T.near(m[2], 6, 0.1, 'master length');
+T.assert(newest('Sound.wav') && newest('Thumbnail'), 'wav and thumbnail saved');
+T.assert(US.ctx.sequence && US.ctx.sequence.id === seq.id, 'original sequence reopened');
+const chap = US.deliver.chapters((await US.host.call('sequenceInfo', { seqId: seq.id, clips: false })).markers, 6, 'named');
+T.assert(chap.text.startsWith('0:00 Intro\n0:03 Second half'), 'chapters ' + chap.text);
+return { master: m.slice(0, 2).join('x'), vertical: v.slice(0, 2).join('x'), square: s.slice(0, 2).join('x') };

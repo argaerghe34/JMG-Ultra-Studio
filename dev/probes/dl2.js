@@ -1,0 +1,1 @@
+US.tools.open('deliver', { tab: 'chapters' }); await new Promise(r => setTimeout(r, 1200)); return document.querySelector('textarea.mono').value;

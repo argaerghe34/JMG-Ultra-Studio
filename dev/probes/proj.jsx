@@ -1,0 +1,1 @@
+(function(){ return (app.project ? app.project.path : "none") + " | projects=" + app.projects.numProjects; })()

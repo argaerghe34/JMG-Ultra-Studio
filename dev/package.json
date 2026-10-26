@@ -1,0 +1,1 @@
+{"name":"jmg-ultra-studio-dev","private":true,"description":"Development tools for JMG Ultra Studio (not shipped)","dependencies":{"acorn":"8.12.1","jsdom":"^21.1.2","ws":"8.18.0"}}

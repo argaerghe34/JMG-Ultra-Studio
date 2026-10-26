@@ -1,0 +1,1 @@
+(function(){ return UStudio.run("listBins","{}") + "\n" + UStudio.run("listSequences","{}") + "\n" + UStudio.run("selectionSummary","{\"kinds\":[\"video\"]}"); })()

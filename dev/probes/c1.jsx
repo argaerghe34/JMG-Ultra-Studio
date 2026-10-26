@@ -1,0 +1,1 @@
+(function(){ return UStudio.run("ping","{}") + "\n" + UStudio.run("context","{}"); })()

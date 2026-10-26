@@ -1,0 +1,25 @@
+{
+  "file": "music_92bpm.wav",
+  "duration": 30.0,
+  "sample_rate": 48000,
+  "bpm": 92.0,
+  "beat_interval": 0.652173913,
+  "first_beat": 0.25,
+  "time_signature": "4/4",
+  "beat_count": 46,
+  "key": "C major",
+  "chords_per_bar": ["C", "G", "Am", "F"],
+  "instrumentation": "kick (sine sweep 120->50 Hz, tau 40 ms) on every beat; snare (noise burst + 185 Hz) on beats 2 and 4; closed hi-hat on every 8th; sustained 3-note chord pad, one chord per bar; no melody/bass",
+  "notes": "beats[k] = first_beat + k*60/bpm (exact; onset sample = round(t*48000)). downbeats = beats 1 of each 4/4 bar. Digital silence until first_beat - 0.03 s, where the pad starts a 60 ms fade-in; the first kick is exactly at first_beat.",
+  "beats": [
+    0.25, 0.902174, 1.554348, 2.206522, 2.858696, 3.51087, 4.163043, 4.815217, 5.467391, 6.119565,
+    6.771739, 7.423913, 8.076087, 8.728261, 9.380435, 10.032609, 10.684783, 11.336957, 11.98913, 12.641304,
+    13.293478, 13.945652, 14.597826, 15.25, 15.902174, 16.554348, 17.206522, 17.858696, 18.51087, 19.163043,
+    19.815217, 20.467391, 21.119565, 21.771739, 22.423913, 23.076087, 23.728261, 24.380435, 25.032609, 25.684783,
+    26.336957, 26.98913, 27.641304, 28.293478, 28.945652, 29.597826
+  ],
+  "downbeats": [
+    0.25, 2.858696, 5.467391, 8.076087, 10.684783, 13.293478, 15.902174, 18.51087, 21.119565, 23.728261,
+    26.336957, 28.945652
+  ]
+}

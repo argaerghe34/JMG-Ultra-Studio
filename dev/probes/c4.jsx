@@ -1,0 +1,1 @@
+(function(){ return UStudio.run("sequenceInfo", JSON.stringify({seqId:"16960337-47c5-41ec-8c0c-f1cb7ec2d0b4"})); })()

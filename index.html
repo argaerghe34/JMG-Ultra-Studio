@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JMG Ultra Studio</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app"></div>
+<div id="toasts"></div>
+<script src="js/core/util.js"></script>
+<script src="js/core/store.js"></script>
+<script src="js/core/host.js"></script>
+<script src="js/core/jobs.js"></script>
+<script src="js/core/ui.js"></script>
+<script src="js/core/app.js"></script>
+<script>
+  // Load the shared engines, then every tool in js/tools (each registers itself), then start.
+  (function () {
+    const fs = require('fs'), path = require('path');
+    const dir = US.host.extensionDir();
+    const engines = ['time', 'audio', 'encoder', 'dsp', 'vision', 'transcript', 'ai'].filter(n => fs.existsSync(path.join(dir, 'js', 'core', n + '.js'))).map(n => 'js/core/' + n + '.js');
+    const tools = fs.readdirSync(path.join(dir, 'js', 'tools')).filter(f => f.endsWith('.js') && f[0] !== '.').sort().map(f => 'js/tools/' + f);
+    const files = engines.concat(tools);
+    // each tool may bring its own stylesheet in css/tools/ (dot-files – e.g. macOS ._ metadata unzipped on Windows – are skipped)
+    try { fs.readdirSync(path.join(dir, 'css', 'tools')).filter(f => f.endsWith('.css') && f[0] !== '.').sort().forEach(f => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'css/tools/' + f; document.head.appendChild(l); }); } catch (e) { /* none */ }
+    let i = 0;
+    (function next() {
+      if (i >= files.length) { US.boot(); return; }
+      const s = document.createElement('script');
+      s.src = files[i++];
+      s.onload = next;
+      s.onerror = () => { US.log('error', 'A part of JMG Ultra Studio failed to load', s.src); next(); };
+      document.body.appendChild(s);
+    })();
+  })();
+</script>
+</body>
+</html>

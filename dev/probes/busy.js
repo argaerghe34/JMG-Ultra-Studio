@@ -1,0 +1,1 @@
+return { job: US.jobs.current ? US.jobs.current.title + " / " + US.jobs.current.msg : null, t: Date.now() };

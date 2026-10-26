@@ -1,0 +1,1 @@
+return { US: typeof US, tools: typeof (window.US && US.tools), body: document.body.innerText.slice(0, 300), errs: (window.US && US.log) ? US.log.entries().filter(e => e.level === "error").map(e => e.text + " " + e.detail.slice(0, 300)) : "no log" };

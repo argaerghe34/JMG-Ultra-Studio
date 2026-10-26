@@ -1,0 +1,9 @@
+/* JMG Ultra Studio – sound tools (Silence Cut, Beat Cut, Song Splitter, Sound Check) */
+.songs-actions { display: flex; gap: 2px; flex-wrap: wrap; justify-content: flex-end; }
+.songs-actions .btn { padding: 2px 6px; }
+.songs-setlist { margin: 0; padding: 8px 10px; background: var(--bg); border-radius: var(--radius-s); white-space: pre-wrap; user-select: text; max-height: 180px; overflow: auto; color: var(--text-2); }
+.sound-wrap { white-space: normal !important; }
+@media (max-width: 560px) {
+  .songs-list .list-row { flex-wrap: wrap; }
+  .songs-list .songs-actions { width: 100%; justify-content: flex-start; padding-left: 15px; }
+}

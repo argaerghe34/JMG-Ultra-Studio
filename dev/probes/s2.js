@@ -1,0 +1,1 @@
+US.tools.open('story',{tab:'wall'}); return 1;

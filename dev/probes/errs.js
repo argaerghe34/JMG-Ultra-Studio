@@ -1,0 +1,1 @@
+return US.log.entries().filter(e => e.level === 'error').slice(-5).map(e => new Date(e.t).toLocaleTimeString() + ' ' + e.tool + ': ' + e.text + ' | ' + e.detail.slice(0, 400));

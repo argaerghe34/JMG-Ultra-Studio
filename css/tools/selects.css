@@ -1,0 +1,13 @@
+/* JMG Ultra Studio – Selects */
+.sel-results { display: flex; flex-direction: column; gap: 14px; }
+canvas.sel-chart { display: block; width: 100%; border-radius: var(--radius-s); border: 1px solid var(--border); }
+.sel-right { display: flex; align-items: center; gap: 5px; flex: none; }
+.sel-score { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 22px; text-align: right; }
+.sel-right .btn.small { padding: 2px 5px; }
+.sel-pills { display: flex; gap: 4px; flex-wrap: wrap; margin: 2px 0 1px; }
+.sel-bytype { display: flex; flex-direction: column; gap: 8px; margin: -2px 0 0 37px; padding: 8px 10px; border-left: 2px solid var(--border); }
+.sel-groups { display: flex; flex-direction: column; gap: 6px; }
+.sel-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 3px 12px; }
+.sel-cat-group { grid-column: 1 / -1; color: var(--text-3); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+.sel-cat { display: flex; align-items: center; gap: 7px; font-size: 11.5px; }
+.sel-cat .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

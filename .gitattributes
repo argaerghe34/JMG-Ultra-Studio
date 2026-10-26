@@ -1,0 +1,27 @@
+# Keep line endings right on both Mac and Windows
+* text=auto
+*.sh text eol=lf
+*.command text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.xml text eol=lf
+*.swift text eol=lf
+.debug text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Media and binaries are never changed
+*.mp4 binary
+*.mov binary
+*.MOV binary
+*.wav binary
+*.png binary
+*.jpg binary
+*.zip binary
+*.prproj binary
+*.cube text eol=lf

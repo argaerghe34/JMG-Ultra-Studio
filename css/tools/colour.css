@@ -1,0 +1,12 @@
+/* Colour tab */
+.colour-pane { display: flex; flex-direction: column; gap: 12px; }
+.colour-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 60vh; overflow-y: auto; padding: 2px; }
+.colour-thumb { display: flex; flex-direction: column; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); color: var(--text-2); cursor: pointer; text-align: left; font: inherit; font-size: 11px; min-width: 0; }
+.colour-thumb:hover { border-color: var(--text-3); color: var(--text); }
+.colour-thumb.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--text); }
+.colour-thumb img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; background: #000; display: block; }
+.colour-thumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.colour-preview { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: var(--radius-s); background: #000; display: block; }
+.colour-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.colour-compare figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.colour-compare figcaption { font-size: 11px; color: var(--text-3); }

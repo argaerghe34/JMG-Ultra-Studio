@@ -1,0 +1,1 @@
+US.tools.open('assistant'); const v=document.querySelector('.chat-input'); v.value='lines about faith'; v.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); await new Promise(r=>setTimeout(r,150)); v.value='make me a cup of tea'; v.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); await new Promise(r=>setTimeout(r,300)); return 1;

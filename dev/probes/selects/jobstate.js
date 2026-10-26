@@ -1,0 +1,1 @@
+return {job: US.jobs.current && {title: US.jobs.current.title, msg: US.jobs.current.msg, who: US.jobs.current.who, el: US.jobs.current.elapsed}, log: US.log.entries().slice(-5).map(e => e.level + ": " + e.text)};

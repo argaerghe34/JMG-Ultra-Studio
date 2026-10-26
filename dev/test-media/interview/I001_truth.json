@@ -1,0 +1,46 @@
+{
+  "file": "I001_interview.mp4",
+  "duration": 90.0,
+  "sample_rate": 48000,
+  "speech_level_dbfs_rms": -20.0,
+  "room_noise_dbfs_rms": -60.0,
+  "notes": "Times in seconds on a 10 ms grid. Phrase start/end are the syllable-envelope boundaries (sin^0.6 envelope; energy is above -40 dBFS within ~10-30 ms of them). Everything outside phrases is faint pink room noise (-60 dBFS RMS, independent per channel); speech is identical in L and R. Video is a static talking head; only the mouth opening follows the speech envelope.",
+  "long_silences": [
+    { "start": 10.0, "end": 12.5, "duration": 2.5 },
+    { "start": 31.0, "end": 33.0, "duration": 2.0 },
+    { "start": 50.0, "end": 54.0, "duration": 4.0 },
+    { "start": 70.0, "end": 71.5, "duration": 1.5 }
+  ],
+  "leading_silence": { "start": 0.0, "end": 0.6, "duration": 0.6 },
+  "trailing_silence": { "start": 89.4, "end": 90.0, "duration": 0.6 },
+  "phrase_count": 15,
+  "phrases": [
+    { "index": 1, "start": 0.6, "end": 5.34, "duration": 4.74 },
+    { "index": 2, "start": 5.82, "end": 10.0, "duration": 4.18 },
+    { "index": 3, "start": 12.5, "end": 19.17, "duration": 6.67 },
+    { "index": 4, "start": 19.7, "end": 25.99, "duration": 6.29 },
+    { "index": 5, "start": 26.51, "end": 31.0, "duration": 4.49 },
+    { "index": 6, "start": 33.0, "end": 38.99, "duration": 5.99 },
+    { "index": 7, "start": 39.54, "end": 43.4, "duration": 3.86 },
+    { "index": 8, "start": 43.86, "end": 50.0, "duration": 6.14 },
+    { "index": 9, "start": 54.0, "end": 57.02, "duration": 3.02 },
+    { "index": 10, "start": 57.42, "end": 60.07, "duration": 2.65 },
+    { "index": 11, "start": 60.65, "end": 66.13, "duration": 5.48 },
+    { "index": 12, "start": 66.49, "end": 70.0, "duration": 3.51 },
+    { "index": 13, "start": 71.5, "end": 74.55, "duration": 3.05 },
+    { "index": 14, "start": 75.08, "end": 81.34, "duration": 6.26 },
+    { "index": 15, "start": 81.9, "end": 89.4, "duration": 7.5 }
+  ],
+  "short_pauses": [
+    { "start": 5.34, "end": 5.82, "duration": 0.48 },
+    { "start": 19.17, "end": 19.7, "duration": 0.53 },
+    { "start": 25.99, "end": 26.51, "duration": 0.52 },
+    { "start": 38.99, "end": 39.54, "duration": 0.55 },
+    { "start": 43.4, "end": 43.86, "duration": 0.46 },
+    { "start": 57.02, "end": 57.42, "duration": 0.4 },
+    { "start": 60.07, "end": 60.65, "duration": 0.58 },
+    { "start": 66.13, "end": 66.49, "duration": 0.36 },
+    { "start": 74.55, "end": 75.08, "duration": 0.53 },
+    { "start": 81.34, "end": 81.9, "duration": 0.56 }
+  ]
+}

@@ -1,0 +1,1 @@
+return { job: US.jobs.current && US.jobs.current.title, t: Date.now() };

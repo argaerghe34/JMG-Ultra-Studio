@@ -1,0 +1,1 @@
+(function(){ return "projects=" + app.projects.numProjects + " active=" + (app.project ? app.project.name + " @ " + app.project.path : "none"); })()

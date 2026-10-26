@@ -1,0 +1,1 @@
+(function(){ var r = app.openDocument("/Users/jgersch/Downloads/WhatsApp Chat with Tab/JMG Ultra Studio/dev/test-project/UltraStudioTest.prproj", true, true, true, true); return 'open=' + r + ' active=' + (app.project ? app.project.name : 'none') + ' projects=' + app.projects.numProjects; })()

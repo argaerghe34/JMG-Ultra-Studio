@@ -1,0 +1,10 @@
+const path = require('path');
+const st = US.story.loadState();
+const base = path.join(US.host.extensionDir(), 'dev', 'test-media', 'transcripts');
+const job = US.jobs.testJob('story');
+st.speakers = {};
+await US.story.importFiles(job, ['I001_interview.srt', 'Interview_David_Cohen.txt', 'Interview_Miriam_Levy.csv'].map(f => path.join(base, f)));
+await US.actions.get('story.themes').run({ useAI: false }, job);
+US.story.fillWallFromThemes(4);
+US.tools.open('story', { tab: 'themes' });
+return { speakers: Object.keys(st.speakers), transcripts: st.transcripts.length };

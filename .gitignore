@@ -1,0 +1,26 @@
+# Built packages: each version is published as a GitHub Release instead (dist/ is rebuilt by dev/build.sh)
+/dist/
+
+# Development tool dependencies (npm install in dev/ brings them back)
+node_modules/
+
+# Machine-specific and generated files
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+/dev/.premiere.lock
+
+# The Premiere test project's generated files (renders, auto-saves, exports, previews)
+/dev/test-project/exports/
+/dev/test-project/Adobe Premiere Pro Auto-Save/
+/dev/test-project/Adobe Premiere Pro Audio Previews/
+/dev/test-project/Adobe Premiere Pro Video Previews/
+/dev/test-project/*.prin
+/dev/test-project/relinked/
+/dev/test-project/tidy/
+
+# Test media too large for GitHub (copy these by hand if you need the full Premiere test suite):
+#   real/ – a real Lumix V-Log clip (777 MB); the ProRes whip-pan clip is over GitHub's 100 MB limit
+/dev/test-media/real/
+/dev/test-media/unreadable/C006_whip_pan_prores.mov

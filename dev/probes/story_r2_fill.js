@@ -1,0 +1,10 @@
+const path = require('path');
+const st = US.story.loadState();
+const base = path.join(US.host.extensionDir(), 'dev', 'test-media', 'transcripts');
+const job = US.jobs.testJob('story');
+await US.story.importFiles(job, ['I001_interview.srt', 'Interview_David_Cohen.txt', 'Interview_Miriam_Levy.csv'].map(f => path.join(base, f)));
+await US.actions.get('story.themes').run({ useAI: false }, job);
+US.story.fillWallFromThemes(3);
+const col = st.wall.columns[0]; if (col && col.cards[1]) col.cards[1].pinned = true;
+US.story.save();
+return { themes: st.themes.map(t => t.name + ':' + t.label + (t.custom ? '*' : '')), cols: st.wall.columns.map(c => c.name + ':' + c.label) };

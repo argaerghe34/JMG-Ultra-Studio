@@ -1,0 +1,1 @@
+(function(){ try { if (app.project) app.project.save(); } catch (e) {} app.quit(); return "quitting"; })()

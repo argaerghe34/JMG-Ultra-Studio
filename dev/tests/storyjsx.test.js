@@ -1,0 +1,181 @@
+// Runs jsx/host.jsx + jsx/tools/story.jsx against a small fake of Premiere's ExtendScript object model, to check the
+// control flow of the colour/label-layer code (labels restored, fallbacks, track choice). It cannot prove what real
+// Premiere does – those points are listed in the report and checked by dev/e2e/22-story.e2e.js.
+const assert = require('assert'), fs = require('fs'), path = require('path'), vm = require('vm');
+const { test, ROOT } = require('./harness');
+const TICKS = 254016000000;
+
+function makePremiere({ adjustment = false, qeMethods = ['newTransparentVideo'], transparentArgs = 5, clipNameWritable = true, endWritable = true, tracks = 3, overwriteThrows = false, trackNamesWritable = true } = {}) {
+  let nextId = 1;
+  const id = () => 'n' + (nextId++);
+  class Time { constructor() { this.ticks = '0'; } get seconds() { return Number(this.ticks) / TICKS; } set seconds(s) { this.ticks = String(Math.round(s * TICKS)); } }
+  const T = s => { const t = new Time(); t.seconds = s; return t; };
+  function coll(arr, key) { const c = { get [key]() { return arr.length; } }; return new Proxy(c, { get: (o, p) => (p in o ? o[p] : /^\d+$/.test(p) ? arr[+p] : undefined) }); }
+  function item(name, { type = 1, duration = 90, label = 0, path: p = '/media/' + name, adj = false, kids = null } = {}) {
+    const children = kids || [];
+    const it = {
+      nodeId: id(), name, type, label, dur: duration, inPt: 0, outPt: duration, adj, path: p, parent: null, children: coll(children, 'numItems'), _kids: children,
+      get treePath() { return '\\P.prproj\\' + (it.parent && it.parent.type === 2 ? it.parent.name + '\\' : '') + name; },
+      getColorLabel() { return it.label; }, setColorLabel(n) { it.label = n; return true; },
+      getInPoint() { return T(it.inPt); }, getOutPoint() { return T(it.outPt); },
+      setInPoint(s) { it.inPt = s; return true; }, setOutPoint(s) { it.outPt = s; return true; }, clearInPoint() { it.inPt = 0; }, clearOutPoint() { it.outPt = it.dur; },
+      getMediaPath() { return it.path; }, isSequence() { return false; }, isAdjustmentLayer() { return it.adj; }, isOffline() { return false; },
+      getProjectColumnsMetadata() { return JSON.stringify([{ ColumnID: 'Column.Intrinsic.MediaDuration', ColumnValue: String(it.dur * TICKS) }]); },
+      moveBin(bin) { if (it.parent) it.parent._kids.splice(it.parent._kids.indexOf(it), 1); bin._kids.push(it); it.parent = bin; },
+      createBin(n) { const b = item(n, { type: 2, kids: [] }); it._kids.push(b); b.parent = it; return b; },
+      createSubClip(n, a, b) { const sc = item(n, { duration: (Number(b) - Number(a)) / TICKS, path: it.path }); sc.subOf = it; sc.subStart = Number(a) / TICKS; root._kids.push(sc); sc.parent = root; return sc; }
+    };
+    return it;
+  }
+  const root = item('root', { type: 3, kids: [] });
+  const add = (it, parent = root) => { parent._kids.push(it); it.parent = parent; return it; };
+  const interview = add(item('I001.mp4', { label: 3 }));
+  if (adjustment) add(item('Adjustment Layer', { adj: true, duration: 5, label: 1 }));
+  const logs = [];
+  function track(kind, n) {
+    const clips = [];
+    return {
+      name: (kind === 'v' ? 'Video ' : 'Audio ') + n,
+      _clips: clips, clips: coll(clips, 'numItems'),
+      overwriteClip(it, at) {
+        if (overwriteThrows) throw new Error('boom');
+        const src = it.subOf || it, off = it.subOf ? it.subStart : 0;
+        const len = it.outPt - it.inPt;
+        const ti = { projectItem: it, label: it.label, _name: it.name, start: T(at), _end: at + len, inPoint: T(off + it.inPt), outPoint: T(off + it.outPt), nodeId: id() };
+        ti.remove = () => { const i = clips.indexOf(ti); if (i >= 0) clips.splice(i, 1); return true; };
+        Object.defineProperty(ti, 'end', { get: () => T(ti._end), set: v => { if (!endWritable) throw new Error('read only'); ti._end = typeof v === 'object' ? v.seconds : Number(v) / TICKS; } });
+        Object.defineProperty(ti, 'name', { get: () => ti._name, set: v => { if (!clipNameWritable) throw new Error('read only'); ti._name = v; } });
+        for (let i = clips.length - 1; i >= 0; i--) if (clips[i].start.seconds < ti._end && clips[i]._end > at) clips.splice(i, 1);
+        clips.push(ti); clips.sort((a, b) => a.start.seconds - b.start.seconds);
+        if (kind === 'v' && !it.adj && src !== null && it.name !== 'Ultra Studio theme label' && !/transparent/i.test(it.name)) seq._a[0].overwriteClipAudio(ti);
+        return true;
+      },
+      overwriteClipAudio(vti) { clips.push(Object.assign({}, vti)); }
+    };
+  }
+  const seq = { sequenceID: 's1', name: 'Seq', timebase: String(TICKS / 25), frameSizeHorizontal: 1920, frameSizeVertical: 1080, videoDisplayFormat: 101, _v: [], _a: [] };
+  for (let i = 0; i < tracks; i++) { seq._v.push(track('v', i + 1)); seq._a.push(track('a', i + 1)); }
+  seq.videoTracks = coll(seq._v, 'numTracks'); seq.audioTracks = coll(seq._a, 'numTracks');
+  Object.defineProperty(seq, 'end', { get: () => String(Math.round(Math.max(0, ...seq._v.flatMap(t => t._clips.map(c => c._end))) * TICKS)) });
+  const project = { rootItem: root, path: '/x/P.prproj', name: 'P.prproj', activeSequence: seq, sequences: coll([seq], 'numSequences'), openSequence() { return true; } };
+  const qeProject = {
+    reflect: { methods: qeMethods.map(n => ({ name: n })) },
+    getActiveSequence: () => ({
+      addTracks(nv) { for (let i = 0; i < nv; i++) { seq._v.push(track('v', seq._v.length + 1)); seq._a.push(track('a', seq._a.length + 1)); } return true; },
+      getVideoTrackAt: i => ({ setName(n) { if (!trackNamesWritable) throw new Error('no'); seq._v[i].name = n; return true; } })
+    }),
+    newTransparentVideo(...args) { logs.push('newTransparentVideo/' + args.length); if (args.length !== transparentArgs) throw new Error('bad args'); add(item('Transparent Video', { duration: 5 })); return true; },
+    newAdjustmentLayer(...args) { logs.push('newAdjustmentLayer/' + args.length); if (args.length !== 5) throw new Error('bad args'); add(item('Adjustment Layer', { adj: true, duration: 5 })); return true; }
+  };
+  const ctx = { app: { project, enableQE() {}, path: '/Applications/Premiere/' }, qe: { project: qeProject }, Time, $: { os: 'Macintosh' }, File: function () { return { exists: false }; }, JSON };
+  vm.createContext(ctx);
+  for (const f of ['jsx/host.jsx', 'jsx/tools/story.jsx']) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
+  const call = (fn, args) => { const r = JSON.parse(ctx.UStudio.run(fn, JSON.stringify(args))); if (!r.ok) { const e = new Error(r.error.detail); e.code = r.error.code; e.title = r.error.title; throw e; } return r.data; };
+  return { call, seq, root, interview, logs, findAll: name => { const out = []; ctx.UStudio.walk(root, c => { if (c.name === name) out.push(c); }); return out; } };
+}
+
+test('relabel: timeline clips get the theme colour, the source clip keeps its own', () => {
+  const P = makePremiere();
+  const r = P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 1, out: 4, label: 7 }, { id: P.interview.nodeId, in: 10, out: 12, label: 5 }, { id: P.interview.nodeId, in: 20, out: 21 }] });
+  const v = P.seq._v[0]._clips;
+  assert.deepStrictEqual(v.map(c => c.label), [7, 5, 3]);
+  assert.deepStrictEqual(r.placed.map(p => [p.start, p.end]), [[0, 3], [3, 5], [5, 6]]);
+  assert.strictEqual(P.interview.label, 3, 'label restored');
+  assert.strictEqual(P.interview.inPt, 0); assert.strictEqual(P.interview.outPt, 90);
+  assert.strictEqual(r.method, 'relabel');
+});
+test('relabel: the source label is restored even when Premiere refuses to place', () => {
+  const P = makePremiere({ overwriteThrows: true });
+  assert.throws(() => P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 1, out: 4, label: 7 }] }));
+  assert.strictEqual(P.interview.label, 3);
+});
+test('subclips fallback: labelled subclips placed whole, in their own bin', () => {
+  const P = makePremiere();
+  const r = P.call('storyPlace', { seqId: 's1', cursor: 2, method: 'subclips', binPath: 'Test/Story clips', clips: [{ id: P.interview.nodeId, in: 1, out: 4, label: 7, name: '01 Ruth' }, { id: P.interview.nodeId, in: 30, out: 35, label: 9, name: '02 Ruth' }] });
+  const v = P.seq._v[0]._clips;
+  assert.deepStrictEqual(v.map(c => [c.label, c.start.seconds, c.inPoint.seconds, c.outPoint.seconds]), [[7, 2, 1, 4], [9, 5, 30, 35]]);
+  assert.strictEqual(r.cursor, 10);
+  assert.strictEqual(P.findAll('01 Ruth')[0].parent.name, 'Story clips');
+  assert.strictEqual(P.interview.label, 3);
+});
+test('theme layers: uses the project’s adjustment layer, on the track above the clips, named per theme', () => {
+  const P = makePremiere({ adjustment: true });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 10 }, { id: P.interview.nodeId, in: 20, out: 26 }] });
+  const r = P.call('storyThemeLayers', { seqId: 's1', sections: [{ name: 'Family', start: 0, end: 10, label: 7 }, { name: 'Faith', start: 10, end: 16, label: 5 }] });
+  assert.strictEqual(r.kind, 'adjustment'); assert.strictEqual(r.track, 1); assert.strictEqual(r.placed, 2); assert.strictEqual(r.renamed, 2);
+  const layer = P.seq._v[1]._clips;
+  assert.deepStrictEqual(layer.map(c => [c.name, c.start.seconds, c.end.seconds, c.label]), [['Family', 0, 10, 7], ['Faith', 10, 16, 5]]);
+  const adj = P.findAll('Adjustment Layer')[0];
+  assert.ok(adj && adj.label === 1 && adj.inPt === 0 && adj.outPt === 5, 'adjustment layer item left as it was');
+});
+test('theme layers: no adjustment layer → tries an adjustment creator, then transparent video; reuses it next time', () => {
+  const P = makePremiere({ qeMethods: ['newBarsAndTone', 'newTransparentVideo'], transparentArgs: 3 });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 8 }] });
+  const r = P.call('storyThemeLayers', { seqId: 's1', binPath: 'Test/Story', sections: [{ name: 'Hope', start: 0, end: 8 }] });
+  assert.strictEqual(r.kind, 'transparent'); assert.ok(/newTransparentVideo\(3/.test(r.how), r.how);
+  assert.deepStrictEqual(P.logs, ['newTransparentVideo/5', 'newTransparentVideo/5', 'newTransparentVideo/3'], 'fullest call first, never a bare call');
+  const made = P.findAll('Ultra Studio theme label');
+  assert.strictEqual(made.length, 1); assert.strictEqual(made[0].parent.name, 'Story');
+  assert.strictEqual(P.seq._v[1]._clips[0].name, 'Hope');
+  const r2 = P.call('storyThemeLayers', { seqId: 's1', sections: [{ name: 'Again', start: 0, end: 8 }] });
+  assert.strictEqual(r2.how, 'reused label clip');
+  assert.strictEqual(P.findAll('Ultra Studio theme label').length, 1);
+});
+test('theme layers: an adjustment-layer creator, if Premiere has one, wins', () => {
+  const P = makePremiere({ qeMethods: ['newAdjustmentLayer', 'newTransparentVideo'] });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 8 }] });
+  const r = P.call('storyThemeLayers', { seqId: 's1', sections: [{ name: 'Hope', start: 0, end: 8 }] });
+  assert.strictEqual(r.kind, 'adjustment'); assert.ok(/newAdjustmentLayer/.test(r.how));
+});
+test('theme layers: clip names come from the item even when timeline names are read-only; adds a track when all are used', () => {
+  const P = makePremiere({ adjustment: true, clipNameWritable: false, tracks: 1 });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 8 }] });
+  const r = P.call('storyThemeLayers', { seqId: 's1', sections: [{ name: 'Gratitude', start: 0, end: 8 }] });
+  assert.strictEqual(r.track, 1); assert.strictEqual(P.seq._v.length, 2);
+  assert.strictEqual(r.renamed, 1); assert.strictEqual(P.seq._v[1]._clips[0].name, 'Gratitude');
+});
+test('theme layers: length fixed after placing when the in/out route falls short', () => {
+  const P = makePremiere({ adjustment: true });
+  // pretend Premiere caps the adjustment layer at its 5 s default: honour setOutPoint only up to 5 s
+  const adj = P.findAll('Adjustment Layer')[0]; const so = adj.setOutPoint; adj.setOutPoint = s => so(Math.min(5, s));
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 12 }] });
+  const r = P.call('storyThemeLayers', { seqId: 's1', sections: [{ name: 'Long', start: 0, end: 12 }] });
+  assert.strictEqual(P.seq._v[1]._clips[0].end.seconds, 12, r.log.join('; '));
+});
+test('theme layers: plain message when nothing can be made', () => {
+  const P = makePremiere({ qeMethods: [], transparentArgs: 99 });
+  let e = null; try { P.call('storyThemeLayers', { seqId: 's1', sections: [{ name: 'X', start: 0, end: 2 }] }); } catch (x) { e = x; }
+  assert.ok(e && /Couldn’t add the theme layer/.test(e.title));
+});
+
+test('highlights on a string-out: a “Selects” track above the interviews, one named, coloured clip per selected line', () => {
+  const P = makePremiere({ adjustment: true });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 30 }] });
+  const r = P.call('storyHighlights', { seqId: 's1', sections: [{ name: 'Family · My name is Ruth', start: 0.6, end: 5.3, label: 7 }, { name: 'Faith · When I was twelve', start: 12.5, end: 19, label: 5 }] });
+  assert.deepStrictEqual([r.track, r.named, r.placed, r.renamed, r.removed], [1, true, 2, 2, 0]);
+  assert.strictEqual(P.seq._v[1].name, 'Selects');
+  assert.deepStrictEqual(P.seq._v[1]._clips.map(c => [c.name, c.label, c.start.seconds, c.end.seconds]), [['Family · My name is Ruth', 7, 0.6, 5.3], ['Faith · When I was twelve', 5, 12.5, 19]]);
+});
+test('highlights: running again replaces them (your own clips on that track stay); Remove clears them', () => {
+  const P = makePremiere({ adjustment: true });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 30 }] });
+  P.call('storyHighlights', { seqId: 's1', sections: [{ name: 'A', start: 1, end: 2 }, { name: 'B', start: 3, end: 4 }] });
+  P.seq._v[1].overwriteClip(P.interview, 20); // the editor put something of their own on the Selects track
+  const r = P.call('storyHighlights', { seqId: 's1', sections: [{ name: 'C', start: 5, end: 6, label: 2 }] });
+  assert.deepStrictEqual([r.track, r.removed, r.placed], [1, 2, 1]);
+  assert.deepStrictEqual(P.seq._v[1]._clips.map(c => c.name), ['C', 'I001.mp4']);
+  const x = P.call('storyRemoveHighlights', { seqId: 's1', trackName: 'Selects' });
+  assert.strictEqual(x.removed, 1);
+  assert.deepStrictEqual(P.seq._v[1]._clips.map(c => c.name), ['I001.mp4']);
+});
+test('highlights: when the track can’t be renamed, the remembered track is reused only if it holds nothing but highlights', () => {
+  const P = makePremiere({ adjustment: true, trackNamesWritable: false });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 30 }] });
+  const r1 = P.call('storyHighlights', { seqId: 's1', sections: [{ name: 'A', start: 1, end: 2 }] });
+  assert.strictEqual(r1.named, false);
+  const r2 = P.call('storyHighlights', { seqId: 's1', trackIndex: r1.track, sections: [{ name: 'B', start: 3, end: 4 }] });
+  assert.deepStrictEqual([r2.track, r2.removed], [r1.track, 1]);
+  P.seq._v[r1.track].overwriteClip(P.interview, 20);
+  const r3 = P.call('storyHighlights', { seqId: 's1', trackIndex: r1.track, sections: [{ name: 'C', start: 5, end: 6 }] });
+  assert.notStrictEqual(r3.track, r1.track, 'a track with the editor’s own clips is never treated as ours');
+});

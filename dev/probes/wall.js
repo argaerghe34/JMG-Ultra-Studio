@@ -1,0 +1,1 @@
+US.tools.open('story'); await new Promise(r => setTimeout(r, 300)); const b = [...document.querySelectorAll('.seg')].find(x => x.textContent === 'Wall'); b && b.click(); await new Promise(r => setTimeout(r, 800)); document.querySelector('.view').scrollTop = 0; return !!b;

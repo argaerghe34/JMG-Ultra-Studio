@@ -1,0 +1,1 @@
+return { tools: US.tools.list().map(t => t.id), actions: US.actions.list().length, errors: US.log.entries().filter(e => e.level === 'error').map(e => e.text + ' ' + e.detail) };

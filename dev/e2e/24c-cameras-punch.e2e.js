@@ -1,0 +1,21 @@
+// Camera Switch with one camera: punch-ins on every other shot (a copy), sound untouched.
+const S = US.story, Cm = US.cameras;
+const [iv] = await T.importOnce([T.media('interview', 'I001_interview.mp4')], 'Test – Story');
+S.loadState();
+if (!S.state().transcripts.some(t => /I001_interview/.test(t.name || t.path || ''))) await S.importFiles(US.jobs.testJob('story'), [T.media('transcripts', 'I001_interview.srt')]);
+const seq = await T.freshSequence('E2E One camera', iv.id, 'Test – E2E');
+await US.host.call('placeClips', { seqId: seq.id, clips: [{ id: iv.id, in: 0, out: 40, at: 0 }] });
+await T.open(seq.id);
+const prevZoom = (US.settings.get('cameras', {}) || {}).zoom;
+US.settings.set('cameras', Object.assign({}, US.settings.get('cameras', {}), { zoom: 120 }));
+const res = await T.action('cameras.cut', { mode: 'alternate', min: 4, max: 12 });
+US.settings.set('cameras', Object.assign({}, US.settings.get('cameras', {}), { zoom: prevZoom }));
+T.assert(/punch-in/.test(res.summary), res.summary);
+const scales = JSON.parse(await US.host.rawEval(`(function(){ var s=UStudio.needSeq(${JSON.stringify(res.copy.id)}), tr=s.videoTracks[0], o=[]; for (var c=0;c<tr.clips.numItems;c++){ var ti=tr.clips[c], sc=null; for (var k=0;k<ti.components.numItems;k++){ var cp=ti.components[k]; if (cp.displayName==='Motion') for (var p=0;p<cp.properties.numItems;p++) if (cp.properties[p].displayName==='Scale') sc=cp.properties[p].getValue(); } o.push([ti.start.seconds, ti.end.seconds, sc]); } return JSON.stringify(o); })()`));
+T.assert(scales.length === res.shots.length, `one piece per shot: ${scales.length} vs ${res.shots.length}`);
+scales.forEach(([a, b, sc], i) => { const want = res.shots[i].cam === Cm.PUNCH ? 120 : 100; T.near(sc, want, 0.5, `shot ${i + 1} (${a.toFixed(1)}–${b.toFixed(1)}) scale`); });
+T.assert(scales.some(x => Math.abs(x[2] - 120) < 0.5) && scales[0][2] === 100, 'starts wide, then punches in');
+const before = await US.host.call('sequenceInfo', { seqId: seq.id }), after = await US.host.call('sequenceInfo', { seqId: res.copy.id });
+T.assert(JSON.stringify(after.audio.map(t => t.clips.length)) === JSON.stringify(before.audio.map(t => t.clips.length)), 'sound untouched');
+T.assert(before.video[0].clips.length === 1, 'the original is unchanged');
+return { summary: res.summary, scales: scales.map(x => `${x[0].toFixed(1)}–${x[1].toFixed(1)} ${x[2]}%`) };

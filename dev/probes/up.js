@@ -1,0 +1,1 @@
+return { tools: US.tools ? US.tools.list().map(t=>t.id) : null, ctx: US.ctx && US.ctx.project && US.ctx.project.name, story: !!(US.tools && US.tools.get("story")) };

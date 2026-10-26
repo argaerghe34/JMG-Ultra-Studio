@@ -1,0 +1,13 @@
+const seqs = await US.host.call('listSequences'); const s = seqs.find(x => x.name === 'Me Deliver Test');
+await US.host.call('openSequence', { seqId: s.id }); await US.refreshContext();
+US.tools.open('deliver', { tab: 'notes' });
+const ta = [...document.querySelectorAll('textarea')].find(t => t.placeholder.startsWith('Paste notes'));
+ta.value = '0:02 lose the cough\n00:00:05:12 – swap the music here\n0:45 this is past the end';
+ta.dispatchEvent(new Event('input'));
+await new Promise(r => setTimeout(r, 400));
+const btn = [...document.querySelectorAll('button')].find(b => b.textContent === 'Add notes as markers');
+btn.click();
+for (let i = 0; i < 40 && !US.jobs.current; i++) await new Promise(r => setTimeout(r, 50));
+for (let i = 0; i < 100 && US.jobs.current; i++) await new Promise(r => setTimeout(r, 100));
+const info = await US.host.call('sequenceInfo', { seqId: s.id, clips: false });
+return { last: US.log.entries().slice(-1)[0].text, markers: info.markers.map(m => `${m.start.toFixed(2)} [${m.color}] ${m.name}`) };

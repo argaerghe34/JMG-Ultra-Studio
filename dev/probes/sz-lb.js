@@ -1,0 +1,1 @@
+[...document.querySelectorAll('.seg')].find(b => b.textContent === 'Letterbox').click(); await new Promise(r => setTimeout(r, 600)); return 1;

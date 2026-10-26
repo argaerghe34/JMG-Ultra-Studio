@@ -1,0 +1,1 @@
+US.tools.open('selects'); const v = document.querySelector('.view'); v.scrollTop = 420; await new Promise(r => setTimeout(r, 500)); return v.scrollHeight;

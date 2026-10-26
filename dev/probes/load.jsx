@@ -1,0 +1,1 @@
+(function(){ try { $.evalFile("/Users/jgersch/Downloads/WhatsApp Chat with Tab/JMG Ultra Studio/jsx/host.jsx"); return "loaded " + typeof UStudio; } catch(e){ return "ERR "+e+" line "+e.line; } })()

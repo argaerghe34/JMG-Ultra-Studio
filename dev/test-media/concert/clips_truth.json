@@ -1,0 +1,122 @@
+{
+  "scene": "3840x2160 synthetic stage, rendered once. 'Default view' = 1:1 crop at x=1280,y=700 (1920x1080). Dark wing: top-left of the scene (x<1500, y<850 at 25 % brightness, feathered to x=1900, y=1150).",
+  "audio": "C001-C010: soft crowd babble + pink bed, -30 dBFS RMS, AAC 48 kHz stereo. C008 audio is identical to C001.",
+  "clips": [
+    {
+      "file": "C001_sharp_static.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "normal", "stability": "steady", "motion": "static" },
+      "camera": "static, default view"
+    },
+    {
+      "file": "C002_blurry.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "blurry", "exposure": "normal", "stability": "steady" },
+      "blur": "3x box blur r=12 px on the 2x scene, shown 1:1 (~Gaussian sigma 12.5 px at 1080p), whole clip"
+    },
+    {
+      "file": "C003_dark.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "underexposed", "stability": "steady" },
+      "exposure_gain": 0.1
+    },
+    {
+      "file": "C004_overexposed.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "overexposed", "stability": "steady" },
+      "transfer": "v' = min(255, 70 + 3.2*v) per 8-bit channel"
+    },
+    {
+      "file": "C005_shaky.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "normal", "stability": "shaky" },
+      "shake": "independent uniform random per frame: dx,dy in [-25,25] px, rotation in [-0.6,0.6] deg (seeded)"
+    },
+    {
+      "file": "C006_whip_pan.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "normal", "stability": "steady" },
+      "events": [
+        {
+          "type": "whip_pan",
+          "start": 4.0,
+          "end": 4.6,
+          "displacement_px": 1500,
+          "direction": "camera pans right, image content moves left",
+          "easing": "smoothstep; 180-degree shutter motion blur, 24 sub-samples/frame"
+        }
+      ],
+      "segments": [
+        { "start": 0.0, "end": 4.0, "label": "good" },
+        { "start": 4.0, "end": 4.6, "label": "whip_pan" },
+        { "start": 4.6, "end": 10.0, "label": "good" }
+      ]
+    },
+    {
+      "file": "C007_reveal_pullback.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "dark -> normal", "stability": "smooth zoom" },
+      "zoom": { "from": 2.0, "to": 1.0, "start": 0.0, "end": 8.0, "easing": "smoothstep", "anchor": "scene top-left corner (dark wing)" },
+      "brightness_gain": { "from": 0.15, "to": 1.0, "start": 0.0, "end": 8.0, "easing": "smoothstep" },
+      "segments": [
+        { "start": 0.0, "end": 8.0, "label": "reveal" },
+        { "start": 8.0, "end": 10.0, "label": "hold (wide, normal exposure)" }
+      ]
+    },
+    {
+      "file": "C008_duplicate_of_C001.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "normal", "stability": "steady", "motion": "static" },
+      "duplicate_of": "C001_sharp_static.mp4",
+      "offset_px": { "x": 2, "y": 1 },
+      "note": "frame(x,y) == C001 frame(x+2,y+1); identical audio"
+    },
+    {
+      "file": "C009_slow_pan_good.mp4",
+      "duration": 10.0,
+      "frames": 250,
+      "labels": { "focus": "sharp", "exposure": "normal", "stability": "steady", "motion": "slow pan" },
+      "pan": {
+        "speed_px_per_s": 30.0,
+        "total_px": 300,
+        "direction": "camera pans right, image content moves left",
+        "quantization": "integer-pixel positions (1-2 px per frame)"
+      }
+    },
+    {
+      "file": "C010_mixed.mp4",
+      "duration": 20.0,
+      "frames": 500,
+      "labels": { "focus": "mixed", "exposure": "mixed", "stability": "mixed" },
+      "segments": [
+        { "start": 0.0, "end": 3.0, "label": "shaky" },
+        { "start": 3.0, "end": 15.0, "label": "good" },
+        { "start": 15.0, "end": 17.0, "label": "blurry" },
+        { "start": 17.0, "end": 20.0, "label": "dark" }
+      ],
+      "best_segment": { "start": 3.0, "end": 15.0 }
+    },
+    {
+      "file": "C011_concert_long.mp4",
+      "duration": 120.0,
+      "frames": 3000,
+      "labels": { "focus": "sharp", "exposure": "normal", "stability": "steady", "motion": "static camera, slowly cycling coloured light pools" },
+      "audio_source": "audio/concert_set.wav, 0-120 s",
+      "audio_segments": [
+        { "type": "applause", "label": "Opening applause", "start": 0.0, "end": 15.0, "truncated": false },
+        { "type": "song", "label": "Song 1", "start": 15.0, "end": 75.0, "truncated": false },
+        { "type": "applause", "label": "Applause after song 1", "start": 75.0, "end": 83.0, "truncated": false },
+        { "type": "talk", "label": "MC talk", "start": 83.0, "end": 95.0, "truncated": false },
+        { "type": "song", "label": "Song 2", "start": 95.0, "end": 120.0, "truncated": true }
+      ]
+    }
+  ]
+}

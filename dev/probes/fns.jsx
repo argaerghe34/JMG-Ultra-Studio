@@ -1,0 +1,1 @@
+(function(){ var r = []; try { $.evalFile("/Users/jgersch/Downloads/WhatsApp Chat with Tab/JMG Ultra Studio/jsx/host.jsx"); r.push("loaded"); } catch(e) { r.push("ERR " + e + " line " + e.line); } r.push(UStudio.run("listFns","{}")); return r.join("\n"); })()

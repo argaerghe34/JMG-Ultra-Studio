@@ -1,0 +1,1 @@
+const fs = require('fs'); return { dir: US.host.extensionDir(), real: fs.realpathSync(US.host.extensionDir()), hasDev: fs.existsSync(US.host.extensionDir() + '/dev'), tools: US.tools.list().length, actions: US.actions.list().length, fns: (await US.host.call('listFns')).length, errors: US.log.entries().filter(e => e.level === 'error').length };
