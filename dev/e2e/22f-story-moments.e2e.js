@@ -50,7 +50,8 @@ try {
   const oldB = await T.seqByName('Test – Story moments built'); if (oldB) await US.host.call('deleteSequence', { seqId: oldB.id });
   const bm = await S.buildMoments(job, mine, { colour: true, labels: true, name: 'Test – Story moments built' });
   const bi = await US.host.call('sequenceInfo', { seqId: bm.seq.id });
-  const labelled = bi.markers.filter(m => M.ORDER.some(ty => m.name.startsWith(M.TYPES[ty].name)));
+  // a range marker on each clip (the type headings are single-point markers)
+  const labelled = bi.markers.filter(m => m.end - m.start > 0.05 && M.ORDER.some(ty => m.name.startsWith(M.TYPES[ty].name)));
   T.assert(bi.video[0].clips.length === mine.length && labelled.length === mine.length, `built ${bi.video[0].clips.length} clips, ${labelled.length} labelled`);
   for (const m of labelled) { const ty = M.ORDER.find(t => m.name.startsWith(M.TYPES[t].name)); T.assert(m.color === S.LABEL_TO_MARKER[M.TYPES[ty].label], `${m.name}: marker colour ${m.color}`); }
   T.assert(new Set(labelled.map(m => m.color)).size === 4, 'four colours for four types');

@@ -448,3 +448,13 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   overnight.report empty, zip 1.2.0 (0 "._"). The e2e had left the SHARED settings on Selects footage "concert" and
   Overnight "documentary" → set back to "any" (Premiere closed); story.tab set to step 1. dev/e2e/run.js now restores
   those shared settings after every test (dev only; syntax-checked, not yet run).
+- Mon 26 Oct ~16:40–18:10 – 1.3.0 (Jacob's notes, run early at his request): Selects camera movement (direction,
+  smoothness, Camera movement setting, Smooth camera moves filter/sort/bin; grades stay technical), Colour previews
+  made automatically from the frame under the playhead (looks captured once as 32³ colour tables; LUTs from file;
+  quick grade; before/after viewer, ← →, shot strip), Moments colour-coded and labelled by type (theme per type,
+  Build these moments), ▶ cue checks the loaded clip and position before playing. Review: 6 findings fixed. Premiere:
+  Jacob's Premiere didn't answer an AppleScript quit (screen dark, likely a dialog) → stopped by exact PID after he
+  confirmed his project was saved. Found in Premiere and fixed: frames taken at 160×90 (previews need 320×180).
+  Measured: identity table exact (0); film look vs Premiere 0.00; SpeedLooks Blue Cold 4.1/255 (its slight
+  softening isn't a colour). Full e2e 33/33 first time; unit 216; monday.sh green (89 commands), Premiere closed,
+  shared settings intact (Any footage, Smooth moves count). Vision model research: dev/VISION-MODELS.md.

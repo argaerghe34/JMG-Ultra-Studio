@@ -310,7 +310,7 @@
   const shotFrames = new Map();   // seqId|start -> frame of a shot in the sequence (the strip under the viewer)
   async function grabFrame(seqId, t) {
     const p = await US.host.call('exportFrame', { seqId, seconds: t, outBase: path.join(US.fsx.tempDir(), 'col-frame-' + Date.now()) });
-    try { const base = await framePixels(p); const small = toRGB((await framePixels(p, SW, SH)).data); return { key: `${seqId}@${t.toFixed(2)}`, seqId, t, base, small }; }
+    try { const base = await framePixels(p, PW, PH); const small = toRGB((await framePixels(p, SW, SH)).data); return { key: `${seqId}@${t.toFixed(2)}`, seqId, t, base, small }; }
     finally { try { fs.unlinkSync(p); } catch (e) { /* gone */ } }
   }
 
@@ -579,7 +579,7 @@
         if (!clips.length) throw new US.UserError('NO_SELECTION', which.get() === 'selected' ? { title: 'No clips are selected in the timeline.', action: 'Select clips in the Timeline, or choose “Clip at the playhead”.' } : { title: 'No clip found.', action: 'Park the playhead on a clip, then try again.' });
         return { s, clips };
       };
-      const thumb = (key, label, url, on, onPick) => h('button.colour-thumb' + (on ? '.on' : ''), { title: label, onclick: onPick }, h('img', { src: url || '', alt: label }), h('span', label));
+      const thumb = (key, label, url, on, onPick) => h('button.colour-thumb' + (on ? '.on' : ''), { title: label, onclick: onPick }, h('img', url ? { src: url, alt: label } : { alt: '' }), h('span', label));   // no picture yet: a plain dark tile
 
       /* ---------- the viewer: your frame, before and after, with ◀ ▶ through the looks (or LUTs) ---------- */
       const viewImg = h('img.colour-preview', { alt: 'Preview' }), viewName = h('b.grow'), viewNote = h('div.field-hint');
