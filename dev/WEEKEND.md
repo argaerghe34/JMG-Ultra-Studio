@@ -470,4 +470,6 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   Home says where Story is saved. Version steps are now 1.3.x at Jacob's request. Independent review: 3 fixed
   (a lone same-name clip was matched without checking its words; an upgraded project asked "two computers" on every
   open because its first shared write wasn't stamped; an unreadable shared copy could be replaced without a backup).
-  Unit 231 (15 new). Not yet run in Premiere.
+  Unit 231 (15 new). Premiere: full e2e 34/34 first time (new 22l-story-sync); monday.sh green (89 commands),
+  installed copy identical, Premiere closed. The e2e had changed the shared settings story.tab and story.narrativeAI
+  → set back (Premiere closed); dev/e2e/run.js now restores those two as well. Released v1.3.1.
