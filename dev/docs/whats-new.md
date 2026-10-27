@@ -1,3 +1,7 @@
+## What's new in 1.3.1
+
+- **Story travels with the project.** Story's transcripts, themes, narratives and speaker names are now also saved in a **JMG Ultra Studio** folder next to the project, so the same project opened on your Mac or your PC – from the same drive, or a copy of the folder – opens Story where you left it. Reading the transcripts again on the other computer keeps every theme and narrative. If Story was changed on both computers in between, it opens the newer one and offers the other, which is kept as a backup. **Settings › Story** switches it off.
+
 ## What's new in 1.3
 
 - **Selects counts camera movement.** Every select names its move – *Pan left/right*, *Tilt up/down*, *Push-in*, *Pull-out*, *Static*, *Handheld* or a *reveal* – and how smooth it is. **Camera movement** sets how much smooth moves count (**Smooth moves count** by default, or **Moves first**), and **Smooth camera moves** finds them all.

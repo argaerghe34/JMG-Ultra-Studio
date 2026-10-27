@@ -4,6 +4,7 @@
   const US = window.US, h = US.h, ui = US.ui;
 
   const WHATS_NEW = [
+    'New in 1.3.1 – Story travels with the project: it’s also saved in a “JMG Ultra Studio” folder next to the project, so the same project opened on your Mac or your PC (from the same drive, or a copy of the folder) opens Story where you left it.',
     'New in 1.3 – Selects names every camera move (pan left/right, tilt, push-in, pull-out, reveals) and how smooth it is, and smooth moves count. Colour previews appear by themselves as you move the playhead, with a before/after viewer. Moments are colour-coded and labelled by type in the timeline. ▶ in Story plays from the exact line.',
     'Story is the heart of Ultra Studio, now step by step: 1 Interviews · 2 Themes · 3 Find · 4 Build · 5 Share, each with a Next button. Choose what to work on once – all interviews, some of them, or just the lines in a sequence such as your selects (between its In and Out if you like).',
     'Type your own themes and Story finds them and its own in one pass – the AI reads your lines once. Then: How picky per theme, a sequence from your themes in their colours, a narrative cut from one sentence (and a promo with B-roll, captions and a vertical version), Moments, highlights in your string-outs, an interview log with a summary of each interview, a paper edit, and word-timed captions.',
@@ -48,6 +49,16 @@
           return { interviews: st.transcripts.length, lines, themes: st.themes.filter(t => t.name !== 'Other').length, narratives };
         } catch (e) { return null; }
       }
+      /** Where this project's Story is saved, in a line. */
+      function storyWhere() {
+        const st = US.story && US.story.syncStatus ? US.story.syncStatus() : null;
+        if (!st) return null;
+        const text = st.where === 'project' ? 'Story is saved with the project, so it opens the same on your other computer.'
+          : st.reason === 'off' ? 'Story is kept on this computer only (Settings › Story).'
+          : st.reason === 'unwritable' ? 'Story is kept on this computer only: the project’s folder can’t be written to.'
+          : st.reason === 'unreadable' ? 'The Story copy next to the project couldn’t be read, so this computer’s copy is used.' : '';
+        return text ? h('div.field-hint', text) : null;
+      }
       const openSection = s => (US.story && US.story.open) ? US.story.open(s) : US.tools.open(US.FEATURED, { tab: s });
       function renderFeatured() {
         US.clear(featuredCard);
@@ -60,6 +71,7 @@
             h('div', h('div.tile-name', d.name + ' – the heart of Ultra Studio'), h('div.tile-blurb', 'Interviews and documentaries, step by step: read the transcripts, find the themes and the lines you need, build the cut and share the documents.'))),
           c ? ui.stats(ui.stat(c.interviews, 'interviews read'), ui.stat(c.lines.toLocaleString(), 'lines'), ui.stat(c.themes, 'themes'), ui.stat(c.narratives, c.narratives === 1 ? 'narrative' : 'narratives'))
             : h('div.field-hint', US.ctx.project ? 'Open Story to read this project’s transcripts.' : 'Open a project in Premiere to begin.'),
+          c && c.interviews ? storyWhere() : null,
           h('div.row',
             step(hasTranscripts ? 'Read transcripts again' : 'Read Premiere’s transcripts', 'refresh', () => US.actions.run('story.read', {}).then(renderFeatured), !hasTranscripts),
             step('2 Themes', 'story', () => openSection('themes'), hasTranscripts && !c.themes),

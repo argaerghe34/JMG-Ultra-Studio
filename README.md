@@ -12,7 +12,7 @@ The guide is in [`dev/docs/`](dev/docs) (built into *Read me first.html* in ever
 4. Open Premiere Pro › **Window › Extensions › JMG Ultra Studio**, then on Home press **Check my setup**.
 5. Add your AI key again in Settings – keys are kept on each computer, never in this repository.
 
-Your settings, analysis cache and logs live in `%APPDATA%\JMG Ultra Studio` (Windows) or `~/Library/Application Support/JMG Ultra Studio` (Mac). Story's themes and narratives are kept per computer, so a project opened on a second computer starts Story fresh.
+Your settings, analysis cache and logs live in `%APPDATA%\JMG Ultra Studio` (Windows) or `~/Library/Application Support/JMG Ultra Studio` (Mac). Story is also saved in a `JMG Ultra Studio` folder next to each project, so a project opened on the other computer (same drive, or a copy of the folder) opens Story where you left it.
 
 ## Working on the code on the PC
 

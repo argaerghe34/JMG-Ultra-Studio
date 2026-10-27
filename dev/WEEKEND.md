@@ -458,3 +458,16 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   Measured: identity table exact (0); film look vs Premiere 0.00; SpeedLooks Blue Cold 4.1/255 (its slight
   softening isn't a colour). Full e2e 33/33 first time; unit 216; monday.sh green (89 commands), Premiere closed,
   shared settings intact (Any footage, Smooth moves count). Vision model research: dev/VISION-MODELS.md.
+- Tue 27 Oct – 1.3.1, Story travels with the project (dev/PLAN-STORY-SYNC.md; Jacob uses one drive on both
+  computers). Story also writes "<project> – Story.json" in a "JMG Ultra Studio" folder next to the .prproj (3 s
+  after the last change, and when the panel hides/closes or the project changes); the copy in Application Support
+  stays. Which copy opens: the one that changed since this computer last synced (id kept in the project store);
+  changed on both → newer opens, the other is backed up beside it and offered in a dialog. Sync-service conflicted
+  copies are offered once and renamed to backups; ._ files ignored; a copy the other computer wrote while this one was
+  open is backed up, not overwritten blindly. Transcripts read again with a new path match the old one (clip id, then
+  file name, same-name clips by their words; a clip whose own file still exists is never taken over) and keep their
+  key and line ids (carryIds also rescues lines that moved ≤1.5 s when re-transcribed). Settings › Story switch;
+  Home says where Story is saved. Version steps are now 1.3.x at Jacob's request. Independent review: 3 fixed
+  (a lone same-name clip was matched without checking its words; an upgraded project asked "two computers" on every
+  open because its first shared write wasn't stamped; an unreadable shared copy could be replaced without a backup).
+  Unit 231 (15 new). Not yet run in Premiere.

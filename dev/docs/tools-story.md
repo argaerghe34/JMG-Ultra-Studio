@@ -4,6 +4,8 @@ For documentaries, charity films and anything built from interviews: find the be
 
 Story works in **five steps**, in the order you work: **1 Interviews · 2 Themes · 3 Find · 4 Build · 5 Share**. Each step says what it's for and ends with a **Next** button, and a ✓ marks the steps that are done. You can go back to any step at any time, and 3 Find is optional.
 
+**Story travels with the project.** Everything in Story is saved with the project too, in a **JMG Ultra Studio** folder next to the `.prproj` (*<project> – Story.json*), so opening the project on another computer – your PC and your Mac, from the same drive or a copy of the folder – opens Story where you left it. Reading the transcripts again there keeps every theme, narrative and moment, even though the drive's path is different. If Story was changed on both computers without the copies meeting (say the drive was away), it opens the newer one and asks; the other is kept as a backup in the same folder, so nothing is lost. Home says where Story is saved. To keep Story on this computer only, switch off **Settings › Story › Keep Story next to the project** – worth doing if you share the project folder with people who shouldn't read the transcripts.
+
 AI is optional: every step works without it. With an AI key (Settings), extra switches appear, named after your AI model (e.g. *Let Claude Opus 5.5 choose the lines*). Only the text of transcript lines is sent, never footage.
 
 **1 Interviews – get the transcripts and choose what to work on.**

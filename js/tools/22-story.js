@@ -44,16 +44,56 @@
   let state = null, statePath = '', lineById = new Map(), clipOfLine = new Map();
   const emptyState = () => ({ transcripts: [], speakers: {}, themes: [], wall: { columns: [] }, picked: [], whoIsWho: {} });
   function storyFile(projectPath) { return path.join(US.fsx.dataDir, 'projects', US.fsx.hash(projectPath || 'none') + '-story.json'); }
+  // the copy next to the project (22-story-sync.js), so the project opened on another computer has its Story
+  let session = null;
   function loadState() {
     const p = (US.ctx.project && US.ctx.project.path) || '';
     if (p === statePath && state) return state;
+    flushShared();
     statePath = p;
-    state = Object.assign(emptyState(), p ? US.fsx.readJSON(storyFile(p), {}) : {});
+    session = p && US.storySync ? US.storySync.open(p, storyFile(p)) : null;
+    state = Object.assign(emptyState(), p ? (session ? session.state || {} : US.fsx.readJSON(storyFile(p), {})) : {});
     reindex(); ensureColours();
+    if (session && session.other) { const other = session.other; setTimeout(() => offerOther(other), 300); }
+    if (session && session.needsWrite) saveNow();   // stamped, so the next open knows the two copies match
     return state;
   }
-  const saveNow = () => { if (statePath && state) { try { US.fsx.writeJSON(storyFile(statePath), state); } catch (e) { US.ui.showError(e, { context: 'Saving Story' }); } } };
+  const saveNow = () => {
+    if (!statePath || !state) return;
+    if (session) session.stamp(state);
+    try { US.fsx.writeJSON(storyFile(statePath), state); } catch (e) { US.ui.showError(e, { context: 'Saving Story' }); }
+    if (session) saveShared();
+  };
   const save = US.debounce(saveNow, 400);
+  // a few seconds after the last change, so a synced drive isn't kept busy
+  let sharedTimer = null;
+  function saveShared() { clearTimeout(sharedTimer); sharedTimer = setTimeout(flushShared, 3000); }
+  function flushShared() {
+    if (sharedTimer == null || !session || !state) return;
+    clearTimeout(sharedTimer); sharedTimer = null;
+    const theirs = session.writeShared(state);
+    if (theirs) setTimeout(() => offerOther(theirs), 0);
+  }
+  window.addEventListener('beforeunload', flushShared);
+  if (document.addEventListener) document.addEventListener('visibilitychange', () => { if (document.hidden) flushShared(); });
+  /** Story was changed on two computers without the copies meeting: the newer one is open, the other was kept as a
+      backup next to the project – offer it. */
+  async function offerOther(other) {
+    const S = US.storySync, mine = state, forPath = statePath;
+    const pick = await US.ui.modal({
+      title: 'Story was changed on two computers',
+      body: US.h('div',
+        US.h('p', `This project’s Story was changed on ${S.describe(mine)} and on ${S.describe(other)}, and the two copies didn’t meet in between.`),
+        US.h('p', `Story has opened the newer one, from ${S.describe(mine)}. The other is kept as a backup in the “JMG Ultra Studio” folder next to the project, so nothing is lost.`)),
+      buttons: [{ label: `Use the one from ${S.describe(other).split(',')[0]}`, value: 'other', kind: 'ghost' }, { label: 'Keep this one', value: 'keep', kind: 'primary' }]
+    });
+    if (pick !== 'other' || statePath !== forPath || state !== mine) return;
+    try { US.fsx.writeJSON(S.backupName(forPath, mine), mine); } catch (e) { /* the copy on this computer is overwritten next */ }
+    state = Object.assign(emptyState(), other);
+    reindex(); ensureColours(); saveNow(); flushShared();
+    US.log('info', `Story switched to the copy from ${S.describe(other)}; the other is kept as a backup`, '', 'story');
+    US.bus.emit('story-replaced');
+  }
   function reindex() {
     lineById = new Map(); clipOfLine = new Map(); linesStamp++;
     for (const t of state.transcripts) for (const l of t.lines) { lineById.set(l.id, l); clipOfLine.set(l.id, t); }
@@ -85,13 +125,21 @@
     return SPEAKER_COLORS[state.speakers[s].color % SPEAKER_COLORS.length];
   }
 
+  // lines that came back different when transcripts were read again (for the summary)
+  const readCount = { again: 0, changed: 0 };
+  const readNote = () => readCount.changed ? ` · ${US.plural(readCount.changed, 'line')} read differently this time` : '';
   /** Add or replace a transcript. lines get ids unique across the project. */
   function addTranscript({ name, path: p, itemId, source, file, format, language, segments }) {
-    const key = p || name;
-    const prefix = US.fsx.hash(key).slice(0, 5);
-    const lines = T.toLines(segments, prefix);
-    const t = { key, name, path: p || '', itemId: itemId || '', source, file: file || '', format: format || '', language: language || '', lines, added: Date.now() };
-    const i = state.transcripts.findIndex(x => x.key === key);
+    const prefixOf = k => US.fsx.hash(k).slice(0, 5);
+    let key = p || name;
+    let lines = T.toLines(segments, prefixOf(key));
+    // read before – maybe on another computer, where the clip's path is different: keep its key and line ids, so
+    // themes, narratives and moments still find their lines
+    const old = US.storySync ? US.storySync.matchTranscript(state.transcripts, { key, path: p, name, itemId, lines }) : state.transcripts.find(x => x.key === key);
+    if (old && old.key !== key) { key = old.key; lines = T.toLines(segments, prefixOf(key)); }
+    if (old && US.storySync) { const r = US.storySync.carryIds(old.lines, lines); readCount.again++; readCount.changed += r.changed; }
+    const t = { key, name, path: p || '', itemId: itemId || (old && old.itemId) || '', source, file: file || '', format: format || '', language: language || '', lines, added: Date.now() };
+    const i = old ? state.transcripts.indexOf(old) : -1;
     if (i >= 0 && state.transcripts[i].summary) t.summary = state.transcripts[i].summary;   // kept while it still fits (summarySig)
     if (i >= 0) state.transcripts[i] = t; else state.transcripts.push(t);
     lines.forEach(l => speakerColor(l.speaker));
@@ -1310,11 +1358,12 @@
     const found = await T.readProjectTranscripts(pf.path, { onProgress: p => job.progress(p * 0.85, 'Reading transcripts from the project file'), check: () => job.check() });
     if (!found.length) throw new US.UserError('NOTHING_FOUND', { title: 'Premiere hasn’t made any transcripts in this project yet.', action: 'Select your interview clips in the Project panel, right-click › Transcribe (free, runs on this computer). When it finishes, press this button again.' });
     job.set({ msg: 'Linking transcripts to clips' });
+    readCount.again = readCount.changed = 0;
     for (const f of found) addTranscript({ name: f.name, path: f.path, source: 'premiere', language: f.language, segments: f.segments });
     await resolveItems(state.transcripts);
     reindex(); saveNow();
     const lines = found.reduce((n, f) => n + f.segments.length, 0);
-    return { summary: `${US.plural(found.length, 'transcript')} read (${US.plural(lines, 'sentence')})` };
+    return { summary: `${US.plural(found.length, 'transcript')} read (${US.plural(lines, 'sentence')})${readNote()}` };
   }
 
   async function importFiles(job, files) {
@@ -1322,6 +1371,7 @@
     const clips = await projectClips();
     const masters = clips.filter(c => !c.sub);
     let ok = 0; const bad = [];
+    readCount.again = readCount.changed = 0;
     for (let i = 0; i < files.length; i++) {
       job.check();
       job.progress(i / files.length, `Reading ${US.basename(files[i])}`);
@@ -1335,7 +1385,7 @@
     reindex(); saveNow();
     if (bad.length) US.ui.toast({ type: 'warn', title: `${US.plural(bad.length, 'file')} couldn’t be read`, text: 'Those files have no timecodes we recognise.', detail: bad.join('\n') });
     const unlinked = state.transcripts.filter(t => !t.path && !t.itemId).length;
-    return { summary: `${US.plural(ok, 'transcript')} imported${unlinked ? ` · ${unlinked} not linked to a clip yet` : ''}` };
+    return { summary: `${US.plural(ok, 'transcript')} imported${unlinked ? ` · ${unlinked} not linked to a clip yet` : ''}${readNote()}` };
   }
 
   /* ================= small UI pieces ================= */
@@ -2483,6 +2533,7 @@
       }
 
       US.bus.on('context', () => { const was = statePath; loadState(); if (was !== statePath) render(); });
+      US.bus.on('story-replaced', () => render());
       return { el: v.el, onShow(opts) {
         if (opts && opts.tab) tab = opts.tab;
         if (opts && opts.section) pendingSection = opts.section;
@@ -2836,7 +2887,7 @@
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
     SECTIONS,
     loadState: () => loadState(), state: () => state, addTranscript: (...a) => { const t = addTranscript(...a); reindex(); saveNow(); return t; },
-    buildSequence, sortIntoBins, readPremiereTranscripts, importFiles, fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
+    buildSequence, sortIntoBins, readPremiereTranscripts, importFiles, syncStatus: () => (session ? session.status() : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
     themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,
@@ -2847,6 +2898,6 @@
     readsFor, setReads, readsPlan, rankCandidates,
     findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,
     /** tests only: use a state object without a project */
-    _useState(s) { state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }
+    _useState(s) { session = null; clearTimeout(sharedTimer); sharedTimer = null; state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }
   };
 })();

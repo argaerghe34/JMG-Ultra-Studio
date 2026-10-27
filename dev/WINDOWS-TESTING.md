@@ -66,7 +66,7 @@ Windows versions in `dev/win/` (PowerShell), modelled on the Mac ones:
 Media Encoder analysis copies (Selects on HEVC/ProRes/10-bit), Overnight prep keeping the PC awake (PowerShell),
 saving to Documents when it's in OneDrive, file names with spaces and non-English letters, Open / Show in Explorer
 buttons, Stills export, LUT folders (`%APPDATA%\Adobe\Common\LUTs`), Premiere's transcripts read from a saved project,
-installing over an older version and uninstalling, the panel at 125% / 150% display scaling, and dark/light themes.
+installing over an older version and uninstalling, **Story travelling with the project** (open a project the Mac has used Story on – from the same drive or a copy of its folder – and check Home shows its interviews and themes; then press Read Premiere's transcripts and check the themes keep their lines), the panel at 125% / 150% display scaling, and dark/light themes.
 
 ## Reporting back (this is how the Mac side hears about it)
 1. **A report file:** write `dev/WINDOWS-REPORT.md` – date, Windows + Premiere versions, display scaling, and for

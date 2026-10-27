@@ -1,6 +1,6 @@
 # Plan – Story travels with the project (Mac ↔ PC)
 
-Suggestion 1 from `dev/SUGGESTIONS.md`. Planned 27 Oct 2026; not built yet.
+Suggestion 1 from `dev/SUGGESTIONS.md`. Planned 27 Oct 2026. **Built as 1.3.1 the same day** (the user asked for smaller version steps: 1.3.1, not 1.4.0) – code in `js/tools/22-story-sync.js`, tests in `dev/tests/story-sync.test.js`. Not yet tested in Premiere.
 
 ## The goal
 You open the same project on the Mac or the PC and Story is where you left it: transcripts, speaker names, themes,
@@ -45,8 +45,9 @@ narratives, moments, interview summaries and what you were working on. Nothing t
   already in Story by Premiere's clip id, then by file name, then by name and duration. Path is not used. If it
   matches, the existing line ids are kept, by matching each new line to the old one by start time and words. A
   re-transcribed clip keeps whatever still matches, and Story says how many lines changed.
-- **New transcripts:** these get a line-id prefix that doesn't depend on the path (file name + duration), so they're
-  the same on both machines from the start. Existing ids are never renamed, so current projects are untouched.
+- **New transcripts** ~~get a line-id prefix that doesn't depend on the path~~ – dropped while building: the copy
+  next to the project already carries the ids, and a name-based prefix would clash for two cards' *C0001.MP4*.
+  Existing ids are never renamed, so current projects are untouched.
 - **Paths:** transcripts store the path from whichever computer last read them. Building uses the clip id or file
   name anyway.
 
@@ -76,7 +77,7 @@ narratives, moments, interview summaries and what you were working on. Nothing t
   there. Its first real proof comes from your PC run.
 
 ## Effort and risks
-- **Effort:** about 2–3 days, including tests. **Version:** 1.4.0.
+- **Effort:** about 2–3 days, including tests. **Version:** 1.3.1.
 - **Risk – a cloud drive syncs late:** the PC opens before the Mac's copy has arrived. The "both changed" question
   and the kept backup cover this. Story never silently overwrites.
 - **Risk – transcripts next to the project are seen by anyone you share the folder with.** That's normally what you

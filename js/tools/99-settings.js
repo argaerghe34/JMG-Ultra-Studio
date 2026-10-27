@@ -63,6 +63,8 @@
             h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
           ], { open: true })),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
+        ui.card(h('div.card-title', 'Story'),
+          ui.toggle({ label: 'Keep Story next to the project', value: US.settings.get('story.withProject', true) !== false, onChange: x => { US.settings.set('story.withProject', x); if (x && US.story && US.story.save) US.story.save(); }, hint: 'Story’s transcripts, themes and narratives are also saved in a “JMG Ultra Studio” folder next to the project, so the project opened on another computer – from the same drive, or a copy of the folder – finds them. Anyone you share that folder with can read the transcripts. Switched off, Story is kept on this computer only.' })),
         ui.card(h('div.card-title', 'Files'),
           h('div.muted.small', 'Settings, analysis results and logs: ', h('span.mono', US.fsx.dataDir)),
           h('div.row', ui.button('Open data folder', { small: true, icon: 'folder', onClick: () => openFolder(US.fsx.dataDir) }),
