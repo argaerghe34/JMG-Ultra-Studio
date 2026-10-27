@@ -84,8 +84,15 @@ narratives, moments, interview summaries and what you were working on. Nothing t
 - **Risk – existing projects:** the first time a project opens in 1.4, its current local Story is copied beside the
   project. Nothing is renamed or removed.
 
-## Questions for you
-1. **How will the project get from the Mac to the PC:** a shared or cloud-synced drive, or copying the folder? The
-   plan works for both. It only changes how much the "both changed" case matters.
-2. **Should the Story file sit in a `JMG Ultra Studio` folder** next to the project (my suggestion), or right
-   beside the `.prproj`?
+## Decided (27 Oct)
+- **The same drive, on both computers.** You may work on different projects on each computer. When one project is
+  edited on both, it lives on the same drive. That makes this the main case:
+  - **The folder path differs:** the drive is `/Volumes/<name>` on the Mac and a drive letter (`E:\`) on the PC.
+    The Story file is found relative to the project, and clips by Premiere's clip id or file name, so this doesn't
+    matter.
+  - **One computer at a time:** the drive is usually used by one computer at once, so "both changed" should be rare.
+    The question and the backup stay as a safety net.
+  - **Drives formatted for both (exFAT):** the Mac leaves hidden `._` files there. Story ignores them, and the Story
+    file's name uses only characters Windows allows.
+  - **Different projects on each computer:** each project has its own Story file, so they never mix.
+- **Where it sits:** a `JMG Ultra Studio` folder next to the project (as suggested), unless you say otherwise.
