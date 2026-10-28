@@ -490,3 +490,20 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   installed copy identical, Premiere closed; only the test project was opened (Jacob had already quit Premiere). The
   e2e changed the shared settings deliver.ranges, lastTool, src.bin → set back; dev/e2e/run.js restores them now.
   The release v1.3.2 (Windows-built zip) was left as published.
+- Wed 28 Oct (evening) – JMG Ultra Studio for DaVinci Resolve Studio, asked for by Jacob ("a complete version for
+  DaVinci Resolve … feature parity … on GitHub"; "when I give feedback, all versions – Premiere on Mac and Windows and
+  Davinci – updated simultaneously"). Also: Colour and Camera Switch paused in every version (code and unit tests
+  kept, US.PAUSED_TOOLS; "don't test hidden features"), and Settings › Markers (Timeline / Clips / Both) for every tool
+  that marks a sequence. Design in dev/RESOLVE.md: one panel; js/core/platform.js (US.app, US.say – Resolve's words);
+  resolve/host/*.js answer every jsx command with the same names and results; the plugin is a Workflow Integration
+  (Electron) whose main process keeps the one connection to Resolve (a second connection from a reloaded page hangs).
+  Built in four parallel parts, then tested in real Resolve 21.1.2 on the project "JMG Ultra Studio Test" (Jacob made
+  it and opened the panel; I opened the panel again through Resolve's menu later). Measured and handled: timeline
+  ranges end-exclusive, subclips inclusive, GetMarkers one frame early, names without : / etc., Wave/16 kHz not
+  scriptable (Audio Only → WAV here), render marks move the timeline's In/Out, SetCurrentTimeline busy after Smart
+  Reframe, stills always 5 s. Resolve crashed once: asking an imported .srt for its clip properties aborts Resolve 21.1
+  – subtitle items are never asked or placed now; Story's captions are imported for one drag. Independent review of
+  the Resolve layer: no undefined/NaN reaches Resolve; the stand-in Resolve fails tests on them. Selects: a small zoom
+  reading during a clear pan isn't a push-in any more (both editors). Unit 340. Premiere e2e 29/29 (twice, after all
+  changes). Resolve e2e: 18/30 on the second run before the fixes; the rest (and the new 22r/23r Resolve tests) wait
+  for Resolve to be reopened – the Mac locked at 17:53 and Resolve can't be reopened by script.
