@@ -4,12 +4,7 @@ const BIN = 'Test – Story', SEQ = 'Test – Story captions';
 const prevBase = US.settings.get('story.binBase'), prevDir = US.settings.get('story.exportDir');
 const outDir = path.join(fs.realpathSync(US.host.extensionDir()), 'dev', 'test-project', 'exports'); fs.mkdirSync(outDir, { recursive: true });   // imported into the test project, so not a temp folder
 US.settings.set('story.binBase', BIN); US.settings.set('story.exportDir', outDir);
-const captionTracks = async () => {
-  await US.host.call('saveProject');
-  const ctx = await US.host.call('context');
-  const xml = zlib.gunzipSync(fs.readFileSync(ctx.project.path)).toString('utf8');
-  return (xml.match(/<CaptionDataClipTrack /g) || []).length;
-};
+const captionTracks = () => T.captionTracks();
 try {
   S.loadState();
   const [ruth, c001] = await T.importOnce([T.media('interview', 'I001_interview.mp4'), T.media('concert', 'C001_sharp_static.mp4')], BIN);

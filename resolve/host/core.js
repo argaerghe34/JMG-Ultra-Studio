@@ -26,7 +26,7 @@ module.exports = (R) => {
   const tryCall = (fn, dflt) => { try { const v = fn(); return v == null ? dflt : v; } catch (e) { return dflt; } };
   /** Fast kind from two clip properties (GetClipProperty(key) is quicker than the whole dict). */
   function kindOf(item) {
-    const type = String(tryCall(() => item.GetClipProperty('Type'), '')), file = String(tryCall(() => item.GetClipProperty('File Path'), ''));
+    const type = String(R.prop(item, 'Type')), file = String(R.prop(item, 'File Path'));
     if (/timeline/i.test(type)) return 'sequence';
     if (/still/i.test(type) || R.STILL_EXT.test(file)) return 'still';
     if (/^audio$/i.test(type) || (!/video/i.test(type) && R.AUDIO_EXT.test(file))) return 'audio';
@@ -171,7 +171,7 @@ module.exports = (R) => {
             const c = { name: String(tryCall(() => x.ti.GetName(), '') || ''), start: x.start, end: x.end, in: x.in, out: x.out, disabled: !x.enabled, nodeId: R.id(x.ti), speed: x.speed };
             if (x.mpi) {
               c.itemId = R.id(x.mpi);
-              if (!files.has(c.itemId)) files.set(c.itemId, { path: String(tryCall(() => x.mpi.GetClipProperty('File Path'), '') || ''), isSequence: /timeline/i.test(String(tryCall(() => x.mpi.GetClipProperty('Type'), ''))) });
+              if (!files.has(c.itemId)) files.set(c.itemId, { path: String(R.prop(x.mpi, 'File Path') || ''), isSequence: /timeline/i.test(String(R.prop(x.mpi, 'Type'))) });
               const f = files.get(c.itemId);
               c.path = f.path; c.isSequence = f.isSequence; c.offline = !!f.path && !R.exists(f.path);
             }
@@ -261,7 +261,7 @@ module.exports = (R) => {
       const folder = folderFor(a), storage = R.api.GetMediaStorage(), out = [];
       R.inFolder(folder, () => {
         for (const s of a.items || []) {
-          const it = R.needItem(s.id), file = String(tryCall(() => it.GetClipProperty('File Path'), '') || '');
+          const it = R.needItem(s.id), file = String(R.prop(it, 'File Path') || '');
           if (!file) { out.push(null); continue; }
           const fps = R.clipFps(it), f0 = Math.max(0, Math.round(s.start * fps)), f1 = Math.max(f0 + 1, Math.round(s.end * fps));
           const got = R.list(tryCall(() => storage.AddItemListToMediaPool([{ media: file, startFrame: f0, endFrame: f1 - 1 }]), []))[0];
@@ -512,7 +512,7 @@ module.exports = (R) => {
       for (const p of a.paths || []) (R.exists(p) ? paths : missing).push(p);
       if (!paths.length) throw R.err('NOTHING_FOUND', 'Not on disk: ' + missing.join(', '), missing.length > 1 ? 'Those files aren’t there any more.' : 'That file isn’t there any more.', 'Check the drive is connected, then try again.');
       const got = R.inFolder(folder, () => R.list(R.pool().ImportMedia(paths)).filter(Boolean));
-      return got.map(it => ({ id: R.id(it), name: String(it.GetName() || ''), path: String(tryCall(() => it.GetClipProperty('File Path'), '') || '') }));
+      return got.map(it => ({ id: R.id(it), name: String(it.GetName() || ''), path: String(R.prop(it, 'File Path') || '') }));
     },
 
     /** Up to a.max (default 200) clips from anywhere in the project, for self-tests and pickers. */
@@ -531,7 +531,7 @@ module.exports = (R) => {
     /** The part of a clip Resolve will use (its Mark In/Out, or a subclip's range) and its full length, in seconds. */
     audioClipRange(a) {
       const it = R.needItem(a.id), info = R.itemInfo(it), fps = info.fps || 25;
-      const tc = String(tryCall(() => it.GetClipProperty('Start TC'), '') || ''), sf = R.tcToFrames(tc, fps), mediaStart = isFinite(sf) ? sf / fps : 0;
+      const tc = String(R.prop(it, 'Start TC') || ''), sf = R.tcToFrames(tc, fps), mediaStart = isFinite(sf) ? sf / fps : 0;
       if (info.subclip) return { in: info.rangeStart, out: info.rangeEnd, duration: info.duration, mediaStart, subclip: true };
       const mk = tryCall(() => it.GetMarkInOut(), {}) || {}, m = mk.audio || mk.video;
       const i = m && m.in != null ? Number(m.in) / fps : 0, o = m && m.out != null ? (Number(m.out) + 1) / fps : info.duration;

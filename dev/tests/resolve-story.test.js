@@ -238,7 +238,7 @@ test('resolve story: storyProjectFile – Story travels next to the project’s 
   const n = F.saved; await run('storyProjectFile', { save: true }); assert.strictEqual(F.saved, n + 1);
 });
 
-test('resolve story: storyCaptions – an SRT on a new subtitle track from the start, or left to drag', async () => {
+test('resolve story: storyCaptions – the SRT imported into the Captions bin, left to drag (Resolve 21.1 crashes if a script places it)', async () => {
   const dir = tmp(), srt = path.join(dir, 'Cut - subtitles captions.srt');
   fs.writeFileSync(srt, '1\n00:00:01,500 --> 00:00:03,000\nHello there\n\n2\n00:00:04,000 --> 00:00:05,000\nBye\n');
   const { F, run, fail } = setup();
@@ -246,20 +246,20 @@ test('resolve story: storyCaptions – an SRT on a new subtitle track from the s
   const a = F.addMedia('/m/A.mp4');
   const tl = F.addTimeline('Cut', [{ item: a, in: 0, out: 125 }]), other = F.addTimeline('Other');
   F.project.SetCurrentTimeline(other);
+  // like Resolve 21.1: asking a subtitle item for its clip properties brings Resolve down
+  const importMedia = F.pool.ImportMedia;
+  F.pool.ImportMedia = items => importMedia(items).map(it => { if (/\.srt$/i.test(it.GetName())) it.GetClipProperty = () => { throw new Error('Resolve crashed: GetMediaFrameExtentsWithFrameRate'); }; return it; });
   const r = await run('storyCaptions', { seqId: tl.GetUniqueId(), srt, binPath: 'JMG Ultra Studio/Story/Captions' });
-  assert.deepStrictEqual([r.added, r.track], [true, 0]);
-  assert.deepStrictEqual(tl.GetItemListInTrack('subtitle', 1).map(i => [i._start - tl._start, i.GetName()]), [[38, 'Hello there'], [100, 'Bye']]);
-  assert.strictEqual(tl._sName[1], 'Captions');
+  assert.deepStrictEqual([r.added, r.track, r.reason], [false, -1, 'drag']);
+  assert.strictEqual(tl.GetTrackCount('subtitle'), 0, 'nothing placed by script');
   assert.strictEqual(F.currentTimeline, other, 'Resolve left on the timeline it was on');
   const imported = F.bin('JMG Ultra Studio/Story/Captions').GetClipList();
   assert.deepStrictEqual(imported.map(i => i.GetUniqueId()), [r.itemId]);
-  // Resolve puts them somewhere else: taken off again, and the panel says to drag them
-  F.subtitleShift = 2;
-  const r2 = await run('storyCaptions', { seqId: tl.GetUniqueId(), srt });
-  assert.deepStrictEqual([r2.added, r2.track], [false, -1]);
-  assert.strictEqual(tl.GetTrackCount('subtitle'), 1, 'the empty extra track removed');
-  F.subtitleShift = 0; F.subtitleRefused = true;
-  assert.strictEqual((await run('storyCaptions', { seqId: tl.GetUniqueId(), srt })).added, false);
+  // the Media Pool can be listed with it there: its properties are never asked for
+  const bins = await run('listBins');
+  const capBin = bins.find(b => /Captions$/.test(b.path));
+  const items = await run('binItems', { binId: capBin.id, kinds: [], recursive: true });
+  assert.ok(Array.isArray(items));
   assert.strictEqual((await fail('storyCaptions', { seqId: tl.GetUniqueId(), srt: path.join(dir, 'missing.srt') })).code, 'NOT_FOUND');
 });
 

@@ -39,6 +39,13 @@ const T = {
     }
     throw new Error('No word/document.xml in ' + file);
   },
+  // caption tracks in the whole project: Premiere's are in the .prproj; Resolve's are subtitle tracks (asked through the
+  // development-only devEval command, resolve/host/zz-dev.js)
+  async captionTracks() {
+    if (US.app.is('resolve')) { const r = await require('electron').ipcRenderer.invoke('ultra-studio:run', 'devEval', { code: "return R.timelines().reduce((n, t) => n + (t.GetTrackCount('subtitle') || 0), 0)" }); if (!r.ok) throw new Error(r.error.detail); return r.data; }
+    await US.host.call('saveProject'); const ctx = await US.host.call('context');
+    return (require('zlib').gunzipSync(require('fs').readFileSync(ctx.project.path)).toString('utf8').match(/<CaptionDataClipTrack /g) || []).length;
+  },
   async seqByName(name) { return (await US.host.call('listSequences')).find(s => s.name === name); },
   async importOnce(paths, binPath) {
     // reuse clips already imported into this bin

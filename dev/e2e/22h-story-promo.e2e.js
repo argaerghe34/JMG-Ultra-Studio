@@ -5,7 +5,7 @@ const prev = { base: US.settings.get('story.binBase') };
 US.settings.set('story.binBase', BIN);
 const st = S.loadState();
 const saved = JSON.parse(JSON.stringify({ themes: st.themes, wall: st.wall, builds: st.builds || [] }));
-const captionTracks = async () => { await US.host.call('saveProject'); const ctx = await US.host.call('context'); return (zlib.gunzipSync(fs.readFileSync(ctx.project.path)).toString('utf8').match(/<CaptionDataClipTrack /g) || []).length; };
+const captionTracks = () => T.captionTracks();
 try {
   await T.importOnce([T.media('concert', 'C001_sharp_static.mp4'), T.media('concert', 'C009_slow_pan_good.mp4')], 'Test – B-roll');
   const brollBin = (await US.host.call('listBins')).find(b => b.path === 'Test – B-roll');

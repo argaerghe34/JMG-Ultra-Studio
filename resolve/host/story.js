@@ -295,9 +295,8 @@ module.exports = (R) => {
     },
 
     /**
-     * Captions on a timeline from an SRT file: imported into the Media Pool and laid on a new subtitle track from the
-     * start of the timeline. If Resolve won't put it there by script, the file stays imported and added:false says the
-     * person should drag it onto the timeline. a: {seqId, srt, binPath} -> {itemId, added, track}
+     * Captions for a timeline from an SRT file: imported into the Media Pool's Captions bin; added:false tells the panel
+     * to say "drag it to the start of the timeline". a: {seqId, srt, binPath} -> {itemId, added, track}
      */
     storyCaptions(a) {
       const tl = R.needSeq(a.seqId);
@@ -306,30 +305,10 @@ module.exports = (R) => {
       const item = R.list(R.inFolder(bin, () => R.pool().ImportMedia([a.srt])))[0];
       if (!item) throw R.err('HOST_SCRIPT', 'ImportMedia gave nothing for ' + a.srt, 'Resolve couldn’t read the captions file.', 'Try again. If it keeps happening, send the activity log.');
       const itemId = R.id(item);
-      // the first caption's time, to check where Resolve put them
-      let first = null;
-      try { const m = /(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->/.exec(fs.readFileSync(a.srt, 'utf8')); if (m) first = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + Number('0.' + m[4]); } catch (e) { /* not checked */ }
-      return keepPlace(() => {
-        R.open(tl);
-        const before = tl.GetTrackCount('subtitle');
-        let track = before + 1, got = [];
-        try {
-          if (!tl.AddTrack('subtitle')) track = Math.max(1, before);
-          got = R.list(R.pool().AppendToTimeline([{ mediaPoolItem: item, startFrame: 0, endFrame: Math.max(1, Number(R.props(item)['Frames']) || 1), trackIndex: track, recordFrame: tl.GetStartFrame() }])).filter(Boolean);
-          if (!got.length) got = R.list(R.pool().AppendToTimeline([item])).filter(Boolean);
-        } catch (e) { got = []; }
-        const subs = got.filter(ti => trackOf(ti)[0] === 'subtitle');
-        const at = subs.length ? Math.min(...subs.map(ti => R.tlSec(tl, ti.GetStart()))) : null;
-        const ok = subs.length > 0 && (first == null || Math.abs(at - first) < 0.1);
-        if (!ok) {
-          // somewhere else (or as a clip): take it off again rather than leave captions out of sync
-          try { if (got.length) tl.DeleteClips(got, false); } catch (e) { /* left for the person to delete */ }
-          if (tl.GetTrackCount('subtitle') > before && !R.list(tl.GetItemListInTrack('subtitle', tl.GetTrackCount('subtitle'))).length) { try { tl.DeleteTrack('subtitle', tl.GetTrackCount('subtitle')); } catch (e) { /* empty track stays */ } }
-          return { itemId, added: false, track: -1 };
-        }
-        try { tl.SetTrackName('subtitle', subs[0] ? trackOf(subs[0])[1] || track : track, 'Captions'); } catch (e) { /* the name is a nicety */ }
-        return { itemId, added: true, track: (trackOf(subs[0])[1] || track) - 1 };
-      });
+      // Not laid on the timeline by script: Resolve 21.1 crashes (an assertion in GetMediaFrameExtentsWithFrameRate)
+      // when a script reads a subtitle item's frames or appends one. The file waits in the Captions bin for one drag.
+      void tl;
+      return { itemId, added: false, track: -1, reason: 'drag' };
     }
   };
 };

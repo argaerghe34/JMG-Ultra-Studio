@@ -17,6 +17,7 @@ const LABEL_HEX = { Orange: '#e8862a', Apricot: '#f0a35a', Yellow: '#e2c13a', Li
 
 const STILL_EXT = /\.(jpe?g|png|tiff?|psd|ai|bmp|gif|heic|webp|dng|exr|tga)$/i;
 const AUDIO_EXT = /\.(wav|bwf|mp3|aiff?|m4a|aac|flac|ogg|wma|caf)$/i;
+const SUBTITLE_EXT = /\.(srt|vtt|ttml|dfxp|scc|stl|sbv|ass|ssa)$/i;
 
 function err(code, detail, title, action) {
   const e = new Error(detail || code);
@@ -115,7 +116,18 @@ module.exports = function makeBase(api) {
     },
 
     /* ---------- clip details, shaped like Premiere's itemInfo ---------- */
-    props(item) { try { return item.GetClipProperty() || {}; } catch (e) { return {}; } },
+    /**
+     * Subtitle files in the Media Pool (an imported .srt). Resolve 21.1 ABORTS – the whole app crashes, assertion in
+     * GetMediaFrameExtentsWithFrameRate – when a script asks one for its clip properties, so they're known by name and
+     * never asked.
+     */
+    isSubtitle(item) { try { return SUBTITLE_EXT.test(String(item.GetName() || '')); } catch (e) { return false; } },
+    props(item) {
+      if (R.isSubtitle(item)) return { 'Clip Name': String(item.GetName() || ''), 'Type': 'Subtitle', 'File Path': '' };
+      try { return item.GetClipProperty() || {}; } catch (e) { return {}; }
+    },
+    /** One clip property (quicker than all of them), never asked of a subtitle file (see isSubtitle). */
+    prop(item, key) { if (R.isSubtitle(item)) return String(R.props(item)[key] || ''); try { return String(item.GetClipProperty(key) || ''); } catch (e) { return ''; } },
     clipFps(item, props) { return parseFps((props || R.props(item))['FPS']) || 25; },
     quickKind(item) {
       const p = R.props(item), type = String(p['Type'] || '');
