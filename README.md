@@ -9,15 +9,16 @@ can be on different versions – the table below always says where each one is.
 
 | | Premiere Pro (Mac + Windows) | DaVinci Resolve Studio (Mac + Windows) |
 |---|---|---|
-| **Latest release** | **1.3.3** | **1.3.3** (first Resolve release) |
-| **Tested** | Mac: full test suite in Premiere. Windows: 1.3.2 tested on the PC; 1.3.3 to be checked there. | Mac: full test suite in Resolve Studio 21.1.2. Windows: not yet tested. |
-| **Next** | 1.3.4 – Song Splitter adjustment layers, Deliver render ranges from any layer track, by colour, editable, auto-refreshing, with file-name suffixes (in progress) | 1.3.4 – the same, after Premiere |
+| **Latest release** | **1.3.4** | **1.3.3** (first Resolve release) |
+| **Tested** | Mac: full test suite in Premiere 26.5. Windows: 1.3.2 tested on the PC; 1.3.3/1.3.4 to check ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). | Mac: full test suite in Resolve Studio 21.1.2. Windows: not yet tested ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). |
+| **In this version** | Song Splitter adjustment layers (numbered, colour-coded); Deliver render ranges from any layer track, one colour only, editable in the panel, refreshing by themselves, with a file-name ending | Everything up to 1.3.3. |
+| **Next** | – | 1.3.4 – the same new Song Splitter and Deliver features (in progress) |
 | **Paused in both** | Colour, Camera Switch | Colour, Camera Switch |
 
 **What's different in Resolve** (because of what Resolve lets add-ons do – full list in [`dev/RESOLVE.md`](dev/RESOLVE.md)):
 - Story reads transcript files, or has Resolve transcribe the selected clips (**Transcribe with Resolve**: phrase by phrase, no speaker names). Captions go into the Media Pool for you to drag onto the timeline.
 - Sound Check can't set clip volume, so it tells you what to change; ducking marks the speech instead.
-- Story highlights, theme names and render ranges are coloured range markers (Resolve can't make adjustment clips by script).
+- Story highlights, theme names and render ranges are coloured range markers (Resolve can't make adjustment clips by script) – from 1.3.4, Song Splitter's songs too.
 - Selects can't spot faces, so close-ups aren't sorted by face.
 - The panel opens as its own window; renders use Resolve's Render Queue and render presets.
 
