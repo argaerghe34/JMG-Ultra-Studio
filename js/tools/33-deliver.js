@@ -92,6 +92,35 @@
   /* ---------- render ranges: adjustment layers on a “Renders” track above the edit, one file each ---------- */
   // names Premiere (or we) give a layer before you name it yourself, in Premiere's main languages
   const PLAIN_NAMES = /^(adjustment layer|einstellungsebene|calque d'effets|capa de ajuste|livello di regolazione|camada de ajuste|調整レイヤー|ultra studio render range|transparent video)?( \d+)?$/i;
+  /**
+   * The colours of layers Ultra Studio laid. Premiere 26 doesn't tell add-ons a timeline clip's colour (TrackItem has
+   * no colour, measured in 26.5.2), so the colour each layer got – from Song Splitter, “Add a render range” or a
+   * change in Deliver – is remembered with the project, per sequence and track, and found again by its times, else
+   * by its name. A colour changed by hand in the Timeline isn't seen. Resolve reads its colours directly.
+   */
+  const layerColours = {
+    store: () => US.projectStore(US.ctx.project && US.ctx.project.path),
+    key: (seqId, track) => seqId + '|' + String(track || 'Renders').trim().toLowerCase(),
+    all(seqId, track) { return (this.store().get('layerColours', {})[this.key(seqId, track)] || []).slice(); },
+    put(seqId, track, list) { const all = this.store().get('layerColours', {}); all[this.key(seqId, track)] = list.slice(-2000); this.store().set('layerColours', all); },
+    /** list: [{name, start, end, label}] just laid; replace: the track's layers were all replaced */
+    remember(seqId, track, list, { replace = false } = {}) {
+      const near = (a, b) => Math.abs(a - b) < 0.02;
+      const keep = replace ? [] : this.all(seqId, track).filter(o => !list.some(n => near(n.start, o.start) && near(n.end, o.end)));
+      this.put(seqId, track, keep.concat(list.filter(n => n.label != null).map(n => ({ name: String(n.name || ''), start: n.start, end: n.end, label: Number(n.label) }))));
+    },
+    forget(seqId, track, r) { const near = (a, b) => Math.abs(a - b) < 0.02; this.put(seqId, track, this.all(seqId, track).filter(o => !(near(o.start, r.start) && near(o.end, r.end)))); },
+    /** ranges whose colour the editor didn't give get the remembered one (by times, else by a name used once) */
+    apply(seqId, track, ranges) {
+      const known = this.all(seqId, track), near = (a, b) => Math.abs(a - b) < 0.02;
+      return ranges.map(r => {
+        if (r.label != null) return r;
+        let hit = known.find(o => near(o.start, r.start) && near(o.end, r.end));
+        if (!hit) { const byName = known.filter(o => o.name === r.name); if (byName.length === 1 && ranges.filter(x => x.name === r.name).length === 1) hit = byName[0]; }
+        return hit ? Object.assign({}, r, { label: hit.label, remembered: true }) : r;
+      });
+    }
+  };
   /** A file-name ending the person typed (“_1”, “ v2”): only characters every file system takes, at most 30. */
   const cleanSuffix = x => String(x || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '').slice(0, 30).replace(/[. ]+$/, '');
   /**
@@ -141,6 +170,7 @@
     if (!seqId) throw new US.UserError('NO_SEQUENCE');
     const seq = await US.host.call('sequenceInfo', { seqId, clips: false });
     const found = await US.host.call('renderRanges', { seqId, track: o.track || undefined });
+    found.ranges = layerColours.apply(seqId, o.track, found.ranges);
     const preset = o.preset || (await US.host.call('encoderPresets')).h264;
     const isFile = !inResolve() || /\.(xml|epr)$/i.test(String(preset || ''));
     if (!preset || (isFile && !fs.existsSync(preset))) throw new US.UserError('PRESET_MISSING', { title: 'The export preset isn’t there any more.', action: 'Choose the preset again in Deliver › Render ranges.', detail: String(preset) });
@@ -377,6 +407,7 @@
         if (!s) { shownSig = ''; US.clear(rangeList); rangeTrackLine.textContent = ''; rangeList.appendChild(ui.note('Open a sequence in the Timeline first.', 'warn')); return; }
         try {
           const found = await US.host.call('renderRanges', { seqId: s.id, track: ro.track || undefined });
+          found.ranges = layerColours.apply(s.id, ro.track, found.ranges);
           const sig = JSON.stringify([s.id, ro, found]);
           if (quiet && sig === shownSig) return;
           shownSig = sig;
@@ -386,12 +417,12 @@
           // colours on this track (Premiere versions that can't say a clip's colour: no filter)
           const labels = [...new Set(found.ranges.map(r => r.label).filter(l => l != null))].sort((x, y) => x - y);
           colourSel.setOptions([{ value: '', label: 'All colours' }].concat(labels.map(l => ({ value: String(l), label: labelName(l) }))), labels.includes(Number(ro.colour)) ? String(ro.colour) : '');
-          colourSel.disabled = found.colours === false || !labels.length;
+          colourSel.disabled = !labels.length;
           if (!labels.includes(Number(ro.colour))) ro.colour = '';
           const plan = rangePlan(found.ranges, s.name, 'mp4', '', ro);
           if (!found.ranges.length) { rangeList.appendChild(ui.note(inResolve() ? 'No render ranges yet. Add one below – each is a marker with a length on the timeline, named after the file it makes.' : `No render ranges on “${ro.track || 'Renders'}” yet. Add one below, or choose the track your adjustment layers are on (Song Splitter puts its songs on “Songs”).`, 'info')); return; }
           const left = found.ranges.length - plan.length;
-          rangeTrackLine.textContent = `${US.plural(plan.length, 'render')}${ro.colour !== '' ? ` in ${labelName(ro.colour)}` : ''}${left ? ` · ${left} left out (${ro.colour !== '' ? 'other colours, ' : ''}switched off or empty)` : ''}${found.colours === false ? ' · this version can’t read clip colours' : ''}`;
+          rangeTrackLine.textContent = `${US.plural(plan.length, 'render')}${ro.colour !== '' ? ` in ${labelName(ro.colour)}` : ''}${left ? ` · ${left} left out (${ro.colour !== '' ? 'other colours, ' : ''}switched off or empty)` : ''}${found.colours === false && found.ranges.some(r => r.label == null) ? ' · some colours unknown (set in the Timeline – Premiere doesn’t tell add-ons; use Colour here)' : ''}`;
           const inPlan = new Map(plan.map(p => [p.start + '|' + p.end, p]));
           rangeList.appendChild(h('div.list.ranges-list', found.ranges.slice().sort((x, y) => x.start - y.start).map(r => rangeRow(s, r, inPlan.get(r.start + '|' + r.end), zero))));
         } catch (e) { if (!quiet) ui.showError(e); }
@@ -400,7 +431,14 @@
         const btn = (label, title, fn) => h('button.btn.small.ghost', { title, onclick: e => { e.stopPropagation(); fn(); } }, label);
         const colour = r.label != null && ui.LABELS[r.label] ? ui.LABELS[r.label].hex : 'var(--text-3)';
         const act = (title, fn) => US.jobs.run({ title, tool: 'deliver' }, async () => { const x = await fn(); shownSig = ''; await showRanges(); return x; });
-        const edit = (args, title) => act(title, async () => { await US.host.call('editRenderRange', Object.assign({ seqId: s.id, track: ro.track, nodeId: r.nodeId }, args)); return { summary: title }; });
+        const edit = (args, title) => act(title, async () => {
+          const x = await US.host.call('editRenderRange', Object.assign({ seqId: s.id, track: ro.track, nodeId: r.nodeId }, args));
+          const now = x && x.range ? x.range : Object.assign({}, r, args);
+          layerColours.forget(s.id, ro.track, r);
+          const label = args.label != null ? args.label : now.label != null ? now.label : r.label;
+          if (label != null) layerColours.remember(s.id, ro.track, [{ name: now.name, start: now.start, end: now.end, label }]);
+          return { summary: title };
+        });
         return h('div.list-row.clickable' + (p ? '' : '.muted'), { title: 'Go to this range', onclick: () => US.host.call('setPlayhead', { seqId: s.id, seconds: r.start }).catch(e => ui.showError(e)) },
           h('span.swatch', { style: { background: colour } }),
           h('div.list-main', h('div.list-title', p ? p.name : r.name), h('div.list-sub', `${tcOf(s, r.start, zero)} – ${tcOf(s, r.end, zero)} · ${US.fmtDur(r.end - r.start)}${p ? '' : r.disabled ? ' · switched off' : ' · not rendered'}`)),
@@ -415,13 +453,13 @@
               if (!(b > a) || a < 0) return ui.toast({ type: 'warn', title: 'Those times don’t make a range.', text: 'Type a start and a later end, like ' + tcOf(s, r.start, zero) + ' – ' + tcOf(s, r.end, zero) + '.' });
               edit({ start: a, end: b }, `“${r.name}” now ${US.fmtDur(a)} – ${US.fmtDur(b)}`);
             }),
-            r.label != null && btn('Colour', 'Change its colour', async () => {
-              const c = await ui.promptText({ title: 'Colour', label: 'One of: ' + ui.LABELS.map(x => x.name).join(', '), value: labelName(r.label), ok: 'Change' });
+            btn('Colour', 'Change its colour', async () => {
+              const c = await ui.promptText({ title: 'Colour', label: 'One of: ' + ui.LABELS.map(x => x.name).join(', '), value: r.label != null ? labelName(r.label) : '', ok: 'Change' });
               const hit = c && ui.LABELS.find(x => x.name.toLowerCase() === c.trim().toLowerCase());
               if (c && !hit) return ui.toast({ type: 'warn', title: 'That isn’t one of the colours.', text: ui.LABELS.map(x => x.name).join(', ') });
               if (hit && hit.i !== r.label) edit({ label: hit.i }, `“${r.name}” is now ${hit.name}`);
             }),
-            btn('Delete', 'Take this range off the timeline', () => act(`Deleted “${r.name}”`, async () => { await US.host.call('removeRenderRange', { seqId: s.id, track: ro.track, nodeId: r.nodeId }); return { summary: `Deleted “${r.name}”` }; }))));
+            btn('Delete', 'Take this range off the timeline', () => act(`Deleted “${r.name}”`, async () => { await US.host.call('removeRenderRange', { seqId: s.id, track: ro.track, nodeId: r.nodeId }); layerColours.forget(s.id, ro.track, r); return { summary: `Deleted “${r.name}”` }; }))));
       }
       const rangeName = ui.input({ placeholder: 'Name, e.g. Teaser 30s' });
       const addRange = ui.button('Add a render range', { small: true, icon: 'plus', onClick: async () => {
@@ -436,6 +474,7 @@
           if (!r.placed) throw new US.UserError('HOST_SCRIPT', { title: 'Premiere didn’t place the render range.', action: 'Check the sequence isn’t locked, then try again.', detail: r.log.join('\n') });
           if (!r.named) ui.toast({ type: 'info', title: `Name the new top track “${ro.track || 'Renders'}”`, text: `Premiere didn’t let Ultra Studio name it. Double-click the track name in the Timeline and type ${ro.track || 'Renders'} – only that track’s layers are rendered.`, timeout: 15000 });
           if (r.kind !== 'adjustment' && r.kind !== 'marker') ui.toast({ type: 'info', title: 'Added as an invisible clip', text: 'There’s no adjustment layer in this project, so the range is an invisible clip instead. It renders just the same. Add one with File › New › Adjustment Layer if you’d rather.', timeout: 12000 });
+          if (label != null) layerColours.remember(s.id, ro.track, [Object.assign({ name, label }, span)]);
           rangeName.value = '';
           US.log('ok', `Render range “${name}” added`, `${US.fmtDur(span.start)} – ${US.fmtDur(span.end)}`, 'deliver');
           shownSig = ''; await showRanges();
@@ -528,5 +567,5 @@
     }
   });
 
-  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS, rangePlan, userPresets, newRangeSpan, cleanSuffix };
+  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS, rangePlan, userPresets, newRangeSpan, cleanSuffix, layerColours };
 })();

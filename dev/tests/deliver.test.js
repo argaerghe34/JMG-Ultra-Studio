@@ -49,6 +49,18 @@ test('render ranges: one colour only, and a file-name ending on every render', (
   assert.strictEqual(US.deliver.cleanSuffix('_v2/: *final. '), '_v2 final', 'only characters a file name can take');
   assert.strictEqual(US.deliver.cleanSuffix(undefined), '');
 });
+test('render ranges: colours Ultra Studio gave are remembered (Premiere can’t say), found by times, else by a unique name', () => {
+  const C = US.deliver.layerColours, data = {};
+  C.store = () => ({ get: (k, d) => (k in data ? data[k] : d), set: (k, v) => { data[k] = v; } });
+  C.remember('s1', 'Songs', [{ name: '1', start: 0, end: 30, label: 5 }, { name: 'Talk', start: 30, end: 35, label: 4 }, { name: '2', start: 35, end: 70, label: 5 }], { replace: true });
+  const got = C.apply('s1', 'songs', [{ name: '1', start: 0, end: 30, label: null }, { name: 'Talk', start: 30, end: 36, label: null }, { name: '2 Hallelujah', start: 35, end: 70, label: null }, { name: 'Mine', start: 80, end: 90, label: null }, { name: 'X', start: 0, end: 1, label: 9 }]);
+  assert.deepStrictEqual(got.map(r => r.label), [5, 4, 5, null, 9], 'times; trimmed but same name; renamed but same times; unknown; the editor’s own');
+  assert.strictEqual(C.apply('s2', 'Songs', [{ name: '1', start: 0, end: 30, label: null }])[0].label, null, 'per sequence');
+  C.forget('s1', 'Songs', { start: 0, end: 30 });
+  assert.strictEqual(C.apply('s1', 'Songs', [{ name: '1', start: 0, end: 30 }])[0].label, undefined);
+  C.remember('s1', 'Songs', [{ name: '1', start: 0, end: 30, label: 7 }]);
+  assert.strictEqual(C.apply('s1', 'Songs', [{ name: '1', start: 0, end: 30 }])[0].label, 7);
+});
 test('render ranges: a new one spans In/Out when set, else 10 s from the playhead', () => {
   assert.deepStrictEqual(US.deliver.newRangeSpan({ inPoint: 5, outPoint: 20, duration: 60 }, 0), { start: 5, end: 20 });
   assert.deepStrictEqual(US.deliver.newRangeSpan({ inPoint: 0, outPoint: 60, duration: 60 }, 12), { start: 12, end: 22 });

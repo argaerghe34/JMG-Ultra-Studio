@@ -71,6 +71,8 @@
       if (!r.placed) throw new US.UserError('HOST_SCRIPT', { title: US.say('Premiere didn’t lay the adjustment layers.'), action: 'Check the sequence isn’t locked, then try again.', detail: (r.log || []).join('\n') });
       if (r.named === false) ui.toast({ type: 'info', title: `Name the new top track “${LAYER_TRACK}”`, text: US.say('Premiere didn’t let Ultra Studio name it. Double-click the track name in the Timeline and type Songs, so Deliver can find it again.'), timeout: 15000 });
       if (r.kind && r.kind !== 'adjustment' && r.kind !== 'marker') ui.toast({ type: 'info', title: 'Added as invisible clips', text: 'There’s no adjustment layer in this project, so the songs are invisible clips instead. They render just the same. Add one with File › New › Adjustment Layer if you’d rather.', timeout: 12000 });
+      // Premiere can't tell add-ons a layer's colour later: remember it for Deliver's colour filter (Resolve reads its own)
+      if (US.deliver && US.deliver.layerColours) US.deliver.layerColours.remember(target.id, LAYER_TRACK, sections, { replace: true });
       done.push(US.plural(r.placed, r.kind === 'marker' ? 'range marker' : 'layer'));
     }
     job.range(0.3, 1);
@@ -148,7 +150,7 @@
       const optLayers = ui.toggle({ label: 'Adjustment layers above the edit', value: US.settings.get('songs.layers', false), onChange: x => US.settings.set('songs.layers', x),
         hint: `On a new top track called “${LAYER_TRACK}”: each song numbered (1, 2, 3…), talk and applause too, colour-coded. Deliver › Render ranges renders them – all, or one colour.` });
       const addBtn = ui.actionButton('Add to Premiere', () => US.jobs.run({ title: 'Adding songs to Premiere', tool: 'songs' }, async job => { const r = await output(target, res, { markers: optMarkers.get(), otherMarkers: optOther.get(), subclips: optSub.get(), sequences: optSeq.get(), layers: target.kind !== 'item' && optLayers.get() }, job); render(); return r; }), { icon: 'songs' });
-      const removeLayers = () => US.jobs.run({ title: 'Removing song layers', tool: 'songs' }, async () => { const r = await US.host.call('removeLabelLayers', { seqId: target.id, trackName: LAYER_TRACK }); render(); return { summary: `Removed ${US.plural(r.removed || 0, 'layer')}` }; });
+      const removeLayers = () => US.jobs.run({ title: 'Removing song layers', tool: 'songs' }, async () => { const r = await US.host.call('removeLabelLayers', { seqId: target.id, trackName: LAYER_TRACK }); if (US.deliver && US.deliver.layerColours) US.deliver.layerColours.put(target.id, LAYER_TRACK, []); render(); return { summary: `Removed ${US.plural(r.removed || 0, 'layer')}` }; });
 
       const edit = fn => { fn(); res = name(res.segments, res); render(); };
       function rowFor(s, i) {
