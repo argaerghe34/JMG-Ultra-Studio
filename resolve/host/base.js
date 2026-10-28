@@ -167,6 +167,19 @@ module.exports = function makeBase(api) {
     },
     /** Make tl the current timeline (AppendToTimeline, markers at the playhead etc. work on the current one). */
     open(tl) { const pr = R.project(), cur = pr.GetCurrentTimeline(); if (!cur || R.id(cur) !== R.id(tl)) pr.SetCurrentTimeline(tl); return tl; },
+    /**
+     * Put a timeline back as the current one after a command (in a finally). Resolve 21 refuses for a moment while it's
+     * busy (e.g. Smart Reframe analysing: "Unable to execute script action"), so it tries again for a few seconds, and it
+     * never throws – a failure here mustn't hide the command's own result.
+     */
+    async restoreTimeline(tl) {
+      if (!tl) return false;
+      for (let i = 0; i < 12; i++) {
+        try { if (!R.timelineById(R.id(tl))) return false; const cur = R.project().GetCurrentTimeline(); if (cur && R.id(cur) === R.id(tl)) return true; if (R.project().SetCurrentTimeline(tl)) return true; } catch (e) { /* busy */ }
+        await new Promise(res => setTimeout(res, 500));
+      }
+      return false;
+    },
     fps(tl) { return parseFps(tl && tl.GetSetting ? tl.GetSetting('timelineFrameRate') : '') || parseFps(R.project().GetSetting('timelineFrameRate')) || 25; },
     dropFrame(tl) { const v = String((tl && tl.GetSetting ? tl.GetSetting('timelineDropFrameTimecode') : '') || ''); return v === '1' || /true/i.test(v); },
     /** timeline frame (absolute, as Resolve counts) ↔ seconds from the start of the timeline */

@@ -501,8 +501,8 @@ module.exports = function (R) {
         if (!done.length && items.length && page !== 'edit') { api.OpenPage('edit'); done = tryAll(items); }   // the Inspector's reframe lives on the Edit page
         return { id: R.id(dup), name: dup.GetName(), width: w, height: h, reframed: done.length, failed: items.length - done.length };
       } finally {
-        if (was && R.timelineById(R.id(was))) pr.SetCurrentTimeline(was);
-        if (page && api.GetCurrentPage && api.GetCurrentPage() !== page) api.OpenPage(page);
+        await R.restoreTimeline(was);
+        try { if (page && api.GetCurrentPage && api.GetCurrentPage() !== page) api.OpenPage(page); } catch (e) { /* stays */ }
       }
     },
 

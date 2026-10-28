@@ -40,7 +40,7 @@ module.exports = function (R) {
      * holding clips named prefix…) is reused – its old guide clips replaced – unless something else is on it.
      * a: {seqId, itemId, trackName?, prefix?} → {track (0-based), start, end}
      */
-    placeGuide(a) {
+    async placeGuide(a) {
       const tl = R.needSeq(a.seqId), item = R.needItem(a.itemId), pr = P(), pool = R.pool();
       const fps = R.fps(tl), first = tl.GetStartFrame(), last = tl.GetEndFrame();
       if (!(last > first)) throw R.err('BAD_INPUT', 'Timeline is empty', 'This timeline is empty.', 'Add some clips first, then put the guide on.');
@@ -78,7 +78,7 @@ module.exports = function (R) {
           if (!len) len = end - start;
           placed.push(...got); at = end;
         }
-      } finally { if (was && R.id(was) !== R.id(tl)) pr.SetCurrentTimeline(was); }
+      } finally { if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was); }
       if (!placed.length) throw R.err('HOST_SCRIPT', 'AppendToTimeline placed nothing on V' + top, 'Resolve didn’t place the guide.', 'Check the timeline isn’t locked, then try again.');
       return { track: top - 1, start: R.tlSec(tl, Math.min(...placed.map(ti => ti.GetStart()))), end: R.tlSec(tl, Math.max(...placed.map(ti => ti.GetEnd()))) };
     },
@@ -117,7 +117,7 @@ module.exports = function (R) {
      * 1080×1920). The timeline goes in as a nested timeline; if Resolve refuses, a resized copy is made instead.
      * a: {seqId, width, height, name, binPath} → {id, name, width, height, scale}
      */
-    fitToSize(a) {
+    async fitToSize(a) {
       const src = R.needSeq(a.seqId), pr = P(), pool = R.pool(), s = R.size(src), W = Math.round(a.width), H = Math.round(a.height);
       if (!(W > 0 && H > 0)) throw R.err('BAD_INPUT', 'fitToSize ' + W + '×' + H);
       const bin = R.ensureBin(a.binPath || 'JMG Ultra Studio/Deliver');
@@ -141,7 +141,7 @@ module.exports = function (R) {
           E.intoBin(tl, bin);
           E.setSize(tl, W, H, 'scaleToCrop');
         }
-      } finally { if (was && R.timelineById(R.id(was))) pr.SetCurrentTimeline(was); }
+      } finally { await R.restoreTimeline(was); }
       const z = R.size(tl);
       return { id: R.id(tl), name: tl.GetName(), width: z.width, height: z.height, scale: Math.max(W / s.width, H / s.height) * 100, via };
     },
