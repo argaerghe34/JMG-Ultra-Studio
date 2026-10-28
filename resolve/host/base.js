@@ -156,7 +156,7 @@ module.exports = function makeBase(api) {
     quickKind(item) {
       const p = R.props(item), type = String(p['Type'] || '');
       if (/timeline/i.test(type)) return 'sequence';
-      if (/^subtitle$/i.test(type)) return 'other';
+      if (/^subtitle$/i.test(type) || /generator|fusion|title|adjustment/i.test(type)) return 'other';
       const file = String(p['File Path'] || '');
       if (/still/i.test(type) || STILL_EXT.test(file)) return 'still';
       if (/^audio$/i.test(type) || (!/video/i.test(type) && AUDIO_EXT.test(file))) return 'audio';
@@ -190,7 +190,9 @@ module.exports = function makeBase(api) {
       o.duration = frames / fps;
       o.rangeStart = o.subclip ? start / fps : 0;
       o.rangeEnd = o.subclip ? (end + 1) / fps : o.duration;
-      o.kind = isSeq ? 'sequence' : isSub ? 'subtitle' : (o.hasVideo ? (STILL_EXT.test(file) || /still/i.test(type) ? 'still' : 'video') : (o.hasAudio ? 'audio' : 'other'));
+      // generators, titles and Fusion clips are made in Resolve, not footage (Premiere: adjustment layers, mattes…)
+      if (!isSub && !isSeq && /generator|fusion|title|adjustment/i.test(type)) o.kind = 'synthetic';
+      else o.kind = isSeq ? 'sequence' : isSub ? 'subtitle' : (o.hasVideo ? (STILL_EXT.test(file) || /still/i.test(type) ? 'still' : 'video') : (o.hasAudio ? 'audio' : 'other'));
       return o;
     },
 

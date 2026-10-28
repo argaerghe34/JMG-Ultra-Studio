@@ -129,6 +129,15 @@ test('resolve safety: a subtitle whose name has no “.srt” (as Resolve shows 
   assert.deepStrictEqual(S.F.crashes, [], 'nothing that would abort Resolve');
 });
 
+test('resolve: generators, titles and Fusion clips in the Media Pool aren’t footage', async () => {
+  const S = kit.setup();
+  const g = S.F.addMedia('/m/Solid Color', { type: 'Generator', audioCh: 0 });
+  const v = S.F.addMedia(path.join(S.dir, 'A.mp4'), { frames: 250 });
+  const info = await S.run('itemsInfo', { ids: [g.GetUniqueId(), v.GetUniqueId()] });
+  assert.deepStrictEqual(info.map(i => i.kind), ['synthetic', 'video']);
+  assert.deepStrictEqual((await S.run('binList', { binId: S.host.R.id(S.host.R.root()), kinds: ['video'], recursive: true })).map(x => x.id), [v.GetUniqueId()]);
+});
+
 test('resolve safety: a thrown SetRenderSettings / StartRendering is a refusal, and the settings are still put back', async () => {
   const S = kit.setup();
   const file = path.join(S.dir, 'A.mp4'); fs.writeFileSync(file, 'x');

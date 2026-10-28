@@ -138,6 +138,10 @@ var UStudio = (function () {
         o.rangeStart = o.subclip ? ticksToSec(ss) : 0;
         o.rangeEnd = o.subclip ? ticksToSec(se) : o.duration;
         o.kind = isSeq ? 'sequence' : (o.hasVideo ? (STILL_EXT.test(o.path) ? 'still' : 'video') : (o.hasAudio ? 'audio' : 'other'));
+        // made in Premiere, not footage: adjustment layers, and bars, mattes or transparent video (no media file)
+        var adj = false; try { adj = !!item.isAdjustmentLayer(); } catch (e) { }
+        if (adj) o.kind = 'adjustment';
+        else if (o.kind === 'video' && !o.path && !o.multicam && !o.merged) o.kind = 'synthetic';
         if (withCols) o.columns = c;
         return o;
     }

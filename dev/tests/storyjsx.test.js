@@ -305,3 +305,10 @@ test('song layers without an adjustment layer in the project: invisible label cl
   assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1', track: 'Songs' }).ranges.map(x => x.name), ['1', 'Talk']);
   assert.deepStrictEqual(P.call('rangeTracks', { seqId: 's1' }).tracks.map(t => t.name), ['Songs']);
 });
+test('an adjustment layer or a generated clip (no media file) isn’t footage', () => {
+  const P = makePremiere({ adjustment: true });
+  const adj = P.findAll('Adjustment Layer')[0];
+  const info = P.call('itemsInfo', { ids: [adj.nodeId, P.interview.nodeId] });
+  assert.strictEqual(info[0].kind, 'adjustment');
+  assert.notStrictEqual(info[1].kind, 'adjustment');
+});
