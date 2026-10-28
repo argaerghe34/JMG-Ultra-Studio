@@ -485,3 +485,8 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   in several bins. Test fixes: Node docx reader instead of textutil, file URLs, Array.indexOf in a jsx helper (34).
   dev/win/build.js builds the zip on Windows with Unix modes (the .command files stay executable). Independent review
   of Render ranges: 5 fixed. Unit 243. Premiere (PC): e2e 35 tests – see the report.
+- Wed 28 Oct – 1.3.2 from the PC (PR #12: Render ranges + Windows fixes, merged and released on the PC) tested on the
+  Mac: unit 243/243, Premiere full e2e 35/35 first time (incl. 33b-deliver-ranges), monday.sh green (93 commands),
+  installed copy identical, Premiere closed; only the test project was opened (Jacob had already quit Premiere). The
+  e2e changed the shared settings deliver.ranges, lastTool, src.bin → set back; dev/e2e/run.js restores them now.
+  The release v1.3.2 (Windows-built zip) was left as published.
