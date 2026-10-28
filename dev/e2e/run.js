@@ -1,9 +1,15 @@
-// End-to-end tests in real Premiere: runs every dev/e2e/*.e2e.js inside the panel (port 8890) and prints pass/fail.
-// Each file is the body of an async function that receives `T` (helpers below) and throws on failure.
-// Usage: node dev/e2e/run.js [name-filter]
+// End-to-end tests in the real editor: runs every dev/e2e/*.e2e.js inside the panel and prints pass/fail.
+// Premiere: port 8890 (dev/link-dev.sh). DaVinci Resolve Studio: --resolve, port 8892 (dev/resolve/link-dev.sh); it
+// only runs with the test project "JMG Ultra Studio Test" open, never the user's own projects.
+// Each file is the body of an async function that receives `T` (helpers below) and throws on failure. A file with a
+// line `// premiere-only` (or `// resolve-only`) is skipped in the other editor.
+// Usage: node dev/e2e/run.js [--resolve] [name-filter]
 const WebSocket = require('ws'), fs = require('fs'), path = require('path'), http = require('http');
-const PORT = 8890;
-const only = process.argv.slice(2);
+const RESOLVE = process.argv.includes('--resolve');
+const PORT = RESOLVE ? 8892 : 8890;
+const EDITOR = RESOLVE ? 'DaVinci Resolve Studio' : 'Premiere Pro';
+const TEST_PROJECT = 'JMG Ultra Studio Test';
+const only = process.argv.slice(2).filter(a => a !== '--resolve');
 
 function targets() { return new Promise((res, rej) => http.get(`http://127.0.0.1:${PORT}/json`, r => { let d = ''; r.on('data', c => d += c); r.on('end', () => res(JSON.parse(d))); }).on('error', rej)); }
 
@@ -67,13 +73,32 @@ async function runOne(ws, file) {
   });
 }
 
+function evaluate(ws, expression) {
+  return new Promise(resolve => {
+    const id = Math.floor(Math.random() * 1e9);
+    const onMsg = m => { const msg = JSON.parse(m); if (msg.id !== id) return; ws.off('message', onMsg); resolve(msg.result && msg.result.result && msg.result.result.value); };
+    ws.on('message', onMsg);
+    ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }));
+  });
+}
+
 (async () => {
   const t = (await targets()).find(x => x.type === 'page');
   const ws = new WebSocket(t.webSocketDebuggerUrl, { perMessageDeflate: false });
   await new Promise(r => ws.on('open', r));
+  if (RESOLVE) {
+    // Resolve keeps every project in one database: only ever test in the test project
+    const r = await evaluate(ws, `(async () => { if (!window.US || !US.app || !US.app.is('resolve')) return 'not-resolve'; const c = await US.host.call('context'); return (c && c.project && c.project.name) || ''; })()`);
+    if (r === 'not-resolve') { console.error(`The panel on port ${PORT} isn’t running in Resolve.`); ws.close(); process.exit(2); }
+    if (r !== TEST_PROJECT) { console.error(`Resolve has “${r || 'no project'}” open. Open the test project “${TEST_PROJECT}” first – the tests never run in other projects.`); ws.close(); process.exit(2); }
+  }
   // Colour and Camera Switch are paused (US.PAUSED_TOOLS): their tests run only when named, e.g. `run.js colour`
   const paused = f => /^(24[b-d]-cameras|34[a-z]?-colour)/.test(f);
-  const files = fs.readdirSync(__dirname).filter(f => f.endsWith('.e2e.js') && (only.length ? only.some(o => f.includes(o)) : !paused(f))).sort();
+  // tests written for the other editor only
+  const other = f => new RegExp('^\\s*// ' + (RESOLVE ? 'premiere' : 'resolve') + '-only\\b', 'm').test(fs.readFileSync(path.join(__dirname, f), 'utf8'));
+  const all = fs.readdirSync(__dirname).filter(f => f.endsWith('.e2e.js') && (only.length ? only.some(o => f.includes(o)) : !paused(f))).sort();
+  const files = all.filter(f => !other(f));
+  if (all.length > files.length) console.log(`  (skipped, ${RESOLVE ? 'Premiere' : 'Resolve'} only: ${all.filter(other).map(f => f.replace('.e2e.js', '')).join(', ')})`);
   // E2E_RETRY=1: a failing test runs once more, and is reported as passing on the second try (never hidden)
   const retry = process.env.E2E_RETRY === '1';
   let pass = 0, fail = 0; const second = [];
@@ -88,6 +113,6 @@ async function runOne(ws, file) {
     if (r.ok) { pass++; console.log(`  ✓ ${name} (${(r.ms / 1000).toFixed(1)} s)${second.includes(name) ? ' [on the second try]' : ''}${r.info ? '  ' + JSON.stringify(r.info) : ''}`); }
     else { fail++; console.log(`  ✗ ${name} (${(r.ms / 1000).toFixed(1)} s)\n      ${String(r.error).split('\n').slice(0, 5).join('\n      ')}`); }
   }
-  console.log(`\n${pass} passed, ${fail} failed (real Premiere Pro)${second.length ? ` · passed on the second try: ${second.join(', ')}` : ''}`);
+  console.log(`\n${pass} passed, ${fail} failed (real ${EDITOR})${second.length ? ` · passed on the second try: ${second.join(', ')}` : ''}`);
   ws.close(); process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('Could not reach the panel on port ' + PORT + ': ' + e.message); process.exit(2); });

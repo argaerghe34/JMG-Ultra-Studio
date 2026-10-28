@@ -170,7 +170,7 @@
     blurb: 'Finds the beat, adds beat markers and cuts your clips to the music.',
     hostFns: ['renderAudio', 'addClipMarkers', 'addSequenceMarkers', 'newSequence', 'placeClips', 'audioClipRange', 'clipRanges'],
     create() {
-      const v = ui.toolView({ icon: 'beats', title: 'Beat Cut', blurb: 'Premiere has no beat detection – this finds the beat and bars, marks them, and can cut a bin of clips to the music.',
+      const v = ui.toolView({ icon: 'beats', title: 'Beat Cut', blurb: US.app.is('resolve') ? 'Finds the beat and bars, marks them, and can cut a bin of clips to the music.' : 'Premiere has no beat detection – this finds the beat and bars, marks them, and can cut a bin of clips to the music.',
         help: h('div', h('ul', h('li', 'Select the music in the Project panel (or pick a sequence) and press “Find the beat”.'), h('li', 'If the tempo is twice or half what you feel, use “Half speed” / “Double speed”.'), h('li', '“Make the beat cut” builds a new sequence: your clips on V1 changing on the beat, the music on A1. Clips’ own sound is left out.'))) });
       let target = null, base = null, an = null;
 

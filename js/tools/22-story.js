@@ -18,6 +18,10 @@
 
   const SPEAKER_COLORS = ['#6b8bd6', '#1ebc9c', '#f1a33b', '#e46b8a', '#d38fd8', '#56a845', '#29a0d8', '#c9a87f', '#a593e0', '#e2d33a'];
   const binBase = () => US.settings.get('story.binBase') || 'JMG Ultra Studio/Story';
+  // Resolve: transcripts come from Resolve's own transcription (its subtitles), lines play in the panel, theme names
+  // and highlights are range markers (see resolve/host/story.js)
+  const RES = US.app.is('resolve');
+  const READ_FIRST = RES ? 'transcribe them with Resolve first (Story › 1 Interviews)' : 'read Premiere’s transcripts first';
 
   /* ================= colours & strength ================= */
   // Premiere label colours for themes, in a pleasant order; Yellow (15) is kept for the strongest lines by default.
@@ -46,12 +50,42 @@
   function storyFile(projectPath) { return path.join(US.fsx.dataDir, 'projects', US.fsx.hash(projectPath || 'none') + '-story.json'); }
   // the copy next to the project (22-story-sync.js), so the project opened on another computer has its Story
   let session = null;
+  /* Resolve keeps a project in a database, not a file: Story asks the Resolve side once per project where its copy
+     travels (storyProjectFile: a folder next to the project's media) and keeps this computer's copy under Resolve's
+     project id. Until that answer is in, Story is empty and saves nothing (ready() waits for it). */
+  let resRef = null, resAsk = null;
+  const projectIdent = () => (US.ctx.project ? String(US.ctx.project.path || US.ctx.project.name || '') : '');
+  function askResolveRef() {
+    const ident = projectIdent();
+    if (!ident) return Promise.resolve(null);
+    if (resAsk && resAsk.ident === ident) return resAsk.p;
+    const store = US.projectStore(ident);
+    const p = US.host.call('storyProjectFile', { prefer: store.get('storyFolder', '') || undefined }).then(r => {
+      if (projectIdent() !== ident) return null;
+      if (r.folder && r.folder !== store.get('storyFolder', '')) store.set('storyFolder', r.folder);   // so it doesn't move
+      resRef = { ident, local: 'resolve:' + (r.id || ident), shared: r.path || '', reason: r.reason || '', folder: r.folder || '' };
+      if (statePath !== resRef.local) { loadState(); US.bus.emit('story-replaced'); }
+      return resRef;
+    }, e => { if (resAsk && resAsk.ident === ident) resAsk = null; US.log('warn', 'Story couldn’t ask Resolve where this project’s Story goes', US.errors.explain(e).detail, 'story'); return null; });
+    resAsk = { ident, p };
+    return p;
+  }
+  /** Await before changing Story (Resolve: the project's Story must be loaded first). */
+  async function ready() { if (RES && US.ctx.project) await askResolveRef(); }
+  /** -> {local, shared}: this computer's copy is keyed on local, the copy that travels sits beside shared. */
+  function projectRef() {
+    if (!RES) { const p = (US.ctx.project && US.ctx.project.path) || ''; return { local: p, shared: p }; }
+    const ident = projectIdent();
+    if (resRef && resRef.ident === ident) return resRef;
+    askResolveRef();
+    return { local: '', shared: '' };
+  }
   function loadState() {
-    const p = (US.ctx.project && US.ctx.project.path) || '';
+    const ref = projectRef(), p = ref.local;
     if (p === statePath && state) return state;
     flushShared();
     statePath = p;
-    session = p && US.storySync ? US.storySync.open(p, storyFile(p)) : null;
+    session = p && ref.shared && US.storySync ? US.storySync.open(ref.shared, storyFile(p)) : null;
     state = Object.assign(emptyState(), p ? (session ? session.state || {} : US.fsx.readJSON(storyFile(p), {})) : {});
     reindex(); ensureColours();
     if (session && session.other) { const other = session.other; setTimeout(() => offerOther(other), 300); }
@@ -88,7 +122,7 @@
       buttons: [{ label: `Use the one from ${S.describe(other).split(',')[0]}`, value: 'other', kind: 'ghost' }, { label: 'Keep this one', value: 'keep', kind: 'primary' }]
     });
     if (pick !== 'other' || statePath !== forPath || state !== mine) return;
-    try { US.fsx.writeJSON(S.backupName(forPath, mine), mine); } catch (e) { /* the copy on this computer is overwritten next */ }
+    try { US.fsx.writeJSON(S.backupName(session ? session.projectPath : forPath, mine), mine); } catch (e) { /* the copy on this computer is overwritten next */ }
     state = Object.assign(emptyState(), other);
     reindex(); ensureColours(); saveNow(); flushShared();
     US.log('info', `Story switched to the copy from ${S.describe(other)}; the other is kept as a backup`, '', 'story');
@@ -701,7 +735,8 @@
     saveNow();
     const sections = sectionsFrom(groups, plan.clips);
     const markers = [], notes = [];
-    if (look.themeNames === 'marker' || look.themeNames === 'both') for (const s of sections) markers.push({ start: s.start, name: s.name, color: s.label != null && look.colour ? LABEL_TO_MARKER[s.label] : 2 });
+    // (Resolve: with 'both', the theme's range marker carries its name – a second marker on its first frame isn't added)
+    if (look.themeNames === 'marker' || (look.themeNames === 'both' && !RES)) for (const s of sections) markers.push({ start: s.start, name: s.name, color: s.label != null && look.colour ? LABEL_TO_MARKER[s.label] : 2 });
     // idea notes on the board become markers where they sit
     let lastEnd = 0;
     groups.forEach((g, gi) => {
@@ -783,7 +818,7 @@
   }
   /** Read a sequence and work out who says what. tracks: 'auto' or audio track indexes. */
   async function timelineTranscript(job, { seqId, tracks = 'auto', info = null }) {
-    loadState();
+    await ready(); loadState();
     if (!info) {
       job && job.set({ who: 'premiere', msg: 'Reading the sequence' });
       info = await US.host.call('sequenceInfo', { seqId });
@@ -841,7 +876,7 @@
    * = the newest) or 'board'.
    */
   async function exportBoard(job, format = 'docx', { source = BOARD ? 'board' : 'themes', narrative = '' } = {}) {
-    loadState(); B().ensure(state.wall); ensureColours();
+    await ready(); loadState(); B().ensure(state.wall); ensureColours();
     const E = EX(), keep = k => !k.hidden && (k.idea != null || lineById.has(k.lineId));
     let groups;
     if (source === 'narrative') {
@@ -918,9 +953,9 @@
   /** The interview log (docx | csv | txt): per interview its speakers, length, summary (AI, optional), the themes it
       feeds with counts and first timecode, its strongest lines, its moments and (optionally) the whole transcript. */
   async function interviewLog(job, { summaries = false, full = false, format = 'docx' } = {}) {
-    loadState();
+    await ready(); loadState();
     const list = state.transcripts.filter(t => t.lines.length);
-    if (!list.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no transcripts in Story yet.', action: 'Read Premiere’s transcripts first (Story › 1 Interviews).' });
+    if (!list.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no transcripts in Story yet.', action: RES ? 'Transcribe your interviews with Resolve first (Story › 1 Interviews).' : 'Read Premiere’s transcripts first (Story › 1 Interviews).' });
     const E = EX();
     let note = '';
     if (summaries && US.ai && US.ai.available()) {
@@ -975,14 +1010,19 @@
   /** Premiere captions for a sequence from its timeline transcript. opts: {style, names, upper, add} -> {file, count, summary} */
   async function makeCaptions(job, tl, { style = 'subtitles', names = false, upper = false, add = true, target = null } = {}) {
     const display = namesFor(tl), entries = tl.result.entries.map(e => Object.assign({}, e, { name: display.get(e.speakerKey) }));
-    if (!entries.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no transcribed speech in this sequence.', action: 'Transcribe the clips you used, read Premiere’s transcripts, then try again.' });
+    if (!entries.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no transcribed speech in this sequence.', action: RES ? 'Transcribe the clips you used (Story › 1 Interviews › Transcribe with Resolve), then try again.' : 'Transcribe the clips you used, read Premiere’s transcripts, then try again.' });
     const cues = CAP().cues(entries, { style, names, upper });
     const dir = US.fsx.ensureDir(path.join(US.settings.get('story.exportDir') || path.join(US.fsx.exportsDir(), 'Transcripts'), 'Captions'));
     const file = uniquePath(path.join(dir, `${fileSafe(tl.info.name)} - ${CAP().STYLES[style].label.toLowerCase()} captions.srt`));
     require('fs').writeFileSync(file, CAP().toSRT(cues));
     if (add) {
       job && job.set({ who: 'premiere' }).progress(0.7, `Adding ${US.plural(cues.length, 'caption')} to “${tl.info.name}”`);
-      await US.host.call('storyCaptions', { seqId: target || tl.info.id, srt: file, binPath: binBase() + '/Captions' });
+      const r = await US.host.call('storyCaptions', { seqId: target || tl.info.id, srt: file, binPath: binBase() + '/Captions' });
+      // Resolve may not put a subtitle file on the timeline by script: it's in the Media Pool, one drag away
+      if (r && r.added === false) {
+        US.ui.toast({ type: 'info', title: 'Captions saved – one step to do', text: `Drag “${US.basename(file)}” from the Media Pool (${binBase()}/Captions) to the start of the timeline.`, timeout: 20000 });
+        return { file, count: cues.length, added: false, summary: `Saved “${US.basename(file)}” · ${US.plural(cues.length, 'caption')} (in the Media Pool, to drag onto the timeline)` };
+      }
     }
     return { file, count: cues.length, summary: add ? `${US.plural(cues.length, 'caption')} added to “${tl.info.name}” (${CAP().STYLES[style].label.toLowerCase()})` : `Saved “${US.basename(file)}” · ${US.plural(cues.length, 'caption')}` };
   }
@@ -1054,11 +1094,11 @@
    * Running again replaces the previous highlights. -> {tl, sel, sections, result, summary}
    */
   async function highlightStringOut(job, { seqId, use = {}, markers = false }) {
-    loadState();
+    await ready(); loadState();
     const tl = await timelineTranscript(job, { seqId, tracks: 'auto' });
     const sel = selectionMap(use);
     const sections = TL().highlightSections(tl.result.entries, sel);
-    if (!sections.length) throw new US.UserError('NOTHING_FOUND', { title: `None of your selected lines are in “${tl.info.name}”.`, action: tl.result.entries.length ? 'Make some selections first (themes or the board), or pick the string-out with your interviews.' : 'The clips in this sequence have no transcripts yet – read Premiere’s transcripts first.' });
+    if (!sections.length) throw new US.UserError('NOTHING_FOUND', { title: `None of your selected lines are in “${tl.info.name}”.`, action: tl.result.entries.length ? 'Make some selections first (themes or the board), or pick the string-out with your interviews.' : `The clips in this sequence have no transcripts yet – ${READ_FIRST}.` });
     state.highlights = state.highlights || {};
     const prev = state.highlights[seqId] || {};
     job.set({ who: 'premiere', msg: `Highlighting ${US.plural(sections.length, 'selected line')}` });
@@ -1066,7 +1106,7 @@
     const r = await US.host.call('storyHighlights', { seqId, trackName: 'Selects', trackIndex: prev.track, binPath: binBase(), create: US.settings.get('story.makeLabelClips', true), sections: sections.map(x => ({ name: x.name, start: x.start, end: x.end, label: x.label })) });
     if (prev.markerGuids && prev.markerGuids.length) { try { await US.host.call('removeSequenceMarkers', { seqId, guids: prev.markerGuids }); } catch (e) { /* already gone */ } }
     let guids = [];
-    if (markers) guids = await US.host.call('addSequenceMarkers', { seqId, markers: sections.map(x => ({ start: x.start, end: x.end, name: x.name, color: x.label != null ? LABEL_TO_MARKER[x.label] : 2 })) });
+    if (markers && !RES) guids = await US.host.call('addSequenceMarkers', { seqId, markers: sections.map(x => ({ start: x.start, end: x.end, name: x.name, color: x.label != null ? LABEL_TO_MARKER[x.label] : 2 })) });
     state.highlights[seqId] = { track: r.track, markerGuids: guids || [], at: Date.now(), count: r.placed };
     saveNow();
     if (r.kind === 'transparent') US.ui.toast({ type: 'info', title: 'Highlighted – one thing to know', text: 'No adjustment layer in this project – used invisible label clips instead. Add one with File › New › Adjustment Layer and Ultra Studio will use it.', timeout: 15000 });
@@ -1075,7 +1115,7 @@
     return { tl, sel, sections, result: r, summary: `${US.plural(r.placed, 'selected line')} highlighted on “${tl.info.name}”${r.removed ? ` (replaced ${r.removed} old ones)` : ''}` };
   }
   async function removeHighlights(job, seqId) {
-    loadState();
+    await ready(); loadState();
     const prev = (state.highlights || {})[seqId] || {};
     job && job.set({ who: 'premiere', msg: 'Removing the highlights' });
     const r = await US.host.call('storyRemoveHighlights', { seqId, trackName: 'Selects', trackIndex: prev.track });
@@ -1172,7 +1212,7 @@
   }
   /** Brief -> narrative on the board. -> {narrative, column, brief, summary} */
   async function makeNarrative(job, { brief: text, useAI = false }) {
-    loadState();
+    await ready(); loadState();
     const brief = N().parseBrief(text), L = lookOptions(), ai = !!(useAI && US.ai && US.ai.available()), reads = ai ? readsFor('narrative') : 120;
     if (ai && US.ai.approveTotal) { const p = readsPlan('narrative', reads); await US.ai.approveTotal(p.usd, `Narrative cut (${US.plural(p.requests, 'request')})`); }
     job.set({ who: 'computer', msg: brief.topic ? `Gathering lines about “${brief.topic}”` : 'Gathering your selects' });
@@ -1258,7 +1298,7 @@
   }
   /** Find moments in every transcript (with AI: the ones How picky allows are checked and described). Kept with the project. */
   async function findMoments(job, { useAI = false } = {}) {
-    loadState();
+    await ready(); loadState();
     const ai = !!(useAI && US.ai && US.ai.available());
     await linesInScope(job);
     job && job.set({ who: 'computer', msg: `Looking for moments in ${scopeLabel().replace(/^All /, 'all ')}` });
@@ -1317,7 +1357,7 @@
    * what it is and why (labels: “Funny – laughter”). Story's other timeline options (handles, theme names) apply.
    */
   async function buildMoments(job, list, { colour = true, labels = true, name = 'Story – moments' } = {}) {
-    loadState();
+    await ready(); loadState();
     const T5 = MO().TYPES, groups = [];
     for (const ty of MO().ORDER) {
       const ms = list.filter(m => m.type === ty && lineById.has(m.lineId));
@@ -1331,11 +1371,11 @@
   }
   /** Range markers on a string-out for the moments heard in it, coloured by type. Running again replaces them. */
   async function markMoments(job, { seqId, list }) {
-    loadState();
+    await ready(); loadState();
     if (!seqId) throw new US.UserError('NO_SEQUENCE', { action: 'Choose your string-out first.' });
     const tl = await timelineTranscript(job, { seqId, tracks: 'auto' });
     const marks = MO().markers(tl.result.entries, list);
-    if (!marks.length) throw new US.UserError('NOTHING_FOUND', { title: `None of these moments are in “${tl.info.name}”.`, action: tl.result.entries.length ? 'Pick the string-out with your interviews, or show more moments.' : 'The clips in this sequence have no transcripts yet – read Premiere’s transcripts first.' });
+    if (!marks.length) throw new US.UserError('NOTHING_FOUND', { title: `None of these moments are in “${tl.info.name}”.`, action: tl.result.entries.length ? 'Pick the string-out with your interviews, or show more moments.' : `The clips in this sequence have no transcripts yet – ${READ_FIRST}.` });
     state.momentMarkers = state.momentMarkers || {};
     const prev = state.momentMarkers[seqId];
     if (prev && prev.guids && prev.guids.length) { try { await US.host.call('removeSequenceMarkers', { seqId, guids: prev.guids }); } catch (e) { /* already gone */ } }
@@ -1347,7 +1387,7 @@
     return { marks, tl, summary: `${US.plural(marks.length, 'moment')} marked on “${tl.info.name}”${prev ? ' (the earlier ones replaced)' : ''}${missing > 0 ? ` · ${missing} not in this sequence` : ''}` };
   }
   async function removeMomentMarkers(job, seqId) {
-    loadState();
+    await ready(); loadState();
     const prev = (state.momentMarkers || {})[seqId];
     if (prev && prev.guids && prev.guids.length) { try { await US.host.call('removeSequenceMarkers', { seqId, guids: prev.guids }); } catch (e) { /* already gone */ } }
     if (state.momentMarkers) delete state.momentMarkers[seqId];
@@ -1356,8 +1396,9 @@
   }
 
   /* ================= reading transcripts ================= */
-  async function readPremiereTranscripts(job) {
-    loadState();
+  async function readPremiereTranscripts(job, opts = {}) {
+    if (RES) return readResolveTranscripts(job, opts);
+    await ready(); loadState();
     job.set({ who: 'premiere', msg: 'Saving your project so Premiere writes its transcripts to disk' });
     const pf = await US.host.call('storyProjectFile', { save: true });
     job.set({ who: 'computer', msg: 'Reading transcripts from the project file' });
@@ -1372,8 +1413,43 @@
     return { summary: `${US.plural(found.length, 'transcript')} read (${US.plural(lines, 'sentence')})${readNote()}` };
   }
 
+  /**
+   * Resolve: transcribe interview clips with Resolve's own speech-to-text (free in Resolve Studio, on this computer) and
+   * read them in. Which clips: opts.ids, else the clips selected in the Media Pool, else the ones Story already has
+   * Resolve transcripts of (read again). One clip at a time: Resolve doesn't answer while it transcribes.
+   */
+  async function readResolveTranscripts(job, { ids = null } = {}) {
+    await ready(); loadState();
+    job.set({ who: 'premiere', msg: 'Finding the clips to transcribe' });
+    let clips = ids && ids.length ? (await projectClips()).filter(c => ids.includes(c.id)) : await US.host.call('storyClips', { selected: true });
+    if (!clips.length && !(ids && ids.length)) {
+      const again = state.transcripts.filter(t => t.source === 'resolve');
+      if (again.length) { const m = await resolveItems(again), want = new Set(m.values()); clips = (await projectClips()).filter(c => want.has(c.id)); }
+    }
+    if (!clips.length) throw new US.UserError('NO_SELECTION', { title: 'No interview clips are selected.', action: 'Select your interview clips in the Media Pool, then press “Transcribe with Resolve” again.' });
+    readCount.again = readCount.changed = 0;
+    let ok = 0, lines = 0; const bad = [];
+    for (let i = 0; i < clips.length; i++) {
+      job.check();
+      const c = clips[i];
+      job.set({ who: 'premiere' }).progress(i / clips.length, `Resolve is transcribing ${c.name} (${i + 1} of ${clips.length}) – Resolve and this panel may not respond until it’s done`);
+      await new Promise(res => setTimeout(res, 80));   // let the message show: the call holds the panel while Resolve works
+      try {
+        const r = await US.host.call('storyTranscribe', { id: c.id, language: US.settings.get('story.language', '') || undefined }, { timeout: 0, slowAfter: 4 * 3600e3 });
+        const segments = T.fromSubtitles(r.items);
+        if (!segments.length) { bad.push(`${c.name}: no speech found`); continue; }
+        addTranscript({ name: r.name || c.name, path: r.path || c.path, itemId: c.id, source: 'resolve', language: r.language, segments });
+        ok++; lines += segments.length;
+      } catch (e) { if (US.errors.cancelled(e)) throw e; bad.push(`${c.name}: ${US.errors.explain(e).title}`); }
+    }
+    reindex(); saveNow();
+    if (!ok) throw new US.UserError('NOTHING_FOUND', { title: 'Resolve didn’t transcribe any speech.', action: 'Check the clips have speech and play with sound in Resolve, then try again.', detail: bad.join('\n') });
+    if (bad.length) US.ui.toast({ type: 'warn', title: `${US.plural(bad.length, 'clip')} not transcribed`, text: bad.slice(0, 3).join(' · '), detail: bad.join('\n') });
+    return { summary: `${US.plural(ok, 'interview')} transcribed by Resolve (${US.plural(lines, 'phrase')})${readNote()}` };
+  }
+
   async function importFiles(job, files) {
-    loadState();
+    await ready(); loadState();
     const clips = await projectClips();
     const masters = clips.filter(c => !c.sub);
     let ok = 0; const bad = [];
@@ -1471,12 +1547,12 @@
   US.tools.register({
     id: 'story', name: 'Story', short: 'Story', icon: 'story', group: 'cut', order: 22,
     blurb: 'Step by step from your interviews to a cut: themes, specific lines and moments, a sequence or a narrative, and documents to share.',
-    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyThemeLayers', 'storyCaptions'],
+    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe'] : []),
     create() {
       const v = ui.toolView({
         icon: 'story', title: 'Story', blurb: 'From your interviews to a cut, step by step: themes, the lines you need, a sequence or narrative, and documents to share.',
         help: h('div', h('p', 'Story works from transcripts, in five steps. You can go back to any step at any time.'), h('ol',
-          h('li', h('b', 'Interviews. '), 'Let Premiere transcribe your interviews (select clips › right-click › Transcribe – free, on this computer), then press “Read Premiere’s transcripts” – or import transcript files. Then choose what to work on: every interview, some of them, or the lines in a sequence such as your selects (only between its In and Out points if you like).'),
+          h('li', h('b', 'Interviews. '), (RES ? 'Select your interviews in the Media Pool and press “Transcribe with Resolve” (free in Resolve Studio, on this computer)' : 'Let Premiere transcribe your interviews (select clips › right-click › Transcribe – free, on this computer), then press “Read Premiere’s transcripts”') + ' – or import transcript files. Then choose what to work on: every interview, some of them, or the lines in a sequence such as your selects (only between its In and Out points if you like).'),
           h('li', h('b', 'Themes. '), 'Type the themes you want (optional) and press Find themes: Story finds yours and its own in one pass. How picky sets how many lines each theme keeps. Each theme has a colour its clips get in the timeline.'),
           h('li', h('b', 'Find. '), 'Search for specific lines (by word, related words and mis-heard words), Find more on a topic you haven’t covered, and Moments – bloopers, funny bits, off-camera voices and poignant moments.'),
           h('li', h('b', 'Build. '), 'A sequence from your themes, a narrative from a one-sentence brief (and a promo from it), bins by theme, and highlights on a string-out – your clips are never changed.'),
@@ -1544,13 +1620,15 @@
         el.appendChild(stepHead('transcripts'));
         el.appendChild(ui.card(
           h('div.card-title', 'Get transcripts'),
-          h('div.muted', 'Premiere’s own transcription is free, accurate and stays on this computer. Select your interviews in the Project panel › right-click › Transcribe. When it’s done, read them in here.'),
-          ui.actionButton(state.transcripts.length ? 'Read Premiere’s transcripts again' : 'Read Premiere’s transcripts', () => US.actions.run('story.read', {}), { icon: 'refresh' }),
+          RES ? h('div.muted', 'Resolve Studio transcribes for free, on this computer. Select your interview clips in the Media Pool and press the button: Story has Resolve make subtitles of each clip on a temporary timeline (deleted afterwards) and reads them in. Resolve and this panel may not respond while a clip is being transcribed.')
+            : h('div.muted', 'Premiere’s own transcription is free, accurate and stays on this computer. Select your interviews in the Project panel › right-click › Transcribe. When it’s done, read them in here.'),
+          RES ? ui.actionButton(state.transcripts.length ? 'Transcribe with Resolve again' : 'Transcribe with Resolve', () => US.actions.run('story.read', {}), { icon: 'refresh' })
+            : ui.actionButton(state.transcripts.length ? 'Read Premiere’s transcripts again' : 'Read Premiere’s transcripts', () => US.actions.run('story.read', {}), { icon: 'refresh' }),
           h('div.row', ui.button('Import transcript files…', { icon: 'folder', onClick: async () => {
             const files = US.app.pickFiles({ multi: true, title: 'Choose transcript files', ext: ['srt', 'vtt', 'txt', 'csv', 'tsv', 'json', 'prtranscript'] });
             if (files.length) await US.jobs.run({ title: 'Importing transcripts', tool: 'story' }, job => importFiles(job, files.map(US.normPath))).then(render);
           } }), h('span.field-hint', 'SRT, VTT, CSV, JSON or text with timecodes'))));
-        if (!state.transcripts.length) { el.appendChild(ui.note('Reading saves your project first, because that’s where Premiere keeps its transcripts.')); return; }
+        if (!state.transcripts.length) { el.appendChild(ui.note(RES ? 'Resolve gives times per phrase rather than per word, so when Story trims a line or times captions it spreads the words evenly over each phrase.' : 'Reading saves your project first, because that’s where Premiere keeps its transcripts.')); return; }
         const named = Array.from(speakers).filter(Boolean).length, one = (n, w) => (n === 1 ? w : w + 's');
         el.appendChild(ui.stats(ui.stat(state.transcripts.length, one(state.transcripts.length, 'interview')), ui.stat(US.fmtDur(secs), 'of speech'), ui.stat(lines.length, one(lines.length, 'line')),
           named ? ui.stat(named, one(named, 'speaker')) : ui.stat('No', 'speaker names')));
@@ -1567,7 +1645,7 @@
           const linked = !!(t.path || t.itemId);
           return h('div.list-row',
             h('span.swatch', { style: { background: linked ? 'var(--ok)' : 'var(--warn)' }, title: linked ? 'Linked to a clip' : 'Not linked to a clip' }),
-            h('div.list-main', h('div.list-title', t.name), h('div.list-sub', `${t.source === 'premiere' ? 'Premiere transcript' : 'File: ' + US.basename(t.file)} · ${US.plural(t.lines.length, 'line')} · ${US.fmtDur(t.lines.length ? t.lines[t.lines.length - 1].end : 0)}${linked ? '' : ' · not linked to a clip'}`)),
+            h('div.list-main', h('div.list-title', t.name), h('div.list-sub', `${t.source === 'premiere' ? 'Premiere transcript' : t.source === 'resolve' ? 'Transcribed by Resolve' : 'File: ' + US.basename(t.file)} · ${US.plural(t.lines.length, 'line')} · ${US.fmtDur(t.lines.length ? t.lines[t.lines.length - 1].end : 0)}${linked ? '' : ' · not linked to a clip'}`)),
             ui.button(linked ? 'Relink' : 'Link to clip', { small: true, kind: linked ? 'ghost' : 'secondary', onClick: () => linkDialog(t) }),
             h('button.icon-btn', { title: 'Remove this transcript from Story', onclick: async () => { if (await ui.confirm({ title: `Remove “${t.name}”?`, text: 'Its lines leave Find and Themes. Nothing in Premiere changes.', ok: 'Remove' })) { state.transcripts = state.transcripts.filter(x => x !== t); reindex(); pruneWall(); saveNow(); render(); } } }, US.icon('close', 14)));
         });
@@ -1575,7 +1653,7 @@
       }
       function speakerNames(speakers, lines) {
         const spk = Array.from(speakers);
-        return h('div.story-speakers', h('div.field-hint', spk.length > 1 || spk[0] ? 'Speaker names – they show in Find, Themes, documents and subclip names.' : 'Premiere’s transcripts have no speaker names, so Story shows the clip name instead.'),
+        return h('div.story-speakers', h('div.field-hint', spk.length > 1 || spk[0] ? 'Speaker names – they show in Find, Themes, documents and subclip names.' : (RES ? 'Resolve’s transcripts have no speaker names, so Story shows the clip name instead.' : 'Premiere’s transcripts have no speaker names, so Story shows the clip name instead.')),
           ...spk.filter((x, i) => x || spk.length > 1).map(s => h('div.row', h('span.swatch', { style: { background: speakerColor(s) } }), h('div.grow', ui.input({ value: speakerName(s), placeholder: s || 'Unknown speaker', onInput: val => { state.speakers[s].name = val.trim() || s; save(); } })), h('span.field-hint', US.plural(lines.filter(l => l.speaker === s).length, 'line')))));
       }
       /** Step 1b: every interview, some of them, or the lines in a sequence (e.g. your selects), optionally In to Out. */
@@ -1819,7 +1897,7 @@
         return s;
       }
       function playButton(l, at = l.start) {
-        return h('button.icon-btn', { title: 'Play in the Source Monitor', onclick: async e => {
+        return h('button.icon-btn', { title: RES ? 'Play this line here (press again to stop)' : 'Play in the Source Monitor', onclick: async e => {
           e.stopPropagation();
           const t = clipOfLine.get(l.id);
           try {
@@ -1836,10 +1914,11 @@
         const L = lookOptions();
         const strongSw = swatchButton(L.strong.label, i => { US.settings.set('story.strongLabel', i); render(); }, 'Highlight colour');
         return [
-          ui.toggle({ label: 'Colour each theme', hint: 'Every theme’s clips get its colour label, so you can tell them apart in the timeline.', value: L.colour, onChange: x => US.settings.set('story.colourThemes', x) }),
+          ui.toggle({ label: 'Colour each theme', hint: RES ? 'Every theme’s clips get its clip colour, so you can tell them apart in the timeline.' : 'Every theme’s clips get its colour label, so you can tell them apart in the timeline.', value: L.colour, onChange: x => US.settings.set('story.colourThemes', x) }),
           h('div.row.story-strong-row', ui.toggle({ label: 'Highlight the strongest lines', hint: `In ${labelName(L.strong.label)} with a ★ – overrides the theme colour.`, value: L.strong.highlight, onChange: x => US.settings.set('story.strongHighlight', x) }), strongSw),
           ui.toggle({ label: 'Strongest lines first in each theme', hint: 'Pinned cards still come first.', value: L.strong.first, onChange: x => US.settings.set('story.strongFirst', x) }),
-          withNames ? ui.field('Theme names in the timeline', ui.segmented({ options: [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Name layer', title: 'A clip named after the theme on the track above, spanning the theme' }, { value: 'both', label: 'Both' }, { value: 'none', label: 'Off' }], value: L.themeNames, onChange: x => US.settings.set('story.themeNames', x) }), 'Name layer uses an adjustment layer from your project if there is one (File › New › Adjustment Layer).') : null
+          withNames && RES ? ui.field('Theme names in the timeline', ui.segmented({ options: [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Range markers', title: 'A marker the length of each theme, named after it, in its colour' }, { value: 'none', label: 'Off' }], value: L.themeNames === 'both' ? 'layer' : L.themeNames, onChange: x => US.settings.set('story.themeNames', x) }), 'Markers sit at the start of each theme; range markers span it.')
+            : withNames ? ui.field('Theme names in the timeline', ui.segmented({ options: [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Name layer', title: 'A clip named after the theme on the track above, spanning the theme' }, { value: 'both', label: 'Both' }, { value: 'none', label: 'Off' }], value: L.themeNames, onChange: x => US.settings.set('story.themeNames', x) }), 'Name layer uses an adjustment layer from your project if there is one (File › New › Adjustment Layer).') : null
         ];
       }
 
@@ -2350,13 +2429,14 @@
           if (r) { hl = r; renderBuild(); }
         };
         el.appendChild(h('div.card', { dataset: { section: 'highlights' } }, h('div.card-title', 'Highlight selects in a string-out'),
-          h('div.muted', 'Puts every selected line on a “Selects” track above your string-out of all the interviews, in its theme’s colour – so you can scrub through and see what’s been chosen, and what’s been missed.'),
+          h('div.muted', RES ? 'Marks every selected line on your string-out of all the interviews with a range marker in its theme’s colour, named after its themes – so you can scrub through and see what’s been chosen, and what’s been missed. Your own markers are left alone.'
+            : 'Puts every selected line on a “Selects” track above your string-out of all the interviews, in its theme’s colour – so you can scrub through and see what’s been chosen, and what’s been missed.'),
           ui.field('String-out', seqSel),
           h('div.grid2',
             ui.toggle({ label: 'Lines in themes', hint: 'As chosen by How picky', value: hlUse.themes, onChange: x => { hlUse.themes = x; US.settings.set('story.hlUse', hlUse); } }),
             ui.toggle({ label: BOARD ? 'Cards on the board' : 'Lines in your narratives', value: hlUse.board, onChange: x => { hlUse.board = x; US.settings.set('story.hlUse', hlUse); } }),
             ui.toggle({ label: 'Lines in sequences Story built', value: hlUse.builds, onChange: x => { hlUse.builds = x; US.settings.set('story.hlUse', hlUse); } }),
-            ui.toggle({ label: 'Also add range markers', hint: 'For the Markers panel', value: hlMarkers, onChange: x => { hlMarkers = x; US.settings.set('story.hlMarkers', x); } })),
+            RES ? null : ui.toggle({ label: 'Also add range markers', hint: 'For the Markers panel', value: hlMarkers, onChange: x => { hlMarkers = x; US.settings.set('story.hlMarkers', x); } })),
           h('div.row', ui.actionButton(had ? 'Highlight again' : 'Highlight selects', () => run(hlMarkers), { icon: 'spark', block: false }),
             ui.button('Show what’s missed', { icon: 'target', title: 'Coverage per interview, without changing the sequence', onClick: () => US.jobs.run({ title: 'Checking coverage', tool: 'story' }, async job => { const tl = await timelineTranscript(job, { seqId: hlSeq, tracks: 'auto' }); hl = { tl, sel: selectionMap(hlUse) }; renderBuild(); return { summary: 'coverage ready' }; }) }),
             had ? ui.button('Remove highlights', { kind: 'ghost', onClick: () => US.jobs.run({ title: 'Removing highlights', tool: 'story' }, async job => { const r = await removeHighlights(job, hlSeq); hl = null; renderBuild(); return r; }) }) : null),
@@ -2467,7 +2547,7 @@
         const seqSel = ui.select({ options: [], placeholder: 'Choose a sequence…', onChange: v => { tlSeq = v; tl = null; renderTimeline(); } });
         US.host.call('listSequences').then(seqs => { const act = US.ctx.sequence && US.ctx.sequence.id; if (!tlSeq) tlSeq = act || (seqs[0] && seqs[0].id) || ''; seqSel.setOptions(seqs.map(q => ({ value: q.id, label: q.name + (q.id === act ? '  (open)' : '') })), tlSeq); }).catch(() => {});
         el.appendChild(ui.card(h('div.card-title', 'Transcript of a timeline'),
-          h('div.muted', 'Who says what in a sequence, in timeline order – from Premiere’s transcripts of the clips you used, trimmed at every cut. Name the speakers once and export it.'),
+          h('div.muted', `Who says what in a sequence, in timeline order – from ${RES ? 'the transcripts' : 'Premiere’s transcripts'} of the clips you used, trimmed at every cut. Name the speakers once and export it.`),
           ui.field('Sequence', seqSel),
           ui.actionButton(tl ? 'Make it again' : 'Make transcript', () => US.jobs.run({ title: 'Making the timeline transcript', tool: 'story' }, async job => { tl = await timelineTranscript(job, { seqId: tlSeq || (US.ctx.sequence && US.ctx.sequence.id), tracks: tlTracks }); renderTimeline(); return { summary: `${US.plural(tl.result.entries.length, 'line')} · ${US.plural(tl.result.speakers.length, 'voice')}` }; }), { icon: 'story' })));
         if (!tl) return;
@@ -2476,8 +2556,8 @@
           const names = r.missing.map(m => m.name);
           el.appendChild(h('div.note.warn', US.icon('warn', 15), h('div',
             h('div', h('b', `${US.plural(names.length, 'clip')} in this sequence ${names.length === 1 ? 'has' : 'have'} no transcript yet: `), names.slice(0, 8).join(', ') + (names.length > 8 ? ` …and ${names.length - 8} more` : '') + '.'),
-            h('div', 'Select them in the Project panel › right-click › Transcribe (or Window › Text › Transcript › Transcribe). To do it automatically, turn on “Auto-transcribe” in Premiere’s Import settings. If they’re music or sound effects, ignore this.'),
-            h('div.row', { style: { marginTop: '6px' } }, ui.button('Read Premiere’s transcripts', { small: true, icon: 'refresh', onClick: async () => { const ok = await US.actions.run('story.read', {}); if (ok) { tl = await timelineTranscript(null, { seqId: tl.info.id, tracks: tlTracks, info: tl.info }); show('timeline'); } } })))));
+            h('div', RES ? 'Press the button to have Resolve transcribe them. If they’re music or sound effects, ignore this.' : 'Select them in the Project panel › right-click › Transcribe (or Window › Text › Transcript › Transcribe). To do it automatically, turn on “Auto-transcribe” in Premiere’s Import settings. If they’re music or sound effects, ignore this.'),
+            h('div.row', { style: { marginTop: '6px' } }, ui.button(RES ? 'Transcribe them with Resolve' : 'Read Premiere’s transcripts', { small: true, icon: 'refresh', onClick: async () => { const ids = r.missing.map(m => m.itemId).filter(Boolean), ok = RES && ids.length ? await US.jobs.run({ title: 'Transcribing with Resolve', tool: 'story' }, job => readPremiereTranscripts(job, { ids })) : await US.actions.run('story.read', {}); if (ok) { tl = await timelineTranscript(null, { seqId: tl.info.id, tracks: tlTracks, info: tl.info }); show('timeline'); } } })))));
         }
         const staleKeys = new Set(r.entries.filter(e => e.exact === false).map(e => e.clipKey));
         const stale = state.transcripts.filter(t => staleKeys.has(t.key) && t.source === 'premiere');
@@ -2594,12 +2674,12 @@
   function needLines() {
     loadState();
     if (!US.ctx.project) throw new US.UserError('NO_PROJECT');
-    if (!allLines().length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no transcripts in Story yet.', action: 'Open Story › 1 Interviews and read Premiere’s transcripts (or import files) first.' });
+    if (!allLines().length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no transcripts in Story yet.', action: RES ? 'Open Story › 1 Interviews and transcribe your interviews with Resolve (or import files) first.' : 'Open Story › 1 Interviews and read Premiere’s transcripts (or import files) first.' });
   }
 
   US.actions.register({
-    id: 'story.read', tool: 'story', title: 'Read Premiere’s transcripts', changes: false,
-    describe: 'Saves the project and reads every transcript Premiere has made for its clips into Story.',
+    id: 'story.read', tool: 'story', title: RES ? 'Transcribe with Resolve' : 'Read Premiere’s transcripts', changes: false,
+    describe: RES ? 'Has Resolve transcribe the interview clips selected in the Media Pool and reads them into Story.' : 'Saves the project and reads every transcript Premiere has made for its clips into Story.',
     examples: ['read the transcripts', 'load Premiere’s transcripts'],
     match: t => (/\b(read|load|import|get|pull)\b.*\btranscripts?\b/i.test(t) ? {} : null),
     run: async (p, job) => { const r = await readPremiereTranscripts(job); openStory('transcripts'); return r; }
@@ -2616,7 +2696,7 @@
       return q ? { query: q, _score: 2 } : null;
     },
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       const r = T.search(p.query, await linesInScope(job), { limit: 200 });
       openStory('search', { query: p.query });
       return { summary: r.length ? `${US.plural(r.length, 'line')} about “${p.query}” – best: “${r[0].line.text.slice(0, 60)}…”` : `Nothing found for “${p.query}”` };
@@ -2629,7 +2709,7 @@
     examples: ['find the themes', 'group the interviews by topic'],
     match: t => (/\b(themes?|topics?)\b/i.test(t) && /\b(find|group|sort|show|what|make|get|work out)\b/i.test(t) && !/\bbins?\b/i.test(t) && !/\b(add|new|own|called)\b/i.test(t) ? { useAI: !!(US.ai && US.ai.available()) } : null),
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       const own = p.own ? splitThemes(ownThemeNames().concat(splitThemes(p.own)).join('\n')) : ownThemeNames();
       const { yours, found, lines } = await findAllThemes(job, { useAI: p.useAI, own });
       openStory('themes');
@@ -2651,7 +2731,7 @@
       return { theme: m[1].trim(), useAI: !!(US.ai && US.ai.available()), _score: 2.5 };
     },
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       const th = await addCustomTheme(job, p.theme, { useAI: p.useAI });
       openStory('themes');
       return { theme: th, summary: th.lineIds.length ? `“${th.name}”: ${US.plural(th.lineIds.length, 'line')}, best first` : `“${th.name}” added – no lines found yet; tick lines in Find and press “Add to theme…”, or try other words` };
@@ -2670,7 +2750,7 @@
       return topic ? { topic, notInCut, _score: 2.6 } : null;
     },
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       const exclude = selectedIds(); let inCut = 0;
       if (p.notInCut) { const seq = US.ctx.sequence; if (!seq) throw new US.UserError('NO_SEQUENCE', { action: 'Open your cut in the Timeline, then try again.' }); (await usedInSequence(job, seq.id)).forEach(id => { if (!exclude.has(id)) inCut++; exclude.add(id); }); }
       const r = await findMore(job, p.topic, { useAI: !!(US.ai && US.ai.available() && US.settings.get('story.moreAI', true)), exclude });
@@ -2686,7 +2766,7 @@
     examples: ['sort the selects into bins by theme', 'make a bin for each theme'],
     match: t => (/\bbins?\b/i.test(t) && /\b(themes?|topics?)\b/i.test(t) ? { perTheme: 0, sequences: /\bsequences?\b/i.test(t) } : null),
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       if (!state.themes.length) { job.set({ msg: 'Finding themes first' }); state.themes = T.themesOffline(allLines(), { max: 10 }); ensureColours(); saveNow(); }
       return sortIntoBins(job, { themes: state.themes.filter(t => t.name !== 'Other'), perTheme: p.perTheme, sequences: p.sequences });
     }
@@ -2706,7 +2786,7 @@
       return { source: 'themes', _score: 1.5 };
     },
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       let groups, name = p.name;
       if (p.source === 'narrative') return buildNarrative(job, latestNarrative(p.narrative), { name });
       if (p.source === 'picked') { groups = [{ name: '', label: null, lineIds: (state.picked || []).filter(id => lineById.has(id)) }]; name = name || 'Story – picked lines'; }
@@ -2745,7 +2825,7 @@
       return { brief: t, useAI: !!(US.ai && US.ai.available() && US.settings.get('story.narrativeAI', true)), _score: 2.8 };
     },
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       const r = await makeNarrative(job, { brief: p.brief, useAI: p.useAI });
       openStory('build', { section: 'narrative' });
       return r;
@@ -2766,7 +2846,7 @@
       return { type: type || 'all', useAI: !!(US.ai && US.ai.available() && US.settings.get('story.momentsAI', true)), _score: 2.7 };
     },
     run: async (p, job) => {
-      needLines();
+      await ready(); needLines();
       const r = await findMoments(job, { useAI: p.useAI });
       openStory('search', { section: 'moments', moments: true, type: p.type || 'all' });
       const kept = pickMoments(r.moments, { type: p.type || 'all' });
@@ -2832,7 +2912,7 @@
       return { format, _score: 2.5 };
     },
     run: async (p, job) => {
-      loadState();
+      await ready(); loadState();
       if (!US.ctx.project) throw new US.UserError('NO_PROJECT');
       let seqId = US.ctx.sequence && US.ctx.sequence.id;
       if (p.sequence) { const q = (await US.host.call('listSequences')).find(x => x.name.toLowerCase() === p.sequence.toLowerCase()) || (await US.host.call('listSequences')).find(x => x.name.toLowerCase().includes(p.sequence.toLowerCase())); if (!q) throw new US.UserError('NOT_FOUND', { title: `There’s no sequence called “${p.sequence}”.`, action: 'Check the name, or open the sequence and try again.' }); seqId = q.id; }
@@ -2856,7 +2936,7 @@
       return { style: /one word|word by word|single word/i.test(t) ? 'words' : /social|reels?|tiktok|shorts|instagram|few words/i.test(t) ? 'social' : 'subtitles', names: /\b(names?|speakers?)\b/i.test(t), upper: /\b(capitals?|caps|upper ?case)\b/i.test(t), _score: 2.5 };
     },
     run: async (p, job) => {
-      loadState();
+      await ready(); loadState();
       const seqId = US.ctx.sequence && US.ctx.sequence.id;
       if (!seqId) throw new US.UserError('NO_SEQUENCE');
       const tl = await timelineTranscript(job, { seqId });
@@ -2877,7 +2957,7 @@
       return { bin: m ? m[1].trim() : '', captions: /no captions|without captions/i.test(t) ? '' : /subtitles/i.test(t) ? 'subtitles' : 'social', vertical: !/no vertical|without (a )?vertical|horizontal only/i.test(t), _score: 2.5 };
     },
     run: async (p, job) => {
-      loadState();
+      await ready(); loadState();
       const col = latestNarrative();
       if (!col) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no narrative yet.', action: 'Make one first, e.g. “a 30-second video about volunteering”, then ask for the promo.' });
       let broll = '';
@@ -2893,7 +2973,7 @@
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
     SECTIONS,
     loadState: () => loadState(), state: () => state, addTranscript: (...a) => { const t = addTranscript(...a); reindex(); saveNow(); return t; },
-    buildSequence, sortIntoBins, readPremiereTranscripts, importFiles, syncStatus: () => (session ? session.status() : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
+    buildSequence, sortIntoBins, readPremiereTranscripts, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
     themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,

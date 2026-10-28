@@ -78,8 +78,10 @@
   }
   US.refreshContext = () => pollContext(true);
 
-  /* ---------- skin: follow Premiere's panel brightness ---------- */
+  /* ---------- skin: follow Premiere's panel brightness (Resolve has no theme to follow: the dark default in app.css
+     is close to Resolve's own grey) ---------- */
   function applySkin() {
+    if (!window.__adobe_cep__) return;
     try {
       const env = JSON.parse(window.__adobe_cep__.getHostEnvironment());
       const c = env.appSkinInfo.panelBackgroundColor.color;
@@ -172,9 +174,10 @@
     const p = els.ctxProject, s = els.ctxSeq;
     p.querySelector('span').textContent = c.project ? c.project.name : 'No project open';
     p.classList.toggle('off', !c.project);
-    s.querySelector('span').textContent = US.say(c.sequence ? c.sequence.name : 'No sequence');
+    // the timeline's own name as it is (never put in Resolve's words); the rest in the editor's words
+    s.querySelector('span').textContent = c.sequence ? c.sequence.name : US.say('No sequence');
     s.classList.toggle('off', !c.sequence);
-    s.title = c.sequence ? `${c.sequence.name} · ${c.sequence.width}×${c.sequence.height} · ${+c.sequence.fps.toFixed(3)} fps · ${US.fmtDur(c.sequence.duration)}` : 'No active sequence';
+    s.title = c.sequence ? `${c.sequence.name} · ${c.sequence.width}×${c.sequence.height} · ${+c.sequence.fps.toFixed(3)} fps · ${US.fmtDur(c.sequence.duration)}` : US.say('No active sequence');
   }
 
   /* ---------- status bar ---------- */
@@ -189,7 +192,7 @@
   US.bus.on('job', job => {
     clearTimeout(resultTimer);
     els.status.className = 'status running';
-    els.statusWho.textContent = job.who;
+    els.statusWho.textContent = US.say(job.who);
     els.statusMsg.textContent = US.say('· ' + job.title + (job.msg ? ' — ' + job.msg : ''));
     els.statusBar.classList.toggle('indeterminate', job.indeterminate);
     els.statusFill.style.width = (job.frac * 100).toFixed(1) + '%';
@@ -254,7 +257,7 @@
 
   async function boot() {
     applySkin();
-    try { window.__adobe_cep__.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applySkin); } catch (e) { /* older CEP */ }
+    try { window.__adobe_cep__.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applySkin); } catch (e) { /* older CEP, or Resolve */ }
     bootScreen(`Connecting to ${US.app.name}…`);
     try {
       US.fsx.cleanTemp();
@@ -264,8 +267,9 @@
       if (US.fsx.isWin && !US.app.is('resolve')) { try { US.fsx.setDocumentsDir(await US.host.rawEval('Folder.myDocuments.fsName', 5000)); } catch (e) { /* keep the default */ } }
       US.log('info', `Started JMG Ultra Studio ${US.version} in ${US.app.full} ${ping.version}`);
     } catch (e) {
-      const x = US.errors.explain(e);
-      bootScreen(`Couldn’t connect to ${US.app.name}. ` + x.action, x.detail || String(e));
+      // the Resolve connection (resolve/host/index.js) explains itself with usTitle/usAction
+      const x = e && e.usTitle ? { title: US.say(e.usTitle), action: US.say(e.usAction || ''), detail: String(e.stack || e.message) } : US.errors.explain(e);
+      bootScreen(e && e.usTitle ? `${x.title} ${x.action}` : `Couldn’t connect to ${US.app.name}. ` + x.action, x.detail || String(e));
       return;
     }
     buildShell();

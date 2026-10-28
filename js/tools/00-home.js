@@ -15,6 +15,12 @@
     'New: Overnight prep (below) – transcripts, themes, moments, the interview log and Selects analysis while you’re away, with a morning report.',
     'Sound Check fixes the loudness and ducks the music under speech, on a copy. Safe Zones: plain grey guides and letterboxing. AI costs shown before anything runs, with a monthly limit.'
   ];
+  /** In DaVinci Resolve the Premiere history above doesn't apply (some of it works differently there). */
+  const WHATS_NEW_RESOLVE = [
+    'New: JMG Ultra Studio in DaVinci Resolve Studio – the same tools and screens as in Premiere, in Resolve’s words (timelines, the Media Pool, the render queue).',
+    'Works on a copy, as in Premiere: tools that change a timeline make a new one first, and new bins go in a “JMG Ultra Studio” bin.',
+    'A few things work differently in Resolve – the guide lists them (“In DaVinci Resolve Studio”).'
+  ];
 
   /** The guide shipped inside the extension (or the development copy). */
   function openGuide() {
@@ -35,7 +41,7 @@
       // once per version: what changed since the last one
       const news = US.settings.get('seenVersion') === US.version ? h('div') : ui.card(
         h('div.card-title', `What's new in ${US.version}`),
-        h('ul.news', WHATS_NEW.map(x => h('li', x))),
+        h('ul.news', (US.app.is('resolve') ? WHATS_NEW_RESOLVE : WHATS_NEW).map(x => h('li', x))),
         h('div.row', ui.button('Read the guide', { small: true, icon: 'info', onClick: openGuide }), ui.button('Got it', { small: true, kind: 'ghost', onClick: () => { US.settings.set('seenVersion', US.version); news.remove(); } })));
       const results = h('div');
       const groups = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } });
@@ -57,6 +63,7 @@
         const text = st.where === 'project' ? 'Story is saved with the project, so it opens the same on your other computer.'
           : st.reason === 'off' ? 'Story is kept on this computer only (Settings › Story).'
           : st.reason === 'unwritable' ? 'Story is kept on this computer only: the project’s folder can’t be written to.'
+          : st.reason === 'nomedia' ? 'Story is kept on this computer only until the project has media.'
           : st.reason === 'unreadable' ? 'The Story copy next to the project couldn’t be read, so this computer’s copy is used.' : '';
         return text ? h('div.field-hint', text) : null;
       }
@@ -74,7 +81,7 @@
             : h('div.field-hint', US.ctx.project ? 'Open Story to read this project’s transcripts.' : 'Open a project in Premiere to begin.'),
           c && c.interviews ? storyWhere() : null,
           h('div.row',
-            step(hasTranscripts ? 'Read transcripts again' : 'Read Premiere’s transcripts', 'refresh', () => US.actions.run('story.read', {}).then(renderFeatured), !hasTranscripts),
+            step(hasTranscripts ? 'Read transcripts again' : (US.app.is('resolve') ? 'Transcribe with Resolve' : 'Read Premiere’s transcripts'), 'refresh', () => US.actions.run('story.read', {}).then(renderFeatured), !hasTranscripts),
             step('2 Themes', 'story', () => openSection('themes'), hasTranscripts && !c.themes),
             step('3 Find', 'target', () => openSection('find')),
             step('4 Build', 'film', () => openSection('build'), hasTranscripts && c.themes > 0),
@@ -103,9 +110,11 @@
       }
       function renderCtx() {
         const c = US.ctx;
-        ctxLine.textContent = !c.project ? 'Open a project in Premiere to get started.'
-          : c.sequence ? `Working in “${c.project.name}”. Active sequence: ${c.sequence.name} (${US.fmtDur(c.sequence.duration)}).`
-            : `Working in “${c.project.name}”. Open a sequence or select clips to begin.`;
+        US.clear(ctxLine);
+        // the project's and timeline's own names are shown as they are (US.keep), the rest in the editor's words
+        US.append(ctxLine, !c.project ? ['Open a project in Premiere to get started.']
+          : c.sequence ? ['Working in “', US.keep(c.project.name), '”. Active sequence: ', US.keep(c.sequence.name), ` (${US.fmtDur(c.sequence.duration)}).`]
+            : ['Working in “', US.keep(c.project.name), '”. Open a sequence or select clips to begin.']);
       }
       US.bus.on('context', renderCtx);
 
@@ -123,28 +132,55 @@
           US.$$('.check-row .icon', results).forEach((ic, i) => ic.classList.add(rows[i].state === 'ok' ? 'okc' : rows[i].state === 'bad' ? 'badc' : 'warnc'));
         }
         function report() {
-          return [`JMG Ultra Studio ${US.version} setup check – ${new Date().toLocaleString()}`, `Premiere ${US.premiere && US.premiere.version} · ${US.premiere && US.premiere.os} · panel engine ${navigator.userAgent.match(/Chrome\/[\d.]+/)} · Node ${process.version}`]
-            .concat(rows.map(r => `${r.state === 'ok' ? '✓' : r.state === 'bad' ? '✗' : '!'} ${r.title}${r.text ? ' – ' + r.text : ''}`)).join('\n');
+          const p = US.premiere || {};
+          return [`JMG Ultra Studio ${US.version} setup check – ${new Date().toLocaleString()}`, `${p.app || US.app.full} ${p.version} · ${p.os || process.platform + ' ' + require('os').release()} · panel engine ${navigator.userAgent.match(/Chrome\/[\d.]+/)} · Node ${process.version}`]
+            .concat(rows.map(r => `${r.state === 'ok' ? '✓' : r.state === 'bad' ? '✗' : '!'} ${txt(r.title)}${r.text ? ' – ' + txt(r.text) : ''}`)).join('\n');
         }
+        /** A row's title or text as plain text, as on screen: names (US.keep) as they are, the rest in the editor's words. */
+        const txt = x => Array.isArray(x) ? x.map(txt).join('') : x && x.nodeType ? x.textContent : US.say(x == null ? '' : String(x));
+        const resolve = US.app.is('resolve');
 
         await US.jobs.run({ title: 'Checking your setup', tool: 'home' }, async job => {
-          const steps = 8; let n = 0; const step = msg => job.progress(n++ / steps, msg);
+          const steps = resolve ? 9 : 8; let n = 0; const step = msg => job.progress(n++ / steps, msg);
 
           step('Talking to Premiere');
-          try { const p = await US.host.call('ping', {}, { timeout: 10000 }); add('ok', `Connected to Premiere Pro ${p.version}`); }
-          catch (e) { add('bad', 'Can’t talk to Premiere', US.errors.explain(e).action); return { summary: 'Premiere didn’t answer' }; }
+          try {
+            const p = await US.host.call('ping', {}, { timeout: 10000 });
+            if (!resolve) add('ok', `Connected to Premiere Pro ${p.version}`);
+            else {
+              // only Resolve Studio runs plugins; Ultra Studio is made for 19.1 and later
+              const product = p.app || p.product || US.app.full, v = String(p.version || ''), [maj, min] = v.split('.').map(Number);
+              if (!/Studio/i.test(product)) add('bad', `This is ${product} ${v}`, 'Ultra Studio needs DaVinci Resolve Studio (the paid version): the free DaVinci Resolve can’t run plugins.');
+              else if (maj < 19 || (maj === 19 && min < 1)) add('warn', `Connected to ${product} ${v}`, 'Ultra Studio is made for DaVinci Resolve Studio 19.1 or later. Update Resolve (DaVinci Resolve › Check for Updates), then run the installer again.');
+              else add('ok', `Connected to ${product} ${v}`);
+            }
+          } catch (e) { add('bad', 'Can’t talk to Premiere', US.errors.explain(e).action); return { summary: 'Premiere didn’t answer' }; }
 
           step('Checking the project');
           await US.refreshContext();
-          if (US.ctx.project) add('ok', `Project open: ${US.ctx.project.name}`); else add('warn', 'No project open', 'Open a project to test the audio and video checks below.');
+          if (US.ctx.project) add('ok', ['Project open: ', US.keep(US.ctx.project.name)]); else add('warn', 'No project open', 'Open a project to test the audio and video checks below.');
 
-          step('Checking the Premiere scripts');
+          if (resolve) {
+            step('Checking the plugin');
+            const fs = require('fs'), path = require('path'), dir = US.host.extensionDir();
+            let pv = '';
+            try { pv = (/<Version>\s*([^<\s]+)\s*<\/Version>/.exec(fs.readFileSync(path.join(dir, 'manifest.xml'), 'utf8')) || [])[1] || ''; } catch (e) { /* reported below */ }
+            let linked = false; try { linked = fs.lstatSync(path.join(dir, 'index.html')).isSymbolicLink(); } catch (e) { /* not a link */ }
+            if (!pv) add('warn', 'Couldn’t read the plugin’s version', 'Run the installer again, then restart Resolve.');
+            else if (pv !== US.version) add('warn', `The plugin says ${pv}, the panel ${US.version}`, 'Run the installer again, then restart Resolve.');
+            else add('ok', `JMG Ultra Studio ${US.version} plugin installed`, linked ? `Development copy, linked to the source folder (${dir}).` : dir);
+            if (!fs.existsSync(path.join(dir, 'WorkflowIntegration.node'))) add('warn', 'Resolve’s connection file isn’t next to the plugin', 'Run the installer again: it copies WorkflowIntegration.node from DaVinci Resolve Studio.');
+          }
+
+          step(resolve ? 'Checking the Resolve commands' : 'Checking the Premiere scripts');
+          let fns = [];
           try {
-            const fns = await US.host.call('listFns');
-            const need = US.tools.list().flatMap(d => d.hostFns || []);
-            const missing = need.filter(f => !fns.includes(f));
-            if (missing.length) add('bad', 'Some Premiere scripts didn’t load', missing.join(', ')); else add('ok', `All ${fns.length} Premiere commands loaded`);
-          } catch (e) { add('bad', 'Premiere scripts didn’t load', US.errors.explain(e).detail); }
+            fns = await US.host.call('listFns');
+            // per tool, so it's clear which tool can't work yet
+            const missing = US.tools.list().map(d => [d.name, (d.hostFns || []).filter(f => !fns.includes(f))]).filter(([, m]) => m.length);
+            if (missing.length) add('bad', resolve ? 'Some tools are missing Resolve commands' : 'Some Premiere scripts didn’t load', missing.map(([name, m]) => `${name}: ${m.join(', ')}`).join(' · '));
+            else add('ok', `All ${fns.length} Premiere commands loaded`);
+          } catch (e) { add('bad', resolve ? 'The Resolve commands didn’t load' : 'Premiere scripts didn’t load', US.errors.explain(e).detail); }
 
           step('Checking disk access');
           try { const f = require('path').join(US.fsx.tempDir(), 'selftest.txt'); require('fs').writeFileSync(f, 'ok'); require('fs').unlinkSync(f); add('ok', 'Can save files', US.fsx.dataDir); }
@@ -164,7 +200,7 @@
               const a = await US.audio.forItem(withAudio, { job });
               const secs = (performance.now() - t0) / 1000;
               const speed = a.duration / Math.max(0.05, secs);
-              add('ok', `Sound analysis works (${US.fmtDur(a.duration)} of sound read in ${secs.toFixed(1)} s)`, a.duration >= 5 ? `About ${Math.round(speed)}× real time, using “${withAudio.name}”.` : `Using “${withAudio.name}” (too short to time).`);
+              add('ok', `Sound analysis works (${US.fmtDur(a.duration)} of sound read in ${secs.toFixed(1)} s)`, a.duration >= 5 ? [`About ${Math.round(speed)}× real time, using “`, US.keep(withAudio.name), '”.'] : ['Using “', US.keep(withAudio.name), '” (too short to time).']);
             } catch (e) { const x = US.errors.explain(e); add('bad', 'Sound analysis failed', `${x.title} ${x.action}${x.detail ? ' (' + x.detail.slice(0, 160) + ')' : ''}`); }
           }
 
@@ -178,19 +214,22 @@
               tested++;
               try { const r = await US.vision.probe(it); if (r.ok) okN++; else { if (r.needsCopy) copyN++; failNames.push(it.name); why = why || r.reason || ''; } } catch (e) { failNames.push(it.name); why = why || US.errors.explain(e).detail; }
             }
-            const fix = 'Selects makes small readable copies with Media Encoder when it needs them (or create H.264 proxies in Premiere).';
+            const fix = resolve ? 'Selects asks Resolve for small readable copies when it needs them.' : 'Selects makes small readable copies with Media Encoder when it needs them (or create H.264 proxies in Premiere).';
             // clips the panel can't decode itself (10-bit 4:2:2, HEVC, ProRes…) are fine if Media Encoder can make copies
             let copiesOk = false;
             if (copyN && okN + copyN === tested && US.vision.analysisPreset) { try { await US.vision.analysisPreset(); copiesOk = true; } catch (e) { /* preset missing: warn below */ } }
             if (okN === tested) add('ok', `Picture analysis works (${okN} of ${tested} sample clips readable)`);
-            else if (copiesOk) add('ok', `Picture analysis works (${okN} of ${tested} sample clips read directly; ${copyN} through a quick copy Media Encoder makes automatically)`, `Read through copies: ${failNames.join(', ')}. That’s normal for 10-bit, HEVC, ProRes and RAW footage.`);
-            else if (okN) add('warn', `Picture analysis reads ${okN} of ${tested} sample clips directly`, `Can’t read ${failNames.join(', ')}${why ? ' – ' + why : ''}. ${fix}`);
-            else add('warn', 'Picture analysis can’t read these clips directly', `${failNames.join(', ')}${why ? ' – ' + why : ''}. ${fix}`);
+            else if (copiesOk) add('ok', `Picture analysis works (${okN} of ${tested} sample clips read directly; ${copyN} through a quick copy Media Encoder makes automatically)`, ['Read through copies: ', US.keep(failNames.join(', ')), '. That’s normal for 10-bit, HEVC, ProRes and RAW footage.']);
+            else if (okN) add('warn', `Picture analysis reads ${okN} of ${tested} sample clips directly`, ['Can’t read ', US.keep(failNames.join(', ')), `${why ? ' – ' + why : ''}. ${fix}`]);
+            else add('warn', 'Picture analysis can’t read these clips directly', [US.keep(failNames.join(', ')), `${why ? ' – ' + why : ''}. ${fix}`]);
           }
 
           step('Checking Premiere presets');
-          try { const p = await US.host.call('presets'); const miss = Object.keys(p).filter(k => !p[k]); if (miss.length) add('warn', 'Some Premiere presets are missing', miss.join(', ')); else add('ok', 'Premiere export presets found'); }
-          catch (e) { add('bad', 'Couldn’t check presets', US.errors.explain(e).detail); }
+          // Resolve: only when its commands have a presets check (render presets live in each project)
+          if (!resolve || fns.includes('presets')) {
+            try { const p = await US.host.call('presets'); const miss = Object.keys(p || {}).filter(k => !p[k]); if (miss.length) add('warn', 'Some Premiere presets are missing', miss.join(', ')); else add('ok', 'Premiere export presets found'); }
+            catch (e) { add('bad', 'Couldn’t check presets', US.errors.explain(e).detail); }
+          }
 
           step('Checking the AI (optional)');
           if (!US.ai || !US.ai.available()) add('ok', 'No AI key set – that’s fine', 'Everything works without one. A key only adds free-form requests in the Assistant and automatic themes in Story.');

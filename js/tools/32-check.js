@@ -294,8 +294,8 @@
         const list = (rows, empty) => rows.length ? ui.list(rows.slice(0, 200)) : h('div.field-hint', empty);
         projResults.append(ui.card(
           ui.stats(ui.stat(a.clips, 'clips'), ui.stat(a.sequences, 'sequences'), ui.stat(a.unused.length, 'not used in any sequence'), ui.stat(a.offline.length, 'offline'), ui.stat(a.duplicates.length, 'imported twice')),
-          a.linking ? ui.note(`Premiere is still linking ${US.plural(a.linking, 'clip')} it has just opened (the files are there). Check again in a minute for the full picture.`) : null,
-          ui.section(`Offline (${a.offline.length})`, [list(a.offline.map(x => ({ title: x.name, sub: x.path, right: x.bin, color: 'var(--err)' })), 'Nothing offline.'), a.offline.length ? h('div.field-hint', 'Relink them in Premiere: select › right-click › Link Media.') : null], { open: a.offline.length > 0 }),
+          a.linking && !US.app.is('resolve') ? ui.note(`Premiere is still linking ${US.plural(a.linking, 'clip')} it has just opened (the files are there). Check again in a minute for the full picture.`) : null,
+          ui.section(`Offline (${a.offline.length})`, [list(a.offline.map(x => ({ title: x.name, sub: x.path, right: x.bin, color: 'var(--err)' })), 'Nothing offline.'), a.offline.length ? h('div.field-hint', US.app.is('resolve') ? 'Relink them in Resolve: select them in the Media Pool › right-click › Relink Selected Clips.' : 'Relink them in Premiere: select › right-click › Link Media.') : null], { open: a.offline.length > 0 }),
           ui.section(`Not used in any sequence (${a.unused.length})`, [list(a.unused.map(x => ({ title: x.name, sub: x.bin })), 'Every clip is used somewhere.'),
             a.unused.length ? ui.button(`Move them into a bin “Unused”`, { small: true, onClick: async () => {
               const before = store().get('tidyMoved') || { ids: [], from: [] };

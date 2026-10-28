@@ -188,12 +188,13 @@
         if (mode === 'bin') {
           const bins = await US.host.call('listBins');
           const keep = binSel.get() || US.settings.get('src.bin', '');
-          binSel.setOptions(bins.map(b => ({ value: b.id, label: b.path })), keep);
+          // bin and timeline names are shown as they are (US.keep), never put in Resolve's words
+          binSel.setOptions(bins.map(b => ({ value: b.id, label: US.keep(b.path) })), keep);
         } else if (mode === 'sequence') {
           const ctx = await US.host.call('context');
           const seqs = await US.host.call('listSequences');
           const keep = seqSel.get() || (ctx.sequence && ctx.sequence.id) || '';
-          seqSel.setOptions(seqs.map(s => ({ value: s.id, label: s.name + (ctx.sequence && s.id === ctx.sequence.id ? '  (open)' : '') })), keep);
+          seqSel.setOptions(seqs.map(s => ({ value: s.id, label: US.keep(s.name + (ctx.sequence && s.id === ctx.sequence.id ? '  (open)' : '')) })), keep);
         }
       } catch (e) { /* context poll will show the problem */ }
       refreshStatus();
@@ -303,7 +304,8 @@
     return { el, draw };
   };
 
-  /** Small list with optional click handler: rows [{title, sub, right, color, onClick}] */
+  /** Small list with optional click handler: rows [{title, sub, right, color, onClick}]. A name someone gave (a clip,
+      a timeline) goes in as US.keep(name), so Resolve's words never change it. */
   ui.list = function (rows, { empty } = {}) {
     if (!rows.length && empty) return ui.empty(empty);
     return h('div.list', rows.map(r => h('div.list-row' + (r.onClick ? '.clickable' : ''), { onclick: r.onClick, title: r.tip || '' },

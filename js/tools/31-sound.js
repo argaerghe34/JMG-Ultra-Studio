@@ -4,6 +4,18 @@
   'use strict';
   const US = window.US, h = US.h, ui = US.ui, kit = US.audioKit;
 
+  /* Resolve's scripting API can't change clip volume (no level property or keyframes in Resolve 20), so in Resolve
+     Sound Check says so up front: it still measures, marks the speech and mutes tracks, and tells you the step to take
+     in Resolve instead of making a louder or ducked copy. */
+  const inResolve = () => US.app.is('resolve');
+  const NO_VOLUME = 'Resolve doesn’t let add-ons change clip volume yet.';
+  /** The step to take by hand in Resolve to reach the target. */
+  function manualFix(r) {
+    const T = r.T, L = r.meter, diff = T.lufs - L.integrated;
+    const peak = diff > 0 && L.truePeakDb + diff > T.peak ? ` Then put a Limiter on Bus 1 on the Fairlight page (threshold −1.5 dB): the peaks would reach ${(L.truePeakDb + diff).toFixed(1)} dB otherwise.` : '';
+    return `Select all the clips in the timeline, right-click › Normalize Audio Levels, choose ITU-R BS.1770-4, Target Loudness ${T.lufs} LUFS and Set Level: Relative (about ${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(1)} dB).${peak}`;
+  }
+
   const TARGETS = {
     social: { label: 'YouTube & social', lufs: -14, peak: -1, tol: 1 },
     podcast: { label: 'Podcast', lufs: -16, peak: -1, tol: 1 },
@@ -29,19 +41,22 @@
       const diff = T.lufs - L.integrated;
       if (diff > T.tol) {
         const newPeak = L.truePeakDb + diff;
-        add('bad', `Too quiet for ${T.label}: ${fmtL(L.integrated)} LUFS (target ${T.lufs}).`,
-          `Raise the mix by about ${diff.toFixed(1)} dB${newPeak > T.peak ? `, with a limiter on the Mix track (peaks would reach ${newPeak.toFixed(1)} dB otherwise)` : ''}. Or tick “Loudness Normalisation” at ${T.lufs} LUFS in the export settings.`);
+        add('bad', `Too quiet for ${T.label}: ${fmtL(L.integrated)} LUFS (target ${T.lufs}).`, inResolve()
+          ? `Raise the mix by about ${diff.toFixed(1)} dB: right-click the clips › Normalize Audio Levels (ITU-R BS.1770-4, ${T.lufs} LUFS)${newPeak > T.peak ? `, with a Limiter on Bus 1 on the Fairlight page (peaks would reach ${newPeak.toFixed(1)} dB otherwise)` : ''}.`
+          : `Raise the mix by about ${diff.toFixed(1)} dB${newPeak > T.peak ? `, with a limiter on the Mix track (peaks would reach ${newPeak.toFixed(1)} dB otherwise)` : ''}. Or tick “Loudness Normalisation” at ${T.lufs} LUFS in the export settings.`);
       } else if (diff < -T.tol) {
-        add('bad', `Too loud for ${T.label}: ${fmtL(L.integrated)} LUFS (target ${T.lufs}).`, `Lower the mix by about ${(-diff).toFixed(1)} dB, or tick “Loudness Normalisation” at ${T.lufs} LUFS in the export settings.`);
+        add('bad', `Too loud for ${T.label}: ${fmtL(L.integrated)} LUFS (target ${T.lufs}).`, inResolve()
+          ? `Lower the mix by about ${(-diff).toFixed(1)} dB: right-click the clips › Normalize Audio Levels (ITU-R BS.1770-4, ${T.lufs} LUFS), or pull down the Bus 1 fader on the Fairlight page.`
+          : `Lower the mix by about ${(-diff).toFixed(1)} dB, or tick “Loudness Normalisation” at ${T.lufs} LUFS in the export settings.`);
       } else add('ok', `Loudness is on target: ${fmtL(L.integrated)} LUFS (target ${T.lufs}).`, '');
     }
-    if (L.truePeakDb > T.peak + 0.05) add(L.clips.length ? 'bad' : 'warn', `Peaks reach ${L.truePeakDb.toFixed(1)} dB (limit ${T.peak} dB).`, 'Put a limiter on the Mix track (Effects › Amplitude and Compression › Hard Limiter, maximum −1.5 dB).');
+    if (L.truePeakDb > T.peak + 0.05) add(L.clips.length ? 'bad' : 'warn', `Peaks reach ${L.truePeakDb.toFixed(1)} dB (limit ${T.peak} dB).`, inResolve() ? 'Put a Limiter on Bus 1 on the Fairlight page (Mixer › Dynamics › Limiter, threshold −1.5 dB).' : 'Put a limiter on the Mix track (Effects › Amplitude and Compression › Hard Limiter, maximum −1.5 dB).');
     if (L.clips.length) add('bad', `Clipping in ${US.plural(L.clips.length, 'place')}.`, 'Lower the clip or track at these points – clipped sound crackles and can’t be repaired later.', L.clips.map(c => c.start));
-    if (hum) add('warn', `Mains hum at ${hum.freq} Hz in the quiet parts.`, `Try Effects › Noise Reduction/Restoration › DeHum (${hum.freq} Hz) or Essential Sound › Repair › Reduce Rumble/DeHum on the affected clips.`);
-    if (wd.wind.length) add('warn', `Wind or rumble in ${US.plural(wd.wind.length, 'place')}.`, 'Add Effects › Filter and EQ › Highpass (around 80–100 Hz) to those clips, or Essential Sound › Repair › Reduce Rumble.', wd.wind.map(w => w.start));
+    if (hum) add('warn', `Mains hum at ${hum.freq} Hz in the quiet parts.`, inResolve() ? `Try Effects › Fairlight FX › Hum Removal (${hum.freq} Hz) on the affected clips.` : `Try Effects › Noise Reduction/Restoration › DeHum (${hum.freq} Hz) or Essential Sound › Repair › Reduce Rumble/DeHum on the affected clips.`);
+    if (wd.wind.length) add('warn', `Wind or rumble in ${US.plural(wd.wind.length, 'place')}.`, inResolve() ? 'Turn on EQ for those clips in the Inspector (Audio) and add a high-pass at around 80–100 Hz.' : 'Add Effects › Filter and EQ › Highpass (around 80–100 Hz) to those clips, or Essential Sound › Repair › Reduce Rumble.', wd.wind.map(w => w.start));
     const dead = wd.dead.filter(d => d.start > 0.5 && d.end < dur - 0.5);
     if (dead.length) add('warn', `${US.plural(dead.length, 'silent gap')} (no sound for over 2 s).`, 'Check they’re meant to be there; fill them with room tone or music, or tighten the edit.', dead.map(d => d.start));
-    if (L.range > 15 && tgtKey !== 'broadcast') add('warn', `Big jumps in loudness (range ${L.range.toFixed(0)} LU).`, 'Quiet speech may get lost on phones. Try Essential Sound › Dialogue › Loudness › Auto-Match and a little compression.');
+    if (L.range > 15 && tgtKey !== 'broadcast') add('warn', `Big jumps in loudness (range ${L.range.toFixed(0)} LU).`, inResolve() ? 'Quiet speech may get lost on phones. Try Effects › Fairlight FX › Dialogue Leveler, or a little compression on the dialogue track.' : 'Quiet speech may get lost on phones. Try Essential Sound › Dialogue › Loudness › Auto-Match and a little compression.');
     if (!m.stereoPreset) add('info', 'Measured in mono.', 'Premiere’s stereo WAV preset wasn’t found, so stereo mixes may read up to 3 dB quieter than they are.');
     return { target, T, meter: L, hum, wind: wd.wind, dead, issues, duration: dur, curve: Array.from(L.shortTerm) };
   }
@@ -56,6 +71,7 @@
     if (!isFinite(L.integrated)) throw new US.UserError('NOTHING_FOUND', { title: 'There’s almost no sound to fix.' });
     let gain = T.lufs - L.integrated, limited = false;
     if (gain > 0 && L.truePeakDb + gain > T.peak) { gain = Math.max(0, T.peak - L.truePeakDb); limited = true; }
+    if (inResolve()) throw new US.UserError('HOST_SCRIPT', { title: NO_VOLUME, action: manualFix(r), detail: 'Resolve 20’s scripting API has no clip volume property' });
     if (Math.abs(gain) < 0.1) throw new US.UserError('NOTHING_FOUND', { title: 'It can’t get louder without the peaks going over the limit.', action: 'Put a Hard Limiter on the Mix track (maximum −1.5 dB), check again, then fix it.' });
     job.set({ who: 'premiere', msg: `Making a copy ${gain > 0 ? 'louder' : 'quieter'} by ${Math.abs(gain).toFixed(1)} dB` });
     const copy = await US.host.call('cloneSequence', { seqId: r.target.id, name: `${r.target.name} – ${T.lufs} LUFS` });
@@ -128,7 +144,7 @@
     // speech only from the other tracks (a song with vocals may have a transcript too)
     const voice = info.audio.map(t => t.index).filter(i => !tracks.includes(i));
     if (US.story && US.story.timelineTranscript && voice.length) { try { spans = (await US.story.timelineTranscript(job, { seqId, tracks: voice })).result.entries; } catch (e) { /* no transcripts */ } }
-    const copy = await US.host.call('cloneSequence', { seqId, name: `${info.name} – music ducked` });
+    const copy = await US.host.call('cloneSequence', { seqId, name: `${info.name} – ${inResolve() ? 'speech marked' : 'music ducked'}` });
     if (!spans.length) {
       // no transcripts: listen to everything except the music
       via = 'sound';
@@ -143,6 +159,13 @@
     }
     const regions = speechRegions(spans);
     if (!regions.length) throw new US.UserError('NOTHING_FOUND', { title: 'No speech found to duck under.', action: 'Check the dialogue tracks are switched on.' });
+    if (inResolve()) {
+      // no clip volume by script in Resolve: mark each stretch of speech on the copy so the music can be lowered there by hand
+      job.set({ who: 'premiere' }).progress(0.9, `Marking ${US.plural(regions.length, 'stretch', 'stretches')} of speech`);
+      await US.host.call('addSequenceMarkers', { seqId: copy.id, where: 'sequence', markers: regions.map(x => ({ start: x.start, end: x.end, name: 'Speech – duck the music', comment: `Lower the music here by about ${db} dB`, color: 6 })) });
+      await US.host.call('openSequence', { seqId: copy.id }); await US.refreshContext();
+      return { copy, regions, via, tracks, marked: true, summary: `“${copy.name}”: ${US.plural(regions.length, 'stretch', 'stretches')} of speech marked in blue (found from the ${via === 'transcript' ? 'transcripts' : 'sound'}). ${NO_VOLUME} Lower the music on ${tracks.map(i => 'A' + (i + 1)).join(', ')} by about ${db} dB under each marker with Volume keyframes in the Inspector, or a sidechain compressor on the Fairlight page.` };
+    }
     const clips = [];
     for (const i of tracks) info.audio[i].clips.forEach((c, index) => { const keys = duckKeys(regions, c); if (keys.length) clips.push({ track: i, index, keys }); });
     job.set({ who: 'premiere' }).progress(0.9, `Ducking ${US.plural(clips.length, 'music clip')} by ${db} dB`);
@@ -152,7 +175,7 @@
   }
   US.actions.register({
     id: 'sound.duck', tool: 'sound', title: 'Duck the music under speech (on a copy)', changes: true,
-    describe: 'Makes a copy of the active sequence with the music lowered while people speak, with smooth fades.',
+    describe: US.app.is('resolve') ? 'Makes a copy of the active timeline with each stretch of speech marked, so the music can be lowered there (Resolve doesn’t let add-ons change volume).' : 'Makes a copy of the active sequence with the music lowered while people speak, with smooth fades.',
     params: { db: { type: 'number', default: 12, desc: 'How far down, in dB' } },
     examples: ['duck the music under the interviews', 'lower the music when people talk'],
     match: t => (/\bmusic\b/i.test(t) && /\b(duck|lower|dip|under|quieter|down)\b/i.test(t) ? { db: +((/(\d+)\s*db/i.exec(t) || [])[1] || 12), _score: 2.6 } : null),
@@ -169,6 +192,14 @@
       return { target: /broadcast|tv|bbc|ebu|r128|-?23/.test(t) ? 'broadcast' : /podcast|-?16/.test(t) ? 'podcast' : 'social', _score: 2.6 };
     },
     async run(p, job) {
+      if (inResolve()) {
+        // Resolve: measure, then say what to do by hand (no louder copy can be made by script)
+        const m = await check(await kit.activeSequenceTarget(), p.target, job);
+        US.bus.emit('sound.result', m);
+        if (!isFinite(m.meter.integrated)) return { summary: 'Almost no sound to measure.' };
+        const off = Math.abs(m.T.lufs - m.meter.integrated) > m.T.tol;
+        return { summary: `${m.meter.integrated.toFixed(1)} LUFS (target ${m.T.lufs})${off ? ` – ${NO_VOLUME} ${manualFix(m)}` : ' – already on target'}` };
+      }
       const r = await check(await kit.activeSequenceTarget(), p.target, job, { from: 0, to: 0.4 });
       job.range(0.4, 1);
       const x = await fixLoudness(r, job);
@@ -235,11 +266,14 @@
         duckSel = guess.slice();
         duckTracks.append(h('div.field-label', 'Music on'), ...info.audio.filter(t => t.clips.length).map(t => ui.toggle({ label: `A${t.index + 1}${t.name && !/^Audio \d+$/.test(t.name) ? ' · ' + t.name : ''} · ${t.clips[0].name}${t.clips.length > 1 ? ` +${t.clips.length - 1}` : ''}`, value: guess.includes(t.index), onChange: x => { duckSel = x ? duckSel.concat(t.index) : duckSel.filter(i => i !== t.index); } })));
       }
-      const duckBtn = ui.actionButton('Make a ducked copy', () => {
+      const duckBtn = ui.actionButton(inResolve() ? 'Make a copy with the speech marked' : 'Make a ducked copy', () => {
         if (!duckSel.length) { ui.toast({ type: 'warn', title: 'Tick the music track(s) first', text: 'Under “Music on”, tick the track that has the music.' }); return; }
         return US.jobs.run({ title: 'Ducking the music', tool: 'sound' }, job => duckMusic(job, { seqId: US.ctx.sequence && US.ctx.sequence.id, tracks: duckSel, db: duckDb.get() }));
       }, { icon: 'sound', kind: 'secondary' });
-      const duckCard = ui.section('Duck the music under speech', [h('div.field-hint', 'A copy of the active sequence with the music lowered while people speak, fading down just before and back up after. Speech is found from the transcripts (or the sound).'), duckTracks, duckDb, duckBtn], { open: false });
+      const duckHint = inResolve()
+        ? `${NO_VOLUME} So this makes a copy of the active timeline with each stretch of speech marked in blue, ready for you to lower the music there (Volume keyframes in the Inspector, or a sidechain compressor on the Fairlight page). Speech is found from the transcripts (or the sound).`
+        : 'A copy of the active sequence with the music lowered while people speak, fading down just before and back up after. Speech is found from the transcripts (or the sound).';
+      const duckCard = ui.section('Duck the music under speech', [h('div.field-hint', duckHint), duckTracks, duckDb, duckBtn], { open: false });
       duckCard.querySelector('.section-head').addEventListener('click', () => listTracks().catch(ui.showError));
       v.body.append(ui.card(picker.el, ui.field('Target', tgt), goBtn), duckCard, out);
       US.bus.on('sound.result', r => { results = [r]; render(); });
@@ -264,7 +298,9 @@
           tl.el,
           kit.legend([['Loudness over time (3 s)', kit.cssColor('var(--text-2)')], ['Target', ok], ['Clipping', red], ['Wind', warn], ['Silent gap', dim]]),
           h('div.list', r.issues.map(is => issueRow(r, is))),
-          r.target.kind === 'sequence' && isFinite(L.integrated) && Math.abs(T.lufs - L.integrated) > T.tol
+          r.target.kind === 'sequence' && isFinite(L.integrated) && Math.abs(T.lufs - L.integrated) > T.tol && inResolve()
+            ? ui.note(`${NO_VOLUME} To reach ${T.lufs} LUFS: ${manualFix(r)}`, 'info')
+            : r.target.kind === 'sequence' && isFinite(L.integrated) && Math.abs(T.lufs - L.integrated) > T.tol
             ? ui.actionButton(`Make a copy at ${T.lufs} LUFS`, () => US.jobs.run({ title: 'Fixing the loudness', tool: 'sound' }, async job => { const x = await fixLoudness(r, job); results = [x.after]; render(); return x; }), { icon: 'sound' })
             : null);
         setTimeout(() => tl.draw({
@@ -295,5 +331,5 @@
     }
   });
 
-  US.soundCheck = { check, TARGETS, fixLoudness, speechRegions, duckKeys, musicTracks, guessMusic, duckMusic };
+  US.soundCheck = { manualFix, check, TARGETS, fixLoudness, speechRegions, duckKeys, musicTracks, guessMusic, duckMusic };
 })();

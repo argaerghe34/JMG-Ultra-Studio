@@ -1,12 +1,30 @@
 # JMG Ultra Studio – how the code fits together
 
-A CEP panel for Premiere Pro (tested on 26.5.2, CEP 12: Chromium 99 + Node 17.7, `--mixed-context`, so `require()` works in the page).
+One panel for two editors: a CEP panel for Premiere Pro (tested on 26.5.2, CEP 12: Chromium 99 + Node 17.7, `--mixed-context`, so `require()` works in the page).
 No build step, no third-party libraries, no server. Folder = extension.
 
 ## Layout
 - `index.html` – loads `js/core/{util,store,host,jobs,ui,app}.js`, then the optional engines `js/core/{time,audio,dsp,vision,transcript,ai}.js` (if present), then every `js/tools/*.js` in name order, then `US.boot()`.
 - `jsx/host.jsx` – Premiere side (ExtendScript, **ES3**). `jsx/tools/*.jsx` are loaded after it (same engine) and add `UStudio.fn.<name> = function (a) {...}`.
 - Everything in the panel hangs off `window.US`.
+
+## Two editors: the platform layer and the Resolve layer
+The same panel also runs in DaVinci Resolve Studio as a Workflow Integration plugin (an Electron window, opened from
+Workspace › Workflow Integrations). Details and the list of differences: `dev/RESOLVE.md`.
+- `js/core/platform.js` – `US.app` (`id`, `name`, `full`, `is('resolve')`, `pickFiles()`, `openUrl()`, `reveal()`) and
+  `US.say(text)`. Every text that goes through `US.h`, the status bar and errors is put in Resolve's words there
+  ("sequence" → "timeline", "Project panel" → "Media Pool", "Media Encoder" → "Resolve's render queue", menu paths…).
+  So: **write text the Premiere way, once.** When a sentence really differs, write
+  `US.app.is('resolve') ? '…' : '…'`. Names people gave things (projects, timelines, clips, bins) must never be
+  translated: pass them as `US.keep(name)` (a text node `US.h` shows as it is), e.g. `h('div', 'Open: ', US.keep(seq.name))`.
+  Text set with `.textContent` doesn't go through `US.say` – use `h()` or call `US.say()` yourself.
+- `js/core/host.js` – `US.host.call(name, args)` runs the Premiere command (`jsx/`) or the Resolve command
+  (`resolve/host/*.js`, plain Node on Resolve's scripting API). **Same names, arguments and results.** Each tool's
+  `hostFns` must exist in both; Home › Check my setup lists any that are missing.
+- `resolve/plugin/` – the Electron shell (`main.js`, `preload.js`, `manifest.xml`/`package.json` with `__VERSION__`
+  filled in by the build). A `debug` file next to `main.js` opens DevTools port 8892.
+- Packaging: `node dev/resolve/build.js` → `dist/JMG-Ultra-Studio-Resolve-<version>.zip` with installers from
+  `dev/resolve/installer/`. Same version as Premiere (`CSXS/manifest.xml`), released together.
 
 ## Rules (the user asked for these explicitly)
 1. **Same look everywhere.** Build screens only from `US.ui` (`toolView`, `card`, `field`, `slider`, `toggle`, `segmented`, `select`, `sourcePicker`, `timeline`, `list`, `stats`, `note`, `empty`, `actionButton`, `button`). No new colours: use the CSS variables in `css/app.css`. Add CSS only if a component truly doesn't exist, in a clearly labelled block at the end of app.css.
@@ -47,4 +65,7 @@ Register what the tool can do with `US.actions.register({ id:'silence.cut', tool
 - `dev/cep.js <port> jsx|js|shot|reload <file>`: port 8890 = the panel, 8891 = dev helper. `js` runs page JavaScript (awaited; `return` a JSON-able value). `jsx` runs ExtendScript in the panel's engine.
 - `dev/restart-premiere.sh $PWD/dev/cep.js` restarts Premiere on the test project and opens the panel (only needed after manifest changes).
 - Test media with ground truth: `dev/test-media/` (see its README.md). Test project: `dev/test-project/UltraStudioTest.prproj`.
+- Resolve: `dev/resolve/link-dev.sh` (Windows: `dev/win/link-dev-resolve.ps1`) links Resolve to this folder with port 8892;
+  `node dev/cep.js resolve js|call|shot|reload …` and `node dev/e2e/run.js --resolve` (only in the test project
+  "JMG Ultra Studio Test"; a test with a `// premiere-only` line is skipped there). Ask before driving Resolve.
 - Pure logic (DSP, parsers, scoring) gets Node unit tests in `dev/tests/*.test.js` (run with `node dev/tests/run.js`); load panel modules with `dev/tests/harness.js`, which fakes `window`/`US`.

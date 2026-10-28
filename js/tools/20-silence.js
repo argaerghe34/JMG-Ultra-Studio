@@ -97,7 +97,7 @@
           h('li', 'Premiere renders the sequence’s sound; Ultra Studio measures how loud it is every 20 ms.'),
           h('li', 'Anything quieter than the silence level for longer than the shortest pause is a pause. The level is set automatically from the room noise and the speech.'),
           h('li', '“Keep around speech” leaves a little air either side so words aren’t clipped.'),
-          h('li', '“Make a cut copy” duplicates the sequence and ripple-deletes each pause across all tracks, so B-roll and music stay in sync.'))) });
+          h('li', US.app.is('resolve') ? '“Make a cut copy” builds a new timeline from the parts you keep, on every track, so B-roll and music stay in sync.' : '“Make a cut copy” duplicates the sequence and ripple-deletes each pause across all tracks, so B-roll and music stay in sync.'))) });
 
       const settings = Object.assign({ preset: 'tight', threshold: null }, PRESETS.tight, US.settings.get('silence.settings', {}));
       let an = null;

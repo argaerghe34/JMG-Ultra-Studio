@@ -29,3 +29,6 @@ desktop.ini
 # The Windows test project (dev/test-project-win): only the .prproj is kept
 /dev/test-project-win/*
 !/dev/test-project-win/UltraStudioTest-win.prproj
+
+# Resolve's own connection module: the installer copies it from Resolve Studio; never committed or shipped
+WorkflowIntegration.node

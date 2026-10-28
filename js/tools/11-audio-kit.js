@@ -126,6 +126,8 @@
   /* ---------- full-quality measurement for Sound Check ---------- */
   kit.stereoPreset = async function () {
     const p = await US.host.call('presets');
+    // Resolve renders the timeline's own channels (usually stereo) at 48 kHz with Ultra Studio's WAV recipe
+    if (US.app.is('resolve')) return { path: p.wav48 || p.wav16k, stereo: !!p.wav48 };
     const base = String(p.wav16k || '').replace(/Settings[\\/]EncoderPresets[\\/]WAV_Mono_16bit_16kHz\.epr$/i, '');
     const cand = base ? path.join(base, 'MediaIO', 'systempresets', '3F3F3F3F_57415645', 'Waveform Audio 48kHz 16-bit.epr') : '';
     if (cand && US.fsx.exists(cand)) return { path: cand, stereo: true };
@@ -146,21 +148,25 @@
     const fd = fs.openSync(out, 'r');
     try {
       const info = US.audio.wavInfo(fd);
-      if (!info || info.format !== 1 || info.bits !== 16) throw new US.UserError('CANT_DECODE', { detail: 'Unexpected render format ' + JSON.stringify(info) });
-      const { channels, rate, dataStart, dataBytes } = info;
+      // Premiere's preset gives 16-bit; Resolve may write 24- or 32-bit (float) if it ignores the bit depth asked for
+      const ok = info && ((info.format === 1 && [16, 24, 32].includes(info.bits)) || (info.format === 3 && info.bits === 32));
+      if (!ok) throw new US.UserError('CANT_DECODE', { detail: 'Unexpected render format ' + JSON.stringify(info) });
+      const { channels, rate, dataStart, dataBytes } = info, bps = info.bits / 8;
       const meter = new US.dsp.LoudnessMeter(rate, channels);
       const ratio = Math.max(1, Math.round(rate / 16000));
-      const mono = new Float32Array(Math.ceil(dataBytes / (2 * channels) / ratio) + 1);
+      const mono = new Float32Array(Math.ceil(dataBytes / (bps * channels) / ratio) + 1);
       let mi = 0, acc = 0, accN = 0;
-      const frameBytes = 2 * channels, CH = Math.floor((4 << 20) / frameBytes) * frameBytes, buf = Buffer.alloc(CH);
+      const frameBytes = bps * channels, CH = Math.floor((4 << 20) / frameBytes) * frameBytes, buf = Buffer.alloc(CH);
       for (let off = 0; off < dataBytes; off += CH) {
         const n = fs.readSync(fd, buf, 0, Math.min(CH, dataBytes - off), dataStart + off);
         const frames = Math.floor(n / frameBytes);
-        const i16 = new Int16Array(buf.buffer, buf.byteOffset, frames * channels);
+        const i16 = bps === 2 ? new Int16Array(buf.buffer, buf.byteOffset, frames * channels) : null;
+        const at = i => (info.format === 3 ? buf.readFloatLE(i * 4) : bps === 3 ? buf.readIntLE(i * 3, 3) / 8388608 : buf.readInt32LE(i * 4) / 2147483648);
         const chs = Array.from({ length: channels }, () => new Float32Array(frames));
         for (let f = 0; f < frames; f++) {
           let s = 0;
-          for (let c = 0; c < channels; c++) { const v = i16[f * channels + c] / 32768; chs[c][f] = v; s += v; }
+          if (i16) for (let c = 0; c < channels; c++) { const v = i16[f * channels + c] / 32768; chs[c][f] = v; s += v; }
+          else for (let c = 0; c < channels; c++) { const v = at(f * channels + c); chs[c][f] = v; s += v; }
           acc += s / channels; if (++accN === ratio) { mono[mi++] = acc / ratio; acc = 0; accN = 0; }
         }
         meter.push(chs);

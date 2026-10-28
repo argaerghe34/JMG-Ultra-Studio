@@ -8,10 +8,31 @@
 
 Then open Premiere Pro and choose **Window › Extensions › JMG Ultra Studio**. Dock it wherever you like.
 
+**In DaVinci Resolve Studio:** use the Resolve download (`JMG-Ultra-Studio-Resolve-<version>.zip`) – see *In DaVinci Resolve Studio* below.
+
 **First thing to do:** on **Home**, press **Check my setup**. It really renders some sound and reads some video from your open project, so you know everything works on that computer. Press **Copy report** if anything fails and send it over.
 
 **Updating:** run the new installer. Your settings and analysis results are kept.
 **Removing:** run **Uninstall on Mac / Windows**.
+
+## In DaVinci Resolve Studio
+
+The same panel runs in **DaVinci Resolve Studio 19.1 or later** (20 recommended), on a Mac or a PC. The free DaVinci Resolve can't run plugins.
+
+**Install:** unzip `JMG-Ultra-Studio-Resolve-<version>.zip`, quit Resolve, then double-click **Install on Mac.command** or **Install on Windows.bat**. Resolve's plugin folder is shared by everyone on the computer, so the Mac may ask for your password and Windows for permission. Then open Resolve and choose **Workspace › Workflow Integrations › JMG Ultra Studio** – it opens in its own window. On **Home**, press **Check my setup**: it checks Resolve Studio, the plugin version and that every tool has what it needs.
+
+**Updating:** run the new installer (quit Resolve first). **Removing:** **Uninstall on Mac / Windows**. Settings, analysis results and logs are shared with the Premiere version.
+
+**Resolve's words:** this guide is written for Premiere. In Resolve the panel uses Resolve's words – a *sequence* is a *timeline*, the *Project panel* is the *Media Pool*, *Media Encoder* is Resolve's *render queue* (the Deliver page), *export presets* are *render presets*, and *adjustment layers* are *adjustment clips*.
+
+**What works differently in Resolve:**
+
+- Story can't read the transcripts Resolve makes itself (a plugin can't get at them): it reads transcript files, or transcribes on this computer.
+- ▶ in Story plays the line in the panel's own player; the clip is selected in the Media Pool.
+- Sound Check can't set clip volume from a plugin: it tells you what to change instead of changing it.
+- Highlights in Story use clip colours and markers, and Render ranges use marked ranges, instead of adjustment layers.
+- Resolve projects live in Resolve's database, not in a file next to your footage.
+- Colour and Camera Switch are paused in both editors for now.
 
 ## How it behaves everywhere
 

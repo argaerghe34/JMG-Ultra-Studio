@@ -457,6 +457,23 @@
   function unxml(s) { return String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&'); }
 
   /* =================== files =================== */
+  /**
+   * Resolve's own transcription, read through its subtitles (resolve/host/story.js storyTranscribe): [{text, start, end}]
+   * in media seconds, one per caption -> segments. Captions carry times per phrase, not per word, so there are no word
+   * timings (w): trims and captions spread a line's words evenly over it. A speaker written at the start of a caption
+   * ("Ruth: …", "- …") is split off as in subtitle files.
+   */
+  function fromSubtitles(items) {
+    const out = [];
+    for (const x of items || []) {
+      const start = Number(x.start), end = Number(x.end), t = cleanCaption(String(x.text || '').replace(/^\s*-\s+/, ''));
+      if (!t || !isFinite(start)) continue;
+      const sp = splitSpeaker(t);
+      out.push({ start, end: Math.max(isFinite(end) ? end : start, start + 0.1), speaker: sp.speaker, text: sp.text });
+    }
+    return out.sort((a, b) => a.start - b.start);
+  }
+
   /** Parse transcript text by its content/extension. Returns {format, segments}. */
   function parseText(text, filename = '', fps = 25) {
     const ext = (/\.([a-z0-9]+)$/i.exec(filename) || [])[1] || '';
@@ -479,7 +496,7 @@
     let text = buf.toString('utf8');
     if (buf[0] === 0xff && buf[1] === 0xfe) text = buf.toString('utf16le').slice(1);
     const r = parseText(text, file, fps);
-    if (!r.segments.length) throw new US.UserError('BAD_INPUT', { title: `No timed lines found in ${US.basename(file)}.`, action: 'Use a transcript with timecodes (SRT, VTT, CSV, or text with timecodes – Premiere’s Export to text file with timecodes works).', detail: file });
+    if (!r.segments.length) throw new US.UserError('BAD_INPUT', { title: `No timed lines found in ${US.basename(file)}.`, action: US.app && US.app.is('resolve') ? 'Use a transcript with timecodes: SRT, VTT, CSV, or text with timecodes (subtitles exported from Resolve work).' : 'Use a transcript with timecodes (SRT, VTT, CSV, or text with timecodes – Premiere’s Export to text file with timecodes works).', detail: file });
     return r;
   }
 
@@ -759,7 +776,7 @@
 
   US.transcript = {
     TICKS, parseTime, parseSRT, parseVTT, parseCSV, parseTimedText, parseJSONTranscript, parseText, parseFile,
-    decodePremiereTranscript, readProjectTranscripts, wordsToSentences, toLines, quality, askedQuestion, isInterviewerLabel, search, parseQuery,
+    decodePremiereTranscript, readProjectTranscripts, fromSubtitles, wordsToSentences, toLines, quality, askedQuestion, isInterviewerLabel, search, parseQuery,
     themesOffline, themesAI, AI_THEME_SCHEMA, aiRow, inOrder, aiUser, matchClip, stem, tokens, levenshtein, SYNONYMS, indexLine, lineWords, wordTimes
   };
 })();

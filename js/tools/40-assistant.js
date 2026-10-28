@@ -5,8 +5,20 @@
   const US = window.US, h = US.h, ui = US.ui;
 
   /* ---------- planning (pure, unit-tested) ---------- */
-  /** Offline: every action's match(); best score wins. Returns {steps, alternatives}. */
+  /** Resolve's words back to the Premiere words the actions' match() expect ("timeline" also means a sequence). */
+  function premiereWords(text) {
+    return text.replace(/\b([Tt])imelines\b/g, (m, t) => (t === 'T' ? 'S' : 's') + 'equences').replace(/\b([Tt])imeline\b/g, (m, t) => (t === 'T' ? 'S' : 's') + 'equence')
+      .replace(/\bMedia Pool\b/gi, 'Project panel').replace(/\b(Resolve’s |the )?render queue\b/gi, 'Media Encoder').replace(/\bcompound clips?\b/gi, m => /s$/i.test(m) ? 'nested sequences' : 'nested sequence');
+  }
+  /** Offline: every action's match(); best score wins. Returns {steps, alternatives}. In Resolve, a request in
+      Resolve's words that matches nothing is tried once more in Premiere's. */
   function matchOffline(text) {
+    const r = matchWords(text);
+    if (r.steps.length || r.alternatives.length || !US.app.is('resolve')) return r;
+    const again = premiereWords(text);
+    return again === text ? r : matchWords(again);
+  }
+  function matchWords(text) {
     const found = [];
     for (const a of US.actions.list()) {
       if (typeof a.match !== 'function') continue;
@@ -41,9 +53,10 @@
     return scored.filter(x => (seen.has(x.a.id) ? false : seen.add(x.a.id))).slice(0, n);
   }
 
+  /** What the actions do, in the editor's own words (US.say: "timeline" in Resolve), so the AI's reply uses them too. */
   function catalogue() {
     return US.actions.list().map(a => ({
-      id: a.id, tool: (US.tools.get(a.tool) || {}).name || a.tool, title: a.title, describe: a.describe || '', changesProject: !!a.changes,
+      id: a.id, tool: (US.tools.get(a.tool) || {}).name || a.tool, title: US.say(a.title), describe: US.say(a.describe || ''), changesProject: !!a.changes,
       params: Object.fromEntries(Object.entries(a.params || {}).map(([k, p]) => [k, { type: p.type, default: p.default, options: p.options, desc: p.desc }]))
     }));
   }
@@ -60,15 +73,17 @@
   async function planWithAI(text, job) {
     const ctx = US.ctx || {};
     const system = [
-      'You are the Assistant inside JMG Ultra Studio, a panel in Adobe Premiere Pro used by a video editor.',
+      US.app.is('resolve')
+        ? 'You are the Assistant inside JMG Ultra Studio, a Workflow Integration panel in DaVinci Resolve Studio used by a video editor. Use Resolve’s words: timeline (not sequence), Media Pool, bin, render queue.'
+        : 'You are the Assistant inside JMG Ultra Studio, a panel in Adobe Premiere Pro used by a video editor.',
       'Turn the editor’s request into a short plan of steps using ONLY the actions listed below (by id). Use as few steps as possible, in the right order.',
       'Each step has "action" (an id from the list) and "paramsJson" (a JSON object string with only that action’s params; leave out params to use defaults).',
       'If nothing in the list can do what was asked, return no steps and say so plainly in "reply", suggesting the closest thing it can do.',
       '"reply" is one or two short, friendly sentences in British English describing what you will do. Never claim to have done anything – the editor presses Run first.',
-      'Actions that change the project always work on a copy or make new bins and sequences; mention that if relevant.',
+      US.say('Actions that change the project always work on a copy or make new bins and sequences; mention that if relevant.'),
       '', 'ACTIONS:', JSON.stringify(catalogue())
     ].join('\n');
-    const user = `Project: ${ctx.project ? ctx.project.name : '(none open)'}. Active sequence: ${ctx.sequence ? `${ctx.sequence.name} (${US.fmtDur(ctx.sequence.duration)})` : '(none)'}. Clips selected in the Project panel: ${ctx.selection || 0}.\n\nRequest: ${text}`;
+    const user = `Project: ${ctx.project ? ctx.project.name : '(none open)'}. ${US.say('Active sequence')}: ${ctx.sequence ? `${ctx.sequence.name} (${US.fmtDur(ctx.sequence.duration)})` : '(none)'}. ${US.say('Clips selected in the Project panel')}: ${ctx.selection || 0}.\n\nRequest: ${text}`;
     job && job.set({ who: 'ai', msg: `${US.ai.label()} is planning your request` });
     // the instructions and action list are the same every time: cached, so follow-up requests read them at a fraction of the price
     const r = await US.ai.json({ system: [{ text: system, cache: '1h' }], user, schema: planSchema(), maxTokens: 4000, effort: 'low', fast: true, feature: 'Assistant plan' });
@@ -99,7 +114,7 @@
     return { tool: (US.tools.get(a.tool) || {}).name || '', title: a.title, detail: ps.join(' · '), changes: !!a.changes };
   }
 
-  US.assistant = { matchOffline, suggest, planWithAI, validatePlan, planSchema, catalogue, describeStep };
+  US.assistant = { matchOffline, premiereWords, suggest, planWithAI, validatePlan, planSchema, catalogue, describeStep };
 
   /* ---------- the screen ---------- */
   US.tools.register({
@@ -121,7 +136,7 @@
         b.scrollIntoView({ block: 'end', behavior: 'smooth' });
         return b;
       }
-      function chips(list) { return h('div.chat-chips', list.map(x => h('button.chip', { onclick: () => { input.value = x; submit(); } }, x))); }
+      function chips(list) { return h('div.chat-chips', list.map(x => h('button.chip', { onclick: () => { input.value = US.say(x); submit(); } }, x))); }
       function exampleChips(n = 10) {
         const ex = []; const per = new Map();
         for (const a of US.actions.list()) for (const e of (a.examples || []).slice(0, 1)) { if (!per.has(a.tool)) per.set(a.tool, 0); if (per.get(a.tool) < 2) { ex.push(e); per.set(a.tool, per.get(a.tool) + 1); } }

@@ -54,7 +54,7 @@ stays, and they get no Resolve layer until they come back.
 | Clip volume / ducking (Sound) | Not settable by script in Resolve 20 – to confirm in real Resolve; until then Sound reports this plainly. |
 | Adjustment layers (Story highlights, Render ranges) | Adjustment clips can't be created by script reliably; highlights use clip colours + markers, render ranges use marked ranges. |
 | Auto Reframe | `TimelineItem.SmartReframe()` (Studio). |
-| Premiere transcripts | Resolve's own transcription can't be read by script; Story uses its local transcriber or transcript files. |
+| Premiere transcripts | Resolve's own transcripts can't be read by script, so Story has Resolve make subtitles of each clip on a scratch timeline and reads those (per phrase: no word timings or speaker names). Transcript files work as in Premiere. |
 | Project file path (Story travels with the project) | Resolve projects live in a database, not a file: see `storyProjectFile` in `resolve/host/story.js`. |
 
 ## Building and installing

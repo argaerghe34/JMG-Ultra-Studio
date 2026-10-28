@@ -62,7 +62,7 @@ strong { font-weight:650; } a { color:var(--accent); }
 table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; } th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:top; } th { color:var(--muted); font-weight:600; }
 footer { color:var(--muted); font-size:13px; text-align:center; padding:20px; }
 </style></head><body>
-<header><div class="wrap"><div class="mark">JU</div><div><h1>JMG Ultra Studio</h1><p>Your editing tools inside Premiere Pro · version ${version}</p></div></div></header>
+<header><div class="wrap"><div class="mark">JU</div><div><h1>JMG Ultra Studio</h1><p>Your editing tools inside Premiere Pro and DaVinci Resolve Studio · version ${version}</p></div></div></header>
 <nav>${toc}</nav>
 <main>${out.join('\n')}</main>
 <footer>JMG Ultra Studio ${version} · works offline · nothing is uploaded</footer>

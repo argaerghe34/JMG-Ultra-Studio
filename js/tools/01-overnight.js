@@ -5,12 +5,14 @@
   'use strict';
   const US = window.US, h = US.h, ui = US.ui;
 
+  const resolve = US.app.is('resolve');
+  // labels are written the Premiere way; US.say puts them in Resolve's words ("Read the transcripts")
   const STEPS = [
-    { id: 'transcripts', label: 'Read Premiere’s transcripts', hint: 'Story · saves the project first' },
+    { id: 'transcripts', label: 'Read Premiere’s transcripts', hint: resolve ? 'Story · the interviews in this project' : 'Story · saves the project first' },
     { id: 'themes', label: 'Find themes', hint: 'Story · themes you added yourself are kept' },
     { id: 'moments', label: 'Find moments', hint: 'Story · bloopers, funny, off camera, poignant' },
     { id: 'log', label: 'Write the interview log', hint: 'Story · a Word document: each interview’s themes, strongest lines and moments (with AI, a short summary too)' },
-    { id: 'selects', label: 'Analyse all the footage for Selects', hint: 'Makes Media Encoder copies of clips the panel can’t read; afterwards Selects grades any bin instantly' }
+    { id: 'selects', label: 'Analyse all the footage for Selects', hint: resolve ? 'Resolve makes small copies of clips the panel can’t read; afterwards Selects grades any bin instantly' : 'Makes Media Encoder copies of clips the panel can’t read; afterwards Selects grades any bin instantly' }
   ];
   const settings = () => { const o = Object.assign({ steps: ['transcripts', 'themes', 'moments', 'log', 'selects'], useAI: false, limit: 2, footage: 'any' }, US.settings.get('overnight', {})); if (!o.anyFirst) Object.assign(o, { footage: 'any', anyFirst: true }); return o; };
 
@@ -49,7 +51,7 @@
     }
   };
 
-  /** Keep the computer awake while it runs, ending with Premiere's panel process if anything goes wrong.
+  /** Keep the computer awake while it runs, ending with the panel's process (Premiere's or Resolve's) if anything goes wrong.
       Mac: caffeinate. Windows: a hidden PowerShell holding SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED). */
   function stayAwake() {
     const cp = require('child_process');
@@ -120,7 +122,7 @@
     const r = US.settings.get('overnight.report');
     if (!r || r.dismissed) return null;
     const card = ui.card(
-      h('div.card-title', 'Overnight prep', h('span.right', `${r.project} · ${new Date(r.finished || r.started).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${US.fmtDur(((r.finished || Date.now()) - r.started) / 1000)}`)),
+      h('div.card-title', 'Overnight prep', h('span.right', US.keep(r.project), ` · ${new Date(r.finished || r.started).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${US.fmtDur(((r.finished || Date.now()) - r.started) / 1000)}`)),
       ui.list(r.steps.map(s => ({ title: s.label, sub: s.summary + (s.action && !s.ok ? ` – ${s.action}` : ''), right: US.fmtDur(s.secs), color: s.ok ? 'var(--ok)' : 'var(--warn)' }))),
       r.aiSpent != null ? h('div.field-hint', `AI used about $${r.aiSpent.toFixed(2)} (${r.ai}).`) : null,
       ...r.steps.filter(s => s.ok && s.file && US.fsx.exists(s.file)).map(s => h('div.row', h('span.field-hint.grow', US.basename(s.file)), ui.button('Open', { small: true, onClick: () => US.story.openFile(s.file) }))),

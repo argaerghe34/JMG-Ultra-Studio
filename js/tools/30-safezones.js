@@ -213,7 +213,7 @@
     hostFns: ['placeGuide', 'guideStatus', 'showGuides', 'removeGuides', 'findGuideItem'],
     create() {
       const v = ui.toolView({ icon: 'safe', title: 'Safe Zones', blurb: 'Social crops and where each app puts its buttons, so text stays clear – or letterbox bars to any shape.',
-        help: h('div', h('p', 'The guide goes on a new top track of the active sequence, for its whole length. Nothing underneath moves.'), h('ul', h('li', 'Red areas are covered by the app’s interface. Keep titles and subtitles inside the green box.'), h('li', 'Premiere can’t show a clip but leave it out of an export, so press “Hide for export” before you export (Final Check and Deliver remind you).'), h('li', '“Plain grey” shows the same areas in grey with no colours or text.'), h('li', 'Letterbox: black bars export with the film (their own “Letterbox” track); the grey letterbox is a guide and is hidden for export like the others.'), h('li', 'App layouts are approximate and change from time to time.'))) });
+        help: h('div', h('p', 'The guide goes on a new top track of the active sequence, for its whole length. Nothing underneath moves.'), h('ul', h('li', 'Red areas are covered by the app’s interface. Keep titles and subtitles inside the green box.'), h('li', US.app.is('resolve') ? 'Resolve renders every track that’s switched on, so press “Hide for export” (it switches the guide track off) before you render (Final Check and Deliver remind you).' : 'Premiere can’t show a clip but leave it out of an export, so press “Hide for export” before you export (Final Check and Deliver remind you).'), h('li', '“Plain grey” shows the same areas in grey with no colours or text.'), h('li', 'Letterbox: black bars export with the film (their own “Letterbox” track); the grey letterbox is a guide and is hidden for export like the others.'), h('li', 'App layouts are approximate and change from time to time.'))) });
       let o = opts();
       const save = () => { US.settings.set('safezones', o); draw(); };
       const cropToggles = Object.keys(CROPS).map(k => ui.toggle({ label: CROPS[k].label, value: o.crops.includes(k), onChange: on => { o.crops = on ? o.crops.concat(k) : o.crops.filter(x => x !== k); save(); } }));
@@ -308,7 +308,9 @@
       );
       setMode(mode);
       US.bus.on('context', () => { draw(); refreshStatus(); });
-      return { el: v.el, onShow() { draw(); refreshStatus(); const s = US.ctx.sequence; if (s && bgFor !== s.id + '@' + (s.playhead || 0)) grabFrame(); } };
+      // Resolve saves a frame through its viewer (it may have to switch page for a moment), so there the preview frame
+      // is only fetched when you press “Use current frame”
+      return { el: v.el, onShow() { draw(); refreshStatus(); const s = US.ctx.sequence; if (s && !US.app.is('resolve') && bgFor !== s.id + '@' + (s.playhead || 0)) grabFrame(); } };
     }
   });
 

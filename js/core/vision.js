@@ -100,6 +100,8 @@
   async function analysisPreset() {
     const fs = require('fs'), path = require('path');
     const p = await US.host.call('encoderPresets');
+    // Resolve's presets are recipes ("resolve:analysis"), not files
+    if (US.app.is('resolve')) { if (p.analysis) return p.analysis; throw new US.UserError('PRESET_MISSING', { title: 'Resolve can’t make H.264 copies on this computer.', action: 'Check Resolve Studio is installed and up to date, then try again.', detail: 'encoderPresets gave no analysis recipe' }); }
     const cands = [p.analysis, p.h264 && path.join(path.dirname(p.h264), 'High Quality 720 HD.epr'), p.h264 && path.join(path.dirname(p.h264), 'Mobile Device 720p HD.epr')].filter(Boolean);
     const hit = cands.find(f => fs.existsSync(f));
     if (!hit) throw new US.UserError('PRESET_MISSING', { detail: 'High Quality 720 HD.epr not found next to ' + p.h264 });

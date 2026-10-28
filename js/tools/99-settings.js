@@ -72,7 +72,8 @@
           h('div.muted.small', 'Settings, analysis results and logs: ', h('span.mono', US.fsx.dataDir)),
           h('div.row', ui.button('Open data folder', { small: true, icon: 'folder', onClick: () => openFolder(US.fsx.dataDir) }),
             ui.button('Clear analysis cache', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: 'Clear the analysis cache?', text: 'Clips will be analysed again next time. Nothing in your Premiere project changes.', ok: 'Clear it' })) { require('fs').rmSync(require('path').join(US.fsx.dataDir, 'cache'), { recursive: true, force: true }); ui.toast({ type: 'ok', title: 'Cache cleared' }); } } }))),
-        ui.card(h('div.card-title', 'About'), h('div.muted', `JMG Ultra Studio ${US.version} · Premiere Pro ${US.premiere ? US.premiere.version : ''}`), h('div.muted.small', 'Works on a copy: tools that change a sequence always make a new one first. Nothing is uploaded.'))
+        // the editor's full name (US.app.full): "Premiere Pro 26.5" or "DaVinci Resolve Studio 20.3.1"
+        ui.card(h('div.card-title', 'About'), h('div.muted', `JMG Ultra Studio ${US.version} · ${(US.premiere && US.premiere.app && /Resolve/.test(US.premiere.app) ? US.premiere.app : US.app.full)} ${US.premiere ? US.premiere.version : ''}`), h('div.muted.small', 'Works on a copy: tools that change a sequence always make a new one first. Nothing is uploaded.'))
       );
       return { el: v.el };
     }

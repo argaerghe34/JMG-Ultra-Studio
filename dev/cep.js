@@ -1,13 +1,20 @@
-// Usage: node cep.js <port> <mode> <file|->
-//   mode "jsx": runs the file as ExtendScript via the panel's evalScript, prints the result
+// Usage: node cep.js <port> <mode> <file|-> [args]
+//   port: 8890 = the panel in Premiere, 8891 = Premiere's dev helper, 8892 = the panel in DaVinci Resolve Studio
+//         (or the words premiere / helper / resolve)
+//   mode "jsx": runs the file as ExtendScript via the panel's evalScript, prints the result (Premiere only)
 //   mode "js":  runs the file as page JavaScript (awaited), prints the JSON result
+//   mode "call": runs one host command, in either editor: node cep.js resolve call listFns '{}'
 //   mode "shot": saves a PNG screenshot of the panel to <file>
 //   mode "reload": reloads the panel page (file ignored)
 const WebSocket = require('ws');
 const fs = require('fs');
 const http = require('http');
-const [port, mode, file] = process.argv.slice(2);
-const src = (mode === 'jsx' || mode === 'js') ? fs.readFileSync(file === '-' ? 0 : file, 'utf8') : '';
+const PORTS = { premiere: 8890, helper: 8891, resolve: 8892 };
+const [portArg, mode, file, callArgs] = process.argv.slice(2);
+const port = PORTS[portArg] || portArg;
+if (mode === 'jsx' && +port === 8892) { console.error('ERR jsx is ExtendScript, which only Premiere has. In Resolve use "js", or "call" for a Resolve command.'); process.exit(1); }
+let src = (mode === 'jsx' || mode === 'js') ? fs.readFileSync(file === '-' ? 0 : file, 'utf8') : '';
+if (mode === 'call') src = `return await US.host.call(${JSON.stringify(file)}, ${callArgs || '{}'});`;
 const timeoutMs = +(process.env.CEP_TIMEOUT || 600000);
 
 function getJSON(url) {
@@ -29,6 +36,7 @@ function getJSON(url) {
   if (mode === 'jsx') {
     expr = `new Promise(r => window.__adobe_cep__.evalScript(${JSON.stringify(src)}, r))`;
   } else {
+    // js and call
     expr = `(async () => { ${src} })().then(v => JSON.stringify(v), e => 'PAGE-ERROR: ' + (e && e.stack || e))`;
   }
   ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: expr, awaitPromise: true, returnByValue: true } }));

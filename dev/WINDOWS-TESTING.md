@@ -71,6 +71,31 @@ saving to Documents when it's in OneDrive, file names with spaces and non-Englis
 buttons, Stills export, LUT folders (`%APPDATA%\Adobe\Common\LUTs`), Premiere's transcripts read from a saved project,
 installing over an older version and uninstalling, **Story travelling with the project** (open a project the Mac has used Story on – from the same drive or a copy of its folder – and check Home shows its interviews and themes; then press Read Premiere's transcripts and check the themes keep their lines), the panel at 125% / 150% display scaling, and dark/light themes.
 
+## Phase E – DaVinci Resolve Studio on Windows (if the PC has Resolve Studio 19.1 or later)
+The same panel runs in Resolve as a Workflow Integration plugin (`dev/RESOLVE.md`). The free DaVinci Resolve can't
+run plugins – if that's what the PC has, note it and skip this phase.
+- **Ask before using Resolve**, and use **only a test project called "JMG Ultra Studio Test"** (create it in Resolve's
+  Project Manager, import `dev\test-media` into it). Never open or change the user's own Resolve projects – they all
+  live in Resolve's database.
+1. `node dev\resolve\build.js` – checks, unit tests and `dist\JMG-Ultra-Studio-Resolve-<version>.zip`.
+2. Install it the way the user will: unzip, quit Resolve, run **Install on Windows.bat** (Windows asks for permission:
+   Resolve's plugin folder is in `%PROGRAMDATA%`). Expected: the plugin in
+   `%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\com.jmgphotography.ultrastudio`,
+   with `WorkflowIntegration.node` copied in from Resolve's Developer folder.
+3. Ask the user to open Resolve, then **Workspace › Workflow Integrations › JMG Ultra Studio**, then **Home › Check my
+   setup**, and to read you every row (Resolve version, plugin version, "All … Resolve commands loaded" or the tools
+   with missing commands).
+4. Automated tests: quit Resolve, `powershell -ExecutionPolicy Bypass -File dev\win\link-dev-resolve.ps1` (run
+   PowerShell as administrator if it says the folder can't be written; it parks the installed copy and turns on the
+   DevTools port 8892), start Resolve with the test project, open the panel, then `node dev\cep.js resolve call listFns`
+   and `node dev\e2e\run.js --resolve` (it refuses to run in any other project). Afterwards quit Resolve and run
+   `dev\win\unlink-dev-resolve.ps1` (puts the installed copy back).
+5. Check what is most likely to differ on Windows: file dialogs (Choose file…), Open / Show in Explorer, renders through
+   Resolve's render queue to paths with spaces, sound analysis (a short audio render), installing over an older version,
+   **Uninstall on Windows.bat**, and the panel window at 125% / 150% display scaling.
+- Report Resolve problems the same way (issues labelled `windows`, `from-pc` and `resolve`), and give them their own
+  section in `dev/WINDOWS-REPORT.md`.
+
 ## Reporting back (this is how the Mac side hears about it)
 1. **A report file:** write `dev/WINDOWS-REPORT.md` – date, Windows + Premiere versions, display scaling, and for
    every check above: passed / failed / not tried, with one plain line each.

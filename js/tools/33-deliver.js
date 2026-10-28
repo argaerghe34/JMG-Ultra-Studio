@@ -5,11 +5,15 @@
   const US = window.US, h = US.h, ui = US.ui;
   const fs = require('fs'), path = require('path');
 
+  // Resolve's reframing is called Smart Reframe; failed renders stay in its Render Queue (Deliver page) to show why
+  const inResolve = () => US.app.is('resolve');
+  const REFRAME = US.app.is('resolve') ? 'Smart Reframe' : 'Auto Reframe';
+  const seeWhy = () => (inResolve() ? 'Open the Render Queue on Resolve’s Deliver page to see why, then try those again.' : 'Open Media Encoder to see why, then try those again.');
   const OUTPUTS = {
     master: { label: 'Master (same shape as the sequence)', short: 'Master', kind: 'video' },
-    v916: { label: 'Vertical 9:16 (Auto Reframe)', short: '9x16', kind: 'video', num: 9, den: 16 },
-    s11: { label: 'Square 1:1 (Auto Reframe)', short: '1x1', kind: 'video', num: 1, den: 1 },
-    p45: { label: 'Portrait 4:5 (Auto Reframe)', short: '4x5', kind: 'video', num: 4, den: 5 },
+    v916: { label: `Vertical 9:16 (${REFRAME})`, short: '9x16', kind: 'video', num: 9, den: 16 },
+    s11: { label: `Square 1:1 (${REFRAME})`, short: '1x1', kind: 'video', num: 1, den: 1 },
+    p45: { label: `Portrait 4:5 (${REFRAME})`, short: '4x5', kind: 'video', num: 4, den: 5 },
     wav: { label: 'Sound only (WAV 48 kHz)', short: 'Sound', kind: 'audio' },
     thumb: { label: 'Thumbnail (frame at the playhead)', short: 'Thumbnail', kind: 'image' }
   };
@@ -46,8 +50,10 @@
     try {
     for (const k of reframes) {
       job.check();
-      job.set({ who: 'premiere' }).progress(0.02 + 0.18 * (step++ / steps), `Auto Reframe: making the ${OUTPUTS[k].short} version (this can take a while on long sequences)`);
+      job.set({ who: 'premiere' }).progress(0.02 + 0.18 * (step++ / steps), `${REFRAME}: making the ${OUTPUTS[k].short} version (this can take a while on long sequences)`);
       let r = await US.host.call('autoReframe', { seqId, num: OUTPUTS[k].num, den: OUTPUTS[k].den, motion: 'default', name: `${seq.name} – ${OUTPUTS[k].short.replace('x', ':')}`, binPath: 'JMG Ultra Studio/Deliver' });
+      // Resolve: clips Smart Reframe couldn't do (titles, generators, or Resolve without Studio) are centre-cropped
+      if (r && r.failed) US.log('warn', `${REFRAME} skipped ${US.plural(r.failed, 'clip')} in the ${OUTPUTS[k].short} version`, 'They are centre-cropped instead. Select them and press Smart Reframe in the Inspector to try again.', 'deliver');
       if (o.fullSize !== false) {
         // Auto Reframe keeps the sequence height (607×1080 from a 1080p edit); platforms want 1080×1920 etc.
         const big = Math.max(seq.width, seq.height) >= 3000, base = big ? 2160 : 1080;
@@ -78,7 +84,7 @@
     await US.encoder.run(tasks, job, { label: 'Exporting', from: 0.2, to: 1 });
     const failed = tasks.filter(t => !t.ok), ok = tasks.filter(t => t.ok);
     US.log(failed.length ? 'error' : 'ok', `Exports in ${dir}`, tasks.map(t => `${t.ok ? '✓' : '✗'} ${path.basename(t.out)}${t.ok ? '' : ' – ' + t.error}`).concat(thumb ? ['✓ ' + path.basename(thumb)] : []).join('\n'), 'deliver');
-    if (failed.length) throw new US.UserError('RENDER_FAILED', { title: `${failed.length} of ${tasks.length} exports failed.`, action: 'Open Media Encoder to see why, then try those again.', detail: failed.map(t => `${path.basename(t.out)}: ${t.error}`).join('\n') });
+    if (failed.length) throw new US.UserError('RENDER_FAILED', { title: `${failed.length} of ${tasks.length} exports failed.`, action: seeWhy(), detail: failed.map(t => `${path.basename(t.out)}: ${t.error}`).join('\n') });
     return { summary: `${ok.length + (thumb ? 1 : 0)} files saved`, dir };
   }
 
@@ -129,11 +135,12 @@
     const seq = await US.host.call('sequenceInfo', { seqId, clips: false });
     const found = await US.host.call('renderRanges', { seqId });
     const preset = o.preset || (await US.host.call('encoderPresets')).h264;
-    if (!preset || !fs.existsSync(preset)) throw new US.UserError('PRESET_MISSING', { title: 'The export preset isn’t there any more.', action: 'Choose the preset again in Deliver › Render ranges.', detail: String(preset) });
+    const isFile = !inResolve() || /\.(xml|epr)$/i.test(String(preset || ''));
+    if (!preset || (isFile && !fs.existsSync(preset))) throw new US.UserError('PRESET_MISSING', { title: 'The export preset isn’t there any more.', action: 'Choose the preset again in Deliver › Render ranges.', detail: String(preset) });
     const ext = (await US.host.call('presetExtension', { seqId, preset })) || 'mp4';
     const dir = o.folder || defaultDir(seq.name);
     const plan = rangePlan(found.ranges, seq.name, ext, dir);
-    if (!plan.length) throw new US.UserError('NOTHING_FOUND', { title: 'No render ranges on this sequence.', action: 'Add one with “Add a render range”, or put adjustment layers on a top video track named “Renders”.' });
+    if (!plan.length) throw new US.UserError('NOTHING_FOUND', { title: 'No render ranges on this sequence.', action: inResolve() ? 'Add one with “Add a render range” in Deliver › Render ranges.' : 'Add one with “Add a render range”, or put adjustment layers on a top video track named “Renders”.' });
     US.fsx.ensureDir(dir);
     await hideGuides(seqId, job);
     const tasks = plan.map(p => ({ seqId, out: p.out, preset, name: p.name, range: { start: p.start, end: p.end }, overwrite: !!o.replace }));
@@ -147,11 +154,11 @@
     const list = tasks.map(t => `${t.queued ? '→' : t.ok ? '✓' : '✗'} ${path.basename(t.out)} (${US.fmtDur(t.range.start)}–${US.fmtDur(t.range.end)})${t.ok || t.queued ? '' : ' – ' + t.error}`).join('\n');
     if (o.queueOnly) {
       US.log('ok', `${US.plural(tasks.length, 'render')} queued in Media Encoder for ${dir}`, list, 'deliver');
-      return { summary: `${US.plural(tasks.length, 'render')} queued in Media Encoder – press its green Start button`, dir, files: tasks.map(t => t.out) };
+      return { summary: inResolve() ? `${US.plural(tasks.length, 'render')} added to Resolve’s Render Queue – press Render All on the Deliver page` : `${US.plural(tasks.length, 'render')} queued in Media Encoder – press its green Start button`, dir, files: tasks.map(t => t.out) };
     }
     const failed = tasks.filter(t => !t.ok);
     US.log(failed.length ? 'error' : 'ok', `Render ranges in ${dir}`, list, 'deliver');
-    if (failed.length) throw new US.UserError('RENDER_FAILED', { title: `${failed.length} of ${tasks.length} renders failed.`, action: 'Open Media Encoder to see why, then try those again.', detail: failed.map(t => `${path.basename(t.out)}: ${t.error}`).join('\n') });
+    if (failed.length) throw new US.UserError('RENDER_FAILED', { title: `${failed.length} of ${tasks.length} renders failed.`, action: seeWhy(), detail: failed.map(t => `${path.basename(t.out)}: ${t.error}`).join('\n') });
     return { summary: `${US.plural(tasks.length, 'render')} saved`, dir, files: tasks.map(t => t.out) };
   }
 
@@ -205,7 +212,7 @@
   const outOpts = () => Object.assign({ outputs: ['master', 'v916', 'thumb'], fullSize: true }, US.settings.get('deliver', {}));
   US.actions.register({
     id: 'deliver.pack', tool: 'deliver', title: 'Export the delivery pack', changes: true,
-    describe: 'Exports the active sequence through Media Encoder: master, vertical 9:16 / square 1:1 / portrait 4:5 versions via Auto Reframe, a WAV and a thumbnail.',
+    describe: `Exports the active sequence through ${US.app.is('resolve') ? 'Resolve’s Render Queue' : 'Media Encoder'}: master, vertical 9:16 / square 1:1 / portrait 4:5 versions via ${REFRAME}, a WAV and a thumbnail.`,
     params: { outputs: { type: 'string', default: 'master,v916,thumb', desc: 'Comma list of master, v916, s11, p45, wav, thumb' } },
     examples: ['export the master and a vertical version', 'make the social versions', 'export everything'],
     match(t) {
@@ -224,7 +231,7 @@
   const rangeOpts = () => Object.assign({ preset: '', queueOnly: false, replace: false }, US.settings.get('deliver.ranges', {}));
   US.actions.register({
     id: 'deliver.ranges', tool: 'deliver', title: 'Render the adjustment-layer ranges', changes: true,
-    describe: 'Sends each render range of the active sequence (an adjustment layer on the “Renders” track above the edit) to Media Encoder, one after another, each file named after its layer, with the chosen preset.',
+    describe: US.app.is('resolve') ? 'Renders each render range of the active timeline (a duration marker added by Ultra Studio), one after another, each file named after its marker, with the chosen render preset.' : 'Sends each render range of the active sequence (an adjustment layer on the “Renders” track above the edit) to Media Encoder, one after another, each file named after its layer, with the chosen preset.',
     examples: ['render the ranges', 'export each adjustment layer', 'render all the render layers'],
     match: t => /render|export/i.test(t) && /\branges?\b|adjustment layers?|render layers?/i.test(t) ? { _score: 2 } : null,
     run: (p, job) => exportRanges(rangeOpts(), job)
@@ -302,13 +309,15 @@
       });
       panes.pack.append(
         ui.card(h('div.card-title', 'Outputs'), toggles,
-          ui.section('More options', [ui.toggle({ label: 'Social versions at full platform size', hint: '1080×1920, 1080×1080, 1080×1350 (or 2160 wide from a 4K edit) instead of Auto Reframe’s own size.', value: o.fullSize !== false, onChange: x => { o.fullSize = x; US.settings.set('deliver', o); } })], { open: false }),
+          ui.section('More options', [ui.toggle({ label: 'Social versions at full platform size', hint: `1080×1920, 1080×1080, 1080×1350 (or 2160 wide from a 4K edit) instead of ${REFRAME}’s own size.`, value: o.fullSize !== false, onChange: x => { o.fullSize = x; US.settings.set('deliver', o); } })], { open: false }),
           folderRow()),
-        ui.note('Vertical, square and portrait versions are made with Premiere’s Auto Reframe as new sequences in “JMG Ultra Studio › Deliver”, so you can tweak them before re-exporting. Safe Zones guides are hidden automatically.'),
+        ui.note(inResolve() ? 'Vertical, square and portrait versions are made with Resolve’s Smart Reframe as new timelines in “JMG Ultra Studio › Deliver”, so you can tweak them before rendering again. Safe Zones guides are hidden automatically.' : 'Vertical, square and portrait versions are made with Premiere’s Auto Reframe as new sequences in “JMG Ultra Studio › Deliver”, so you can tweak them before re-exporting. Safe Zones guides are hidden automatically.'),
         packBtn, openBtn);
 
       /* render ranges */
-      let ro = rangeOpts(), builtIn = [];
+      let ro = rangeOpts(), builtIn = [], resolvePresets = [];
+      // a Premiere .epr chosen before can't be used in Resolve (and a Resolve preset not in Premiere): fall back to the first
+      if (ro.preset && (inResolve() ? /\.epr$/i.test(ro.preset) : /^(preset|resolve):/.test(ro.preset))) ro.preset = '';
       const saveRo = () => US.settings.set('deliver.ranges', ro);
       const rangeList = h('div'), rangeTrackLine = h('div.field-hint');
       const presetSel = ui.select({ options: [], onChange: v => {
@@ -321,12 +330,14 @@
       async function fillPresets() {
         try {
           const p = await US.host.call('deliverPresets');
-          builtIn = [{ path: p.h264, name: 'H.264 – Match Source, high bitrate' }, { path: p.youtube1080, name: 'H.264 – YouTube 1080p' }, { path: p.youtube2160, name: 'H.264 – YouTube 4K' }].filter(x => x.path);
+          builtIn = [{ path: p.h264, name: inResolve() ? 'H.264 – timeline size, high quality' : 'H.264 – Match Source, high bitrate' }, { path: p.youtube1080, name: 'H.264 – YouTube 1080p' }, { path: p.youtube2160, name: 'H.264 – YouTube 4K' }, { path: p.prores, name: 'ProRes 422 HQ – timeline size' }].filter(x => x.path);
+          // Resolve: its own render presets (Deliver page) are listed too
+          if (inResolve()) resolvePresets = (p.renderPresets || []).filter(x => x && x.path);
         } catch (e) { US.log('warn', 'Built-in export presets not found', String(e && e.message || e), 'deliver'); }
-        const mine = userPresets(path.dirname(US.fsx.exportsDir()));
+        const mine = inResolve() ? resolvePresets.map(x => ({ path: x.path, name: x.name, from: 'Resolve' })) : userPresets(path.dirname(US.fsx.exportsDir()));
         const opts = builtIn.map(x => ({ value: x.path, label: x.name }))
-          .concat(mine.map(x => ({ value: x.path, label: `${x.name} (your ${x.from} preset)` })));
-        if (ro.preset && !opts.some(x => x.value === ro.preset)) opts.push({ value: ro.preset, label: `${path.basename(ro.preset, '.epr')} (chosen file)` });
+          .concat(mine.map(x => ({ value: x.path, label: inResolve() ? `${x.name} (Resolve render preset)` : `${x.name} (your ${x.from} preset)` })));
+        if (ro.preset && !opts.some(x => x.value === ro.preset)) opts.push({ value: ro.preset, label: `${String(ro.preset).replace(/^preset:/, '').split(/[\\/]/).pop().replace(/\.(epr|xml)$/i, '')} (chosen ${/^preset:/.test(ro.preset) ? 'preset' : 'file'})` });
         opts.push({ value: '__pick', label: 'Choose a preset file…' });
         if (!ro.preset || !opts.some(x => x.value === ro.preset)) ro.preset = opts[0].value === '__pick' ? '' : opts[0].value;
         presetSel.setOptions(opts, ro.preset);
@@ -338,8 +349,8 @@
           const found = await US.host.call('renderRanges', { seqId: s.id });
           const plan = rangePlan(found.ranges, s.name, 'mp4', '');
           const off = found.ranges.length - plan.length;
-          if (!found.ranges.length) { rangeList.appendChild(ui.note('No render ranges yet. Add one below, then trim it and rename it in the Timeline – the export takes the layer’s name.', 'info')); return; }
-          rangeTrackLine.textContent = `On ${found.trackName || 'V' + (found.track + 1)} · ${US.plural(plan.length, 'render')}${off ? ` · ${off} switched off or empty, left out` : ''}`;
+          if (!found.ranges.length) { rangeList.appendChild(ui.note(inResolve() ? 'No render ranges yet. Add one below, then change its length and name in the Timeline (drag the end of its marker; double-click the marker to rename it) – the file takes the marker’s name.' : 'No render ranges yet. Add one below, then trim it and rename it in the Timeline – the export takes the layer’s name.', 'info')); return; }
+          rangeTrackLine.textContent = inResolve() ? `${US.plural(plan.length, 'render')} marked on the timeline${off ? ` · ${off} empty, left out` : ''}` : `On ${found.trackName || 'V' + (found.track + 1)} · ${US.plural(plan.length, 'render')}${off ? ` · ${off} switched off or empty, left out` : ''}`;
           rangeList.appendChild(ui.list(plan.map(p => ({ title: p.name, sub: `${US.fmtDur(p.start)} – ${US.fmtDur(p.end)}`, right: US.fmtDur(p.end - p.start) }))));
         } catch (e) { ui.showError(e); }
       }
@@ -354,7 +365,7 @@
           const r = await US.host.call('addRenderRange', Object.assign({ seqId: s.id, name }, span));
           if (!r.placed) throw new US.UserError('HOST_SCRIPT', { title: 'Premiere didn’t place the render range.', action: 'Check the sequence isn’t locked, then try again.', detail: r.log.join('\n') });
           if (!r.named) ui.toast({ type: 'info', title: 'Name the new top track “Renders”', text: 'Premiere didn’t let Ultra Studio name it. Double-click the track name in the Timeline and type Renders – only that track’s layers are rendered.', timeout: 15000 });
-          if (r.kind !== 'adjustment') ui.toast({ type: 'info', title: 'Added as an invisible clip', text: 'There’s no adjustment layer in this project, so the range is an invisible clip instead. It renders just the same. Add one with File › New › Adjustment Layer if you’d rather.', timeout: 12000 });
+          if (r.kind !== 'adjustment' && r.kind !== 'marker') ui.toast({ type: 'info', title: 'Added as an invisible clip', text: 'There’s no adjustment layer in this project, so the range is an invisible clip instead. It renders just the same. Add one with File › New › Adjustment Layer if you’d rather.', timeout: 12000 });
           rangeName.value = '';
           US.log('ok', `Render range “${name}” added`, `${US.fmtDur(span.start)} – ${US.fmtDur(span.end)}`, 'deliver');
           await showRanges();
@@ -369,11 +380,11 @@
       panes.ranges.append(
         ui.card(h('div.row', h('div.grow.card-title', 'Render ranges'), ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: showRanges })), rangeTrackLine, rangeList,
           h('div.row', h('div.grow', rangeName), addRange)),
-        ui.card(ui.field('Export settings', presetSel, 'Presets you save in Media Encoder or Premiere’s Export screen are listed here too.'),
-          ui.toggle({ label: 'Start rendering straight away', hint: 'Off: the renders wait in Media Encoder’s queue until you press its green Start button.', value: !ro.queueOnly, onChange: x => { ro.queueOnly = !x; saveRo(); } }),
+        ui.card(ui.field('Export settings', presetSel, inResolve() ? 'Your own render presets from Resolve’s Deliver page are listed here too.' : 'Presets you save in Media Encoder or Premiere’s Export screen are listed here too.'),
+          ui.toggle({ label: 'Start rendering straight away', hint: inResolve() ? 'Off: the renders wait in the Render Queue on the Deliver page until you press Render All.' : 'Off: the renders wait in Media Encoder’s queue until you press its green Start button.', value: !ro.queueOnly, onChange: x => { ro.queueOnly = !x; saveRo(); } }),
           ui.toggle({ label: 'Replace earlier renders with the same name', hint: 'Off: a new copy is saved as “Name (2)”.', value: !!ro.replace, onChange: x => { ro.replace = x; saveRo(); } }),
           folderRow()),
-        ui.note('Each adjustment layer on the “Renders” track marks one render: its length is the part that exports, its name becomes the file name, and they all go to Media Encoder in timeline order. Switch a layer off (Enable in the Timeline) to skip it. Effects you add to a layer show in that render only.'),
+        ui.note(inResolve() ? 'Each render range is a duration marker on the timeline (added with the button above): its length is the part that renders, its name becomes the file name, and they render one after another in timeline order. Delete a marker to drop that render.' : 'Each adjustment layer on the “Renders” track marks one render: its length is the part that exports, its name becomes the file name, and they all go to Media Encoder in timeline order. Switch a layer off (Enable in the Timeline) to skip it. Effects you add to a layer show in that render only.'),
         rangeBtn, rangeOpen);
 
       /* client notes */

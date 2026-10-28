@@ -568,7 +568,7 @@
           : ui.button('', { small: true, kind: 'ghost', icon: 'close', title: 'Leave this one out', onClick: e => { e.stopPropagation(); state.forced = state.forced.filter(f => !(f.clipId === s.clipId && f.mode === 'in' && Math.abs(f.start - s.start) < 0.3)); state.forced.push({ clipId: s.clipId, mode: 'out', t: (s.start + s.end) / 2 }); rescore(); changed(); } });
         const where = s.tl != null ? ` · at ${US.fmtDur(s.tl)} in the sequence` : '';
         const goTo = () => (s.tl != null && state.seq ? US.host.call('setPlayhead', { seqId: state.seq.id, seconds: s.tl }) : US.host.cue(s.clipId, s.start)).catch(e => ui.showError(e));
-        return h('div.list-row.clickable', { title: s.tl != null ? 'Go to this moment in the sequence' : 'Show in the Source Monitor', onclick: goTo },
+        return h('div.list-row.clickable', { title: s.tl != null ? 'Go to this moment in the sequence' : US.app.is('resolve') ? 'Select this clip in the Media Pool' : 'Show in the Source Monitor', onclick: goTo },
           h('span.swatch', { style: { background: color } }),
           h('div.list-main',
             h('div.list-title', `${s.clipName} · ${US.fmtDur(s.start, true)}–${US.fmtDur(s.end, true)}`),

@@ -45,6 +45,8 @@
     /** Turn anything thrown into {code,title,action,detail}. Raw text never reaches the screen without this. */
     explain(err) {
       if (err instanceof UserError) return { code: err.code, title: err.title, action: err.action, detail: err.detail || '' };
+      // the Resolve connection (resolve/host/index.js) throws plain errors that carry their own plain words
+      if (err && err.usCode) { const u = new UserError(err.usCode, { title: err.usTitle, action: err.usAction, detail: err.message }); return { code: u.code, title: u.title, action: u.action, detail: u.detail }; }
       const raw = String((err && (err.stack || err.message)) || err);
       let code = 'UNKNOWN';
       if (/ENOSPC|EACCES|EPERM|EROFS/.test(raw)) code = 'DISK';
@@ -120,7 +122,9 @@
   }
   /** Load resolve/host (fresh, so a reload picks up changed files) and connect to Resolve. */
   function loadResolve(dir) {
-    const hostDir = path.join(dir, 'resolve', 'host');
+    let hostDir = path.join(dir, 'resolve', 'host');
+    // Node caches modules by their real path: through the dev link (a symlinked resolve/) the plain path wouldn't match
+    try { hostDir = fs.realpathSync(hostDir); } catch (e) { /* as it is */ }
     for (const k of Object.keys(require.cache)) if (k.startsWith(hostDir)) delete require.cache[k];
     const R = require(path.join(hostDir, 'index.js'));
     resolveHost = R.connect({ pluginDir: dir });
@@ -153,6 +157,7 @@
    * plays from wherever the clip was) – so the panel checks where the monitor landed and jumps again until it's there.
    */
   async function cue(id, seconds, { play = false } = {}) {
+    if (US.app.is('resolve')) return cueHere(id, seconds, play);
     // the clip asked for must be the one loaded (a jump made while the last clip is still showing would move that one)
     const there = r => r && (!r.loaded || r.loaded === '?' || r.loaded === id) && (Math.abs(r.position - seconds) < 0.12 || (r.timing && Math.abs(r.position - (r.timing.start + seconds)) < 0.12));
     let r = null;
@@ -163,6 +168,49 @@
     if (play) r = await call('storyCue', { id, seconds, play: true, open: false });
     return Object.assign({ landed: there(r) }, r);
   }
+
+  /**
+   * Resolve: its Source Viewer can't be cued or played by script, so the panel plays the line itself – the sound of
+   * the clip's media file (or its proxy) in a hidden audio element, from the time asked for. The clip is also selected
+   * in the Media Pool (storyCue). Pressing play again on the line that is playing stops it. A file Chromium can't
+   * decode is said once, plainly; the clip stays selected so it can be played in Resolve.
+   */
+  const player = { el: null, id: '', at: 0, file: '', bad: new Set(), told: new Set() };
+  function stopCue() { if (player.el) { try { player.el.pause(); } catch (e) { /* not playing */ } } player.id = ''; }
+  function playFile(file, seconds) {
+    const el = player.el || (player.el = document.createElement('audio'));   // only the sound: no picture to decode
+    return new Promise(resolve => {
+      let done = false;
+      const finish = ok => { if (done) return; done = true; clearTimeout(t); el.onerror = el.onloadedmetadata = null; resolve(ok); };
+      const t = setTimeout(() => finish(false), 8000);
+      const go = () => {
+        try { el.currentTime = Math.max(0, isFinite(el.duration) && el.duration > 0 ? Math.min(seconds, el.duration - 0.05) : seconds); } catch (e) { /* plays from the start */ }
+        let p; try { p = el.play(); } catch (e) { return finish(false); }
+        if (p && p.then) p.then(() => finish(true), () => finish(false)); else finish(true);
+      };
+      el.onerror = () => finish(false);
+      const url = require('url').pathToFileURL(file).href;
+      if (player.file === file && el.src === url && el.readyState >= 1) return go();
+      player.file = file; el.onloadedmetadata = go; el.preload = 'auto'; el.src = url;
+      try { el.load(); } catch (e) { /* loads on its own */ }
+    });
+  }
+  async function cueHere(id, seconds, play) {
+    const r = await US.host.call('storyCue', { id, seconds, play, open: true });
+    const again = player.id === id && Math.abs(player.at - seconds) < 0.05 && player.el && !player.el.paused;
+    stopCue();
+    if (!play || again) return Object.assign({ landed: true, playing: false, player: 'panel' }, r);
+    for (const f of [r.path, r.proxy].filter(x => x && !player.bad.has(x))) {
+      if (await playFile(f, seconds)) { player.id = id; player.at = seconds; return Object.assign({ landed: true, playing: true, player: 'panel', file: f }, r); }
+      player.bad.add(f);
+    }
+    if (!player.told.has(id)) {
+      player.told.add(id);
+      US.ui.toast({ type: 'info', title: r.offline ? `“${r.name}” is offline, so it can’t be played here.` : `Ultra Studio can’t play the sound of “${r.name}” itself.`, text: 'It’s selected in the Media Pool – play it in Resolve’s viewer.', timeout: 8000 });
+    }
+    return Object.assign({ landed: false, playing: false, player: 'none' }, r);
+  }
+  cue.stop = stopCue;
 
   US.host = { call, rawEval, loadScripts, extensionDir, cue, lastMs: 0 };
 })();
