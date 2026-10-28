@@ -281,6 +281,15 @@
         return { removed: idx >= 0 ? clearLabelClips(seq.videoTracks[idx]) : 0, track: idx };
     };
 
+    /**
+     * Named, coloured layers on a video track of their own – Song Splitter's songs, talk and applause – the same way
+     * as Story's highlights: the project's adjustment layer (or a label clip), one per section; running it again
+     * replaces ours on that track. a: {seqId, trackName, trackIndex?, sections:[{name, start, end, label}], binPath}
+     */
+    fn.labelLayers = function (a) { return fn.storyHighlights(a); };
+    /** a: {seqId, trackName, trackIndex?} -> {removed, track} */
+    fn.removeLabelLayers = function (a) { return fn.storyRemoveHighlights(a); };
+
     /** Timecode of a sequence: its start (zero point, seconds), frame rate and drop-frame display. */
     fn.storySequenceTiming = function (a) {
         var seq = U.needSeq(a.seqId), fmt = seq.videoDisplayFormat, zero = 0;
