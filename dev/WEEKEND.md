@@ -507,3 +507,19 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   reading during a clear pan isn't a push-in any more (both editors). Unit 340. Premiere e2e 29/29 (twice, after all
   changes). Resolve e2e: 18/30 on the second run before the fixes; the rest (and the new 22r/23r Resolve tests) wait
   for Resolve to be reopened – the Mac locked at 17:53 and Resolve can't be reopened by script.
+- **Wed 28 Oct, evening–night – Resolve made stable, 1.3.3 released; notes for 1.3.4 built and released for both.**
+  Resolve crashes found and fixed: an imported .srt shows in the Media Pool **without** its extension, so overnight
+  prep took it for footage and laid it on a scratch timeline (aborts Resolve) – subtitles are now known by Type
+  "Subtitle" too. Transcribe with Resolve: `CreateSubtitlesFromAudio` runs in the background (throws on `{}` but
+  starts anyway); deleting its timeline early segfaulted Resolve – it now waits for the subtitles and never deletes a
+  timeline Resolve may be writing into. Analysis copies came out 4K: `SetCurrentRenderMode` resets the render size, so
+  it's set first. No FaceDetector in Resolve's Electron 36 (Selects finds no faces there). Resolve e2e 28/28, Premiere
+  e2e 29/29 → **v1.3.3** (first Resolve release) with a README "Where each version stands" table; issue #13 for the PC.
+  Jacob's notes for the next version (Premiere first, then Resolve; versions may differ if GitHub says so): Song
+  Splitter adjustment layers (numbered songs, colour by kind, "Songs" track); Deliver render ranges from any layer
+  track, one colour only, editable in the panel (rename, times, colour, delete), refreshing every 3 s, file-name
+  ending. Premiere 26.5 can't read or set a timeline clip's colour (TrackItem/QE have none), so the panel remembers
+  the colours it gave (by times, else unique name). Resolve: groups of range markers (`us-lyr-Songs~…`), colours read
+  from the markers. Also: adjustment layers and generated items aren't footage any more. Premiere e2e 30/30, Resolve
+  29/29 → **v1.3.4** for both (Premiere 22:32, Resolve 22:40). Test project now has a real adjustment layer (made via
+  File › New while the Mac was unlocked). The Resolve dev link stays installed on the Mac (points at this folder).
