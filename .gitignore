@@ -3,6 +3,7 @@
 
 # Development tool dependencies (npm install in dev/ brings them back)
 node_modules/
+node_modules
 
 # Machine-specific and generated files
 .DS_Store
