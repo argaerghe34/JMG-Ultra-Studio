@@ -9,8 +9,21 @@
   const dataDir = isWin
     ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'JMG Ultra Studio')
     : path.join(os.homedir(), 'Library', 'Application Support', 'JMG Ultra Studio');
+  // Windows: the big files (analysis copies, rendered sound, stills) stay out of the Roaming profile, which syncs at logon
+  const bulkDir = isWin
+    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'JMG Ultra Studio')
+    : dataDir;
 
   function ensureDir(d) { fs.mkdirSync(d, { recursive: true }); return d; }
+  /** Rename, trying again briefly on Windows when antivirus, OneDrive or Media Encoder still holds the file. */
+  function renameRetry(from, to) {
+    for (let k = 0; ; k++) {
+      try { fs.renameSync(from, to); return; } catch (e) {
+        if (k >= 5 || !/^(EPERM|EBUSY|EACCES)$/.test(e.code)) throw e;
+        const until = Date.now() + 40 * (k + 1); while (Date.now() < until) { /* wait */ }
+      }
+    }
+  }
   function readJSON(file, fallback) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return fallback; }
   }
@@ -19,13 +32,7 @@
     ensureDir(path.dirname(file));
     const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data));
-    // Windows: antivirus or OneDrive can hold the file for a moment – try again briefly
-    for (let k = 0; ; k++) {
-      try { fs.renameSync(tmp, file); break; } catch (e) {
-        if (k >= 5 || !/^(EPERM|EBUSY|EACCES)$/.test(e.code)) throw e;
-        const until = Date.now() + 40 * (k + 1); while (Date.now() < until) { /* wait */ }
-      }
-    }
+    renameRetry(tmp, file);
   }
   function hash(s) { return crypto.createHash('sha1').update(String(s)).digest('hex').slice(0, 16); }
 
@@ -36,11 +43,11 @@
   }
 
   const fsx = (US.fsx = {
-    fs, path, os, isWin, dataDir, ensureDir, readJSON, writeJSON, hash, mediaKey,
+    fs, path, os, isWin, dataDir, ensureDir, readJSON, writeJSON, renameRetry, hash, mediaKey,
     exists: f => { try { fs.accessSync(f); return true; } catch (e) { return false; } },
     size: f => { try { return fs.statSync(f).size; } catch (e) { return 0; } },
-    cacheDir: () => ensureDir(path.join(dataDir, 'cache')),
-    tempDir: () => ensureDir(path.join(dataDir, 'temp')),
+    cacheDir: () => ensureDir(path.join(bulkDir, 'cache')),
+    tempDir: () => ensureDir(path.join(bulkDir, 'temp')),
     logDir: () => ensureDir(path.join(dataDir, 'logs')),
     // Windows: the Documents folder Explorer shows (OneDrive often moves it), told by Premiere at start-up
     exportsDir: () => ensureDir(path.join(documentsDir || path.join(os.homedir(), 'Documents'), 'JMG Ultra Studio')),

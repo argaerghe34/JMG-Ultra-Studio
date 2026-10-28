@@ -327,7 +327,7 @@
           return { id: s.clipId, seconds: t, out: path.join(stillsDir, `us-still-${i + k}.png`) };
         });
         const got = await US.host.call('selectsStills', { stills });
-        got.forEach((g, k) => { if (g) { try { require('fs').renameSync(g, finals[k]); n++; } catch (e) { n++; } } });
+        got.forEach((g, k) => { if (g) { try { US.fsx.renameRetry(g, finals[k]); } catch (e) { US.log('warn', 'A still kept its working name', g); } n++; } });
       }
       made.push(`${US.plural(n, 'still')} in Documents › JMG Ultra Studio › Stills`);
     }

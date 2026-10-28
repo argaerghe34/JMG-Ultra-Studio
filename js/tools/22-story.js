@@ -600,11 +600,11 @@
     const paths = Array.from(new Set(transcripts.map(t => t.path).filter(Boolean)));
     const clips = paths.length ? await projectClips(paths) : [];
     const byPath = new Map();
-    for (const c of clips) { const had = byPath.get(c.path); if (!had || (had.sub && !c.sub)) byPath.set(c.path, c); }
+    for (const c of clips) { const k = US.pathKey(c.path), had = byPath.get(k); if (!had || (had.sub && !c.sub)) byPath.set(k, c); }
     const out = new Map();
     let all = null; // fallback: same file name anywhere in the project (media moved, or reached through another folder/link)
     for (const t of transcripts) {
-      let c = t.path ? byPath.get(t.path) : null;
+      let c = t.path ? byPath.get(US.pathKey(t.path)) : null;
       if (!c && (t.path || t.name)) {
         if (!all) all = (await projectClips()).filter(x => !x.sub);
         const base = US.basename(t.path || t.name).toLowerCase();
@@ -772,8 +772,8 @@
   /** transcript for a timeline clip: same media file, else same file name */
   function transcriptLookup() {
     const byPath = new Map(), byBase = new Map();
-    for (const t of state.transcripts) { if (t.path) byPath.set(t.path, t); byBase.set(US.basename(t.path || t.name).toLowerCase(), t); }
-    return c => (c.path && byPath.get(c.path)) || byBase.get(US.basename(c.path || c.name || '').toLowerCase()) || null;
+    for (const t of state.transcripts) { if (t.path) byPath.set(US.pathKey(t.path), t); byBase.set(US.basename(t.path || t.name).toLowerCase(), t); }
+    return c => (c.path && byPath.get(US.pathKey(c.path))) || byBase.get(US.basename(c.path || c.name || '').toLowerCase()) || null;
   }
   /** Read a sequence and work out who says what. tracks: 'auto' or audio track indexes. */
   async function timelineTranscript(job, { seqId, tracks = 'auto', info = null }) {

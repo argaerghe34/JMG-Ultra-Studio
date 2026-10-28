@@ -4,6 +4,7 @@ const ROOT = require('path').join(__dirname, '..', '..');
 const { JSDOM } = require(ROOT + '/dev/node_modules/jsdom');
 const fs = require('fs'), path = require('path'), os = require('os'), vm = require('vm');
 process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'us-ui-'));
+process.env.APPDATA = process.env.LOCALAPPDATA = process.env.HOME; // Windows keeps settings and LUTs under AppData, not HOME
 const dom = new JSDOM('<!doctype html><html><body><div id="app"></div><div id="toasts"></div></body></html>', { pretendToBeVisual: true, runScripts: 'outside-only', url: 'file://' + path.join(ROOT, 'index.html') });
 const w = dom.window;
 w.require = require; w.process = process; w.Buffer = Buffer; w.console = console;
@@ -27,7 +28,8 @@ US.host.call = async (fn, a) => {
 US.ctx = { project: { name: 'T', path: '/tmp/t.prproj' }, sequence: null };
 run('js/tools/34-colour.js');
 // fake LUT file
-const lutDir = path.join(process.env.HOME, 'Library/Application Support/Adobe/Common/LUTs/Creative'); fs.mkdirSync(lutDir, { recursive: true });
+const lutDir = process.platform === 'win32' ? path.join(process.env.APPDATA, 'Adobe', 'Common', 'LUTs', 'Creative') : path.join(process.env.HOME, 'Library/Application Support/Adobe/Common/LUTs/Creative');
+fs.mkdirSync(lutDir, { recursive: true });
 let cube = 'LUT_3D_SIZE 2\n'; for (let b=0;b<2;b++) for (let g=0;g<2;g++) for (let r=0;r<2;r++) cube += `${r} ${g} ${b}\n`;
 fs.writeFileSync(path.join(lutDir, 'A.cube'), cube); fs.writeFileSync(path.join(lutDir, 'B.cube'), cube);
 (async () => {
@@ -39,7 +41,8 @@ fs.writeFileSync(path.join(lutDir, 'A.cube'), cube); fs.writeFileSync(path.join(
   tool.show('luts');
   presetsResolve();
   await new Promise(r => setTimeout(r, 20));
-  const lutThumbs = Array.from(tool.el.querySelectorAll('.colour-pane:not(.hidden) .colour-thumb'));
+  // only the two fake LUTs count: the computer's own (e.g. C:\Program Files\Adobe\Common\LUTs) are listed too
+  const lutThumbs = Array.from(tool.el.querySelectorAll('.colour-pane:not(.hidden) .colour-thumb')).filter(b => /^[AB]$/.test(b.textContent));
 
   lutThumbs[1].click();
   await new Promise(r => setTimeout(r, 20));

@@ -113,7 +113,7 @@
     for (let i = 0; i < items.length; i++) {
       const t = done[i] || {}, it = items[i];
       // Media Encoder may report a slightly different file name; keep the copy where pickSource looks for it
-      if (t.ok && t.out && t.out !== want[i] && fs.existsSync(t.out)) { try { fs.renameSync(t.out, want[i]); } catch (e) { /* leave it */ } }
+      if (t.ok && t.out && t.out !== want[i] && fs.existsSync(t.out)) { try { US.fsx.renameRetry(t.out, want[i]); } catch (e) { /* leave it */ } }
       if (t.ok && fs.existsSync(want[i])) {
         decodable.delete(want[i]);
         made.push(it);
