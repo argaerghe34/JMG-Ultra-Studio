@@ -19,6 +19,7 @@
   ];
   /** In DaVinci Resolve the Premiere history above doesn't apply (some of it works differently there). */
   const WHATS_NEW_RESOLVE = [
+    'New in 1.3.4 – Song Splitter can mark each song with a numbered, coloured range marker (talk and applause too). Deliver › Render ranges renders the Songs or your own ranges, only one colour if you like, with an ending such as _v2 on every file name – and you can rename, move, recolour and delete ranges right in the list, which follows the timeline by itself.',
     'New: JMG Ultra Studio in DaVinci Resolve Studio – the same tools and screens as in Premiere, in Resolve’s words (timelines, the Media Pool, the render queue).',
     'Works on a copy, as in Premiere: tools that change a timeline make a new one first, and new bins go in a “JMG Ultra Studio” bin.',
     'Markers can go on the clips themselves: Settings › Markers › Clips (or Both). They show wherever the clip is used.',
