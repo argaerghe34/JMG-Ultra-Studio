@@ -188,13 +188,14 @@ module.exports = function makeBase(api) {
     },
 
     /**
-     * A clip range for AppendToTimeline / CreateTimelineFromClips / subclips. Resolve's endFrame is inclusive
-     * (its own example: "first 24 frames" is 0..23). inSec/outSec are media seconds; extra adds trackIndex,
-     * recordFrame, mediaType (1 video only, 2 audio only).
+     * A clip range for AppendToTimeline / CreateTimelineFromClips. Measured in Resolve 21: here endFrame is
+     * EXCLUSIVE (50..99 places 49 frames), while subclips (MediaStorage.AddItemListToMediaPool) count it inclusive
+     * (125..175 is 51 frames) – Blackmagic's old example says inclusive for both. inSec/outSec are media seconds;
+     * extra adds trackIndex, recordFrame, mediaType (1 video only, 2 audio only).
      */
     clipInfo(item, inSec, outSec, extra) {
       const fps = R.clipFps(item), s = Math.max(0, Math.round(inSec * fps)), e = Math.max(s + 1, Math.round(outSec * fps));
-      return Object.assign({ mediaPoolItem: item, startFrame: s, endFrame: e - 1 }, extra || {});
+      return Object.assign({ mediaPoolItem: item, startFrame: s, endFrame: e }, extra || {});
     },
     /** a timeline item in seconds: {start, end} on the timeline, {in, out} in its media (as Premiere reports them) */
     itemTimes(tl, ti) {
@@ -208,6 +209,17 @@ module.exports = function makeBase(api) {
     },
 
     /* ---------- markers ---------- */
+    /**
+     * A timeline's or clip's markers keyed by their real frame. Measured in Resolve 21.1: a marker added at frame 25
+     * sits at 01:00:01:00 (25 fps), and DeleteMarkerAtFrame(25) removes it, but GetMarkers() reports it at 24. So
+     * every read goes through here; never use GetMarkers() keys directly.
+     */
+    markers(owner) {
+      const out = {};
+      for (const [k, v] of Object.entries((owner && owner.GetMarkers && owner.GetMarkers()) || {})) out[Number(k) + R.MARKER_READ_OFFSET] = v;
+      return out;
+    },
+    MARKER_READ_OFFSET: 1,
     /** Resolve keys markers by frame; Ultra Studio's marker ids live in their customData. */
     newGuid: () => 'us-' + crypto.randomBytes(6).toString('hex'),
     markerColor: i => MARKER_COLORS[i] || MARKER_COLORS[0],
@@ -218,7 +230,7 @@ module.exports = function makeBase(api) {
      * moves the later one on by a frame. Returns the guids.
      */
     addMarkers(owner, markers, toFrame, fps) {
-      const taken = new Set(Object.keys(owner.GetMarkers() || {}).map(Number)), guids = [];
+      const taken = new Set(Object.keys(R.markers(owner)).map(Number)), guids = [];
       for (const m of markers) {
         let f = Math.max(0, Math.round(toFrame(m.start)));
         while (taken.has(f)) f++;
@@ -232,12 +244,13 @@ module.exports = function makeBase(api) {
     },
     removeMarkers(owner, guids) {
       let n = 0;
-      const want = new Set(guids), all = owner.GetMarkers() || {};
-      for (const [frame, info] of Object.entries(all)) if (info && want.has(info.customData)) { if (owner.DeleteMarkerAtFrame(Number(frame))) n++; }
+      const want = new Set(guids), all = R.markers(owner);
+      // by our id: in Resolve 21 DeleteMarkerAtFrame refuses the very frame GetMarkers reports for a timeline marker
+      for (const [frame, info] of Object.entries(all)) if (info && want.has(info.customData)) { if ((owner.DeleteMarkerByCustomData && owner.DeleteMarkerByCustomData(info.customData)) || owner.DeleteMarkerAtFrame(Number(frame))) n++; }
       return n;
     },
     readMarkers(owner, toSec, fps) {
-      return Object.entries(owner.GetMarkers() || {}).map(([frame, m]) => ({
+      return Object.entries(R.markers(owner)).map(([frame, m]) => ({
         guid: m.customData || 'frame:' + frame, start: toSec(Number(frame)), end: toSec(Number(frame)) + (Number(m.duration) > 1 ? Number(m.duration) / fps : 0),
         name: m.name || '', comment: m.note || '', color: R.markerIndex(m.color)
       })).sort((a, b) => a.start - b.start);

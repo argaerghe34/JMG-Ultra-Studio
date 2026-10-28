@@ -176,18 +176,18 @@ test('resolve story: theme names and highlights are range markers – replaced o
   const id = tl.GetUniqueId();
   const t = await run('storyThemeLayers', { seqId: id, sections: [{ name: 'Family', start: 0, end: 30, label: 1 }, { name: 'Faith', start: 30, end: 45.5, label: null }, { name: 'none', start: 50, end: 50 }] });
   assert.deepStrictEqual([t.kind, t.track, t.placed, t.renamed], ['markers', -1, 2, 2]);
-  let m = tl.GetMarkers();
+  let m = tl._markers; // real frames (GetMarkers reads one early, like Resolve)
   assert.deepStrictEqual([m[0].name, m[0].color, m[0].duration], ['Family', LABEL_MARKER[1], 750], 'frame 0 = the timeline’s first frame');
   assert.deepStrictEqual([m[750].name, m[750].color, m[750].duration], ['Faith', 'Purple', Math.round(15.5 * 25)]);
   const h = await run('storyHighlights', { seqId: id, trackName: 'Selects', sections: [{ name: 'Family · Faith', start: 10, end: 12, label: 15 }, { name: 'Faith', start: 0, end: 2, label: 6 }] });
   assert.deepStrictEqual([h.kind, h.placed, h.removed, h.named], ['markers', 2, 0, true]);
-  m = tl.GetMarkers();
+  m = tl._markers;
   assert.strictEqual(m[250].name, 'Mine', 'the editor’s marker stays');
   assert.deepStrictEqual([m[251].name, m[251].color, m[251].duration], ['Family · Faith', 'Yellow', 49], 'moved on a frame, still ends on time');
   assert.deepStrictEqual([m[1].name, m[1].color], ['Faith', 'Rose'], 'beside the theme marker');
   const again = await run('storyHighlights', { seqId: id, sections: [{ name: 'Only', start: 100, end: 101, label: 2 }] });
   assert.strictEqual(again.removed, 2);
-  m = tl.GetMarkers();
+  m = tl._markers;
   assert.deepStrictEqual(Object.values(m).map(x => x.name).sort(), ['Faith', 'Family', 'Mine', 'Only']);
   assert.deepStrictEqual(await run('storyRemoveHighlights', { seqId: id, trackName: 'Selects' }), { removed: 1, track: -1 });
   assert.deepStrictEqual(Object.values(tl.GetMarkers()).map(x => x.name).sort(), ['Faith', 'Family', 'Mine'], 'theme names stay');

@@ -415,12 +415,12 @@ module.exports = (R) => {
         m.enabled = tryCall(() => m.ti.GetClipEnabled(), true) !== false;
         m.color = String(tryCall(() => m.ti.GetClipColor(), '') || '');
         m.props = tryCall(() => m.ti.GetProperty(), null);
-        m.markers = tryCall(() => m.ti.GetMarkers(), {}) || {};
+        m.markers = tryCall(() => R.markers(m.ti), {}) || {};
         m.links = R.list(tryCall(() => m.ti.GetLinkedItems(), [])).map(x => R.id(x)).filter(x => ids.has(x));
         for (const [ps, pe] of keep(m.s, m.e)) {
           const srcStart = m.src + Math.round((ps - m.s) * m.cfps / fps), srcLen = Math.max(1, Math.round((pe - ps) * m.cfps / fps));
           const rec = shift(ps);
-          infos.push({ mediaPoolItem: m.mpi, startFrame: srcStart, endFrame: srcStart + srcLen - 1, trackIndex: m.track, recordFrame: t0 + rec, mediaType: m.type === 'video' ? 1 : 2 });
+          infos.push({ mediaPoolItem: m.mpi, startFrame: srcStart, endFrame: srcStart + srcLen, trackIndex: m.track, recordFrame: t0 + rec, mediaType: m.type === 'video' ? 1 : 2 });
           parts.push({ m, ps, pe, rec });
         }
       }
@@ -430,7 +430,7 @@ module.exports = (R) => {
       for (const m of moving) for (const l of m.links) { const x = root(m.id), y = root(l); if (x !== y) group.set(x < y ? y : x, x < y ? x : y); }
 
       // 3. timeline markers that move
-      const tlMarks = tl.GetMarkers() || {}, moveMarks = [];
+      const tlMarks = R.markers(tl), moveMarks = [];
       for (const [k, mk] of Object.entries(tlMarks)) {
         const f = Number(k), dur = Math.max(1, Number(mk.duration) || 1);
         if (f + dur <= first) continue;
@@ -471,7 +471,7 @@ module.exports = (R) => {
         if (tl.SetClipsLinked) for (const list of linkSets.values()) if (list.length > 1) tryCall(() => tl.SetClipsLinked(list, true));
         // timeline markers: take off every one that moves, then put them back in order (one marker per frame)
         for (const x of moveMarks) tl.DeleteMarkerAtFrame(x.f);
-        const taken = new Set(Object.keys(tl.GetMarkers() || {}).map(Number));
+        const taken = new Set(Object.keys(R.markers(tl)).map(Number));
         for (const x of moveMarks.filter(y => !y.drop).sort((p, q) => p.nf - q.nf)) {
           let f = x.nf; while (taken.has(f)) f++;
           if (tl.AddMarker(f, x.mk.color, x.mk.name || '', x.mk.note || '', x.nd, x.mk.customData || '')) taken.add(f);

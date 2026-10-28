@@ -24,7 +24,8 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
       log.push(['AddMarker', ownerName(), frame]);
       return true;
     };
-    o.GetMarkers = () => JSON.parse(JSON.stringify(o._markers));
+    // like Resolve 21.1: GetMarkers reports each marker one frame before where it is (AddMarker/DeleteMarkerAtFrame use the real frame)
+    o.GetMarkers = () => { const r = {}; for (const [k, v] of Object.entries(o._markers)) r[Number(k) - 1] = JSON.parse(JSON.stringify(v)); return r; };
     o.DeleteMarkerAtFrame = f => { if (o._markers[Number(f)] == null) return false; delete o._markers[Number(f)]; return true; };
     o.DeleteMarkersByColor = c => { for (const k of Object.keys(o._markers)) if (c === 'All' || o._markers[k].color === c) delete o._markers[k]; return true; };
     o.GetMarkerByCustomData = cd => { const k = Object.keys(o._markers).find(k => o._markers[k].customData === cd); return k == null ? {} : { [k]: o._markers[k] }; };
@@ -130,7 +131,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     return tl;
   }
   function timelineItem(tl, type, track, mpi, startFrame, endFrame, recordFrame) {
-    const ti = { _id: uid('item'), _type: type, _track: track, _mpi: mpi, _srcStart: startFrame, _srcEnd: endFrame, _start: recordFrame, _end: recordFrame + (endFrame - startFrame + 1), _enabled: true, _color: '', _props: { ZoomX: 1, ZoomY: 1, Pan: 0, Tilt: 0, Opacity: 100 } };
+    const ti = { _id: uid('item'), _type: type, _track: track, _mpi: mpi, _srcStart: startFrame, _srcEnd: endFrame, _start: recordFrame, _end: recordFrame + (endFrame - startFrame) /* endFrame is exclusive here (measured in Resolve 21) */, _enabled: true, _color: '', _props: { ZoomX: 1, ZoomY: 1, Pan: 0, Tilt: 0, Opacity: 100 } };
     ti.GetName = () => (mpi ? mpi._name : 'Item');
     ti.GetUniqueId = () => ti._id;
     ti.GetStart = () => ti._start;
@@ -180,7 +181,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
       const tl = currentTl; if (!tl) return [];
       const out = [];
       for (const c0 of [].concat(clips)) {
-        const c = c0 && c0.mediaPoolItem ? c0 : { mediaPoolItem: c0, startFrame: c0._start, endFrame: c0._end };
+        const c = c0 && c0.mediaPoolItem ? c0 : { mediaPoolItem: c0, startFrame: c0._start, endFrame: c0._end + 1 };
         const m = c.mediaPoolItem._m, hasV = /video|still|timeline/i.test(m.type), hasA = /audio/i.test(m.type) || m.audioCh > 0;
         const track = c.trackIndex || 1;
         const end = Math.max(tl._start, ...((c.mediaType === 2 ? tl._a : tl._v)[track - 1] || []).map(i => i._end));
@@ -281,7 +282,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     /** A timeline made from clips laid end to end: F.addTimeline('Cut', [{item, in, out, track?, at?}]) with frames */
     addTimeline(name, parts = []) {
       const tl = pool.CreateEmptyTimeline(name);
-      for (const p of parts) pool.AppendToTimeline([{ mediaPoolItem: p.item, startFrame: p.in, endFrame: p.out - 1, trackIndex: p.track || 1, recordFrame: p.at != null ? tl._start + p.at : undefined, mediaType: p.mediaType }]);
+      for (const p of parts) pool.AppendToTimeline([{ mediaPoolItem: p.item, startFrame: p.in, endFrame: p.out, trackIndex: p.track || 1, recordFrame: p.at != null ? tl._start + p.at : undefined, mediaType: p.mediaType }]);
       return tl;
     }
   };

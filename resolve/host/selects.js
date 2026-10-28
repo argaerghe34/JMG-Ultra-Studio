@@ -24,6 +24,7 @@ module.exports = (R) => {
         const p = R.props(it), frames = Number(p['Frames']) || 1;
         let s = Number(p['Start']), e = Number(p['End']);
         if (!isFinite(s) || !isFinite(e) || e < s) { s = 0; e = frames - 1; }
+        e += 1; // a subclip's End is its last frame; AppendToTimeline's endFrame is exclusive (base.js clipInfo)
         const got = R.list(R.pool().AppendToTimeline([{ mediaPoolItem: it, startFrame: s, endFrame: e, trackIndex: 1, recordFrame: R.tlFrame(tl, cursor) }])).filter(Boolean);
         const main = got.find(ti => trackOf(ti)[0] === 'video') || got[0];
         if (!main) { placed.push(null); continue; }

@@ -110,32 +110,37 @@
   }
 
   /* ---------- the Resolve bridge: resolve/host/*.js run in the panel itself, on Resolve's scripting API ---------- */
+  /*
+   * The Resolve commands run in the plugin's main process (resolve/plugin/main.js), which keeps the one connection
+   * to Resolve: connecting again from a reloaded page hangs Resolve 21 (with or without disconnecting first), and
+   * the main process outlives page reloads. The page asks over IPC.
+   */
   let resolveHost = null;
   /** Run a Resolve host command; answers like the Premiere side: {ok, data} or {ok:false, error}. */
   function resolveRun(fn, args, timeoutMs) {
     if (!resolveHost) return Promise.reject(new UserError('HOST_SCRIPT', { detail: 'The Resolve commands aren’t loaded.' }));
+    // the panel plays Story's lines itself in Resolve: storyStop stops that player here as well
+    if (fn === 'storyStop' && US.host.cue && US.host.cue.stop) { try { US.host.cue.stop(); } catch (e) { /* nothing playing */ } }
     return new Promise((resolve, reject) => {
       let done = false;
       const t = timeoutMs ? setTimeout(() => { if (!done) { done = true; reject(new UserError('HOST_TIMEOUT', { detail: fn })); } }, timeoutMs) : null;
-      resolveHost.run(fn, args == null ? {} : args).then(r => { if (!done) { done = true; clearTimeout(t); resolve(r); } });
+      resolveHost.run(fn, args == null ? {} : args).then(r => { if (!done) { done = true; clearTimeout(t); resolve(r); } }, e => { if (!done) { done = true; clearTimeout(t); reject(e); } });
     });
   }
-  /** Load resolve/host (fresh, so a reload picks up changed files) and connect to Resolve. */
-  function loadResolve(dir) {
-    let hostDir = path.join(dir, 'resolve', 'host');
-    // Node caches modules by their real path: through the dev link (a symlinked resolve/) the plain path wouldn't match
-    try { hostDir = fs.realpathSync(hostDir); } catch (e) { /* as it is */ }
-    for (const k of Object.keys(require.cache)) if (k.startsWith(hostDir)) delete require.cache[k];
-    const R = require(path.join(hostDir, 'index.js'));
-    resolveHost = R.connect({ pluginDir: dir });
+  /** (Re)load resolve/host in the plugin's main process – fresh files, the same connection to Resolve. */
+  async function loadResolve() {
+    const ipc = require('electron').ipcRenderer;
+    const r = await ipc.invoke('ultra-studio:load');
+    if (!r || !r.ok) { const e = (r && r.error) || {}; throw new UserError(e.code || 'HOST_SCRIPT', { title: e.title, action: e.action, detail: e.detail || 'The Resolve commands didn’t load.' }); }
+    resolveHost = { run: (fn, args) => ipc.invoke('ultra-studio:run', fn, args), modules: r.modules };
     US.host.resolve = resolveHost;
-    return resolveHost.modules;
+    return r.modules;
   }
 
   /** (Re)load jsx/host.jsx and every jsx/tools/*.jsx into Premiere – or the Resolve commands. */
   async function loadScripts() {
     const dir = extensionDir();
-    if (US.app.is('resolve')) return loadResolve(dir);
+    if (US.app.is('resolve')) return loadResolve();
     const files = [path.join(dir, 'jsx', 'host.jsx')];
     const toolDir = path.join(dir, 'jsx', 'tools');
     try { fs.readdirSync(toolDir).filter(f => f.endsWith('.jsx') && f[0] !== '.').sort().forEach(f => files.push(path.join(toolDir, f))); } catch (e) { /* none */ }

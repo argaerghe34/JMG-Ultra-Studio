@@ -83,12 +83,12 @@ module.exports = (R) => {
   /** Our markers on a timeline (customData starting with prefix) -> count removed */
   function clearMarkers(tl, prefix) {
     let n = 0;
-    for (const [frame, m] of Object.entries(tl.GetMarkers() || {})) if (m && String(m.customData || '').startsWith(prefix)) { if (tl.DeleteMarkerAtFrame(Number(frame))) n++; }
+    for (const [frame, m] of Object.entries(R.markers(tl))) if (m && String(m.customData || '').startsWith(prefix)) { if (tl.DeleteMarkerByCustomData(m.customData) || tl.DeleteMarkerAtFrame(Number(frame))) n++; }
     return n;
   }
   /** One range marker per section, named after it, in its theme's colour. -> {placed, log} */
   function sectionMarkers(tl, sections, prefix, note) {
-    const fps = R.fps(tl), taken = new Set(Object.keys(tl.GetMarkers() || {}).map(Number)), log = [];
+    const fps = R.fps(tl), taken = new Set(Object.keys(R.markers(tl)).map(Number)), log = [];
     let placed = 0;
     for (const s of sections || []) {
       if (!(s.end > s.start)) continue;
@@ -315,7 +315,7 @@ module.exports = (R) => {
         let track = before + 1, got = [];
         try {
           if (!tl.AddTrack('subtitle')) track = Math.max(1, before);
-          got = R.list(R.pool().AppendToTimeline([{ mediaPoolItem: item, startFrame: 0, endFrame: Math.max(0, Number(R.props(item)['Frames']) - 1 || 0), trackIndex: track, recordFrame: tl.GetStartFrame() }])).filter(Boolean);
+          got = R.list(R.pool().AppendToTimeline([{ mediaPoolItem: item, startFrame: 0, endFrame: Math.max(1, Number(R.props(item)['Frames']) || 1), trackIndex: track, recordFrame: tl.GetStartFrame() }])).filter(Boolean);
           if (!got.length) got = R.list(R.pool().AppendToTimeline([item])).filter(Boolean);
         } catch (e) { got = []; }
         const subs = got.filter(ti => trackOf(ti)[0] === 'subtitle');

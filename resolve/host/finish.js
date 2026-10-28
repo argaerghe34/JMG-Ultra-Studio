@@ -29,7 +29,7 @@ module.exports = function (R) {
   }
   /** Render-range markers: [{frame, info}] (frames from the start of the timeline, as Resolve keys them) */
   function rangeMarkers(tl) {
-    return Object.entries(tl.GetMarkers() || {}).filter(([, m]) => m && String(m.customData || '').indexOf(RANGE_TAG) === 0)
+    return Object.entries(R.markers(tl)).filter(([, m]) => m && String(m.customData || '').indexOf(RANGE_TAG) === 0)
       .map(([f, m]) => ({ frame: Number(f), m })).sort((a, b) => a.frame - b.frame);
   }
 
@@ -124,7 +124,7 @@ module.exports = function (R) {
         try { tl.SetSetting('timelineFrameRate', String(R.fps(src))); } catch (e) { /* project rate */ }
         R.open(tl);
         const mpi = src.GetMediaPoolItem && src.GetMediaPoolItem(), frames = src.GetEndFrame() - src.GetStartFrame();
-        const got = mpi && frames > 0 ? R.list(pool.AppendToTimeline([{ mediaPoolItem: mpi, startFrame: 0, endFrame: frames - 1, trackIndex: 1, recordFrame: tl.GetStartFrame() }])).filter(Boolean) : [];
+        const got = mpi && frames > 0 ? R.list(pool.AppendToTimeline([{ mediaPoolItem: mpi, startFrame: 0, endFrame: frames, trackIndex: 1, recordFrame: tl.GetStartFrame() }])).filter(Boolean) : [];
         if (!got.length) {
           pool.DeleteTimelines([tl]);
           via = 'copy';
@@ -162,7 +162,7 @@ module.exports = function (R) {
     addRenderRange(a) {
       const tl = R.needSeq(a.seqId), fps = R.fps(tl), log = [];
       if (!(a.end > a.start)) throw R.err('BAD_INPUT', 'Empty range ' + a.start + '–' + a.end, 'That range is empty.', 'Set In and Out points around the part to render, or move the playhead into the edit.');
-      const taken = new Set(Object.keys(tl.GetMarkers() || {}).map(Number));
+      const taken = new Set(Object.keys(R.markers(tl)).map(Number));
       let f = Math.max(0, Math.round(a.start * fps));
       const want = f;
       while (taken.has(f)) f++;

@@ -36,7 +36,7 @@ test('placeGuide: a still that comes out short is laid again until the timeline 
   const S = withTimeline();
   const other = S.F.addTimeline('Other', []); S.F.project.SetCurrentTimeline(other);
   const append = S.F.pool.AppendToTimeline;
-  S.F.pool.AppendToTimeline = clips => append(clips.map(c => Object.assign({}, c, { endFrame: Math.min(c.endFrame, c.startFrame + 99) })));   // 4 s of still at most
+  S.F.pool.AppendToTimeline = clips => append(clips.map(c => Object.assign({}, c, { endFrame: Math.min(c.endFrame, c.startFrame + 100) })));   // 4 s of still at most (endFrame exclusive)
   const r = await S.run('placeGuide', { seqId: S.seqId, itemId: S.guide.GetUniqueId(), trackName: 'Letterbox', prefix: 'Ultra Guide' });
   assert.deepStrictEqual([r.start, r.end], [0, 10]);
   assert.deepStrictEqual(v(S.tl, 2).map(i => [i.GetStart() - 86400, i.GetEnd() - 86400]), [[0, 100], [100, 200], [200, 250]]);
@@ -98,7 +98,7 @@ test('render ranges: duration markers with Ultra Studio’s tag; other markers a
   assert.deepStrictEqual([r.placed, r.named, r.kind], [1, true, 'marker']);
   assert.strictEqual(r.log.length, 1, 'moved on a frame because of the other marker');
   await S.run('addRenderRange', { seqId: S.seqId, name: 'Outro', start: 8, end: 10 });
-  const m = S.tl.GetMarkers()[51];
+  const m = S.tl._markers[51];
   assert.deepStrictEqual([m.color, m.name, m.duration, /^us-range-/.test(m.customData)], ['Fuchsia', 'Teaser', 99, true]);
   const got = await S.run('renderRanges', { seqId: S.seqId });
   assert.deepStrictEqual(got.ranges.map(x => [x.name, x.start, x.end, x.disabled]), [['Teaser', 2.04, 6, false], ['Outro', 8, 10, false]]);
