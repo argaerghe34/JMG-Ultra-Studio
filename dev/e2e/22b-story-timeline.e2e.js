@@ -49,7 +49,7 @@ try {
   // export all four
   const files = {};
   for (const f of ['docx', 'txt', 'srt', 'csv']) { const x = await S.exportTimeline(job, tl, f); files[f] = x.file; T.assert(fs.existsSync(x.file) && fs.statSync(x.file).size > 50, f + ' written'); }
-  const tc0 = E.tc(e[0].start, { fps: tl.info.timing.fps, drop: tl.info.timing.drop });
+  const tc0 = E.tc(e[0].start + (tl.info.timing.zero || 0), { fps: tl.info.timing.fps, drop: tl.info.timing.drop });   // as the editor shows it (Resolve's timelines start at 01:00:00:00)
   const docText = T.docxText(files.docx);   // reading it also proves the zip is valid
   for (const want of [`Transcript – ${SEQ}`, 'Speakers', 'Ruth', 'Speaker A: Welcome everyone to the concert tonight.', tc0]) T.assert(docText.includes(want), 'Word has “' + want + '”');
   const cues = T2.parseSRT(fs.readFileSync(files.srt, 'utf8'));

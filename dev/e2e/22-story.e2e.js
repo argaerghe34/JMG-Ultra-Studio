@@ -1,3 +1,4 @@
+// premiere-only – its checks read clip label colours from Premiere’s Final Cut XML export; Resolve: 22r-story-resolve
 // Story in real Premiere:
 //  1. import a transcript file, link it, cue the Source Monitor, build from two themes (plain build, markers);
 //  2. build again with every look option: theme colours (approach A, relabel), strongest lines highlighted + first,

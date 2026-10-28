@@ -1,3 +1,4 @@
+// premiere-only – Premiere’s adjustment-layer highlights, read from its XML export; Resolve: 22r-story-resolve
 // Story › Highlight selects on a string-out (S1) and the board's idea notes (S3), in real Premiere:
 // a string-out of the whole interview; lines chosen in a theme, on the board and in a built sequence get highlight clips on a
 // “Selects” track (names, times, colours checked via FCP XML) and range markers; running again replaces them; Remove clears them.

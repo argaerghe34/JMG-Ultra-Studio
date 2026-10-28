@@ -21,7 +21,7 @@ try {
   try { await S.setScope(job, { kind: 'sequence', seqId: seq.id, inOut: true }); } catch (e) { msg = e.title; }
   T.assert(/has no In and Out points/.test(msg) && S.scopeOf().inOut === false, 'no In/Out: ' + msg);
   // In at 10 s, Out at 25 s, marked in Premiere
-  await US.host.rawEval(`(function(){ var ss=app.project.sequences; for (var i=0;i<ss.numSequences;i++) if (ss[i].sequenceID==${JSON.stringify(seq.id)}) { ss[i].setInPoint(10); ss[i].setOutPoint(25); return 'ok'; } })()`);
+  await T.setInOut(seq.id, 10, 25);
   const info = await US.host.call('sequenceInfo', { seqId: seq.id });
   T.near(info.inPoint, 10, 0.05, 'In read back'); T.near(info.outPoint, 25, 0.05, 'Out read back');
   await S.setScope(job, { kind: 'sequence', seqId: seq.id, inOut: true });

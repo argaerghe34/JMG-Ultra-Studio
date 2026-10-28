@@ -4,6 +4,12 @@ const seq = await T.freshSequence('E2E Loudness', iv.id, 'Test – E2E');
 await US.host.call('placeClips', { seqId: seq.id, clips: [{ id: iv.id, in: 0, out: 30, at: 0 }] });
 await T.open(seq.id);
 const r = await T.action('sound.fix', { target: 'broadcast' });
+if (US.app.is('resolve')) {
+  // Resolve doesn't let add-ons change clip volume: Sound measures and says the one manual step instead of making a copy
+  T.assert(/-16\.\d LUFS \(target -23\)/.test(r.summary) && /Normali[sz]e/i.test(r.summary), 'measured, with the step to take: ' + r.summary);
+  T.assert(!r.copy, 'nothing changed');
+  return { summary: r.summary };
+}
 T.near(r.after.meter.integrated, -23, 0.6, 'the copy measures at the target');
 T.assert(r.gain < -5 && r.gain > -8, 'lowered by about 6.4 dB: ' + r.gain.toFixed(2));
 const lvl = JSON.parse(await US.host.rawEval(`(function(){ var o=[]; var ids=${JSON.stringify([seq.id, r.copy.id])}; for (var i=0;i<ids.length;i++){ var ti=UStudio.needSeq(ids[i]).audioTracks[0].clips[0]; for (var k=0;k<ti.components.numItems;k++) if (ti.components[k].displayName==='Volume') for (var p=0;p<ti.components[k].properties.numItems;p++) if (ti.components[k].properties[p].displayName==='Level') o.push(ti.components[k].properties[p].getValue()); } return JSON.stringify(o); })()`));

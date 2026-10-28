@@ -1,3 +1,4 @@
+// premiere-only – Resolve can’t change clip volume (Sound marks the speech instead): 23r-sound-resolve
 // Sound Check › Duck the music under speech: an interview on A1 and music on A2 → a copy with the music down under speech.
 const S = US.story;
 const [iv] = await T.importOnce([T.media('interview', 'I001_interview.mp4')], 'Test – Story');

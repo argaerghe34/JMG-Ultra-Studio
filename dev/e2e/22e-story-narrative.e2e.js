@@ -1,3 +1,4 @@
+// premiere-only – reads label colours from Premiere’s XML export; Resolve: 22r-story-resolve
 // Story › Narrative from a brief (S2) in real Premiere, with the AI stubbed (the stub answers like Claude would, from the
 // lines it is sent): the brief becomes a narrative “Narrative · 30 s · family” (shown in Build), and building it lays the beats in
 // order, with a word trim applied to the in-point, Hook / Build / Payoff markers, and each line in its theme's colour.

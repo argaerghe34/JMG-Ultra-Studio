@@ -14,7 +14,7 @@ try {
   st.themes.push({ id: 'sync-test', name: 'Sync test', lineIds: ids.slice(0, 6), manual: true });
   S.save(); S.flushShared();
   // the copy next to the project
-  const file = Y.sharedFile(US.ctx.project.path);
+  const file = Y.sharedFile(S.sharedProjectPath());   // next to the .prproj, or (Resolve) in the media's folder
   T.assert(fs.existsSync(file), 'Story saved next to the project: ' + file);
   const there = JSON.parse(fs.readFileSync(file, 'utf8'));
   T.assert(there.sync && there.sync.id === st.sync.id, 'the copy next to the project is the one open');

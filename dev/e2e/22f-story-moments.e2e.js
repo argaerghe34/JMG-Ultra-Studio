@@ -51,7 +51,11 @@ try {
   const bm = await S.buildMoments(job, mine, { colour: true, labels: true, name: 'Test – Story moments built' });
   const bi = await US.host.call('sequenceInfo', { seqId: bm.seq.id });
   // a range marker on each clip (the type headings are single-point markers)
-  const labelled = bi.markers.filter(m => m.end - m.start > 0.05 && M.ORDER.some(ty => m.name.startsWith(M.TYPES[ty].name)));
+  // (in Resolve the theme names are range markers too – a theme's spans its clips – so count the clips that have a
+  // label marker of their own: exactly their length)
+  const ranges = bi.markers.filter(m => m.end - m.start > 0.05 && M.ORDER.some(ty => m.name.startsWith(M.TYPES[ty].name)));
+  const own = c => ranges.find(m => Math.abs(m.start - c.start) < 0.05 && Math.abs(m.end - c.end) < 0.05 && !/^Moments · /.test(m.name));
+  const labelled = bi.video[0].clips.map(own).filter(Boolean);
   T.assert(bi.video[0].clips.length === mine.length && labelled.length === mine.length, `built ${bi.video[0].clips.length} clips, ${labelled.length} labelled`);
   for (const m of labelled) { const ty = M.ORDER.find(t => m.name.startsWith(M.TYPES[t].name)); T.assert(m.color === S.LABEL_TO_MARKER[M.TYPES[ty].label], `${m.name}: marker colour ${m.color}`); }
   T.assert(new Set(labelled.map(m => m.color)).size === 4, 'four colours for four types');

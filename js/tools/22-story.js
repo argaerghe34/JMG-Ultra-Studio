@@ -2973,6 +2973,8 @@
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
     SECTIONS,
     loadState: () => loadState(), state: () => state, addTranscript: (...a) => { const t = addTranscript(...a); reindex(); saveNow(); return t; },
+    /** what the copy that travels is named after: the .prproj in Premiere; in Resolve, a name in the media's folder */
+    sharedProjectPath: () => (RES ? (resRef && resRef.shared) || '' : (US.ctx.project && US.ctx.project.path) || ''),
     buildSequence, sortIntoBins, readPremiereTranscripts, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
