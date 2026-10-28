@@ -169,7 +169,7 @@ test('autoReframe: Smart Reframe on a copy at the same height (608×1080 for 9:1
   const dup = S.tl.DuplicateTimeline;
   S.tl.DuplicateTimeline = n => { const c = dup(n); for (const ti of c._v.flat()) ti.SmartReframe = () => { calls.push(ti.GetName()); return true; }; return c; };
   const r = await S.run('autoReframe', { seqId: S.tl.GetUniqueId(), num: 9, den: 16, motion: 'default', name: 'Cut – 9:16', binPath: 'JMG Ultra Studio/Deliver' });
-  assert.deepStrictEqual([r.name, r.width, r.height, r.reframed, r.failed], ['Cut – 9:16', 608, 1080, 1, 0]);
+  assert.deepStrictEqual([r.name, r.width, r.height, r.reframed, r.failed], ['Cut – 9∶16', 608, 1080, 1, 0] /* Resolve refuses ':' in names: a look-alike */);
   const t = S.F.timelines.find(x => x.GetUniqueId() === r.id);
   assert.strictEqual(t.GetSetting('useCustomSettings'), '1');
   assert.strictEqual(t.GetSetting('timelineInputResMismatchBehavior'), 'scaleToCrop');

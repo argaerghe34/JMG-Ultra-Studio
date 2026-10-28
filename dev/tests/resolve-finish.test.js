@@ -69,7 +69,7 @@ test('fitToSize: a new timeline of the exact size with the reframed one nested i
   const S = withTimeline();
   const r = await S.run('autoReframe', { seqId: S.seqId, num: 9, den: 16, name: 'Cut – 9:16', binPath: 'JMG Ultra Studio/Deliver' });
   const f = await S.run('fitToSize', { seqId: r.id, width: 1080, height: 1920, name: 'Cut – 9:16 1080×1920', binPath: 'JMG Ultra Studio/Deliver' });
-  assert.deepStrictEqual([f.name, f.width, f.height, f.via], ['Cut – 9:16 1080×1920', 1080, 1920, 'nested']);
+  assert.deepStrictEqual([f.name, f.width, f.height, f.via], ['Cut – 9∶16 1080×1920', 1080, 1920, 'nested'] /* Resolve refuses ':' in names: a look-alike */);
   assert.ok(Math.abs(f.scale - 177.78) < 0.01);
   const t = S.F.timelines.find(x => x.GetUniqueId() === f.id), src = S.F.timelines.find(x => x.GetUniqueId() === r.id);
   assert.strictEqual(v(t, 1)[0].GetMediaPoolItem(), src.GetMediaPoolItem(), 'the reframed timeline, nested');

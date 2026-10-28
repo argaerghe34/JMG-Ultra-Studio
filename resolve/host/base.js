@@ -99,7 +99,7 @@ module.exports = function makeBase(api) {
       const pool = R.pool(), keep = pool.GetCurrentFolder();
       let folder = R.root();
       for (const raw of String(p || '').split('/')) {
-        const n = raw.trim(); if (!n) continue;
+        const n = raw.trim() && R.safeName(raw); if (!n) continue;
         folder = list(folder.GetSubFolderList()).find(f => f.GetName() === n) || pool.AddSubFolder(folder, n);
         if (!folder) throw err('HOST_SCRIPT', 'Resolve would not make the bin ' + p);
       }
@@ -180,8 +180,17 @@ module.exports = function makeBase(api) {
       for (let t = 1, n = tl.GetTrackCount(type); t <= n; t++) for (const ti of list(tl.GetItemListInTrack(type, t))) if (ti) out.push({ ti, track: t, type });
       return out;
     },
-    /** A timeline name not used yet: "Name", "Name 2", … */
+    /**
+     * A name Resolve accepts for a timeline or bin: measured in Resolve 21, it refuses any with : / \ ? * < > |
+     * ("Unable to create a timeline"). They become look-alikes, so "Interview – 9:16" still reads the same.
+     */
+    safeName(name) {
+      const LIKE = { ':': '∶', '/': '∕', '\\': '∖', '?': '？', '*': '∗', '<': '‹', '>': '›', '|': '│' };
+      return String(name == null ? '' : name).replace(/[:/\\?*<>|]/g, c => LIKE[c]).trim() || 'Untitled';
+    },
+    /** A timeline name not used yet: "Name", "Name 2", … (in characters Resolve accepts) */
     uniqueTimelineName(name) {
+      name = R.safeName(name);
       const used = new Set(R.timelines().map(t => t.GetName()));
       let n = name, i = 2; while (used.has(n)) n = name + ' ' + (i++);
       return n;

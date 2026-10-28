@@ -12,7 +12,11 @@ await T.action('safezones.hide', {});
 st = await US.host.call('guideStatus', { seqId: seq.id });
 T.assert(st[0].hidden, 'guide hidden');
 const info = await US.host.call('sequenceInfo', { seqId: seq.id });
-T.near(info.video[st[0].track].clips[0].end, info.duration, 0.05, 'guide covers the sequence');
+// one clip in Premiere; in Resolve a still is laid 5 s at a time, so several pieces end to end
+const g = info.video[st[0].track].clips;
+T.near(g[0].start, 0, 0.05, 'guide starts at the start');
+T.near(g[g.length - 1].end, info.duration, 0.05, 'guide covers the sequence');
+T.assert(g.every((c, i) => !i || Math.abs(c.start - g[i - 1].end) < 0.05), 'no gaps between the pieces');
 const n = await US.host.call('removeGuides', { seqId: seq.id });
 T.assert(n === 1, 'guide removed');
 // plain grey style
@@ -23,7 +27,7 @@ T.assert(info2.video.some(t => t.clips.some(c => /plain/.test(c.name))), 'plain 
 const lb = await T.action('safezones.letterbox', { ratio: 2.39, mode: 'bars' });
 info2 = await US.host.call('sequenceInfo', { seqId: seq.id });
 const lbTrack = info2.video.find(t => t.name === 'Letterbox');
-T.assert(lbTrack && lbTrack.clips.length === 1 && /^Ultra Letterbox 2\.39x1/.test(lbTrack.clips[0].name), 'letterbox on its own track: ' + JSON.stringify(info2.video.map(t => t.name)));
+T.assert(lbTrack && lbTrack.clips.length >= 1 && lbTrack.clips.every(c => /^Ultra Letterbox 2\.39x1/.test(c.name)), 'letterbox on its own track (in Resolve in 5 s pieces): ' + JSON.stringify(info2.video.map(t => [t.name, t.clips.map(c => c.name)])));
 await T.action('safezones.hide', {});
 info2 = await US.host.call('sequenceInfo', { seqId: seq.id });
 T.assert(!info2.video.find(t => t.name === 'Letterbox').muted, 'bars stay visible when guides are hidden');

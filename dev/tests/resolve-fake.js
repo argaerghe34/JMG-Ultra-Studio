@@ -160,7 +160,12 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     const a = type === 'video' ? tl._v : tl._a;
     while (a.length < track) tl.AddTrack(type);
     const ti = timelineItem(tl, type, track, info.mediaPoolItem, info.startFrame, info.endFrame, at);
-    // overwrite whatever was there
+    // like Resolve 21 (measured): a still is always laid for the still length (5 s) – F.stillFrames turns this on
+    if (F.stillFrames && /still/i.test(info.mediaPoolItem._m.type)) { ti._srcEnd = ti._srcStart + F.stillFrames; ti._end = ti._start + F.stillFrames; }
+    // like Resolve 21 (measured): landing on an item, the new one keeps its end and starts where the space begins
+    for (const o of a[track - 1]) if (o._start < ti._start && o._end > ti._start) { ti._srcStart += o._end - ti._start; ti._start = o._end; }
+    if (ti._end <= ti._start) return null;
+    // whatever it then covers is overwritten
     a[track - 1] = a[track - 1].filter(o => o._end <= ti._start || o._start >= ti._end);
     a[track - 1].push(ti);
     return ti;
@@ -190,7 +195,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
         if (hasA && c.mediaType !== 1 && !/still/i.test(m.type)) out.push(place(tl, c, 'audio', track, at));
       }
       log.push(['AppendToTimeline', out.length]);
-      return out;
+      return out.filter(Boolean);
     },
     ImportMedia: (items) => [].concat(items).map(p => { const file = typeof p === 'string' ? p : p.FilePath; if (!media[file] && !fs.existsSync(file)) return null; const it = clip(file, media[file]); current._clips.push(it); return it; }).filter(Boolean),
     MoveClips: (items, target) => { for (const it of items) { const f = findItemFolder(it); if (f) f._clips.splice(f._clips.indexOf(it), 1); target._clips.push(it); } return true; },

@@ -22,7 +22,8 @@ module.exports = function (R) {
   function guides(tl, prefix) {
     const out = [];
     for (let t = 1, n = tl.GetTrackCount('video'); t <= n; t++) {
-      const c = items(tl, t).filter(ti => isGuide(ti, prefix)).length;
+      // a guide laid in several 5 s pieces (Resolve's still length) is one guide, as in Premiere
+      const c = new Set(items(tl, t).filter(ti => isGuide(ti, prefix)).map(ti => String(ti.GetName()))).size;
       if (c) out.push({ track: t, count: c, hidden: !tl.GetIsTrackEnabled('video', t) });
     }
     return out;
@@ -64,12 +65,17 @@ module.exports = function (R) {
       R.open(tl);
       const placed = [];
       try {
-        // a still may come out shorter than asked (Resolve's still length): carry on from where it ended
-        let at = first;
+        // Resolve 21 lays a still for its still length (5 s) whatever is asked: carry on from where it ended. The
+        // last piece is asked for ending at the timeline's end: Resolve then starts it where the space begins (it
+        // keeps the end and trims the start), so the guide ends with the edit instead of making it longer.
+        let at = first, len = 0;
         for (let guard = 0; at < last && guard < 500; guard++) {
-          const got = R.list(pool.AppendToTimeline([R.clipInfo(item, 0, (last - at) / fps, { trackIndex: top, recordFrame: at, mediaType: 1 })])).filter(Boolean);
-          const end = Math.max(...got.map(ti => ti.GetEnd()), at);
-          if (!got.length || end <= at) break;
+          const short = len && last - at < len, rec = short ? Math.max(first, last - len) : at;
+          const got = R.list(pool.AppendToTimeline([R.clipInfo(item, 0, (short ? len : last - at) / fps, { trackIndex: top, recordFrame: rec, mediaType: 1 })])).filter(Boolean);
+          if (!got.length) break;
+          const start = Math.min(...got.map(ti => ti.GetStart())), end = Math.max(...got.map(ti => ti.GetEnd()));
+          if (end <= at) break;
+          if (!len) len = end - start;
           placed.push(...got); at = end;
         }
       } finally { if (was && R.id(was) !== R.id(tl)) pr.SetCurrentTimeline(was); }
@@ -97,7 +103,9 @@ module.exports = function (R) {
       for (let t = tl.GetTrackCount('video'); t >= 1; t--) {
         const mine = items(tl, t).filter(ti => isGuide(ti, prefix));
         if (!mine.length) continue;
-        if (tl.DeleteClips(mine, false)) n += mine.length;
+        // a guide laid in several pieces (Resolve lays a still 5 s at a time) counts once, as in Premiere
+        const guidesHere = new Set(mine.map(ti => String(ti.GetName()))).size;   // before deleting: Resolve drops the objects then
+        if (tl.DeleteClips(mine, false)) n += guidesHere;
         // an emptied track of ours goes too (never V1)
         if (t > 1 && !items(tl, t).length && /^(guides|letterbox)$/i.test(String(tl.GetTrackName('video', t) || '').trim())) { try { tl.DeleteTrack('video', t); } catch (e) { /* leave it */ } }
       }
