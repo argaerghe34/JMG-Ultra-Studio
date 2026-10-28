@@ -255,17 +255,17 @@
   async function boot() {
     applySkin();
     try { window.__adobe_cep__.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applySkin); } catch (e) { /* older CEP */ }
-    bootScreen('Connecting to Premiere…');
+    bootScreen(`Connecting to ${US.app.name}…`);
     try {
       US.fsx.cleanTemp();
       await US.host.loadScripts();
       const ping = await US.host.call('ping', {}, { timeout: 15000 });
       US.premiere = ping;
-      if (US.fsx.isWin) { try { US.fsx.setDocumentsDir(await US.host.rawEval('Folder.myDocuments.fsName', 5000)); } catch (e) { /* keep the default */ } }
-      US.log('info', `Started JMG Ultra Studio ${US.version} in Premiere Pro ${ping.version}`);
+      if (US.fsx.isWin && !US.app.is('resolve')) { try { US.fsx.setDocumentsDir(await US.host.rawEval('Folder.myDocuments.fsName', 5000)); } catch (e) { /* keep the default */ } }
+      US.log('info', `Started JMG Ultra Studio ${US.version} in ${US.app.full} ${ping.version}`);
     } catch (e) {
       const x = US.errors.explain(e);
-      bootScreen('Couldn’t connect to Premiere. ' + x.action, x.detail || String(e));
+      bootScreen(`Couldn’t connect to ${US.app.name}. ` + x.action, x.detail || String(e));
       return;
     }
     buildShell();

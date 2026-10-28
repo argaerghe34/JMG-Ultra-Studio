@@ -1,0 +1,6 @@
+{
+    "name": "jmg-ultra-studio",
+    "version": "__VERSION__",
+    "description": "JMG Ultra Studio for DaVinci Resolve Studio",
+    "main": "main.js"
+}

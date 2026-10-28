@@ -81,15 +81,17 @@
       // Premiere can stop answering while it shows a message box of its own (e.g. an export error);
       // nothing returns until someone clicks it, so tell the person after a minute instead of spinning silently.
       const slow = setTimeout(() => US.bus.emit('host-slow', fn), opts.slowAfter || 60000);
-      let res;
-      try { res = await rawEval(script, opts.timeout == null ? 600000 : opts.timeout); }
+      let res, out;
+      try { res = await (US.app.is('resolve') ? resolveRun(fn, args, opts.timeout == null ? 600000 : opts.timeout) : rawEval(script, opts.timeout == null ? 600000 : opts.timeout)); }
       finally { clearTimeout(slow); US.bus.emit('host-answered', fn); }
       US.host.lastMs = performance.now() - t0;
-      if (res === 'EvalScript error.' || res == null || res === 'undefined') {
-        throw new UserError('HOST_SCRIPT', { detail: `${fn}: ${res}. The host script may not be loaded.` });
+      if (US.app.is('resolve')) out = res;
+      else {
+        if (res === 'EvalScript error.' || res == null || res === 'undefined') {
+          throw new UserError('HOST_SCRIPT', { detail: `${fn}: ${res}. The host script may not be loaded.` });
+        }
+        try { out = JSON.parse(res); } catch (e) { throw new UserError('HOST_SCRIPT', { detail: `${fn} returned: ${String(res).slice(0, 500)}` }); }
       }
-      let out;
-      try { out = JSON.parse(res); } catch (e) { throw new UserError('HOST_SCRIPT', { detail: `${fn} returned: ${String(res).slice(0, 500)}` }); }
       if (out && out.ok) return out.data;
       const e = (out && out.error) || {};
       throw new UserError(e.code || 'UNKNOWN', { title: e.title, action: e.action, detail: `${fn}: ${e.detail || e.message || ''}` });
@@ -105,9 +107,31 @@
     return path.dirname(p);
   }
 
-  /** (Re)load jsx/host.jsx and every jsx/tools/*.jsx into Premiere. */
+  /* ---------- the Resolve bridge: resolve/host/*.js run in the panel itself, on Resolve's scripting API ---------- */
+  let resolveHost = null;
+  /** Run a Resolve host command; answers like the Premiere side: {ok, data} or {ok:false, error}. */
+  function resolveRun(fn, args, timeoutMs) {
+    if (!resolveHost) return Promise.reject(new UserError('HOST_SCRIPT', { detail: 'The Resolve commands aren’t loaded.' }));
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const t = timeoutMs ? setTimeout(() => { if (!done) { done = true; reject(new UserError('HOST_TIMEOUT', { detail: fn })); } }, timeoutMs) : null;
+      resolveHost.run(fn, args == null ? {} : args).then(r => { if (!done) { done = true; clearTimeout(t); resolve(r); } });
+    });
+  }
+  /** Load resolve/host (fresh, so a reload picks up changed files) and connect to Resolve. */
+  function loadResolve(dir) {
+    const hostDir = path.join(dir, 'resolve', 'host');
+    for (const k of Object.keys(require.cache)) if (k.startsWith(hostDir)) delete require.cache[k];
+    const R = require(path.join(hostDir, 'index.js'));
+    resolveHost = R.connect({ pluginDir: dir });
+    US.host.resolve = resolveHost;
+    return resolveHost.modules;
+  }
+
+  /** (Re)load jsx/host.jsx and every jsx/tools/*.jsx into Premiere – or the Resolve commands. */
   async function loadScripts() {
     const dir = extensionDir();
+    if (US.app.is('resolve')) return loadResolve(dir);
     const files = [path.join(dir, 'jsx', 'host.jsx')];
     const toolDir = path.join(dir, 'jsx', 'tools');
     try { fs.readdirSync(toolDir).filter(f => f.endsWith('.jsx') && f[0] !== '.').sort().forEach(f => files.push(path.join(toolDir, f))); } catch (e) { /* none */ }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.jmgphotography.ultrastudio</Id>
+        <Name>JMG Ultra Studio</Name>
+        <Version>__VERSION__</Version>
+        <Description>Story, Selects, Silence Cut, Beats and more for DaVinci Resolve Studio</Description>
+        <FilePath>main.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>
