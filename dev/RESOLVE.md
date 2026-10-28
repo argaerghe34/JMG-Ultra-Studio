@@ -48,14 +48,42 @@ stays, and they get no Resolve layer until they come back.
 |---|---|
 | Source Monitor cue/play (Story "play this line") | No API to drive the Source Viewer. The panel plays the line itself (in-panel player); the clip is selected in the Media Pool. |
 | Media Encoder queue | Resolve's Render Queue (`AddRenderJob`, `StartRendering`, `GetRenderJobStatus`); Deliver presets are Resolve render presets. |
-| Render a clip's sound for analysis | A temporary audio-only render (WAV, 16 kHz where Resolve allows) of a scratch timeline, deleted afterwards. |
+| Render a clip's sound for analysis | A temporary audio-only render ("Audio Only" preset, 48 kHz, turned into a WAV) of a scratch timeline, deleted afterwards; the panel resamples to 16 kHz. |
 | Subclips | `MediaStorage.AddItemListToMediaPool([{media, startFrame, endFrame}])`. |
-| Ripple-extract ranges (Silence Cut) | Rebuild: a new timeline made of the kept parts (`AppendToTimeline` with record frames), never razor edits. |
-| Clip volume / ducking (Sound) | Not settable by script in Resolve 20 – to confirm in real Resolve; until then Sound reports this plainly. |
-| Adjustment layers (Story highlights, Render ranges) | Adjustment clips can't be created by script reliably; highlights use clip colours + markers, render ranges use marked ranges. |
+| Ripple-extract ranges (Silence Cut) | Rebuild on the copy: the kept parts re-laid with record frames, never razor edits. Grades/effects on rebuilt parts aren't carried; titles, generators or speed changes after the first cut are refused plainly. |
+| Clip volume / ducking (Sound) | Not settable by script (Resolve 21). Sound measures and says the manual step (Normalize Audio Levels); ducking makes a copy with the speech marked in blue. |
+| Adjustment layers (Story highlights, theme names, Render ranges) | Adjustment clips can't be created by script: highlights and theme names are range markers, timeline clips get the theme colours, render ranges are range markers. |
 | Auto Reframe | `TimelineItem.SmartReframe()` (Studio). |
 | Premiere transcripts | Resolve's own transcripts can't be read by script, so Story has Resolve make subtitles of each clip on a scratch timeline and reads those (per phrase: no word timings or speaker names). Transcript files work as in Premiere. |
+| Captions (Story) | The SRT is written and imported into the Captions bin; the person drags it to the timeline (placing a subtitle by script crashes Resolve 21.1). |
 | Project file path (Story travels with the project) | Resolve projects live in a database, not a file: see `storyProjectFile` in `resolve/host/story.js`. |
+
+## Measured in real Resolve Studio 21.1.2 (28 Oct 2026) – the API reference doesn't say these
+- **Crashes:** asking a subtitle item (an imported .srt) for its clip properties, or laying one on a timeline by
+  script, aborts the whole app (assertion in `GetMediaFrameExtentsWithFrameRate`). Subtitle files are recognised by
+  name (`R.isSubtitle`) and never asked; Story's captions are imported for the person to drag. Treat any odd value
+  sent to the API (undefined/NaN in a dict) as a crash risk.
+- **Errors are thrown**, not returned as false ("Execute: …: Error response (errorStr:…)").
+- **Ranges:** `AppendToTimeline`'s `endFrame` is exclusive (50–99 is 49 frames); subclips
+  (`AddItemListToMediaPool`) count it inclusive (125–175 is 51 frames). Render `MarkIn`/`MarkOut` are absolute and
+  inclusive (90000–90024 is 1 s at 25 fps).
+- **Stills** are always laid for 5 s, whatever is asked; landing on an item, a new one keeps its end and starts where
+  the space begins (guides are laid in pieces, the last one ending with the edit).
+- **Markers:** `GetMarkers()` reports each marker one frame early (added at 25, shown at 01:00:01:00, read back as
+  24); `DeleteMarkerAtFrame` takes the real frame. Read through `R.markers()`, delete by `customData`.
+- **Names:** a timeline or bin name with `: / \ ? * < > |` is refused – `R.safeName` uses look-alikes (9∶16).
+- **Busy:** `SetCurrentTimeline` is refused for a moment after Smart Reframe – `R.restoreTimeline` retries.
+- **Render marks:** a render job's Mark In/Out also moves the timeline's own In/Out – put back after.
+- **Sound:** the Wave format can't be chosen by script and 16 kHz is refused: WAV = the "Audio Only" preset (PCM in a
+  .mov, sometimes a real WAV) turned into a WAV on this computer (`movPcmToWav`, same samples).
+- **After `DeleteClips`** the deleted items' objects are dead ("Unable to find proxy object").
+- **Constants** such as `EXPORT_EDL` or `SUBTITLE_*` aren't on the JavaScript `resolve` object.
+- **Connecting twice** from one window hangs (with or without `CleanUp` first): the connection lives in the plugin's
+  main process (`resolve/plugin/main.js`), which outlives page reloads; the page asks over IPC. Resolve only accepts the
+  plugin when it's opened from its own menu (Workspace › Workflow Integrations), not when started by hand.
+- **Scripting from outside** (Python/`fusionscript`) is off unless Preferences › System › General › External scripting
+  is set – the tests don't change it; a person opens the test project and the panel, and the rest is driven over
+  the panel's DevTools port.
 
 ## Building and installing
 - `node dev/resolve/build.js` → `dist/JMG Ultra Studio for Resolve <version>/` and
