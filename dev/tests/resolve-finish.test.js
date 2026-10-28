@@ -92,7 +92,7 @@ test('deliverPresets: built-in recipes plus Resolve’s own render presets (not 
 
 test('render ranges: duration markers with Ultra Studio’s tag; other markers are left out', async () => {
   const S = withTimeline();
-  assert.deepStrictEqual(await S.run('renderRanges', { seqId: S.seqId }), { track: -1, trackName: '', ranges: [] });
+  assert.deepStrictEqual(await S.run('renderRanges', { seqId: S.seqId }), { track: -1, trackName: '', ranges: [], colours: true });
   S.tl.AddMarker(50, 'Blue', 'A note', '', 1, 'us-123');   // someone else's marker at 2 s
   const r = await S.run('addRenderRange', { seqId: S.seqId, name: 'Teaser', start: 2, end: 6 });
   assert.deepStrictEqual([r.placed, r.named, r.kind], [1, true, 'marker']);
@@ -106,6 +106,38 @@ test('render ranges: duration markers with Ultra Studio’s tag; other markers a
   await assert.rejects(S.run('addRenderRange', { seqId: S.seqId, name: 'x', start: 3, end: 3 }), e => e.code === 'BAD_INPUT');
 });
 
+test('song layers in Resolve: coloured range markers in a “Songs” group; replaced when run again; read back with their colours', async () => {
+  const S = withTimeline();
+  const sections = [{ name: '1', start: 0, end: 4, label: 5 }, { name: 'Talk', start: 4, end: 5, label: 4 }, { name: '2', start: 5, end: 9, label: 5 }, { name: 'Applause', start: 9, end: 10, label: 7 }];
+  const r = await S.run('labelLayers', { seqId: S.seqId, trackName: 'Songs', sections });
+  assert.deepStrictEqual([r.kind, r.placed, r.removed], ['marker', 4, 0]);
+  const got = await S.run('renderRanges', { seqId: S.seqId, track: 'Songs' });
+  assert.deepStrictEqual(got.ranges.map(x => [x.name, x.start, x.end, x.label]), [['1', 0, 4, 5], ['Talk', 4, 5, 4], ['2', 5, 9, 5], ['Applause', 9, 10, 7]]);
+  assert.deepStrictEqual(Object.values(S.tl._markers).map(m => m.color), ['Green', 'Sky', 'Green', 'Sand']);
+  assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId })).ranges.length, 0, 'not render ranges of the Renders group');
+  await S.run('addRenderRange', { seqId: S.seqId, name: 'Teaser', start: 2.5, end: 3.5 });
+  assert.deepStrictEqual((await S.run('rangeTracks', { seqId: S.seqId })).tracks.map(t => [t.name, t.count]).sort(), [['Renders', 1], ['Songs', 4]]);
+  const again = await S.run('labelLayers', { seqId: S.seqId, trackName: 'Songs', sections: sections.slice(0, 1) });
+  assert.deepStrictEqual([again.placed, again.removed], [1, 4]);
+  assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId })).ranges.length, 1, 'the render range stays');
+  assert.strictEqual((await S.run('removeLabelLayers', { seqId: S.seqId, trackName: 'Songs' })).removed, 1);
+  assert.deepStrictEqual(S.F.crashes, []);
+});
+test('render ranges in Resolve: added in a group and colour, renamed, moved, recoloured and deleted – the same id throughout', async () => {
+  const S = withTimeline();
+  await S.run('addRenderRange', { seqId: S.seqId, name: 'Encore', start: 6, end: 8, track: 'Songs', label: 5 });
+  let [r] = (await S.run('renderRanges', { seqId: S.seqId, track: 'songs' })).ranges;
+  assert.deepStrictEqual([r.name, r.start, r.end, r.label], ['Encore', 6, 8, 5]);
+  const id = r.nodeId;
+  await S.run('editRenderRange', { seqId: S.seqId, track: 'Songs', nodeId: id, name: '3 Encore' });
+  const e = await S.run('editRenderRange', { seqId: S.seqId, track: 'Songs', nodeId: id, start: 5, end: 9.6, label: 11 });
+  assert.deepStrictEqual([e.range.name, e.range.start, e.range.end, e.range.label, e.range.nodeId], ['3 Encore', 5, 9.6, 11, id]);
+  assert.strictEqual(Object.values(S.tl._markers).length, 1, 'one marker, laid again');
+  await assert.rejects(S.run('editRenderRange', { seqId: S.seqId, track: 'Songs', nodeId: id, start: 4, end: 4 }), x => x.code === 'BAD_INPUT');
+  await S.run('removeRenderRange', { seqId: S.seqId, track: 'Songs', nodeId: id });
+  assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId, track: 'Songs' })).ranges.length, 0);
+  await assert.rejects(S.run('removeRenderRange', { seqId: S.seqId, track: 'Songs', nodeId: id }), x => x.code === 'NOT_FOUND');
+});
 test('queueRangeExport: the render’s own Mark In/Out (last frame inclusive); the timeline’s In/Out untouched', async () => {
   const S = withTimeline();
   S.tl.SetMarkInOut(10, 20);

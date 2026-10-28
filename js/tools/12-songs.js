@@ -64,7 +64,7 @@
       done.push(US.plural(n, 'marker'));
     }
     if (opts.layers) {
-      if (target.kind === 'item') throw new US.UserError('BAD_INPUT', { title: 'Adjustment layers go on a sequence.', action: 'Choose “Active sequence” as the recording (the sequence with the concert on it), then try again.' });
+      if (target.kind === 'item') throw new US.UserError('BAD_INPUT', { title: US.app.is('resolve') ? 'Range markers go on a timeline.' : 'Adjustment layers go on a sequence.', action: 'Choose “Active sequence” as the recording (the sequence with the concert on it), then try again.' });
       job.set({ who: 'premiere', msg: 'Laying adjustment layers above the edit' });
       const sections = layerSections(res, off);
       const r = await US.host.call('labelLayers', { seqId: target.id, trackName: LAYER_TRACK, sections, binPath: 'JMG Ultra Studio/Song Splitter' });
@@ -147,8 +147,11 @@
       const optOther = ui.toggle({ label: 'Markers for applause and talk too', value: US.settings.get('songs.other', false), onChange: x => US.settings.set('songs.other', x) });
       const optSub = ui.toggle({ label: 'A subclip for each song', value: US.settings.get('songs.subclips', false), onChange: x => US.settings.set('songs.subclips', x) });
       const optSeq = ui.toggle({ label: 'A sequence for each song', value: US.settings.get('songs.sequences', false), onChange: x => US.settings.set('songs.sequences', x), hint: 'For a sequence, each song gets a trimmed copy of it.' });
-      const optLayers = ui.toggle({ label: 'Adjustment layers above the edit', value: US.settings.get('songs.layers', false), onChange: x => US.settings.set('songs.layers', x),
-        hint: `On a new top track called “${LAYER_TRACK}”: each song numbered (1, 2, 3…), talk and applause too, colour-coded. Deliver › Render ranges renders them – all, or one colour.` });
+      // Resolve can't make adjustment clips by script: there they're coloured range markers in a “Songs” group
+      const RES = US.app.is('resolve');
+      const optLayers = ui.toggle({ label: RES ? 'A coloured range marker for each part (songs numbered)' : 'Adjustment layers above the edit', value: US.settings.get('songs.layers', false), onChange: x => US.settings.set('songs.layers', x),
+        hint: RES ? 'Each song numbered (1, 2, 3…), talk and applause too, colour-coded, as range markers on the timeline. Deliver › Render ranges › Songs renders them – all, or one colour.'
+          : `On a new top track called “${LAYER_TRACK}”: each song numbered (1, 2, 3…), talk and applause too, colour-coded. Deliver › Render ranges renders them – all, or one colour.` });
       const addBtn = ui.actionButton('Add to Premiere', () => US.jobs.run({ title: 'Adding songs to Premiere', tool: 'songs' }, async job => { const r = await output(target, res, { markers: optMarkers.get(), otherMarkers: optOther.get(), subclips: optSub.get(), sequences: optSeq.get(), layers: target.kind !== 'item' && optLayers.get() }, job); render(); return r; }), { icon: 'songs' });
       const removeLayers = () => US.jobs.run({ title: 'Removing song layers', tool: 'songs' }, async () => { const r = await US.host.call('removeLabelLayers', { seqId: target.id, trackName: LAYER_TRACK }); if (US.deliver && US.deliver.layerColours) US.deliver.layerColours.put(target.id, LAYER_TRACK, []); render(); return { summary: `Removed ${US.plural(r.removed || 0, 'layer')}` }; });
 
@@ -191,7 +194,7 @@
           ui.card(h('div.card-title', 'Add to Premiere'), optMarkers, optOther, target.kind === 'item' && optSub, optSeq, target.kind !== 'item' && optLayers,
             target.kind !== 'item' && optLayers.get() && kit.legend([['Song', ui.LABELS[LAYER_LABEL.song].hex], ['Talk', ui.LABELS[LAYER_LABEL.talk].hex], ['Applause', ui.LABELS[LAYER_LABEL.applause].hex]]),
             addBtn,
-            target.kind !== 'item' && ui.button('Remove song layers', { kind: 'ghost', small: true, onClick: removeLayers }),
+            target.kind !== 'item' && ui.button(RES ? 'Remove song range markers' : 'Remove song layers', { kind: 'ghost', small: true, onClick: removeLayers }),
             kit.recallMarkers('songs:' + target.id) && ui.button('Remove my markers', { kind: 'ghost', small: true, onClick: () => US.jobs.run({ title: 'Removing song markers', tool: 'songs' }, async () => { const n = await kit.removeMarkers('songs:' + target.id); render(); return { summary: `Removed ${US.plural(n, 'marker')}` }; }) })),
           ui.card(h('div.card-title', 'Setlist'),
             h('pre.mono.songs-setlist', songs.map((s, i) => `${i + 1}. ${s.name}  ${kit.tc(s.start, fps)} – ${kit.tc(s.end, fps)}`).join('\n') || 'No songs yet.'),
