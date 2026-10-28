@@ -114,6 +114,7 @@ function engine(R) {
   const scratch = new Map();  // render job id → scratch timeline id (deleted when the job is over)
   const keep = new Set();     // job ids to leave in the Render Queue when done (removeWhenDone: false)
   const pending = new Set();  // job ids added but not started
+  const jobMarks = new Map(); // job id → {tlId, marks}: the timeline's own In/Out before the job (put back when it's over)
   const toWav = new Map();    // job id → the WAV it was asked for (Resolve renders PCM in a .mov; converted when done)
   const pr = () => R.project();
   const call = (o, fn, ...args) => { try { return o && typeof o[fn] === 'function' ? o[fn](...args) : undefined; } catch (e) { return undefined; } };
@@ -211,6 +212,11 @@ function engine(R) {
    * Queue one render of a timeline. range: {start, end} in timeline seconds (else the whole timeline).
    * → {id, file, ext, rate}. The file is TargetDir/CustomName.<the preset's extension>.
    */
+  /** Put a timeline's In/Out back as GetMarkInOut gave them ({} = none: cleared). */
+  function restoreMarks(tl, m) {
+    call(tl, 'ClearMarkInOut', 'all');
+    for (const type of ['video', 'audio']) { const v = m && m[type]; if (v && v.in != null && v.out != null) call(tl, 'SetMarkInOut', v.in, v.out, type); }
+  }
   function addJob(tl, out, preset, range) {
     const P = pr();
     R.open(tl);
@@ -223,12 +229,19 @@ function engine(R) {
       if (!(b >= a)) throw R.err('BAD_INPUT', `Empty range ${range.start}–${range.end}`, 'That range is empty.', 'Set the range around the part to render, then try again.');
       Object.assign(s, { SelectAllFrames: false, MarkIn: a, MarkOut: b });
     } else s.SelectAllFrames = true;
-    if (call(P, 'SetRenderSettings', s) === false) throw R.err('RENDER_FAILED', 'SetRenderSettings ' + JSON.stringify(s), 'Resolve didn’t take the render settings.', 'Check the export folder exists and can be written to, then try again.');
-    let id = call(P, 'AddRenderJob');
-    if (!id) { call(R.api, 'OpenPage', 'deliver'); id = call(P, 'AddRenderJob'); }   // some versions add jobs only from the Deliver page
+    // measured in Resolve 21: a render's MarkIn/MarkOut also moves the timeline's own In/Out (when it's queued and
+    // again when it renders) – put them back now and when the job is over (finish)
+    const marks = range ? call(tl, 'GetMarkInOut') || {} : null;
+    let id;
+    try {
+      if (call(P, 'SetRenderSettings', s) === false) throw R.err('RENDER_FAILED', 'SetRenderSettings ' + JSON.stringify(s), 'Resolve didn’t take the render settings.', 'Check the export folder exists and can be written to, then try again.');
+      id = call(P, 'AddRenderJob');
+      if (!id) { call(R.api, 'OpenPage', 'deliver'); id = call(P, 'AddRenderJob'); }   // some versions add jobs only from the Deliver page
+    } finally { if (marks) restoreMarks(tl, marks); }
     if (!id) throw R.err('RENDER_FAILED', 'AddRenderJob returned nothing for ' + out, 'Resolve didn’t add the render to its queue.', 'Open the Deliver page, check the render settings there, then try again.');
     id = String(id);
     pending.add(id);
+    if (marks) jobMarks.set(id, { tlId: R.id(tl), marks });
     if (info.wav) { toWav.set(id, path.join(dir, base + '.wav')); return { id, ext: 'wav', rate: info.rate, file: path.join(dir, base + '.wav') }; }
     return { id, ext: info.ext, rate: info.rate, file: path.join(dir, base + '.' + info.ext) };
   }
@@ -291,6 +304,8 @@ function engine(R) {
   }
   /** A job is over: delete its scratch timeline, and (finished, ours) take it off the Render Queue. */
   function finish(id, state) {
+    const jm = jobMarks.get(id);
+    if (jm) { jobMarks.delete(id); const t = R.timelineById(jm.tlId); if (t) restoreMarks(t, jm.marks); }
     const tid = scratch.get(id);
     if (tid) { scratch.delete(id); dropScratch(R.timelineById(tid)); }
     pending.delete(id);
