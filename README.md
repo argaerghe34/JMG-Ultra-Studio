@@ -9,10 +9,10 @@ can be on different versions – the table below always says where each one is.
 
 | | Premiere Pro (Mac + Windows) | DaVinci Resolve Studio (Mac + Windows) |
 |---|---|---|
-| **Latest release** | **1.3.4** | **1.3.3** (first Resolve release) |
-| **Tested** | Mac: full test suite in Premiere 26.5. Windows: 1.3.2 tested on the PC; 1.3.3/1.3.4 to check ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). | Mac: full test suite in Resolve Studio 21.1.2. Windows: not yet tested ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). |
-| **In this version** | Song Splitter adjustment layers (numbered, colour-coded); Deliver render ranges from any layer track, one colour only, editable in the panel, refreshing by themselves, with a file-name ending | Everything up to 1.3.3. |
-| **Next** | – | 1.3.4 – the same new Song Splitter and Deliver features (in progress) |
+| **Latest release** | **1.3.4** | **1.3.4** |
+| **Tested** | Mac: full test suite in Premiere 26.5 (30/30). Windows: 1.3.2 tested on the PC; 1.3.3/1.3.4 to check ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). | Mac: full test suite in Resolve Studio 21.1.2 (29/29). Windows: not yet tested ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). |
+| **In this version** | Song Splitter adjustment layers (numbered, colour-coded); Deliver render ranges from any layer track, one colour only, editable in the panel, refreshing by themselves, with a file-name ending | The same – with coloured range markers in place of adjustment layers |
+| **Next** | Your next notes | Your next notes |
 | **Paused in both** | Colour, Camera Switch | Colour, Camera Switch |
 
 **What's different in Resolve** (because of what Resolve lets add-ons do – full list in [`dev/RESOLVE.md`](dev/RESOLVE.md)):

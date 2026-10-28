@@ -6,7 +6,7 @@
 - **See and change your ranges in Ultra Studio:** each range is listed with its colour and times; go to it, rename it, change its start and end (or set it to your In and Out points), change its colour, or delete it.
 - **The list keeps itself up to date** while you add, trim or rename layers in the Timeline.
 - **A file-name ending** (such as *_1* or *_v2*) on every render and on the export pack.
-- *Premiere first:* these arrive in DaVinci Resolve in its next update.
+- **In DaVinci Resolve** the same arrives with coloured **range markers** instead of adjustment layers (Resolve can't make adjustment clips from a plugin): Song Splitter's songs are markers in a **Songs** group, and Deliver › Render ranges › **Ranges** chooses Renders or Songs. Their colours come straight from Resolve.
 
 ## What's new in 1.3.3
 
