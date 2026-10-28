@@ -116,29 +116,48 @@
         for (var c = 0; c < tr.clips.numItems; c++) { var pi = null; try { pi = tr.clips[c].projectItem; } catch (e) { } if (isRangeItem(pi)) out.push(tr.clips[c]); }
         return out;
     }
-    /** The track named "Renders" (any case), else -1. Only that track counts, so grading layers and Story's theme layers never export. */
-    function rangeTrack(seq) {
+    var trim = function (x) { return String(x).replace(/^\s+|\s+$/g, ''); };
+    /**
+     * The render-range track: the one named a.track (any case; "Renders" when not given), else -1. Only that track
+     * counts, so grading layers and Story's theme layers never export unless you choose their track.
+     */
+    function rangeTrack(seq, want) {
+        var w = trim(want || RANGE_TRACK).toLowerCase();
         for (var t = seq.videoTracks.numTracks - 1; t >= 0; t--) {
             var n = ''; try { n = String(seq.videoTracks[t].name); } catch (e) { }
-            if (n.replace(/^\s+|\s+$/g, '').toLowerCase() === RANGE_TRACK.toLowerCase()) return t;
+            if (trim(n).toLowerCase() === w) return t;
         }
         return -1;
     }
-    /** a: {seqId} -> {track, trackName, ranges:[{name, start, end, disabled, nodeId}]} */
+    /** A timeline clip's own colour label (0–15), or null when this Premiere can't say. */
+    function labelOf(ti) { try { if (typeof ti.getColorLabel === 'function') { var l = Number(ti.getColorLabel()); return isFinite(l) ? l : null; } } catch (e) { } return null; }
+    function rangeOf(ti) { return { name: ti.name, start: ti.start.seconds, end: ti.end.seconds, disabled: !!ti.disabled, nodeId: ti.nodeId, label: labelOf(ti) }; }
+    /** a: {seqId} -> {tracks:[{index, name, count}]} – every video track holding adjustment layers (or our range clips), top first */
+    fn.rangeTracks = function (a) {
+        var seq = U.needSeq(a.seqId), out = [];
+        for (var t = seq.videoTracks.numTracks - 1; t >= 0; t--) {
+            var n = rangeClips(seq.videoTracks[t]).length, name = '';
+            try { name = String(seq.videoTracks[t].name); } catch (e) { }
+            if (n) out.push({ index: t, name: name, count: n });
+        }
+        return { tracks: out };
+    };
+    /** a: {seqId, track?} -> {track, trackName, ranges:[{name, start, end, disabled, nodeId, label}], colours} */
     fn.renderRanges = function (a) {
-        var seq = U.needSeq(a.seqId), t = rangeTrack(seq), out = [], name = '';
-        if (t < 0) return { track: -1, trackName: '', ranges: out };
+        var seq = U.needSeq(a.seqId), t = rangeTrack(seq, a.track), out = [], name = '', colours = true;
+        if (t < 0) return { track: -1, trackName: '', ranges: out, colours: colours };
         var list = rangeClips(seq.videoTracks[t]);
-        for (var i = 0; i < list.length; i++) out.push({ name: list[i].name, start: list[i].start.seconds, end: list[i].end.seconds, disabled: !!list[i].disabled, nodeId: list[i].nodeId });
+        for (var i = 0; i < list.length; i++) { var r = rangeOf(list[i]); if (r.label == null) colours = false; out.push(r); }
         try { name = seq.videoTracks[t].name; } catch (e) { }
-        return { track: t, trackName: name, ranges: out };
+        return { track: t, trackName: name, ranges: out, colours: colours };
     };
     /**
-     * Put a render range on the "Renders" track (made on top the first time), using the project's adjustment layer
-     * (or an invisible label clip when there is none). a: {seqId, name, start, end, binPath} -> {track, kind, placed, renamed, log}
+     * Put a render range on the chosen track (a.track, default "Renders"; made on top the first time), using the
+     * project's adjustment layer (or an invisible label clip when there is none).
+     * a: {seqId, name, start, end, track?, label?, binPath} -> {track, kind, placed, renamed, named, log}
      */
     fn.addRenderRange = function (a) {
-        var seq = U.needSeq(a.seqId), P = U.labelParts, log = [], kind = 'adjustment';
+        var seq = U.needSeq(a.seqId), P = U.labelParts, log = [], kind = 'adjustment', want = trim(a.track || RANGE_TRACK);
         if (!(a.end > a.start)) throw U.err('BAD_INPUT', 'Empty range ' + a.start + '–' + a.end, 'That range is empty.', 'Set In and Out points around the part to render, or move the playhead into the edit.');
         var src = P.findAdjustmentLayer() || P.findByName(RANGE_ITEM);
         if (src && !P.isAdj(src)) kind = 'transparent';
@@ -151,16 +170,58 @@
             }
         }
         if (!src) throw U.err('HOST_SCRIPT', 'No way to make a range clip. ' + log.join('; '), 'Couldn’t add the render range.', 'Add an adjustment layer to the project (File › New › Adjustment Layer), then try again.');
-        var t = rangeTrack(seq), named = true;
+        var t = rangeTrack(seq, want), named = true;
         if (t < 0) {
             t = seq.videoTracks.numTracks;
             P.ensureVideoTracks(seq, t + 1);
             if (seq.videoTracks.numTracks <= t) throw U.err('HOST_SCRIPT', 'Could not add a video track');
-            try { U.openAndQE(seq).getVideoTrackAt(t).setName(RANGE_TRACK); } catch (e) { log.push('track name: ' + e); }
-            named = rangeTrack(seq) === t;
+            try { U.openAndQE(seq).getVideoTrackAt(t).setName(want); } catch (e) { log.push('track name: ' + e); }
+            named = rangeTrack(seq, want) === t;
         }
-        var r = P.placeSections(seq.videoTracks[t], src, [{ name: a.name, start: a.start, end: a.end }], log);
+        var r = P.placeSections(seq.videoTracks[t], src, [{ name: a.name, start: a.start, end: a.end, label: a.label }], log);
         return { track: t, named: named, kind: kind, placed: r.placed, renamed: r.renamed, log: log };
+    };
+    function needRange(seq, a) {
+        var t = rangeTrack(seq, a.track);
+        if (t >= 0) { var list = rangeClips(seq.videoTracks[t]); for (var i = 0; i < list.length; i++) if (list[i].nodeId === a.nodeId) return { t: t, ti: list[i] }; }
+        throw U.err('NOT_FOUND', 'Render range ' + a.nodeId + ' on ' + (a.track || RANGE_TRACK), 'That render range isn’t on the timeline any more.', 'Press Refresh in Deliver › Render ranges.');
+    }
+    /**
+     * Change a render range: its name, colour, start and/or end (seconds). A new start or end lays the layer again
+     * (an adjustment layer can't be stretched before its own start), keeping its name and colour.
+     * a: {seqId, track, nodeId, name?, label?, start?, end?} -> {range, log}
+     */
+    fn.editRenderRange = function (a) {
+        var seq = U.needSeq(a.seqId), f = needRange(seq, a), ti = f.ti, log = [], old = rangeOf(ti);
+        var name = a.name != null && trim(a.name) ? trim(a.name) : old.name;
+        var start = a.start != null ? Number(a.start) : old.start, end = a.end != null ? Number(a.end) : old.end;
+        if (!(end > start) || start < 0) throw U.err('BAD_INPUT', 'Range ' + start + '–' + end, 'That range is empty.', 'Make the end later than the start.');
+        var moved = Math.abs(start - old.start) > 0.001 || Math.abs(end - old.end) > 0.001;
+        var recolour = a.label != null && a.label !== old.label;
+        if (recolour && !moved) {
+            var took = false;
+            try { if (typeof ti.setColorLabel === 'function') { ti.setColorLabel(a.label); took = labelOf(ti) === a.label; } } catch (e) { log.push('colour: ' + e); }
+            if (!took) moved = true;   // no clip colours by script here: lay it again in the new colour
+        }
+        if (!moved) {
+            if (name !== old.name) { try { ti.name = name; } catch (e) { log.push('rename: ' + e); } }
+            return { range: rangeOf(ti), log: log };
+        }
+        var src = null; try { src = ti.projectItem; } catch (e) { }
+        if (!src) throw U.err('HOST_SCRIPT', 'No project item behind range ' + old.name, 'Couldn’t change that render range.', 'Delete it and add it again.');
+        var label = a.label != null ? a.label : old.label, track = seq.videoTracks[f.t];
+        ti.remove(false, false);
+        var r = U.labelParts.placeSections(track, src, [{ name: name, start: start, end: end, label: label }], log);
+        if (!r.placed) throw U.err('HOST_SCRIPT', 'Range not placed again: ' + log.join('; '), 'Couldn’t move that render range.', 'Check the track isn’t locked, then add it again.');
+        var list = rangeClips(track), got = null;
+        for (var i = 0; i < list.length; i++) if (Math.abs(list[i].start.seconds - start) < 0.02) got = list[i];
+        return { range: got ? rangeOf(got) : { name: name, start: start, end: end, label: label }, log: log };
+    };
+    /** a: {seqId, track, nodeId} -> {removed: 1} */
+    fn.removeRenderRange = function (a) {
+        var seq = U.needSeq(a.seqId), f = needRange(seq, a);
+        f.ti.remove(false, false);
+        return { removed: 1 };
     };
 
     // Premiere takes a sequence In/Out in seconds in some versions and ticks in others: check it took.
