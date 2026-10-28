@@ -25,6 +25,9 @@ first. Work through the phases in order and keep the user posted in plain words.
 2. GitHub login: `gh auth status`. If not logged in, run `gh auth login --web` (the user approves a one-time code in
    the browser), then `gh auth setup-git`.
 3. Get the latest: `git pull`. The repository is https://github.com/argaerghe34/JMG-Ultra-Studio (private).
+   Clone it into a **short** folder (e.g. `%TEMP%\jmgu` or `C:\src\JMG-Ultra-Studio`): a Claude session folder is
+   ~190 characters deep, which pushes some files past Windows' 260-character limit and the clone silently comes out
+   with hundreds of files missing (`git status` shows them as deleted). Or first: `git config --global core.longpaths true`.
 4. `cd dev && npm install && cd ..` (development tools only).
 
 ## Phase A – without Premiere
