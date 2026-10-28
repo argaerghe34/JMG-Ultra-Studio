@@ -522,4 +522,5 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   the colours it gave (by times, else unique name). Resolve: groups of range markers (`us-lyr-Songs~…`), colours read
   from the markers. Also: adjustment layers and generated items aren't footage any more. Premiere e2e 30/30, Resolve
   29/29 → **v1.3.4** for both (Premiere 22:32, Resolve 22:40). Test project now has a real adjustment layer (made via
-  File › New while the Mac was unlocked). The Resolve dev link stays installed on the Mac (points at this folder).
+  File › New while the Mac was unlocked). Resolve on the Mac now has the real 1.3.4 install (dev link removed at
+  Jacob's request) – for Resolve e2e again: quit Resolve, `dev/resolve/link-dev.sh`, reopen it and the panel.
