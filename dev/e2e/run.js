@@ -45,8 +45,8 @@ const T = {
   async devEval(code) { const r = await require('electron').ipcRenderer.invoke('ultra-studio:run', 'devEval', { code }); if (!r.ok) throw new Error(r.error.detail); return r.data; },
   // a sequence's In and Out points (seconds), in either editor
   async setInOut(seqId, a, b) {
-    if (US.app.is('resolve')) return T.devEval(`const t = R.needSeq(${JSON.stringify(seqId)}), f = R.fps(t); return t.SetMarkInOut(Math.round(${a} * f), Math.round(${b} * f) - 1);`);
-    return US.host.rawEval(`(function(){ var ss=app.project.sequences; for (var i=0;i<ss.numSequences;i++) if (ss[i].sequenceID==${JSON.stringify(seqId)}) { ss[i].setInPoint(${a}); ss[i].setOutPoint(${b}); return 'ok'; } })()`);
+    if (US.app.is('resolve')) return T.devEval('const t = R.needSeq(' + JSON.stringify(seqId) + '), f = R.fps(t); return t.SetMarkInOut(Math.round(' + Number(a) + ' * f), Math.round(' + Number(b) + ' * f) - 1);');
+    return US.host.rawEval('(function(){ var ss=app.project.sequences; for (var i=0;i<ss.numSequences;i++) if (ss[i].sequenceID==' + JSON.stringify(seqId) + ') { ss[i].setInPoint(' + Number(a) + '); ss[i].setOutPoint(' + Number(b) + '); return "ok"; } })()');
   },
   async captionTracks() {
     if (US.app.is('resolve')) { const r = await require('electron').ipcRenderer.invoke('ultra-studio:run', 'devEval', { code: "return R.timelines().reduce((n, t) => n + (t.GetTrackCount('subtitle') || 0), 0)" }); if (!r.ok) throw new Error(r.error.detail); return r.data; }
