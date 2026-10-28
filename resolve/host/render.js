@@ -224,8 +224,9 @@ function engine(R) {
   function addJob(tl, out, preset, range) {
     const P = pr();
     R.open(tl);
+    // single clip – before the preset: choosing the mode puts the output size back to the timeline's (Resolve 21.1.2)
+    call(P, 'SetCurrentRenderMode', 1);
     const info = applyPreset(preset, tl);
-    call(P, 'SetCurrentRenderMode', 1);   // single clip
     if (!out) throw R.err('BAD_INPUT', 'No file to render to', 'There’s no export file name.', 'Choose where to save the render, then try again.');
     const dir = path.dirname(String(out)), base = path.basename(String(out)).replace(/\.[^.]+$/, '');
     const s = { TargetDir: dir, CustomName: base };

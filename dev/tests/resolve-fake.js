@@ -266,7 +266,8 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
       renderFormat = { format, codec }; return true;
     },
     GetCurrentRenderMode: () => renderMode,
-    SetCurrentRenderMode: m => { renderMode = m; return true; },
+    // like Resolve 21.1.2: choosing the render mode puts the output size back to the timeline's
+    SetCurrentRenderMode: m => { renderMode = m; delete renderSettings.FormatWidth; delete renderSettings.FormatHeight; return true; },
     GetRenderPresetList: () => ['H.264 Master', 'YouTube - 1080p', 'Vimeo - 1080p', 'ProRes 422 HQ', 'Audio Only'],
     LoadRenderPreset: n => project.GetRenderPresetList().includes(n),
     SetRenderSettings: s => { renderSettings = Object.assign({}, renderSettings, s); return true; },

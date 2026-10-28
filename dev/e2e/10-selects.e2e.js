@@ -72,9 +72,11 @@ const heroBin = (await US.host.call('listBins')).find(b => b.path === `${run} / 
 const heroClips = await US.host.call('binItems', { binId: heroBin.id, kinds: [], recursive: false });
 // Resolve has fewer clip colours: magenta (label 11) is its Pink, which reads back as label 6 (resolve/host/base.js LABEL_COLORS)
 T.assert(heroClips.length === heroes && heroClips.every(c => (US.app.is('resolve') ? c.labelName === 'Pink' : c.label === 11) && /^\d{3}_★_/.test(c.name)), 'hero subclips are magenta, ★ and numbered best-first: ' + heroClips.map(c => c.name + '/' + c.label).join(', '));
-const closeBin = (await US.host.call('listBins')).find(b => b.path === `${run} / By shot size / Close-ups`);
-const closeClips = await US.host.call('binItems', { binId: closeBin.id, kinds: [], recursive: false });
-T.assert(closeClips.length >= 1 && closeClips.every(c => c.label === 6 || c.label === 11), 'close-ups are rose (or magenta if best)');
+if (!US.app.is('resolve')) {   // close-ups come from faces, which Resolve's panel can't find
+  const closeBin = (await US.host.call('listBins')).find(b => b.path === `${run} / By shot size / Close-ups`);
+  const closeClips = await US.host.call('binItems', { binId: closeBin.id, kinds: [], recursive: false });
+  T.assert(closeClips.length >= 1 && closeClips.every(c => c.label === 6 || c.label === 11), 'close-ups are rose (or magenta if best)');
+}
 const seqAfter = await US.host.call('sequenceInfo', { seqId: seq.id });
 T.assert(seqAfter.markers.length === n, `markers on the graded sequence (${seqAfter.markers.length})`);
 await S.removeMarkers(US.jobs.testJob('remove'));
@@ -88,9 +90,11 @@ info.B = { uses: plan.uses, selects: n, heroes, categories: out.categories.lengt
 const hardFiles = ['C006_whip_pan_prores.mov', 'C006_whip_pan_hevc.mov'].map(f => T.media('unreadable', f)).filter(f => T.fs.existsSync(f));
 T.assert(hardFiles.length, 'no clips in dev/test-media/unreadable');
 const hard = await T.importOnce(hardFiles, BIN);
-const hardInfo = await US.host.call('itemsInfo', { ids: hard.map(i => i.id) });
+let hardInfo = await US.host.call('itemsInfo', { ids: hard.map(i => i.id) });
 for (const it of hardInfo) { try { T.fs.unlinkSync(V.analysisCopyPath(it)); } catch (e) { /* none yet */ } }
 uncache(hardInfo);
+// Resolve's panel (Chromium 136) plays HEVC itself; only what it can't decode (ProRes) needs a copy there
+if (US.app.is('resolve')) { const keep = []; for (const it of hardInfo) if (!(await V.pickSource(it)).ok) keep.push(it); hardInfo = keep; T.assert(hardInfo.length >= 1, 'at least the ProRes clip needs a copy in Resolve'); }
 for (const it of hardInfo) { const d = await V.pickSource(it); T.assert(!d.ok && d.needsCopy, `${it.name} shouldn’t decode in the panel: ${JSON.stringify(d)}`); }
 reset('concert');
 t0 = performance.now();
