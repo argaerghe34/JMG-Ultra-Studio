@@ -72,6 +72,7 @@ T.assert(/E2E Encore/.test(listed), 'the new layer appeared in the list by itsel
 T.assert(/1 Opening/.test(listed), 'the renamed one is listed');
 
 await US.host.call('removeLabelLayers', { seqId: sq.id, trackName: 'Songs' });
+for (const x of (await US.host.call('renderRanges', { seqId: sq.id, track: 'Songs' })).ranges) await US.host.call('removeRenderRange', { seqId: sq.id, track: 'Songs', nodeId: x.nodeId });   // E2E Encore (a render range, not a song layer)
 D.layerColours.put(sq.id, 'Songs', []);
 for (const f of r.files) { try { fs.unlinkSync(f); } catch (e) { /* gone */ } }
 return { layers: want.map(w => w.name).join(' '), files: names, kind: o.summary };
