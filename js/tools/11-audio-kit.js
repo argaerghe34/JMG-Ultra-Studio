@@ -114,7 +114,8 @@
   /* ---------- files ---------- */
   kit.safeName = s => String(s || 'untitled').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80);
   kit.saveText = function (name, text) {
-    const p = path.join(US.fsx.exportsDir(), kit.safeName(name));
+    // shorten the name, not the extension (a cut-off ".csv" would land on the ".txt")
+    const ext = path.extname(name), p = path.join(US.fsx.exportsDir(), kit.safeName(name.slice(0, name.length - ext.length)) + ext);
     fs.writeFileSync(p, text);
     return p;
   };

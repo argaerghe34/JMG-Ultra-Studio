@@ -28,17 +28,21 @@
         return pad2(Math.floor(s / 3600)) + sep + pad2(Math.floor((s % 3600) / 60)) + sep + pad2(s % 60) + sep + pad2(ff);
     }
 
+    // Windows paths match in any letter case and with either slash (a .prproj and getMediaPath can spell them differently)
+    var WIN = $.os.indexOf('Windows') >= 0;
+    function pathKey(p) { return WIN ? String(p).replace(/\//g, '\\').toLowerCase() : String(p); }
+
     /** Every clip with media (no sequences). Subclips are flagged when they share a path with their master. a.paths optional filter. */
     fn.storyClips = function (a) {
         var byPath = {}, out = [], want = null, i;
-        if (a && a.paths && a.paths.length) { want = {}; for (i = 0; i < a.paths.length; i++) want[a.paths[i]] = true; }
+        if (a && a.paths && a.paths.length) { want = {}; for (i = 0; i < a.paths.length; i++) want[pathKey(a.paths[i])] = true; }
         U.walk(U.project().rootItem, function (c) {
             if (c.type !== 1) return;
             var isSeq = false; try { isSeq = c.isSequence(); } catch (e) { }
             if (isSeq) return;
             var p = ''; try { p = c.getMediaPath() || ''; } catch (e) { }
             if (!p) return;
-            if (want && !want[p]) return;
+            if (want && !want[pathKey(p)]) return;
             var o = { id: c.nodeId, name: c.name, path: p, bin: U.binPath(c), sub: false };
             out.push(o);
             (byPath[p] = byPath[p] || []).push({ o: o, item: c });
@@ -305,4 +309,7 @@
         if (!seq.createCaptionTrack(U.needItem(id), 0, Sequence.CAPTION_FORMAT_SUBTITLE)) throw U.err('HOST_SCRIPT', 'createCaptionTrack returned false', 'Premiere didn’t add the captions.', 'Check the sequence isn’t locked, then try again.');
         return { itemId: id };
     };
+
+    // shared with Deliver's render ranges (finish.jsx)
+    U.labelParts = { isAdj: isAdj, findAdjustmentLayer: findAdjustmentLayer, findByName: findByName, makeLabelClip: makeLabelClip, placeSections: placeSections, ensureVideoTracks: ensureVideoTracks, trackByName: trackByName };
 })();

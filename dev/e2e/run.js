@@ -15,6 +15,24 @@ const T = {
   assert(c, msg) { if (!c) throw new Error('Assertion failed: ' + msg); },
   near(a, b, tol, msg) { if (!(Math.abs(a - b) <= tol)) throw new Error((msg || 'value') + ': expected ' + b + ' ± ' + tol + ', got ' + a); },
   sleep: ms => new Promise(r => setTimeout(r, ms)),
+  // file:// URL for a path on this computer (C:\\… on Windows, /… on the Mac)
+  fileUrl: p => require('url').pathToFileURL(p).href,
+  // the text of a .docx (paragraphs on their own lines) – works on Windows too, where there is no textutil
+  docxText(file) {
+    const b = require('fs').readFileSync(file), zlib = require('zlib');
+    let e = b.length - 22; while (e > 0 && b.readUInt32LE(e) !== 0x06054b50) e--;
+    for (let o = b.readUInt32LE(e + 16), n = b.readUInt16LE(e + 10); n-- > 0;) {
+      const len = b.readUInt16LE(o + 28), name = b.toString('utf8', o + 46, o + 46 + len), at = b.readUInt32LE(o + 42);
+      if (name === 'word/document.xml') {
+        const data = b.subarray(at + 30 + b.readUInt16LE(at + 26) + b.readUInt16LE(at + 28), at + 30 + b.readUInt16LE(at + 26) + b.readUInt16LE(at + 28) + b.readUInt32LE(o + 20));
+        const xml = (b.readUInt16LE(o + 10) === 8 ? zlib.inflateRawSync(data) : data).toString('utf8');
+        return xml.replace(/<\\/w:p>/g, '\\n').replace(/<w:tab\\/>/g, '\\t').replace(/<w:br\\/>/g, '\\n').replace(/<[^>]+>/g, '')
+          .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+      }
+      o += 46 + len + b.readUInt16LE(o + 30) + b.readUInt16LE(o + 32);
+    }
+    throw new Error('No word/document.xml in ' + file);
+  },
   async seqByName(name) { return (await US.host.call('listSequences')).find(s => s.name === name); },
   async importOnce(paths, binPath) {
     // reuse clips already imported into this bin

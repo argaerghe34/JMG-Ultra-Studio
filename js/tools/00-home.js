@@ -4,6 +4,7 @@
   const US = window.US, h = US.h, ui = US.ui;
 
   const WHATS_NEW = [
+    'New in 1.3.2 – Render ranges (Deliver): put adjustment layers on a “Renders” track above your edit and name each one. Every range goes to Media Encoder, one after another, with the export preset you choose, and each file is named after its layer. Plus fixes from the first full test on Windows.',
     'New in 1.3.1 – Story travels with the project: it’s also saved in a “JMG Ultra Studio” folder next to the project, so the same project opened on your Mac or your PC (from the same drive, or a copy of the folder) opens Story where you left it.',
     'New in 1.3 – Selects names every camera move (pan left/right, tilt, push-in, pull-out, reveals) and how smooth it is, and smooth moves count. Colour previews appear by themselves as you move the playhead, with a before/after viewer. Moments are colour-coded and labelled by type in the timeline. ▶ in Story plays from the exact line.',
     'Story is the heart of Ultra Studio, now step by step: 1 Interviews · 2 Themes · 3 Find · 4 Build · 5 Share, each with a Next button. Choose what to work on once – all interviews, some of them, or just the lines in a sequence such as your selects (between its In and Out if you like).',

@@ -104,13 +104,17 @@
   }
   const ratioLabel = v => (RATIOS.find(r => Math.abs(r.value - v) < 0.005) || { label: (+v).toFixed(2) + ':1' }).label;
   /** Bars are part of the film ("Ultra Letterbox"); the grey version is a guide ("Ultra Guide …"), hidden for export. */
-  function letterboxName(W, H, o) { return `${o.mode === 'bars' ? 'Ultra Letterbox' : 'Ultra Guide letterbox'} ${ratioLabel(o.ratio).replace(':', 'x')} ${W}x${H}`; }
+  // the name says everything the picture shows (shade included), so a changed guide never overwrites one Premiere has imported
+  const shadeTag = d => ` shade${Math.round((d == null ? 0.6 : d) * 100)}`;
+  function letterboxName(W, H, o) { return `${o.mode === 'bars' ? 'Ultra Letterbox' : 'Ultra Guide letterbox'} ${ratioLabel(o.ratio).replace(':', 'x')}${o.mode === 'bars' ? '' : shadeTag(o.dim)} ${W}x${H}`; }
 
   function guideName(W, H, o) {
     const parts = [o.crops.map(k => CROPS[k].label.replace(':', 'x')).join('+') || 'frame', o.apps.length ? o.apps.map(k => APPS[k].name.split(' ').pop()).join('+') : '', o.titleSafe ? 'title-safe' : ''].filter(Boolean);
-    return `Ultra Guide ${parts.join(' ')}${o.style === 'simple' ? ' plain' : ''} ${W}x${H}`;
+    return `Ultra Guide ${parts.join(' ')}${o.style === 'simple' ? ' plain' : ''}${shadeTag(o.dim)} ${W}x${H}`;
   }
   async function writePNG(canvas, file) {
+    // same name = same picture; on Windows Premiere holds imported stills open, so don't rewrite one
+    if (fs.existsSync(file)) return file;
     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
     const buf = Buffer.from(await blob.arrayBuffer());
     US.fsx.ensureDir(path.dirname(file));
@@ -308,5 +312,5 @@
     }
   });
 
-  US.safezones = { render, renderLetterbox, letterboxRect, APPS, CROPS, RATIOS };
+  US.safezones = { render, renderLetterbox, letterboxRect, guideName, letterboxName, APPS, CROPS, RATIOS };
 })();

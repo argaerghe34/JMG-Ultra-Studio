@@ -8,6 +8,7 @@ function load(extra = []) {
     // keep tests away from the real settings/cache folder
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'us-test-'));
     process.env.HOME = home;
+    process.env.APPDATA = process.env.LOCALAPPDATA = home; // Windows keeps them under AppData, not HOME
     global.window = global;
     global.require = require;
     global.performance = global.performance || require('perf_hooks').performance;

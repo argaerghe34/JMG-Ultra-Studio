@@ -21,7 +21,17 @@
       let done = false;
       const fail = why => { if (done) return; done = true; clearTimeout(t); closeVideo(v); reject(new Error(why)); };
       const t = setTimeout(() => fail('timed out loading'), timeoutMs);
-      v.onloadeddata = () => { if (done) return; if (!v.videoWidth) return fail('no picture'); done = true; clearTimeout(t); resolve(v); };
+      // the panel's browser sometimes holds back loading for paused videos (seen on Windows after a busy spell, for
+      // every file): it stops after the file's index and the first frame never comes, and seeking doesn't help.
+      // A muted play() always loads it; paused again as soon as the frame is there.
+      let kicked = false;
+      v.onloadedmetadata = () => {
+        if (done || v.readyState >= 2) return;
+        kicked = true;
+        const p = v.play();
+        if (p && p.then) p.then(() => { if (done) v.pause(); }, () => { /* loadeddata or the timeout decides */ });
+      };
+      v.onloadeddata = () => { if (kicked) v.pause(); if (done) return; if (!v.videoWidth) return fail('no picture'); done = true; clearTimeout(t); resolve(v); };
       v.onerror = () => fail('decoder error ' + (v.error ? v.error.code : '?'));
       v.src = fileUrl(file);
     });
@@ -44,6 +54,7 @@
   }
 
   const decodable = new Map();   // file -> probe result, for this session
+  let playbackShort = 0;         // clips whose fast playback dropped too many frames, this session
   async function tryDecode(file) {
     if (decodable.has(file)) return decodable.get(file);
     let r;
@@ -55,7 +66,8 @@
       r = { ok: true, width: v.videoWidth, height: v.videoHeight, duration: v.duration };
       closeVideo(v);
     } catch (e) { r = { ok: false, reason: e.message }; }
-    decodable.set(file, r);
+    // a timeout can just mean the panel was busy: only remember answers that will be the same next time
+    if (r.ok || !/timed out/.test(r.reason)) decodable.set(file, r);
     return r;
   }
 
@@ -113,7 +125,7 @@
     for (let i = 0; i < items.length; i++) {
       const t = done[i] || {}, it = items[i];
       // Media Encoder may report a slightly different file name; keep the copy where pickSource looks for it
-      if (t.ok && t.out && t.out !== want[i] && fs.existsSync(t.out)) { try { fs.renameSync(t.out, want[i]); } catch (e) { /* leave it */ } }
+      if (t.ok && t.out && t.out !== want[i] && fs.existsSync(t.out)) { try { US.fsx.renameRetry(t.out, want[i]); } catch (e) { /* leave it */ } }
       if (t.ok && fs.existsSync(want[i])) {
         decodable.delete(want[i]);
         made.push(it);
@@ -335,7 +347,7 @@
 
         const step = 1 / r;
         let mode = 'playback';
-        let canPlay = typeof v.requestVideoFrameCallback === 'function' && !US.settings.get('visionSeekOnly', false);
+        let canPlay = typeof v.requestVideoFrameCallback === 'function' && !US.settings.get('visionSeekOnly', false) && playbackShort < 2;
         if (canPlay) {
           // seeking samples exact, evenly spaced frames (playback drops some and lands on different ones each run);
           // use it whenever this file seeks about as fast as playback would deliver a sample (≈ 45 ms at 8×)
@@ -372,6 +384,16 @@
             }).catch(() => finish());
           });
           v.onended = null;
+          // playback that delivered far fewer frames than asked for (seen on Windows when the panel is busy: about
+          // 17 of 30) can step over a short whip pan or bump: read the whole clip by seeking instead
+          const want = (Math.min(reached, a1) - a0) / step;
+          if (want > 4 && samples.length < want * 0.8) {
+            playbackShort++;   // twice in a session: this computer's playback drops frames, so seek from now on
+            US.log('info', `Picture analysis: playback gave ${samples.length} of ~${Math.round(want)} frames, reading by seeking`, US.basename(src.file), 'vision');
+            samples.length = 0; history.length = 0; prev = null; lastFaceT = -Infinity;
+            thumbSum.fill(0); rgb[0] = rgb[1] = rgb[2] = 0;
+            reached = -Infinity;
+          }
         }
         if (job) job.check();
         if (reached < a1 - step - 0.1) {

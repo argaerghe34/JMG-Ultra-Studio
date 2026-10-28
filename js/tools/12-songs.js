@@ -37,7 +37,7 @@
   function setlistCSV(target, res) {
     const fps = target.fps || 25, q = s => `"${String(s).replace(/"/g, '""')}"`;
     return ['number,name,type,start_tc,end_tc,start_seconds,end_seconds,duration_seconds']
-      .concat(res.segments.map((s, i) => [i + 1, q(s.name), s.type, kit.tc(s.start, fps), kit.tc(s.end, fps), s.start.toFixed(2), s.end.toFixed(2), (s.end - s.start).toFixed(2)].join(','))).join('\n');
+      .concat(res.segments.map((s, i) => [i + 1, q(s.name), s.type, kit.tc(s.start, fps), kit.tc(s.end, fps), s.start.toFixed(2), s.end.toFixed(2), (s.end - s.start).toFixed(2)].join(','))).join('\r\n');
   }
 
   /** Send the result to Premiere: markers / subclips / sequences, as chosen. */
@@ -170,7 +170,7 @@
               ui.button('Save as text and spreadsheet', { small: true, icon: 'folder', onClick: () => {
                 try {
                   const base = `Setlist – ${US.stem(target.name)}`;
-                  const p = kit.saveText(base + '.txt', setTxt()); kit.saveText(base + '.csv', setlistCSV(target, res));
+                  const p = kit.saveText(base + '.txt', setTxt()); kit.saveText(base + '.csv', '﻿' + setlistCSV(target, res) + '\r\n'); // BOM + CRLF so Excel on Windows reads accents
                   ui.toast({ type: 'ok', title: 'Setlist saved', text: `In Documents › JMG Ultra Studio (${US.basename(p)} and .csv).`, action: { label: 'Open', fn: () => kit.open(p) } });
                 } catch (e) { ui.showError(new US.UserError('DISK', { detail: e.message })); }
               } }))));

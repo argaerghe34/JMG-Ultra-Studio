@@ -12,7 +12,8 @@ US.ai.available = () => true;
 try {
   const [ruth] = await T.importOnce([T.media('interview', 'I001_interview.mp4')], BIN);
   await S.importFiles(US.jobs.testJob('story'), [T.media('transcripts', 'I001_interview.srt')]);
-  const t = st.transcripts.find(x => x.itemId === ruth.id);
+  // the test project has I001 in several bins (Audio, Story, E2E): its transcript may belong to any of those copies
+  const t = st.transcripts.find(x => x.itemId === ruth.id) || st.transcripts.find(x => x.path && US.pathKey(x.path) === US.pathKey(ruth.path));
   T.assert(t && t.lines.length, 'I001 transcript linked to the clip');
   const n = st.transcripts.filter(x => x.lines.length).length;
   for (const x of st.transcripts) delete x.summary;
@@ -22,7 +23,7 @@ try {
   const r = await T.action('story.interviewLog', { summaries: true, full: true, format: 'docx' });
   T.assert(fs.existsSync(r.file) && /interview log/.test(r.file), 'Word file saved: ' + r.summary);
   T.assert(asked === n && new RegExp(`${n} summaries`).test(r.summary), `one summary per interview (${asked} of ${n}): ${r.summary}`);
-  const txt = cp.execFileSync('textutil', ['-convert', 'txt', '-stdout', r.file]).toString();
+  const txt = T.docxText(r.file);
   T.assert(txt.includes(t.name) && txt.includes('Stand-in summary: ' + t.name), 'the interview and its summary');
   T.assert(txt.includes(tcOf(t.lines[0].start)) && txt.includes('Transcript'), `full transcript with source timecodes (${tcOf(t.lines[0].start)})`);
   T.assert(t.summary && t.summary.sig === S.summarySig(t), 'summary kept with the transcript');

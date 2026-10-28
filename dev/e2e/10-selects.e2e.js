@@ -80,7 +80,10 @@ info.B = { uses: plan.uses, selects: n, heroes, categories: out.categories.lengt
 
 /* ---------- C: clips the panel can't decode → Media Encoder analysis copies ---------- */
 // ProRes and HEVC versions of the whip-pan clip: the ground truth must still hold when read through the copies.
-const hard = await T.importOnce([T.media('unreadable', 'C006_whip_pan_prores.mov'), T.media('unreadable', 'C006_whip_pan_hevc.mov')], BIN);
+// the ProRes one isn't in every checkout (the Windows clone had only the HEVC one): use what's there
+const hardFiles = ['C006_whip_pan_prores.mov', 'C006_whip_pan_hevc.mov'].map(f => T.media('unreadable', f)).filter(f => T.fs.existsSync(f));
+T.assert(hardFiles.length, 'no clips in dev/test-media/unreadable');
+const hard = await T.importOnce(hardFiles, BIN);
 const hardInfo = await US.host.call('itemsInfo', { ids: hard.map(i => i.id) });
 for (const it of hardInfo) { try { T.fs.unlinkSync(V.analysisCopyPath(it)); } catch (e) { /* none yet */ } }
 uncache(hardInfo);
@@ -98,7 +101,7 @@ for (const it of hardInfo) {
 }
 const inProject = (await US.host.call('binItems', { binId: (await US.host.call('listBins')).find(b => b.path === BIN).id, kinds: [], recursive: true })).filter(x => x.path && x.path.indexOf(US.fsx.cacheDir()) === 0);
 T.assert(inProject.length === 0, 'analysis copies are not added to the project');
-info.C = { clips: 'ProRes 422 + HEVC', total: +csecs.toFixed(1) + ' s incl. Media Encoder', copyMB: hardInfo.map(it => +(T.fs.statSync(V.analysisCopyPath(it)).size / 1048576).toFixed(1)) };
+info.C = { clips: hardFiles.map(f => /prores/i.test(f) ? 'ProRes 422' : 'HEVC').join(' + '), total: +csecs.toFixed(1) + ' s incl. Media Encoder', copyMB: hardInfo.map(it => +(T.fs.statSync(V.analysisCopyPath(it)).size / 1048576).toFixed(1)) };
 
 /* ---------- D: the real Lumix 4K 10-bit 4:2:2 .MOV (copied off the card) ---------- */
 const lumix = T.media('real', 'P1003525.MOV');

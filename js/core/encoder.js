@@ -26,8 +26,9 @@
 
   /**
    * Render through Media Encoder.
-   * tasks: [{seqId | itemId, out, preset, name, overwrite?}]  (overwrite: replace an existing file, e.g. a cache copy)
-   * opts: {label: 'Exporting', from: 0, to: 1, quietMinutes: 20}
+   * tasks: [{seqId | itemId, out, preset, name, overwrite?, range?: {start, end}}]  (overwrite: replace an existing file, e.g. a cache copy;
+   *        range: only that part of the sequence)
+   * opts: {label: 'Exporting', from: 0, to: 1, quietMinutes: 20, queueOnly: false}
    * Returns the tasks with {ok, out, error}. Throws CANCELLED if Stop is pressed (renders already queued carry on).
    */
   async function run(tasks, job, opts = {}) {
@@ -60,12 +61,18 @@
         if (!t.overwrite) t.out = unique(t.out);
         else { try { require('fs').unlinkSync(t.out); } catch (e) { /* not there */ } }
         US.fsx.ensureDir(path.dirname(t.out));
-        const id = t.seqId
-          ? await US.host.call('queueExport', { seqId: t.seqId, out: t.out, preset: t.preset, workArea: 0 })
-          : await US.host.call('queueItemExport', { id: t.itemId, out: t.out, preset: t.preset });
+        let id = t.range
+          ? await US.host.call('queueRangeExport', { seqId: t.seqId, out: t.out, preset: t.preset, start: t.range.start, end: t.range.end })
+          : t.seqId
+            ? await US.host.call('queueExport', { seqId: t.seqId, out: t.out, preset: t.preset, workArea: 0 })
+            : await US.host.call('queueItemExport', { id: t.itemId, out: t.out, preset: t.preset });
+        // a range comes back as {id, restored}: whether the sequence's own In/Out were put back
+        if (id && typeof id === 'object') { if (id.restored === false) t.inOutNotRestored = { in: id.hadIn, out: id.hadOut }; id = id.id; }
         if (!id || id === '0') throw new US.UserError('RENDER_FAILED', { title: 'Media Encoder didn’t accept the job.', action: 'Open Media Encoder once by hand, then try again.', detail: `queue returned ${id} for ${t.out}` });
         t.id = String(id); t.progress = 0; t.done = false; byJob.set(t.id, t);
       }
+      // queue only: the renders wait in Media Encoder until its green Start button is pressed
+      if (opts.queueOnly) { tasks.forEach(t => { t.queued = true; }); return tasks; }
       await US.host.call('startEncoderBatch');
       progress();
       const quiet = (opts.quietMinutes || 20) * 60000;

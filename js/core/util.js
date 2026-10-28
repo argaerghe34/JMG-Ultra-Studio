@@ -8,8 +8,8 @@
       const fs = require('fs'), path = require('path');
       let p = decodeURIComponent(location.pathname); if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
       const m = /ExtensionBundleVersion="([^"]+)"/.exec(fs.readFileSync(path.join(path.dirname(p), 'CSXS', 'manifest.xml'), 'utf8'));
-      return m ? m[1] : '1.3.1';
-    } catch (e) { return '1.3.1'; }
+      return m ? m[1] : '1.3.2';
+    } catch (e) { return '1.3.2'; }
   })();
   US.name = 'JMG Ultra Studio';
 
@@ -79,6 +79,8 @@
   /** A path from a file dialog in this computer's own form (Windows dialogs can answer C:/…). */
   US.normPath = p => (p ? require('path').normalize(String(p)) : p);
   /** The same file or folder? (Windows ignores letter case.) */
+  /** A Map key for a path that matches the way samePath does (Windows: any case, either slash). */
+  US.pathKey = p => { const s = require('path').normalize(String(p || '')); return process.platform === 'win32' ? s.toLowerCase() : s; };
   US.samePath = (a, b) => { const P = require('path'), x = P.resolve(String(a)), y = P.resolve(String(b)); return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y; };
   US.stem = p => US.basename(p).replace(/\.[^.]+$/, '');
   US.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
