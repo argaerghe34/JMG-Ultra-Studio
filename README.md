@@ -2,7 +2,24 @@
 
 A panel for Adobe Premiere Pro (2025 and later, Mac and Windows) and DaVinci Resolve Studio (19.1 and later, Mac and Windows) that helps you go from footage and interviews to a finished edit: **Story** (themes, lines and narratives from interviews), **Selects**, **Colour**, **B-roll**, **Camera Switch**, **Silence Cut**, **Beats**, **Songs**, **Sound Check**, **Final Check**, **Safe Zones**, **Deliver** and an **Assistant**.
 
-Both editors get every change at once: one panel, the same version number, two packages per release.
+Both editors share one panel. New features land in Premiere first and follow in Resolve, so for a short while the two
+can be on different versions – the table below always says where each one is.
+
+## Where each version stands
+
+| | Premiere Pro (Mac + Windows) | DaVinci Resolve Studio (Mac + Windows) |
+|---|---|---|
+| **Latest release** | **1.3.3** | **1.3.3** (first Resolve release) |
+| **Tested** | Mac: full test suite in Premiere. Windows: 1.3.2 tested on the PC; 1.3.3 to be checked there. | Mac: full test suite in Resolve Studio 21.1.2. Windows: not yet tested. |
+| **Next** | 1.3.4 – Song Splitter adjustment layers, Deliver render ranges from any layer track, by colour, editable, auto-refreshing, with file-name suffixes (in progress) | 1.3.4 – the same, after Premiere |
+| **Paused in both** | Colour, Camera Switch | Colour, Camera Switch |
+
+**What's different in Resolve** (because of what Resolve lets add-ons do – full list in [`dev/RESOLVE.md`](dev/RESOLVE.md)):
+- Story reads transcript files, or has Resolve transcribe the selected clips (**Transcribe with Resolve**: phrase by phrase, no speaker names). Captions go into the Media Pool for you to drag onto the timeline.
+- Sound Check can't set clip volume, so it tells you what to change; ducking marks the speech instead.
+- Story highlights, theme names and render ranges are coloured range markers (Resolve can't make adjustment clips by script).
+- Selects can't spot faces, so close-ups aren't sorted by face.
+- The panel opens as its own window; renders use Resolve's Render Queue and render presets.
 
 The guide is in [`dev/docs/`](dev/docs) (built into *Read me first.html* in every package). What's new: [`dev/docs/whats-new.md`](dev/docs/whats-new.md).
 

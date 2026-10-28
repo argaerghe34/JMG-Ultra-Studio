@@ -8,8 +8,8 @@
       const fs = require('fs'), path = require('path');
       let p = decodeURIComponent(location.pathname); if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
       const m = /ExtensionBundleVersion="([^"]+)"/.exec(fs.readFileSync(path.join(path.dirname(p), 'CSXS', 'manifest.xml'), 'utf8'));
-      return m ? m[1] : '1.3.2';
-    } catch (e) { return '1.3.2'; }
+      return m ? m[1] : '1.3.3';
+    } catch (e) { return '1.3.3'; }
   })();
   US.name = 'JMG Ultra Studio';
 

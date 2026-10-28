@@ -1,3 +1,10 @@
+## What's new in 1.3.3
+
+- **JMG Ultra Studio for DaVinci Resolve Studio.** The same panel now runs in DaVinci Resolve Studio (19.1 or later, Mac and Windows) from **Workspace › Workflow Integrations › JMG Ultra Studio**, with Story, Selects, B-roll, Silence Cut, Beats, Songs, Sound Check, Final Check, Safe Zones, Deliver and the Assistant. A few things work differently because of what Resolve lets add-ons do: see *Premiere and Resolve: what's different* in the guide.
+- **Markers on the clips themselves.** **Settings › Markers** chooses where every tool puts its markers: on the sequence (as before), on the clips, or both.
+- **Selects counts a slow pan as a pan**, not a push-in, when the camera also drifts slightly in or out.
+- **Colour and Camera Switch are paused** for now (their screens are hidden; nothing is lost).
+
 ## What's new in 1.3.2
 
 - **Render ranges (Deliver).** Mark each part of a sequence you want as its own file with an adjustment layer on a **Renders** track above your edit. **Add a render range** puts one there, between your In and Out points or for 10 seconds from the playhead. Then trim it and rename it in the Timeline. **Send the renders to Media Encoder** queues every range in timeline order, each file named after its layer, with the export preset you choose: Ultra Studio's built-in H.264 ones, or any preset you've saved in Media Encoder or Premiere. Switch a layer off to skip it. Effects you put on a layer show in that render only. Your In and Out points are left as they were.
