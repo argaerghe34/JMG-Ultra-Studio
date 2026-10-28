@@ -38,6 +38,17 @@ test('render ranges: named after their layer, in timeline order, switched-off on
   const q = US.deliver.rangePlan([{ name: 'Promo', start: 0, end: 1 }, { name: 'Promo', start: 1, end: 2 }, { name: 'Promo (2)', start: 2, end: 3 }, { name: 'Einstellungsebene', start: 3, end: 4 }], 'S', 'mp4', '');
   assert.deepStrictEqual(q.map(x => x.name), ['Promo', 'Promo (2)', 'Promo (2) (2)', 'S - Render 4'], 'every file name different');
 });
+test('render ranges: one colour only, and a file-name ending on every render', () => {
+  const ranges = [{ name: '1', start: 0, end: 30, label: 5 }, { name: 'Talk', start: 30, end: 35, label: 4 }, { name: '2 Hallelujah', start: 35, end: 70, label: 5 }, { name: 'Applause', start: 70, end: 75, label: 7 }];
+  const songs = US.deliver.rangePlan(ranges, 'Gig', 'mp4', '/out', { colour: '5', suffix: '_1' });
+  assert.deepStrictEqual(songs.map(x => x.name), ['1_1', '2 Hallelujah_1']);
+  assert.ok(songs[0].out.endsWith('1_1.mp4'));
+  assert.strictEqual(US.deliver.rangePlan(ranges, 'Gig', 'mp4', '', { colour: '' }).length, 4, 'all colours');
+  assert.strictEqual(US.deliver.rangePlan(ranges, 'Gig', 'mp4', '', { colour: 11 }).length, 0);
+  assert.deepStrictEqual(US.deliver.rangePlan([{ name: 'Adjustment Layer', start: 0, end: 1, label: 5 }], 'Gig', 'mp4', '', { suffix: ' v2' }).map(x => x.name), ['Gig - Render 1 v2']);
+  assert.strictEqual(US.deliver.cleanSuffix('_v2/: *final. '), '_v2 final', 'only characters a file name can take');
+  assert.strictEqual(US.deliver.cleanSuffix(undefined), '');
+});
 test('render ranges: a new one spans In/Out when set, else 10 s from the playhead', () => {
   assert.deepStrictEqual(US.deliver.newRangeSpan({ inPoint: 5, outPoint: 20, duration: 60 }, 0), { start: 5, end: 20 });
   assert.deepStrictEqual(US.deliver.newRangeSpan({ inPoint: 0, outPoint: 60, duration: 60 }, 12), { start: 12, end: 22 });

@@ -5,7 +5,7 @@ const assert = require('assert'), fs = require('fs'), path = require('path'), vm
 const { test, ROOT } = require('./harness');
 const TICKS = 254016000000;
 
-function makePremiere({ adjustment = false, qeMethods = ['newTransparentVideo'], transparentArgs = 5, clipNameWritable = true, endWritable = true, tracks = 3, overwriteThrows = false, trackNamesWritable = true } = {}) {
+function makePremiere({ clipColours = false, adjustment = false, qeMethods = ['newTransparentVideo'], transparentArgs = 5, clipNameWritable = true, endWritable = true, tracks = 3, overwriteThrows = false, trackNamesWritable = true } = {}) {
   let nextId = 1;
   const id = () => 'n' + (nextId++);
   class Time { constructor() { this.ticks = '0'; } get seconds() { return Number(this.ticks) / TICKS; } set seconds(s) { this.ticks = String(Math.round(s * TICKS)); } }
@@ -43,6 +43,8 @@ function makePremiere({ adjustment = false, qeMethods = ['newTransparentVideo'],
         const len = it.outPt - it.inPt;
         const ti = { projectItem: it, label: it.label, _name: it.name, start: T(at), _end: at + len, inPoint: T(off + it.inPt), outPoint: T(off + it.outPt), nodeId: id() };
         ti.remove = () => { const i = clips.indexOf(ti); if (i >= 0) clips.splice(i, 1); return true; };
+        // newer Premiere: a timeline clip's own colour label can be read and set by script
+        if (clipColours) { ti.getColorLabel = () => ti.label; ti.setColorLabel = n => { ti.label = n; return true; }; }
         Object.defineProperty(ti, 'end', { get: () => T(ti._end), set: v => { if (!endWritable) throw new Error('read only'); ti._end = typeof v === 'object' ? v.seconds : Number(v) / TICKS; } });
         Object.defineProperty(ti, 'name', { get: () => ti._name, set: v => { if (!clipNameWritable) throw new Error('read only'); ti._name = v; } });
         for (let i = clips.length - 1; i >= 0; i--) if (clips[i].start.seconds < ti._end && clips[i]._end > at) clips.splice(i, 1);
@@ -239,4 +241,60 @@ test('render ranges: each is queued with In/Out set to it, and the editor’s In
   assert.deepStrictEqual(P.seq._io, [-400000, 30], 'a lone Out point survives');
   assert.strictEqual(r.restored, true); assert.strictEqual(r.id, '4');
   assert.strictEqual(P.call('presetExtension', { seqId: 's1', preset: '/p.epr' }), 'mov');
+});
+
+test('song layers: numbered, colour-coded layers on a “Songs” track above the edit; running again replaces them', () => {
+  const P = makePremiere({ adjustment: true, clipColours: true });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 80 }] });
+  const sections = [{ name: '1', start: 0, end: 30, label: 5 }, { name: 'Talk', start: 30, end: 35, label: 4 }, { name: '2 Hallelujah', start: 35, end: 70, label: 5 }, { name: 'Applause', start: 70, end: 75, label: 7 }];
+  const r = P.call('labelLayers', { seqId: 's1', trackName: 'Songs', sections, binPath: 'JMG Ultra Studio/Song Splitter' });
+  assert.strictEqual(r.placed, 4); assert.strictEqual(P.seq._v[r.track].name, 'Songs');
+  const got = P.call('renderRanges', { seqId: 's1', track: 'Songs' });
+  assert.deepStrictEqual(got.ranges.map(x => [x.name, x.start, x.end, x.label]), [['1', 0, 30, 5], ['Talk', 30, 35, 4], ['2 Hallelujah', 35, 70, 5], ['Applause', 70, 75, 7]]);
+  assert.strictEqual(got.colours, true);
+  const again = P.call('labelLayers', { seqId: 's1', trackName: 'Songs', sections: sections.slice(0, 1) });
+  assert.strictEqual(again.track, r.track); assert.strictEqual(again.removed, 4);
+  assert.strictEqual(P.call('renderRanges', { seqId: 's1', track: 'songs' }).ranges.length, 1, 'any case');
+  assert.strictEqual(P.call('removeLabelLayers', { seqId: 's1', trackName: 'Songs' }).removed, 1);
+});
+test('render ranges: every layer track is offered; ranges from the chosen one, with their colours', () => {
+  const P = makePremiere({ adjustment: true, clipColours: true });
+  P.call('labelLayers', { seqId: 's1', trackName: 'Songs', sections: [{ name: '1', start: 0, end: 30, label: 5 }] });
+  P.call('addRenderRange', { seqId: 's1', name: 'Teaser', start: 10, end: 20, label: 11 });
+  const t = P.call('rangeTracks', { seqId: 's1' }).tracks;
+  assert.deepStrictEqual(t.map(x => [x.name, x.count]), [['Renders', 1], ['Songs', 1]], 'top first');
+  assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1' }).ranges.map(x => [x.name, x.label]), [['Teaser', 11]], 'Renders by default');
+  const b = P.call('addRenderRange', { seqId: 's1', name: 'Encore', start: 40, end: 50, track: 'Songs', label: 5 });
+  assert.strictEqual(P.seq._v[b.track].name, 'Songs');
+  assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1', track: 'Songs' }).ranges.map(x => x.name), ['1', 'Encore']);
+});
+test('render ranges: renamed, moved, recoloured and deleted from the panel', () => {
+  const P = makePremiere({ adjustment: true, clipColours: true });
+  P.call('addRenderRange', { seqId: 's1', name: 'Hook', start: 10, end: 20, label: 5 });
+  let r = P.call('renderRanges', { seqId: 's1' }).ranges[0];
+  P.call('editRenderRange', { seqId: 's1', track: 'Renders', nodeId: r.nodeId, name: 'Hook 15s' });
+  r = P.call('renderRanges', { seqId: 's1' }).ranges[0];
+  assert.deepStrictEqual([r.name, r.start, r.end, r.label], ['Hook 15s', 10, 20, 5]);
+  P.call('editRenderRange', { seqId: 's1', track: 'Renders', nodeId: r.nodeId, label: 7 });
+  r = P.call('renderRanges', { seqId: 's1' }).ranges[0];
+  assert.strictEqual(r.label, 7, 'colour set on the clip itself');
+  const moved = P.call('editRenderRange', { seqId: 's1', track: 'Renders', nodeId: r.nodeId, start: 4, end: 19 });
+  const all = P.call('renderRanges', { seqId: 's1' }).ranges;
+  assert.deepStrictEqual(all.map(x => [x.name, x.start, x.end, x.label]), [['Hook 15s', 4, 19, 7]], 'laid again earlier, same name and colour');
+  assert.strictEqual(moved.range.nodeId, all[0].nodeId);
+  assert.strictEqual(P.findAll('Adjustment Layer').length, 1, 'the project’s adjustment layer keeps its name');
+  assert.throws(() => P.call('editRenderRange', { seqId: 's1', track: 'Renders', nodeId: all[0].nodeId, start: 9, end: 9 }), e => e.code === 'BAD_INPUT');
+  P.call('removeRenderRange', { seqId: 's1', track: 'Renders', nodeId: all[0].nodeId });
+  assert.strictEqual(P.call('renderRanges', { seqId: 's1' }).ranges.length, 0);
+  assert.throws(() => P.call('removeRenderRange', { seqId: 's1', track: 'Renders', nodeId: all[0].nodeId }), e => e.code === 'NOT_FOUND');
+});
+test('render ranges: a Premiere that can’t read clip colours says so, and recolouring lays the layer again in the new colour', () => {
+  const P = makePremiere({ adjustment: true });
+  P.call('addRenderRange', { seqId: 's1', name: 'Hook', start: 10, end: 20, label: 5 });
+  const got = P.call('renderRanges', { seqId: 's1' });
+  assert.strictEqual(got.colours, false); assert.strictEqual(got.ranges[0].label, null);
+  P.call('editRenderRange', { seqId: 's1', track: 'Renders', nodeId: got.ranges[0].nodeId, label: 9 });
+  const v = P.seq._v[got.track]._clips;
+  assert.strictEqual(v.length, 1); assert.strictEqual(v[0].label, 9, 'placed in the new colour');
+  assert.deepStrictEqual([v[0].start.seconds, v[0]._end], [10, 20]);
 });
