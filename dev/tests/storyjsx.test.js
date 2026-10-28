@@ -298,3 +298,10 @@ test('render ranges: a Premiere that can’t read clip colours says so, and reco
   assert.strictEqual(v.length, 1); assert.strictEqual(v[0].label, 9, 'placed in the new colour');
   assert.deepStrictEqual([v[0].start.seconds, v[0]._end], [10, 20]);
 });
+test('song layers without an adjustment layer in the project: invisible label clips, still render ranges on their track', () => {
+  const P = makePremiere();
+  const r = P.call('labelLayers', { seqId: 's1', trackName: 'Songs', sections: [{ name: '1', start: 0, end: 30, label: 5 }, { name: 'Talk', start: 30, end: 35, label: 4 }] });
+  assert.strictEqual(r.kind, 'transparent');
+  assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1', track: 'Songs' }).ranges.map(x => x.name), ['1', 'Talk']);
+  assert.deepStrictEqual(P.call('rangeTracks', { seqId: 's1' }).tracks.map(t => t.name), ['Songs']);
+});

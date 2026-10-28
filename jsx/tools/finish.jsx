@@ -105,11 +105,12 @@
     };
 
     /* ---------- render ranges: adjustment layers above the edit, each one exported under its own name ---------- */
-    var RANGE_TRACK = 'Renders', RANGE_ITEM = 'Ultra Studio render range';
+    // our invisible clips (projects without an adjustment layer): render ranges, and Song Splitter's / Story's layers
+    var RANGE_TRACK = 'Renders', RANGE_ITEM = 'Ultra Studio render range', LABEL_ITEM = 'Ultra Studio theme label';
     function isRangeItem(pi) {
         if (!pi) return false;
         if (U.labelParts.isAdj(pi)) return true;
-        try { return pi.name === RANGE_ITEM; } catch (e) { return false; }
+        try { return pi.name === RANGE_ITEM || pi.name === LABEL_ITEM; } catch (e) { return false; }
     }
     function rangeClips(tr) {
         var out = [];
