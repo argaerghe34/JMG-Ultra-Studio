@@ -1,6 +1,7 @@
 #!/bin/bash
 # Development only: the hand-over. Builds the package, installs it the way Jacob would (the Mac installer), checks the
 # installed copy in Premiere with Home › Check my setup, then leaves Premiere closed and the Mac as he left it.
+# It also builds the DaVinci Resolve package (dist/JMG-Ultra-Studio-Resolve-<version>.zip) for the release.
 # Run the full e2e suite first (it needs the dev links): dev/with-premiere.sh node dev/e2e/run.js
 # Usage: dev/monday.sh            (prints a summary; exit 1 if any step fails)
 set -u
@@ -41,6 +42,9 @@ bash "$ROOT/dev/build.sh" > "$TMP/build.log" 2>&1 || { cat "$TMP/build.log"; fai
 VER=$(grep -o 'ExtensionBundleVersion="[^"]*"' "$ROOT/CSXS/manifest.xml" | cut -d'"' -f2)
 PKG="$ROOT/dist/JMG Ultra Studio $VER"
 tail -3 "$TMP/build.log"
+# the Resolve package too: every release ships both (installed into Resolve separately – dev/resolve/installer)
+node "$ROOT/dev/resolve/build.js" > "$TMP/build-resolve.log" 2>&1 || { cat "$TMP/build-resolve.log"; fail "Resolve build"; }
+tail -2 "$TMP/build-resolve.log"
 
 say "3/7 Installing with the Mac installer (as Jacob would)"
 [ -L "$E/JMGUltraStudio" ] && rm "$E/JMGUltraStudio"          # the dev link; the helper stays for the check
