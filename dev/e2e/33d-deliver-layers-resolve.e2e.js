@@ -15,7 +15,7 @@ T.assert(songs.length === 2, `${songs.length} songs in the first 2 minutes of th
 
 // 1. Song Splitter: the layers
 const o = await SS.output(target, res, { layers: true }, US.jobs.testJob('layers'));
-T.assert(/range markers?/.test(o.summary), 'summary: ' + o.summary);
+T.assert(/range markers?/.test(o.summary) && /Render ranges › Songs/.test(o.summary), 'summary: ' + o.summary);
 const want = SS.layerSections(res, 0);
 let got = await US.host.call('renderRanges', { seqId: sq.id, track: 'Songs' });
 T.assert(got.trackName === 'Songs' && got.colours === true, 'in the Songs group, colours read from Resolve: ' + got.trackName);

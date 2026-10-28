@@ -103,7 +103,7 @@
       done.push(US.plural(songs.length, 'sequence'));
     }
     if (!done.length) throw new US.UserError('BAD_INPUT', { title: 'Nothing was chosen to add.', action: 'Tick at least one option under “Add to Premiere”.' });
-    return { summary: `Added ${done.join(', ')} for ${US.plural(songs.length, 'song')}${opts.sequences || opts.subclips ? ` (in the “${bin.split('/').pop()}” bin)` : ''}${opts.layers ? ` · layers on the “${LAYER_TRACK}” track` : ''}.` };
+    return { summary: `Added ${done.join(', ')} for ${US.plural(songs.length, 'song')}${opts.sequences || opts.subclips ? ` (in the “${bin.split('/').pop()}” bin)` : ''}${opts.layers ? (US.app.is('resolve') ? ` · in Deliver › Render ranges › ${LAYER_TRACK}` : ` · layers on the “${LAYER_TRACK}” track`) : ''}.` };
   }
 
   US.actions.register({
