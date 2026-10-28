@@ -18,6 +18,7 @@
     thumb: { label: 'Thumbnail (frame at the playhead)', short: 'Thumbnail', kind: 'image' }
   };
   const safeName = s => String(s).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Export';
+  const labelName = i => (US.ui.LABELS[Number(i)] || {}).name || 'that colour';
   const defaultDir = seqName => path.join(US.fsx.exportsDir(), 'Exports', `${safeName(seqName)} ${new Date().toISOString().slice(0, 10)}`);
 
   // guides would be burned in
@@ -38,7 +39,7 @@
     const seq = await US.host.call('sequenceInfo', { seqId, clips: false });
     const presets = await US.host.call('encoderPresets');
     if (!presets.h264 || (keys.includes('wav') && !presets.wav)) throw new US.UserError('PRESET_MISSING', { detail: JSON.stringify(presets) });
-    const dir = o.folder || defaultDir(seq.name);
+    const dir = o.folder || defaultDir(seq.name), sfx = cleanSuffix(o.suffix);
     US.fsx.ensureDir(dir);
 
     await hideGuides(seqId, job);
@@ -61,21 +62,21 @@
         job.progress(0.02 + 0.18 * (step - 0.5) / steps, `Making the ${OUTPUTS[k].short} version full size (${W}×${H})`);
         r = await US.host.call('fitToSize', { seqId: r.id, width: W, height: H, name: `${seq.name} – ${OUTPUTS[k].short.replace('x', ':')} ${W}×${H}`, binPath: 'JMG Ultra Studio/Deliver' });
       }
-      plan.push({ key: k, seqId: r.id, out: path.join(dir, `${safeName(seq.name)} - ${OUTPUTS[k].short}.mp4`), preset: presets.h264 });
+      plan.push({ key: k, seqId: r.id, out: path.join(dir, `${safeName(seq.name)} - ${OUTPUTS[k].short}${sfx}.mp4`), preset: presets.h264 });
     }
     } finally {
       // making new sequences opens them; put the editor back where they were
       if (reframes.length) { try { await US.host.call('openSequence', { seqId }); } catch (e) { /* ignore */ } }
     }
-    if (keys.includes('master')) plan.unshift({ key: 'master', seqId, out: path.join(dir, `${safeName(seq.name)} - Master.mp4`), preset: presets.h264 });
-    if (keys.includes('wav')) plan.push({ key: 'wav', seqId, out: path.join(dir, `${safeName(seq.name)} - Sound.wav`), preset: presets.wav });
+    if (keys.includes('master')) plan.unshift({ key: 'master', seqId, out: path.join(dir, `${safeName(seq.name)} - Master${sfx}.mp4`), preset: presets.h264 });
+    if (keys.includes('wav')) plan.push({ key: 'wav', seqId, out: path.join(dir, `${safeName(seq.name)} - Sound${sfx}.wav`), preset: presets.wav });
 
     // 2. thumbnail straight away (no encoder needed)
     let thumb = null;
     if (keys.includes('thumb')) {
       job.set({ who: 'premiere', msg: 'Saving the thumbnail' });
       const ctx = US.ctx.sequence && US.ctx.sequence.id === seqId ? US.ctx.sequence : null;
-      thumb = await US.host.call('exportFrame', { seqId, seconds: ctx ? ctx.playhead || 0 : 0, outBase: US.encoder.unique(path.join(dir, `${safeName(seq.name)} - Thumbnail.png`)).replace(/\.png$/, '') });
+      thumb = await US.host.call('exportFrame', { seqId, seconds: ctx ? ctx.playhead || 0 : 0, outBase: US.encoder.unique(path.join(dir, `${safeName(seq.name)} - Thumbnail${sfx}.png`)).replace(/\.png$/, '') });
     }
     if (!plan.length) return { summary: 'Thumbnail saved', dir };
 
@@ -91,11 +92,17 @@
   /* ---------- render ranges: adjustment layers on a “Renders” track above the edit, one file each ---------- */
   // names Premiere (or we) give a layer before you name it yourself, in Premiere's main languages
   const PLAIN_NAMES = /^(adjustment layer|einstellungsebene|calque d'effets|capa de ajuste|livello di regolazione|camada de ajuste|調整レイヤー|ultra studio render range|transparent video)?( \d+)?$/i;
-  /** Ranges from Premiere → the renders, in timeline order, named after their layer; switched-off and empty ones left out. */
-  function rangePlan(ranges, seqName, ext, dir) {
+  /** A file-name ending the person typed (“_1”, “ v2”): only characters every file system takes, at most 30. */
+  const cleanSuffix = x => String(x || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '').slice(0, 30).replace(/[. ]+$/, '');
+  /**
+   * Ranges from the editor → the renders, in timeline order, named after their layer (plus the suffix); switched-off
+   * and empty ones left out, and with o.colour only the ranges of that colour (label 0–15).
+   */
+  function rangePlan(ranges, seqName, ext, dir, o = {}) {
     const taken = new Set();   // lower case: Windows file names ignore case
-    return ranges.filter(r => !r.disabled && r.end - r.start > 0.01).sort((a, b) => a.start - b.start).map((r, i) => {
-      const base = safeName(PLAIN_NAMES.test(String(r.name || '').trim()) ? `${seqName} - Render ${i + 1}` : r.name);
+    const suffix = cleanSuffix(o.suffix), colour = o.colour === '' || o.colour == null ? null : Number(o.colour);
+    return ranges.filter(r => !r.disabled && r.end - r.start > 0.01 && (colour == null || r.label === colour)).sort((a, b) => a.start - b.start).map((r, i) => {
+      const base = safeName((PLAIN_NAMES.test(String(r.name || '').trim()) ? `${seqName} - Render ${i + 1}` : r.name) + suffix);
       let name = base;
       for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})`;
       taken.add(name.toLowerCase());
@@ -133,14 +140,15 @@
     const seqId = o.seqId || (US.ctx.sequence && US.ctx.sequence.id);
     if (!seqId) throw new US.UserError('NO_SEQUENCE');
     const seq = await US.host.call('sequenceInfo', { seqId, clips: false });
-    const found = await US.host.call('renderRanges', { seqId });
+    const found = await US.host.call('renderRanges', { seqId, track: o.track || undefined });
     const preset = o.preset || (await US.host.call('encoderPresets')).h264;
     const isFile = !inResolve() || /\.(xml|epr)$/i.test(String(preset || ''));
     if (!preset || (isFile && !fs.existsSync(preset))) throw new US.UserError('PRESET_MISSING', { title: 'The export preset isn’t there any more.', action: 'Choose the preset again in Deliver › Render ranges.', detail: String(preset) });
     const ext = (await US.host.call('presetExtension', { seqId, preset })) || 'mp4';
     const dir = o.folder || defaultDir(seq.name);
-    const plan = rangePlan(found.ranges, seq.name, ext, dir);
-    if (!plan.length) throw new US.UserError('NOTHING_FOUND', { title: 'No render ranges on this sequence.', action: inResolve() ? 'Add one with “Add a render range” in Deliver › Render ranges.' : 'Add one with “Add a render range”, or put adjustment layers on a top video track named “Renders”.' });
+    const plan = rangePlan(found.ranges, seq.name, ext, dir, o);
+    if (!plan.length && o.colour !== '' && o.colour != null && rangePlan(found.ranges, seq.name, ext, dir).length) throw new US.UserError('NOTHING_FOUND', { title: `No render ranges in ${labelName(o.colour)}.`, action: 'Choose another colour (or All colours) in Deliver › Render ranges.' });
+    if (!plan.length) throw new US.UserError('NOTHING_FOUND', { title: US.say('No render ranges on this sequence.'), action: inResolve() ? 'Add one with “Add a render range” in Deliver › Render ranges.' : `Add one with “Add a render range”, or put adjustment layers on a video track named “${o.track || 'Renders'}” (or choose the track they're on).` });
     US.fsx.ensureDir(dir);
     await hideGuides(seqId, job);
     const tasks = plan.map(p => ({ seqId, out: p.out, preset, name: p.name, range: { start: p.start, end: p.end }, overwrite: !!o.replace }));
@@ -226,9 +234,10 @@
       if (/thumbnail|everything|all/i.test(t)) k.push('thumb');
       return { outputs: k.join(',') };
     },
-    run: (p, job) => exportPack({ outputs: String(p.outputs).split(',').map(s => s.trim()), fullSize: outOpts().fullSize }, job)
+    run: (p, job) => exportPack({ outputs: String(p.outputs).split(',').map(s => s.trim()), fullSize: outOpts().fullSize, suffix: rangeOpts().suffix }, job)
   });
-  const rangeOpts = () => Object.assign({ preset: '', queueOnly: false, replace: false }, US.settings.get('deliver.ranges', {}));
+  // track: the video track whose adjustment layers are the ranges; colour: '' all, or one label 0–15; suffix: added to every file name
+  const rangeOpts = () => Object.assign({ preset: '', queueOnly: false, replace: false, track: 'Renders', colour: '', suffix: '' }, US.settings.get('deliver.ranges', {}));
   US.actions.register({
     id: 'deliver.ranges', tool: 'deliver', title: 'Render the adjustment-layer ranges', changes: true,
     describe: US.app.is('resolve') ? 'Renders each render range of the active timeline (a duration marker added by Ultra Studio), one after another, each file named after its marker, with the chosen render preset.' : 'Sends each render range of the active sequence (an adjustment layer on the “Renders” track above the edit) to Media Encoder, one after another, each file named after its layer, with the chosen preset.',
@@ -282,7 +291,7 @@
   US.tools.register({
     id: 'deliver', name: 'Deliver', short: 'Deliver', icon: 'deliver', group: 'finish', order: 33,
     blurb: 'Every export in one go, client notes as markers, YouTube chapters.',
-    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'addRenderRange', 'queueRangeExport', 'presetExtension'],
+    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead'],
     create() {
       const v = ui.toolView({ icon: 'deliver', title: 'Deliver', blurb: 'Export everything in one go, turn client notes into markers, and make YouTube chapters.' });
       const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'notes', label: 'Client notes' }, { value: 'chapters', label: 'Chapters' }], value: 'pack', onChange: t => showTab(t) });
@@ -304,7 +313,7 @@
       const openBtn = ui.button('Open export folder', { small: true, icon: 'folder', onClick: openFolder });
       openBtn.classList.add('hidden');
       const packBtn = ui.actionButton('Export', async () => {
-        const r = await US.jobs.run({ title: 'Exporting the delivery pack', tool: 'deliver' }, job => exportPack({ outputs: o.outputs, folder, fullSize: o.fullSize }, job));
+        const r = await US.jobs.run({ title: 'Exporting the delivery pack', tool: 'deliver' }, job => exportPack({ outputs: o.outputs, folder, fullSize: o.fullSize, suffix: rangeOpts().suffix }, job));
         if (r && r.dir) { lastDir = r.dir; openBtn.classList.remove('hidden'); }
       });
       panes.pack.append(
@@ -342,33 +351,94 @@
         if (!ro.preset || !opts.some(x => x.value === ro.preset)) ro.preset = opts[0].value === '__pick' ? '' : opts[0].value;
         presetSel.setOptions(opts, ro.preset);
       }
-      async function showRanges() {
-        const s = US.ctx.sequence; US.clear(rangeList); rangeTrackLine.textContent = '';
-        if (!s) { rangeList.appendChild(ui.note('Open a sequence in the Timeline first.', 'warn')); return; }
+      // the sequence's start timecode, so times read as they do in the Timeline (Resolve starts at 01:00:00:00)
+      const zeroOf = {};
+      async function seqZero(seq) { if (zeroOf[seq.id] == null) { try { zeroOf[seq.id] = (await US.host.call('storySequenceTiming', { seqId: seq.id })).zero || 0; } catch (e) { zeroOf[seq.id] = 0; } } return zeroOf[seq.id]; }
+      const tcOf = (seq, sec, zero) => US.time.toTC(sec + zero, seq.fps || 25);
+      /** A time typed as the Timeline shows it (01:00:12:00) or from the sequence start (0:12) → seconds from the start */
+      const parseTime = (seq, text, zero) => { const t = US.time.parseTC(String(text || '').trim(), seq.fps || 25); return !isFinite(t) ? NaN : t >= zero ? t - zero : t; };
+
+      const trackSel = ui.select({ options: [{ value: ro.track || 'Renders', label: ro.track || 'Renders' }], value: ro.track || 'Renders', onChange: v => { ro.track = v; ro.colour = ''; saveRo(); showRanges(); } });
+      const colourSel = ui.select({ options: [{ value: '', label: 'All colours' }], value: '', onChange: v => { ro.colour = v; saveRo(); showRanges(); } });
+      const newColour = ui.select({ options: [{ value: '', label: 'Its usual colour' }].concat(ui.LABELS.map(c => ({ value: String(c.i), label: c.name }))), value: '' });
+      const suffixIn = ui.input({ placeholder: 'e.g. _1 or _v2', value: ro.suffix || '' });
+      suffixIn.addEventListener('input', US.debounce(() => { ro.suffix = cleanSuffix(suffixIn.value); saveRo(); showRanges(); }, 300));
+      let shownSig = '';
+      async function fillTracks(seq) {
+        let tracks = [];
+        try { tracks = (await US.host.call('rangeTracks', { seqId: seq.id })).tracks || []; } catch (e) { /* older host */ }
+        const opts = tracks.map(t => ({ value: t.name, label: `${t.name} · ${US.plural(t.count, inResolve() ? 'range' : 'layer')}` }));
+        if (!opts.some(o => o.value.toLowerCase() === String(ro.track || 'Renders').toLowerCase())) opts.unshift({ value: ro.track || 'Renders', label: `${ro.track || 'Renders'}${tracks.length ? ' (new track)' : ''}` });
+        trackSel.setOptions(opts, ro.track || 'Renders');
+      }
+      /** The ranges on screen; quiet: a refresh by the clock, only redrawn when something changed. */
+      async function showRanges(quiet) {
+        const s = US.ctx.sequence;
+        if (!s) { shownSig = ''; US.clear(rangeList); rangeTrackLine.textContent = ''; rangeList.appendChild(ui.note('Open a sequence in the Timeline first.', 'warn')); return; }
         try {
-          const found = await US.host.call('renderRanges', { seqId: s.id });
-          const plan = rangePlan(found.ranges, s.name, 'mp4', '');
-          const off = found.ranges.length - plan.length;
-          if (!found.ranges.length) { rangeList.appendChild(ui.note(inResolve() ? 'No render ranges yet. Add one below, then change its length and name in the Timeline (drag the end of its marker; double-click the marker to rename it) – the file takes the marker’s name.' : 'No render ranges yet. Add one below, then trim it and rename it in the Timeline – the export takes the layer’s name.', 'info')); return; }
-          rangeTrackLine.textContent = inResolve() ? `${US.plural(plan.length, 'render')} marked on the timeline${off ? ` · ${off} empty, left out` : ''}` : `On ${found.trackName || 'V' + (found.track + 1)} · ${US.plural(plan.length, 'render')}${off ? ` · ${off} switched off or empty, left out` : ''}`;
-          rangeList.appendChild(ui.list(plan.map(p => ({ title: p.name, sub: `${US.fmtDur(p.start)} – ${US.fmtDur(p.end)}`, right: US.fmtDur(p.end - p.start) }))));
-        } catch (e) { ui.showError(e); }
+          const found = await US.host.call('renderRanges', { seqId: s.id, track: ro.track || undefined });
+          const sig = JSON.stringify([s.id, ro, found]);
+          if (quiet && sig === shownSig) return;
+          shownSig = sig;
+          if (!quiet || !trackSel.options.length) await fillTracks(s);
+          const zero = await seqZero(s);
+          US.clear(rangeList); rangeTrackLine.textContent = '';
+          // colours on this track (Premiere versions that can't say a clip's colour: no filter)
+          const labels = [...new Set(found.ranges.map(r => r.label).filter(l => l != null))].sort((x, y) => x - y);
+          colourSel.setOptions([{ value: '', label: 'All colours' }].concat(labels.map(l => ({ value: String(l), label: labelName(l) }))), labels.includes(Number(ro.colour)) ? String(ro.colour) : '');
+          colourSel.disabled = found.colours === false || !labels.length;
+          if (!labels.includes(Number(ro.colour))) ro.colour = '';
+          const plan = rangePlan(found.ranges, s.name, 'mp4', '', ro);
+          if (!found.ranges.length) { rangeList.appendChild(ui.note(inResolve() ? 'No render ranges yet. Add one below – each is a marker with a length on the timeline, named after the file it makes.' : `No render ranges on “${ro.track || 'Renders'}” yet. Add one below, or choose the track your adjustment layers are on (Song Splitter puts its songs on “Songs”).`, 'info')); return; }
+          const left = found.ranges.length - plan.length;
+          rangeTrackLine.textContent = `${US.plural(plan.length, 'render')}${ro.colour !== '' ? ` in ${labelName(ro.colour)}` : ''}${left ? ` · ${left} left out (${ro.colour !== '' ? 'other colours, ' : ''}switched off or empty)` : ''}${found.colours === false ? ' · this version can’t read clip colours' : ''}`;
+          const inPlan = new Map(plan.map(p => [p.start + '|' + p.end, p]));
+          rangeList.appendChild(h('div.list.ranges-list', found.ranges.slice().sort((x, y) => x.start - y.start).map(r => rangeRow(s, r, inPlan.get(r.start + '|' + r.end), zero))));
+        } catch (e) { if (!quiet) ui.showError(e); }
+      }
+      function rangeRow(s, r, p, zero) {
+        const btn = (label, title, fn) => h('button.btn.small.ghost', { title, onclick: e => { e.stopPropagation(); fn(); } }, label);
+        const colour = r.label != null && ui.LABELS[r.label] ? ui.LABELS[r.label].hex : 'var(--text-3)';
+        const act = (title, fn) => US.jobs.run({ title, tool: 'deliver' }, async () => { const x = await fn(); shownSig = ''; await showRanges(); return x; });
+        const edit = (args, title) => act(title, async () => { await US.host.call('editRenderRange', Object.assign({ seqId: s.id, track: ro.track, nodeId: r.nodeId }, args)); return { summary: title }; });
+        return h('div.list-row.clickable' + (p ? '' : '.muted'), { title: 'Go to this range', onclick: () => US.host.call('setPlayhead', { seqId: s.id, seconds: r.start }).catch(e => ui.showError(e)) },
+          h('span.swatch', { style: { background: colour } }),
+          h('div.list-main', h('div.list-title', p ? p.name : r.name), h('div.list-sub', `${tcOf(s, r.start, zero)} – ${tcOf(s, r.end, zero)} · ${US.fmtDur(r.end - r.start)}${p ? '' : r.disabled ? ' · switched off' : ' · not rendered'}`)),
+          h('div.songs-actions',
+            btn('Rename', 'Give this range (and its file) a name', async () => { const nm = await ui.promptText({ title: 'Render range name', value: r.name, ok: 'Rename' }); if (nm && nm.trim() && nm.trim() !== r.name) edit({ name: nm.trim() }, `Renamed to “${nm.trim()}”`); }),
+            btn('Times…', 'Change where it starts and ends', async () => {
+              const t = await ui.promptText({ title: 'Start and end', label: 'As the Timeline shows them, e.g. ' + tcOf(s, r.start, zero) + ' – ' + tcOf(s, r.end, zero) + '. “In/Out” uses your In and Out points.', value: tcOf(s, r.start, zero) + ' – ' + tcOf(s, r.end, zero), ok: 'Change' });
+              if (t == null) return;
+              let a, b;
+              if (/^\s*in\s*\/?\s*out\s*$/i.test(t)) { const info = await US.host.call('sequenceInfo', { seqId: s.id, clips: false }); const sp = newRangeSpan(info, r.start); a = sp.start; b = sp.end; }
+              else { const parts = String(t).split(/\s+(?:-|–|—|to)\s+|\s*[–—]\s*/); a = parseTime(s, parts[0], zero); b = parseTime(s, parts[1], zero); }
+              if (!(b > a) || a < 0) return ui.toast({ type: 'warn', title: 'Those times don’t make a range.', text: 'Type a start and a later end, like ' + tcOf(s, r.start, zero) + ' – ' + tcOf(s, r.end, zero) + '.' });
+              edit({ start: a, end: b }, `“${r.name}” now ${US.fmtDur(a)} – ${US.fmtDur(b)}`);
+            }),
+            r.label != null && btn('Colour', 'Change its colour', async () => {
+              const c = await ui.promptText({ title: 'Colour', label: 'One of: ' + ui.LABELS.map(x => x.name).join(', '), value: labelName(r.label), ok: 'Change' });
+              const hit = c && ui.LABELS.find(x => x.name.toLowerCase() === c.trim().toLowerCase());
+              if (c && !hit) return ui.toast({ type: 'warn', title: 'That isn’t one of the colours.', text: ui.LABELS.map(x => x.name).join(', ') });
+              if (hit && hit.i !== r.label) edit({ label: hit.i }, `“${r.name}” is now ${hit.name}`);
+            }),
+            btn('Delete', 'Take this range off the timeline', () => act(`Deleted “${r.name}”`, async () => { await US.host.call('removeRenderRange', { seqId: s.id, track: ro.track, nodeId: r.nodeId }); return { summary: `Deleted “${r.name}”` }; }))));
       }
       const rangeName = ui.input({ placeholder: 'Name, e.g. Teaser 30s' });
       const addRange = ui.button('Add a render range', { small: true, icon: 'plus', onClick: async () => {
         const s = US.ctx.sequence; if (!s) return ui.showError(new US.UserError('NO_SEQUENCE'));
         try {
           const info = await US.host.call('sequenceInfo', { seqId: s.id, clips: false });
-          const have = (await US.host.call('renderRanges', { seqId: s.id })).ranges.length;
+          const have = (await US.host.call('renderRanges', { seqId: s.id, track: ro.track || undefined })).ranges.length;
           const span = newRangeSpan(info, s.playhead);
           const name = rangeName.value.trim() || `Render ${have + 1}`;
-          const r = await US.host.call('addRenderRange', Object.assign({ seqId: s.id, name }, span));
+          const label = newColour.get() === '' ? undefined : Number(newColour.get());
+          const r = await US.host.call('addRenderRange', Object.assign({ seqId: s.id, name, track: ro.track || undefined, label }, span));
           if (!r.placed) throw new US.UserError('HOST_SCRIPT', { title: 'Premiere didn’t place the render range.', action: 'Check the sequence isn’t locked, then try again.', detail: r.log.join('\n') });
-          if (!r.named) ui.toast({ type: 'info', title: 'Name the new top track “Renders”', text: 'Premiere didn’t let Ultra Studio name it. Double-click the track name in the Timeline and type Renders – only that track’s layers are rendered.', timeout: 15000 });
+          if (!r.named) ui.toast({ type: 'info', title: `Name the new top track “${ro.track || 'Renders'}”`, text: `Premiere didn’t let Ultra Studio name it. Double-click the track name in the Timeline and type ${ro.track || 'Renders'} – only that track’s layers are rendered.`, timeout: 15000 });
           if (r.kind !== 'adjustment' && r.kind !== 'marker') ui.toast({ type: 'info', title: 'Added as an invisible clip', text: 'There’s no adjustment layer in this project, so the range is an invisible clip instead. It renders just the same. Add one with File › New › Adjustment Layer if you’d rather.', timeout: 12000 });
           rangeName.value = '';
           US.log('ok', `Render range “${name}” added`, `${US.fmtDur(span.start)} – ${US.fmtDur(span.end)}`, 'deliver');
-          await showRanges();
+          shownSig = ''; await showRanges();
         } catch (e) { ui.showError(e); }
       } });
       const rangeBtn = ui.actionButton('Send the renders to Media Encoder', async () => {
@@ -378,14 +448,20 @@
       const rangeOpen = ui.button('Open export folder', { small: true, icon: 'folder', onClick: openFolder });
       rangeOpen.classList.add('hidden');
       panes.ranges.append(
-        ui.card(h('div.row', h('div.grow.card-title', 'Render ranges'), ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: showRanges })), rangeTrackLine, rangeList,
-          h('div.row', h('div.grow', rangeName), addRange)),
+        ui.card(h('div.row', h('div.grow.card-title', 'Render ranges'), ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => { shownSig = ''; showRanges(); } })),
+          h('div.grid2', ui.field(inResolve() ? 'Ranges' : 'Track', trackSel, inResolve() ? '' : 'The video track whose adjustment layers are the ranges.'), ui.field('Colour', colourSel, 'Render only the layers of one colour.')),
+          rangeTrackLine, rangeList,
+          h('div.row', h('div.grow', rangeName), newColour, addRange),
+          ui.note('The list follows the Timeline by itself: add, trim, rename or recolour a layer there and it shows here within a few seconds.', 'info')),
         ui.card(ui.field('Export settings', presetSel, inResolve() ? 'Your own render presets from Resolve’s Deliver page are listed here too.' : 'Presets you save in Media Encoder or Premiere’s Export screen are listed here too.'),
+          ui.field('Add to every file name', suffixIn, 'For example _1 or _v2: “Song 1_v2.mp4”. The export pack uses it too.'),
           ui.toggle({ label: 'Start rendering straight away', hint: inResolve() ? 'Off: the renders wait in the Render Queue on the Deliver page until you press Render All.' : 'Off: the renders wait in Media Encoder’s queue until you press its green Start button.', value: !ro.queueOnly, onChange: x => { ro.queueOnly = !x; saveRo(); } }),
           ui.toggle({ label: 'Replace earlier renders with the same name', hint: 'Off: a new copy is saved as “Name (2)”.', value: !!ro.replace, onChange: x => { ro.replace = x; saveRo(); } }),
           folderRow()),
-        ui.note(inResolve() ? 'Each render range is a duration marker on the timeline (added with the button above): its length is the part that renders, its name becomes the file name, and they render one after another in timeline order. Delete a marker to drop that render.' : 'Each adjustment layer on the “Renders” track marks one render: its length is the part that exports, its name becomes the file name, and they all go to Media Encoder in timeline order. Switch a layer off (Enable in the Timeline) to skip it. Effects you add to a layer show in that render only.'),
+        ui.note(inResolve() ? 'Each render range is a marker with a length on the timeline: its length is the part that renders, its name becomes the file name, and they render one after another in timeline order. Change or delete them here or in the Timeline.' : 'Each adjustment layer on the chosen track marks one render: its length is the part that exports, its name becomes the file name, and they all go to Media Encoder in timeline order. Switch a layer off (Enable in the Timeline) to skip it. Effects you add to a layer show in that render only.'),
         rangeBtn, rangeOpen);
+      // refresh by the clock while Render ranges is on screen (layers added or changed in the Timeline show up)
+      setInterval(() => { if (!panes.ranges.classList.contains('hidden') && !v.el.closest('.hidden') && !document.hidden && !US.jobs.current) showRanges(true); }, 3000);
 
       /* client notes */
       const notesBox = h('textarea.input', { rows: 9, placeholder: 'Paste notes here, one per line, e.g.\n0:12 lose the cough\n01:05 – swap the music here\n1:20-1:32 tighten this bit\n\nFrame.io CSV exports work too.' });
@@ -452,5 +528,5 @@
     }
   });
 
-  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS, rangePlan, userPresets, newRangeSpan };
+  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS, rangePlan, userPresets, newRangeSpan, cleanSuffix };
 })();
