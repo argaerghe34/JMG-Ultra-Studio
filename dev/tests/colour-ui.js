@@ -7,6 +7,7 @@ process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'us-ui-'));
 process.env.APPDATA = process.env.LOCALAPPDATA = process.env.HOME; // Windows keeps settings and LUTs under AppData, not HOME
 const dom = new JSDOM('<!doctype html><html><body><div id="app"></div><div id="toasts"></div></body></html>', { pretendToBeVisual: true, runScripts: 'outside-only', url: 'file://' + path.join(ROOT, 'index.html') });
 const w = dom.window;
+w.US_SHOW_PAUSED = true; // Colour is paused in the panel, but its code is still tested
 w.require = require; w.process = process; w.Buffer = Buffer; w.console = console;
 w.ResizeObserver = function () { return { observe() {}, disconnect() {} }; };
 w.HTMLCanvasElement.prototype.getContext = () => ({ putImageData() {}, drawImage() {}, getImageData: (x,y,a,b) => ({ data: new Uint8ClampedArray(a*b*4) }) });

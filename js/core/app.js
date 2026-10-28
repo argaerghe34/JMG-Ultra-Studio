@@ -7,9 +7,13 @@
   const defs = [];
   const mounted = new Map();
   let currentId = null;
+  /** Tools taken out for now (the user asked, 28 Oct 2026). Their code stays; delete an id here to bring one back.
+      The unit tests set window.US_SHOW_PAUSED so the paused tools' code is still tested. */
+  US.PAUSED_TOOLS = window.US_SHOW_PAUSED ? [] : ['colour', 'cameras'];
   US.tools = {
     /** register({id, name, short, icon, group, blurb, order, create: () => ({el, onShow?, onHide?})}) */
     register(def) {
+      if (US.PAUSED_TOOLS.includes(def.id)) return;
       // re-registering (development hot reload) replaces the old tool and its screen
       const i = defs.findIndex(d => d.id === def.id);
       if (i >= 0) { defs.splice(i, 1); const m = mounted.get(def.id); if (m) { m.el.remove(); mounted.delete(def.id); } }
@@ -30,7 +34,7 @@
      *            run: async (params, job) -> {summary} })
      * run() is called inside a job; it should use job.progress/job.check and throw US.UserError for plain failures.
      */
-    register(a) { const i = actions.findIndex(x => x.id === a.id); if (i >= 0) actions.splice(i, 1); actions.push(Object.assign({ params: {}, examples: [], changes: false }, a)); },
+    register(a) { if (US.PAUSED_TOOLS.includes(a.tool)) return; const i = actions.findIndex(x => x.id === a.id); if (i >= 0) actions.splice(i, 1); actions.push(Object.assign({ params: {}, examples: [], changes: false }, a)); },
     list() { return actions.slice(); },
     get(id) { return actions.find(a => a.id === id); },
     /** Fill defaults and coerce types. */

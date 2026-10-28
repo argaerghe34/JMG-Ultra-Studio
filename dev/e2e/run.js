@@ -71,7 +71,9 @@ async function runOne(ws, file) {
   const t = (await targets()).find(x => x.type === 'page');
   const ws = new WebSocket(t.webSocketDebuggerUrl, { perMessageDeflate: false });
   await new Promise(r => ws.on('open', r));
-  const files = fs.readdirSync(__dirname).filter(f => f.endsWith('.e2e.js') && (!only.length || only.some(o => f.includes(o)))).sort();
+  // Colour and Camera Switch are paused (US.PAUSED_TOOLS): their tests run only when named, e.g. `run.js colour`
+  const paused = f => /^(24[b-d]-cameras|34[a-z]?-colour)/.test(f);
+  const files = fs.readdirSync(__dirname).filter(f => f.endsWith('.e2e.js') && (only.length ? only.some(o => f.includes(o)) : !paused(f))).sort();
   // E2E_RETRY=1: a failing test runs once more, and is reported as passing on the second try (never hidden)
   const retry = process.env.E2E_RETRY === '1';
   let pass = 0, fail = 0; const second = [];

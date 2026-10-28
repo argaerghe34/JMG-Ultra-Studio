@@ -10,6 +10,7 @@ function load(extra = []) {
     process.env.HOME = home;
     process.env.APPDATA = process.env.LOCALAPPDATA = home; // Windows keeps them under AppData, not HOME
     global.window = global;
+    global.US_SHOW_PAUSED = true; // Colour and Camera Switch are paused in the panel, but their code is still tested
     global.require = require;
     global.performance = global.performance || require('perf_hooks').performance;
     global.requestAnimationFrame = fn => setTimeout(fn, 0);
