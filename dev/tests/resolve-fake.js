@@ -93,8 +93,10 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     };
     it.GetName = () => it._name;
     it.SetName = n => { it._name = n; return true; };
-    // like Resolve 21.1: asking a subtitle file (.srt) for its clip properties aborts the app
-    it.GetClipProperty = k => { if (/^subtitle$/i.test(m.type)) { crashes.push('GetClipProperty of subtitle ' + it._name); throw new Error('Resolve would abort: GetMediaFrameExtentsWithFrameRate'); } return k ? it._props()[k] : it._props(); };
+    // like Resolve 21.1: a subtitle file answers GetClipProperty() with Type "Subtitle" (measured in 21.1.2, its name
+    // without “.srt”), but one named “….srt” once aborted the app when asked; asking it for one property isn't measured,
+    // so the stand-in treats both as fatal
+    it.GetClipProperty = k => { if (/^subtitle$/i.test(m.type) && (k || /\.srt$/i.test(it._name))) { crashes.push('GetClipProperty of subtitle ' + it._name); throw new Error('Resolve would abort: GetMediaFrameExtentsWithFrameRate'); } return k ? it._props()[k] : it._props(); };
     it.SetClipProperty = (k, v) => { if (k === 'Clip Name') { it._name = v; return true; } return false; };
     it.GetMetadata = () => ({});
     it.SetMetadata = () => true;
@@ -222,6 +224,8 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
       const out = [];
       for (const c0 of [].concat(clips)) {
         const c = c0 && c0.mediaPoolItem ? c0 : { mediaPoolItem: c0, startFrame: c0._start, endFrame: c0._end + 1 };
+        // like Resolve 21.1.2: laying a subtitle file by script aborts the app (28 Oct 2026, overnight prep)
+        if (/^subtitle$/i.test(c.mediaPoolItem._m.type)) { crashes.push('AppendToTimeline of subtitle ' + c.mediaPoolItem._name); throw new Error('Resolve would abort: GetMediaFrameExtentsWithFrameRate'); }
         const m = c.mediaPoolItem._m, hasV = /video|still|timeline/i.test(m.type), hasA = /audio/i.test(m.type) || m.audioCh > 0;
         const track = c.trackIndex || 1;
         const end = Math.max(tl._start, ...((c.mediaType === 2 ? tl._a : tl._v)[track - 1] || []).map(i => i._end));

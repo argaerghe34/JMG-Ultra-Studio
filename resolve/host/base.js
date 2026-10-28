@@ -53,10 +53,11 @@ const list = v => (Array.isArray(v) ? v : v && typeof v === 'object' ? Object.ke
 
 module.exports = function makeBase(api) {
   let cache = null; // cleared at the start of every command (Resolve can change between calls)
+  const subs = new Map(); // clip id → is a subtitle file (cleared with the cache)
   const R = {
     api, err, parseFps, framesToTC, tcToFrames, list, STILL_EXT, AUDIO_EXT,
     MARKER_COLORS, MARKER_BACK, LABEL_COLORS, LABEL_BACK, LABEL_HEX,
-    fresh() { cache = null; },
+    fresh() { cache = null; subs.clear(); },
     /**
      * Resolve 21.1 can abort (whole app) when a script sends it an odd value – undefined, null or NaN as an argument or
      * inside a dict. num() is a finite number or null; clean(dict) drops every key whose value isn't a real value, so
@@ -125,13 +126,27 @@ module.exports = function makeBase(api) {
     /* ---------- clip details, shaped like Premiere's itemInfo ---------- */
     /**
      * Subtitle files in the Media Pool (an imported .srt). Resolve 21.1 ABORTS – the whole app crashes, assertion in
-     * GetMediaFrameExtentsWithFrameRate – when a script asks one for its clip properties, so they're known by name and
-     * never asked.
+     * GetMediaFrameExtentsWithFrameRate – when a script lays one on a timeline (and, once, when one named “….srt” was
+     * asked for its properties). Resolve often drops the “.srt” from the name, so a subtitle is known by its name or by
+     * its Type (“Subtitle”, from GetClipProperty() with no key – measured safe in 21.1.2), and is never laid or asked
+     * for frames.
      */
-    isSubtitle(item) { try { return SUBTITLE_EXT.test(String(item.GetName() || '')); } catch (e) { return false; } },
+    isSubtitle(item) {
+      let name = '';
+      try { name = String(item.GetName() || ''); } catch (e) { return false; }
+      if (SUBTITLE_EXT.test(name)) return true;
+      const id = R.id(item);
+      if (!subs.has(id)) R.props(item);
+      return !!subs.get(id);
+    },
     props(item) {
-      if (R.isSubtitle(item)) return { 'Clip Name': String(item.GetName() || ''), 'Type': 'Subtitle', 'File Path': '' };
-      try { return item.GetClipProperty() || {}; } catch (e) { return {}; }
+      let name = '';
+      try { name = String(item.GetName() || ''); } catch (e) { /* dead object */ }
+      if (SUBTITLE_EXT.test(name)) return { 'Clip Name': name, 'Type': 'Subtitle', 'File Path': '' };
+      let p = {};
+      try { p = item.GetClipProperty() || {}; } catch (e) { /* refused */ }
+      subs.set(R.id(item), /^subtitle$/i.test(String(p['Type'] || '')));
+      return p;
     },
     /** One clip property (quicker than all of them), never asked of a subtitle file (see isSubtitle). */
     prop(item, key) { if (R.isSubtitle(item)) return String(R.props(item)[key] || ''); try { return String(item.GetClipProperty(key) || ''); } catch (e) { return ''; } },
@@ -141,6 +156,7 @@ module.exports = function makeBase(api) {
     quickKind(item) {
       const p = R.props(item), type = String(p['Type'] || '');
       if (/timeline/i.test(type)) return 'sequence';
+      if (/^subtitle$/i.test(type)) return 'other';
       const file = String(p['File Path'] || '');
       if (/still/i.test(type) || STILL_EXT.test(file)) return 'still';
       if (/^audio$/i.test(type) || (!/video/i.test(type) && AUDIO_EXT.test(file))) return 'audio';
@@ -164,8 +180,9 @@ module.exports = function makeBase(api) {
       const frames = Number(p['Frames']) || tcToFrames(p['Duration'], fps) || 0;
       const res = /(\d+)\s*x\s*(\d+)/.exec(String(p['Resolution'] || ''));
       o.width = res ? Number(res[1]) : 0; o.height = res ? Number(res[2]) : 0;
-      o.hasVideo = /video|still|timeline|compound|multicam/i.test(type) || (!!res && !/^audio$/i.test(type));
-      o.hasAudio = /audio/i.test(type) || Number(p['Audio Ch']) > 0;
+      const isSub = /^subtitle$/i.test(type);   // a subtitle file has a Resolution too: it isn't footage
+      o.hasVideo = !isSub && (/video|still|timeline|compound|multicam/i.test(type) || (!!res && !/^audio$/i.test(type)));
+      o.hasAudio = !isSub && (/audio/i.test(type) || Number(p['Audio Ch']) > 0);
       o.fps = fps; o.fpsText = fps ? fps + ' fps' : '';
       o.isSequence = isSeq;
       const start = Number(p['Start']), end = Number(p['End']);
@@ -173,7 +190,7 @@ module.exports = function makeBase(api) {
       o.duration = frames / fps;
       o.rangeStart = o.subclip ? start / fps : 0;
       o.rangeEnd = o.subclip ? (end + 1) / fps : o.duration;
-      o.kind = isSeq ? 'sequence' : (o.hasVideo ? (STILL_EXT.test(file) || /still/i.test(type) ? 'still' : 'video') : (o.hasAudio ? 'audio' : 'other'));
+      o.kind = isSeq ? 'sequence' : isSub ? 'subtitle' : (o.hasVideo ? (STILL_EXT.test(file) || /still/i.test(type) ? 'still' : 'video') : (o.hasAudio ? 'audio' : 'other'));
       return o;
     },
 

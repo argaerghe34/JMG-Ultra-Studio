@@ -25,14 +25,7 @@ module.exports = (R) => {
   /* ---------- small helpers (candidates for base.js) ---------- */
   const tryCall = (fn, dflt) => { try { const v = fn(); return v == null ? dflt : v; } catch (e) { return dflt; } };
   /** Fast kind from two clip properties (GetClipProperty(key) is quicker than the whole dict). */
-  function kindOf(item) {
-    const type = String(R.prop(item, 'Type')), file = String(R.prop(item, 'File Path'));
-    if (/timeline/i.test(type)) return 'sequence';
-    if (/still/i.test(type) || R.STILL_EXT.test(file)) return 'still';
-    if (/^audio$/i.test(type) || (!/video/i.test(type) && R.AUDIO_EXT.test(file))) return 'audio';
-    if (/video/i.test(type)) return 'video';
-    return file ? 'video' : 'other';
-  }
+  const kindOf = item => R.quickKind(item);   // a subtitle file is 'other' (see R.isSubtitle)
   const quickOk = (kind, kinds) => (!kinds || !kinds.length ? true : kinds.includes(kind) || (kinds.includes('audio') && kind === 'video'));
   function kindOk(info, kinds) {
     if (!kinds || !kinds.length) return true;

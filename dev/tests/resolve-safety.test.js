@@ -111,6 +111,24 @@ test('resolve safety: a subtitle file is never laid on a timeline or asked for i
   assert.deepStrictEqual(await S.run('audioClipRange', { id: srt.GetUniqueId() }), { in: 0, out: 0, duration: 0, mediaStart: 0, subclip: false });
 });
 
+test('resolve safety: a subtitle whose name has no “.srt” (as Resolve shows an imported one) is known by its Type', async () => {
+  const S = kit.setup();
+  const sub = S.F.addMedia('/m/Cut captions.srt', { type: 'Subtitle', frames: 425, audioCh: 0, name: 'Cut captions - social captions (14)' });
+  const vid = S.F.addMedia(path.join(S.dir, 'A.mp4'), { frames: 250 });
+  const id = sub.GetUniqueId();
+  const info = (await S.run('itemsInfo', { ids: [id] }))[0];
+  assert.strictEqual(info.kind, 'subtitle', 'not footage, though it has a Resolution');
+  assert.ok(!info.hasVideo && !info.hasAudio);
+  const listed = await S.run('binList', { binId: S.host.R.id(S.host.R.root()), kinds: ['video'], recursive: true });
+  assert.deepStrictEqual(listed.map(x => x.id), [vid.GetUniqueId()], 'overnight prep and Selects never see it');
+  const tl = S.F.addTimeline('Cut', []), before = S.F.timelines.length;
+  assert.deepStrictEqual((await S.run('selectsPlaceWhole', { seqId: tl.GetUniqueId(), ids: [id] })).placed, [null]);
+  await assert.rejects(S.run('queueItemExport', { id, out: path.join(S.dir, 'x.mp4'), preset: 'resolve:h264' }));
+  await assert.rejects(S.run('renderAudio', { id }));
+  assert.strictEqual(S.F.timelines.length, before, 'no scratch timeline left behind');
+  assert.deepStrictEqual(S.F.crashes, [], 'nothing that would abort Resolve');
+});
+
 test('resolve safety: a thrown SetRenderSettings / StartRendering is a refusal, and the settings are still put back', async () => {
   const S = kit.setup();
   const file = path.join(S.dir, 'A.mp4'); fs.writeFileSync(file, 'x');
