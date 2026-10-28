@@ -52,7 +52,9 @@ T.assert(r.selects.every(s => s.tl != null && s.tl >= 0 && s.tl <= 40), 'each se
 T.assert(r.rejected.some(x => x.clipId === c10.id && x.start >= 14.9 && /focus|dark/i.test(x.why)), 'the blurry/dark use of C010 is rejected');
 T.assert(r.selects.filter(s => s.clipId === c10.id).every(s => s.start >= 4 - 1e-6 && s.end <= 12 + 1e-6), 'only the used stretch of C010 is graded');
 const faceSel = r.selects.find(s => s.clipId === face.id);
-T.assert(faceSel && faceSel.shot === 'close' && faceSel.faces, 'the talking head is a close-up with a face');
+// Resolve's panel browser (Electron 36) has no FaceDetector, so faces are found in Premiere only (dev/RESOLVE.md)
+if (US.app.is('resolve')) T.assert(faceSel, 'the talking head is graded');
+else T.assert(faceSel && faceSel.shot === 'close' && faceSel.faces, 'the talking head is a close-up with a face');
 const before = (await US.host.call('listSequences')).map(s => s.id);
 const binsBefore = new Set((await US.host.call('listBins')).map(b => b.path));
 const out = await S.makeOutputs({ sequence: true, order: 'sequence', markBest: true, tiers: 'all', seqMarkers: true, byType: { groups: ['grade', 'shot', 'move', 'special'], sequences: false }, basePath: `${BIN}/E2E output` }, US.jobs.testJob('selects out'));
@@ -62,12 +64,14 @@ T.assert(main.video[0].clips.length === n, `selects sequence has ${main.video[0]
 T.near(main.duration, US.sum(r.selects.map(s => s.dur)), n * main.frame + 0.05, 'sequence length = total select length');
 T.assert(main.markers.filter(m => /★/.test(m.name)).length === heroes, 'a ★ marker per marked best');
 const bins = (await US.host.call('listBins')).map(b => b.path);
-const run = bins.find(p => !binsBefore.has(p) && /^Test – Selects \/ E2E output \/ [^/]+$/.test(p) && bins.includes(p + ' / By shot size / Close-ups'));
+const byType = US.app.is('resolve') ? ' / By grade' : ' / By shot size / Close-ups';   // Resolve finds no faces, so no close-ups
+const run = bins.find(p => !binsBefore.has(p) && /^Test – Selects \/ E2E output \/ [^/]+$/.test(p) && bins.includes(p + byType));
 T.assert(run, 'bins by type made: ' + bins.filter(p => /E2E output/.test(p)).slice(-12).join(' | '));
 for (const b of ['By grade / BEST', 'By camera move / Static', 'By camera move / Pans', 'Special / Hero shots']) T.assert(bins.includes(`${run} / ${b}`), `bin ${b}`);
 const heroBin = (await US.host.call('listBins')).find(b => b.path === `${run} / Special / Hero shots`);
 const heroClips = await US.host.call('binItems', { binId: heroBin.id, kinds: [], recursive: false });
-T.assert(heroClips.length === heroes && heroClips.every(c => c.label === 11 && /^\d{3}_★_/.test(c.name)), 'hero subclips are magenta, ★ and numbered best-first: ' + heroClips.map(c => c.name + '/' + c.label).join(', '));
+// Resolve has fewer clip colours: magenta (label 11) is its Pink, which reads back as label 6 (resolve/host/base.js LABEL_COLORS)
+T.assert(heroClips.length === heroes && heroClips.every(c => (US.app.is('resolve') ? c.labelName === 'Pink' : c.label === 11) && /^\d{3}_★_/.test(c.name)), 'hero subclips are magenta, ★ and numbered best-first: ' + heroClips.map(c => c.name + '/' + c.label).join(', '));
 const closeBin = (await US.host.call('listBins')).find(b => b.path === `${run} / By shot size / Close-ups`);
 const closeClips = await US.host.call('binItems', { binId: closeBin.id, kinds: [], recursive: false });
 T.assert(closeClips.length >= 1 && closeClips.every(c => c.label === 6 || c.label === 11), 'close-ups are rose (or magenta if best)');

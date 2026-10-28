@@ -17,7 +17,13 @@ try {
   const before = await captionTracks();
   const r = await T.action('story.captions', { style: 'social', upper: true });
   T.assert(r.count > 5 && fs.existsSync(r.file), 'captions written: ' + r.summary);
-  T.assert(await captionTracks() === before + 1, 'a caption track was added to the sequence');
+  // Resolve: a subtitle file can't be laid by script (it crashes Resolve 21.1), so it's imported for the person to drag
+  if (US.app.is('resolve')) {
+    T.assert(r.added === false && await captionTracks() === before && /drag/.test(r.summary), 'Resolve: captions saved for dragging, no track added: ' + r.summary);
+    const stem = path.basename(r.file).replace(/\.srt$/i, '');
+    const n = await T.devEval('R.forget(); return R.index().clips.filter(c => R.isSubtitle(c.item) && String(c.item.GetName()).startsWith(' + JSON.stringify(stem) + ')).length');
+    T.assert(n === 1, 'the captions file is in the Media Pool: ' + n);
+  } else T.assert(await captionTracks() === before + 1, 'a caption track was added to the sequence');
   const srt = fs.readFileSync(r.file, 'utf8');
   const cues = srt.trim().split(/\n\n/).map(b => b.split('\n')).map(l => ({ t: l[1], text: l.slice(2).join(' ') }));
   T.assert(cues.every(c => c.text === c.text.toUpperCase() && c.text.split(' ').length <= 3), 'social style: capitals, up to 3 words');

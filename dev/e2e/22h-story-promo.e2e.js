@@ -17,7 +17,8 @@ try {
   T.assert(info.video.some(t => t.name === 'B-roll' && t.clips.length > 0), 'B-roll laid over the cuts');
   const v = await US.host.call('sequenceInfo', { seqId: r.vertical.id });
   T.assert(v.width === 1080 && v.height === 1920, `vertical is full size: ${v.width}×${v.height}`);
-  T.assert(await captionTracks() === before + 2, 'captions on the promo and on the vertical version');
+  // Resolve imports the captions for the person to drag on (laying a subtitle file by script crashes Resolve 21.1)
+  T.assert(await captionTracks() === before + (US.app.is('resolve') ? 0 : 2), 'captions on the promo and on the vertical version');
   const ctx = await US.host.call('context');
   T.assert(ctx.sequence && ctx.sequence.id === r.vertical.id, 'the vertical version is open at the end');
   T.assert(US.actions.get('story.promo').match('turn the narrative into a promo with b-roll from the B-roll bin and subtitles').captions === 'subtitles', 'assistant: subtitles');

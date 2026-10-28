@@ -58,7 +58,7 @@ try {
   const rows = fs.readFileSync(files.csv, 'utf8').replace(/^﻿/, '').trim().split('\r\n');
   T.assert(rows.length === 9, 'csv rows ' + rows.length);
   const c3 = rows[3].split(',');
-  T.assert(c3[0] === E.tc(e[2].start, { fps: tl.info.timing.fps }) && c3[2] === 'Speaker A' && c3[4] === 'C001_sharp_static.mp4' && c3[5] === '00:00:00:12', 'csv row for C001: ' + rows[3]);
+  T.assert(c3[0] === E.tc(e[2].start + (tl.info.timing.zero || 0), { fps: tl.info.timing.fps, drop: tl.info.timing.drop }) && c3[2] === 'Speaker A' && c3[4] === 'C001_sharp_static.mp4' && c3[5] === '00:00:00:12', 'csv row for C001: ' + rows[3]);
   const txt = fs.readFileSync(files.txt, 'utf8');
   T.assert(txt.includes('Speakers:') && txt.includes(`${tc0}  Ruth: …`), 'text export');
 

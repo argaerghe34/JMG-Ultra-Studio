@@ -56,13 +56,26 @@ stays, and they get no Resolve layer until they come back.
 | Auto Reframe | `TimelineItem.SmartReframe()` (Studio). |
 | Premiere transcripts | Resolve's own transcripts can't be read by script, so Story has Resolve make subtitles of each clip on a scratch timeline and reads those (per phrase: no word timings or speaker names). Transcript files work as in Premiere. |
 | Captions (Story) | The SRT is written and imported into the Captions bin; the person drags it to the timeline (placing a subtitle by script crashes Resolve 21.1). |
+| Selects: faces / close-ups | The panel's browser in Resolve has no face detector, so shot sizes don't use faces. |
 | Project file path (Story travels with the project) | Resolve projects live in a database, not a file: see `storyProjectFile` in `resolve/host/story.js`. |
 
 ## Measured in real Resolve Studio 21.1.2 (28 Oct 2026) – the API reference doesn't say these
-- **Crashes:** asking a subtitle item (an imported .srt) for its clip properties, or laying one on a timeline by
-  script, aborts the whole app (assertion in `GetMediaFrameExtentsWithFrameRate`). Subtitle files are recognised by
-  name (`R.isSubtitle`) and never asked; Story's captions are imported for the person to drag. Treat any odd value
-  sent to the API (undefined/NaN in a dict) as a crash risk.
+- **Crashes:** laying a subtitle item (an imported .srt) on a timeline by script aborts the whole app (assertion in
+  `GetMediaFrameExtentsWithFrameRate`); one named "….srt" also did when asked for its clip properties. Resolve often
+  shows an imported .srt **without** its extension, so `R.isSubtitle` also goes by `GetClipProperty()['Type'] ===
+  'Subtitle'` (that all-properties call was safe on one), and `itemInfo` gives such an item `kind: 'subtitle'` – it
+  is never footage, never laid, never rendered. Story's captions are imported for the person to drag. Treat any odd
+  value sent to the API (undefined/NaN in a dict) as a crash risk.
+- **Transcription runs in the background:** `Timeline.CreateSubtitlesFromAudio` returns at once (and throws
+  "GetArgument – Unknown object type" for a settings dict such as `{}`, though it starts anyway); the subtitles arrive
+  all together later (~25 s for a 90 s clip). Deleting the timeline before then **crashes Resolve**. `storyTranscribe`
+  calls it with no settings, waits for the subtitles to arrive and settle, and leaves a timeline that may still be in
+  use in the .scratch bin (cleared an hour later). Resolve writes "[MUSIC]" when it hears no words; the panel drops
+  such sound tags.
+- **No face detection in the panel:** Resolve's Electron 36 (Chromium 136) has no `FaceDetector`, even with
+  experimental features on, so Selects finds no faces (no close-up bins from faces) in Resolve.
+- **Clip colours:** Resolve has fewer than Premiere's 16 labels, so some share a colour (magenta 11 and rose 6 are both
+  Pink) and read back as the first.
 - **Errors are thrown**, not returned as false ("Execute: …: Error response (errorStr:…)").
 - **Ranges:** `AppendToTimeline`'s `endFrame` is exclusive (50–99 is 49 frames); subclips
   (`AddItemListToMediaPool`) count it inclusive (125–175 is 51 frames). Render `MarkIn`/`MarkOut` are absolute and
