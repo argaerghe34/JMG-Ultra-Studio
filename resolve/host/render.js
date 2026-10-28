@@ -306,7 +306,8 @@ function engine(R) {
       if (state === 'missing') out.error = 'The render was taken off Resolve’s Render Queue.';
       if (toWav.has(id) && state === 'complete') {
         const wav = toWav.get(id); toWav.delete(id);
-        try { movPcmToWav(file, wav); if (file !== wav) fs.unlinkSync(file); out.file = wav; } catch (e) { out.status = 'failed'; out.error = 'Couldn’t read the sound Resolve rendered: ' + e.message; }
+        // sometimes Resolve writes a WAV itself (a clip's scratch timeline did): then it only needs the right name
+        try { if (wavHeader(file)) { if (file !== wav) fs.renameSync(file, wav); } else { movPcmToWav(file, wav); if (file !== wav) fs.unlinkSync(file); } out.file = wav; } catch (e) { out.status = 'failed'; out.error = 'Couldn’t read the sound Resolve rendered: ' + e.message; }
       } else if (/failed|cancelled|missing/.test(state)) toWav.delete(id);
       if (/complete|failed|cancelled|missing/.test(state)) finish(id, state);
       return out;
