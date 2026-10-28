@@ -568,7 +568,10 @@
     const moveRaw = S.map((s, i) => {
       if (fast[i]) return 'fast';
       if (raw[i] > 0.0025) return 'handheld';
-      if (s.zm != null && Math.abs(s.zm) >= 0.025) return s.zm > 0 ? 'push-in' : 'pull-out';
+      // a zoom reading counts when it's large, or larger than the sideways motion: during a clear pan the scale search
+      // can take part of a sub-pixel shift for a little zoom (C009, a pure pan, read 0.02–0.03 in Resolve's engine)
+      const side = Math.max(Math.abs(s.lx), Math.abs(s.ly));
+      if (s.zm != null && Math.abs(s.zm) >= 0.025 && (Math.abs(s.zm) >= 0.05 || Math.abs(s.zm) > 2 * side)) return s.zm > 0 ? 'push-in' : 'pull-out';
       if (Math.abs(s.lx) >= 0.008 && Math.abs(s.lx) >= Math.abs(s.ly)) return 'pan';
       if (Math.abs(s.ly) >= 0.008) return 'tilt';
       return 'static';
