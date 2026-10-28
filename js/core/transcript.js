@@ -463,10 +463,12 @@
    * timings (w): trims and captions spread a line's words evenly over it. A speaker written at the start of a caption
    * ("Ruth: …", "- …") is split off as in subtitle files.
    */
+  // sound tags a speech-to-text writes when it hears no words ("[MUSIC]", "(applause)", "♪") – not lines
+  const SOUND_TAG = /[[(]\s*(music|applause|laughter|laughs|laughing|cheering|cheers|inaudible|silence|noise|background noise|crosstalk|no audio|blank_audio|foreign)\s*[\])](?!\s*:)|[♪♫]+/gi;
   function fromSubtitles(items) {
     const out = [];
     for (const x of items || []) {
-      const start = Number(x.start), end = Number(x.end), t = cleanCaption(String(x.text || '').replace(/^\s*-\s+/, ''));
+      const start = Number(x.start), end = Number(x.end), t = cleanCaption(String(x.text || '').replace(SOUND_TAG, ' ').replace(/^\s*-\s+/, ''));
       if (!t || !isFinite(start)) continue;
       const sp = splitSpeaker(t);
       out.push({ start, end: Math.max(isFinite(end) ? end : start, start + 0.1), speaker: sp.speaker, text: sp.text });

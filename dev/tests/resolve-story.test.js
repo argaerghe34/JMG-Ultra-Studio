@@ -14,7 +14,10 @@ const { LABEL_MARKER } = require('../../resolve/host/story');
  * (F.media[srt].cues = [[startSec, endSec, text]]; F.subtitleShift moves them, F.subtitleRefused places nothing).
  */
 function withSubtitles(F) {
-  F.speech = {};
+  F.speech = {}; F.transcribing = new Set(); F.transcribeDelay = 30;
+  // deleting a timeline Resolve is still transcribing into crashes it (Resolve 21.1.2, 28 Oct 2026)
+  const delTl = F.pool.DeleteTimelines;
+  F.pool.DeleteTimelines = tls => { for (const t of [].concat(tls)) if (F.transcribing.has(t)) { F.crashes.push('DeleteTimelines while transcribing ' + t.GetName()); throw new Error('Resolve would crash: timeline deleted while transcribing'); } return delTl(tls); };
   const subItem = (tl, track, start, end, text) => {
     const it = { _type: 'subtitle', _track: track, _start: start, _end: end, _id: 'sub-' + Math.random().toString(36).slice(2) };
     Object.assign(it, { GetName: () => text, GetStart: () => it._start, GetEnd: () => it._end, GetUniqueId: () => it._id, GetTrackTypeAndIndex: () => ['subtitle', track], GetMediaPoolItem: () => null });
@@ -34,18 +37,24 @@ function withSubtitles(F) {
       for (const tr of tl._s) for (const it of items) { const k = tr.indexOf(it); if (k >= 0) tr.splice(k, 1); }
       return delClips(items.filter(i => i._type !== 'subtitle'), ripple);
     };
-    tl.CreateSubtitlesFromAudio = settings => {
-      F.log.push(['CreateSubtitlesFromAudio', settings]);
+    // like Resolve 21.1.2: it transcribes in the background – the subtitles arrive F.transcribeDelay ms later, all
+    // together – and a settings dict it can't read (e.g. {}) throws "GetArgument" though it starts anyway
+    tl.CreateSubtitlesFromAudio = (...args) => {
+      F.log.push(['CreateSubtitlesFromAudio', args[0]]);
       if (F.transcribeFails) return false;
       const a = tl.GetItemListInTrack('audio', 1)[0];
       if (!a) return false;
-      if (!tl._s.length) tl._s.push([]);
       const fps = Number(tl.GetSetting('timelineFrameRate')), file = a._mpi._file;
-      for (const [text, s, e] of F.speech[file] || []) {
-        const f0 = Math.round(s * fps), f1 = Math.round(e * fps);
-        if (f0 < a._srcStart || f1 > a._srcStart + (a._end - a._start)) continue;
-        subItem(tl, 1, a._start + f0 - a._srcStart, a._start + f1 - a._srcStart, text);
-      }
+      const subs = (F.transcribeSilent ? [] : F.speech[file] || []).map(([text, s, e]) => [text, Math.round(s * fps), Math.round(e * fps)])
+        .filter(([, f0, f1]) => f0 >= a._srcStart && f1 <= a._srcStart + (a._end - a._start));
+      F.transcribing.add(tl);
+      setTimeout(() => {
+        F.transcribing.delete(tl);
+        if (!F.timelines.includes(tl)) return;
+        if (!tl._s.length) tl._s.push([]);
+        for (const [text, f0, f1] of subs) subItem(tl, 1, a._start + f0 - a._srcStart, a._start + f1 - a._srcStart, text);
+      }, F.transcribeDelay);
+      if (args.length && args[0] && typeof args[0] === 'object' && Object.keys(args[0]).every(k => !/^\d+$/.test(k))) throw new Error('CreateSubtitlesFromAudio: GetArgument - Unknown object type detected for key:0');
       return true;
     };
     return tl;
@@ -72,6 +81,7 @@ function withSubtitles(F) {
 function setup(opts) {
   const F = withSubtitles(Fake.make(opts));
   const host = HOST.connect({ api: F.resolve });
+  host.R.transcribeTiming = { poll: 5, settle: 40, max: () => 400 };   // quick, in step with F.transcribeDelay
   const run = async (name, args) => { const r = await host.run(name, args); if (!r.ok) throw Object.assign(new Error(`${name}: ${r.error.code} ${r.error.detail}`), { res: r }); return r.data; };
   const fail = async (name, args) => { const r = await host.run(name, args); assert.ok(!r.ok, name + ' should fail'); return r.error; };
   return { F, host, run, fail };
@@ -113,8 +123,8 @@ test('resolve story: storyTiming – start timecode, frame rate, drop frame, sou
   assert.ok(!('gone' in t));
 });
 
-test('resolve story: storyTranscribe reads Resolve’s subtitles in media seconds and leaves Resolve as it was', async () => {
-  const { F, run, fail } = setup();
+test('resolve story: storyTranscribe waits for Resolve’s background subtitles, reads them in media seconds, leaves Resolve as it was', async () => {
+  const { F, host, run, fail } = setup();
   const file = touch(path.join(tmp(), 'Ruth.mp4')), a = F.addMedia(file, { frames: 25 * 60 });
   F.speech[file] = [['I grew up by the sea.', 1, 3.2], ['Ruth: My father fished.', 4, 6], ['- And we never left.', 30, 33]];
   const keep = F.addTimeline('My edit', [{ item: a, in: 0, out: 50 }]);
@@ -138,6 +148,8 @@ test('resolve story: storyTranscribe reads Resolve’s subtitles in media second
   const segs = T.fromSubtitles(r.items);
   assert.deepStrictEqual(segs.map(s => [s.speaker, s.text, s.start]), [['', 'I grew up by the sea.', 1], ['Ruth', 'My father fished.', 4], ['', 'And we never left.', 30]]);
   assert.ok(segs.every(s => !s.w));
+  // what Resolve writes when it hears music, not words, isn't a line
+  assert.deepStrictEqual(T.fromSubtitles([{ text: '[MUSIC]', start: 0, end: 13 }, { text: '[MUSIC] [MUSIC]', start: 60, end: 88 }, { text: '♪ (applause) Thank you all.', start: 90, end: 92 }, { text: '[Ruth]: Hello.', start: 93, end: 94 }]).map(s => [s.speaker, s.text]), [['', 'Thank you all.'], ['Ruth', 'Hello.']]);
   const lines = T.toLines(segs, 'k');
   assert.ok(lines.length >= 2 && lines.every(l => l.id.startsWith('k-')));
   assert.strictEqual(T.wordTimes(lines[0]).exact, false, 'words are spread evenly');
@@ -148,6 +160,20 @@ test('resolve story: storyTranscribe reads Resolve’s subtitles in media second
   assert.strictEqual(F.timelines.length, before); assert.strictEqual(F.currentTimeline, keep);
   const s = F.addMedia(touch(path.join(tmp(), 'still.png')), { type: 'Still', audioCh: 0 });
   assert.strictEqual((await fail('storyTranscribe', { id: s.GetUniqueId() })).code, 'NO_AUDIO');
+  delete F.transcribeFails;
+  // nothing heard (or Resolve still busy): its timeline is left alone – deleting it would crash Resolve – and goes on
+  // a later run once it's an hour old
+  F.transcribeSilent = true; F.transcribeDelay = 600;
+  const e2 = await fail('storyTranscribe', { id: a.GetUniqueId() });
+  assert.ok(/hasn’t finished/.test(e2.title), e2.title);
+  const left = F.timelines.filter(t => /^Ultra Studio transcribe \d+$/.test(t.GetName()));
+  assert.strictEqual(left.length, 1, 'left in the .scratch bin'); assert.strictEqual(F.currentTimeline, keep);
+  await new Promise(r => setTimeout(r, 700));
+  F.transcribeSilent = false; F.transcribeDelay = 30;
+  host.R.transcribeTiming.now = () => Date.now() + 2 * 3600e3;
+  await run('storyTranscribe', { id: a.GetUniqueId() });
+  assert.strictEqual(F.timelines.length, before, 'the old one is cleared too');
+  assert.deepStrictEqual(F.crashes, []);
 });
 
 test('resolve story: storyPlace – lines one after another, coloured on the timeline only', async () => {

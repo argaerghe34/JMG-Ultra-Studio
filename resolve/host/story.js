@@ -80,6 +80,26 @@ module.exports = (R) => {
     if (e && !R.list(e.folder.GetClipList()).length && !R.list(e.folder.GetSubFolderList()).length) { try { R.pool().DeleteFolders([e.folder]); } catch (er) { /* harmless */ } R.forget(); }
   }
 
+  const TRANSCRIBE = 'Ultra Studio transcribe';
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const subtitleItems = tl => { const out = []; for (let i = 1, n = tl.GetTrackCount('subtitle') || 0; i <= n; i++) out.push(...R.list(tl.GetItemListInTrack('subtitle', i)).filter(Boolean)); return out; };
+  /** Resolve's background transcription into tl: its subtitles once they've arrived and stopped changing, else null. */
+  async function waitForSubtitles(tl, T, secs) {
+    const end = T.now() + T.max(secs);
+    let n = 0, since = T.now();
+    while (T.now() < end) {
+      await sleep(T.poll);
+      const k = subtitleItems(tl).length;
+      if (k !== n) { n = k; since = T.now(); } else if (n > 0 && T.now() - since >= T.settle) return subtitleItems(tl);
+    }
+    return null;
+  }
+  /** Transcribe timelines left behind (Resolve was maybe still writing into them): gone once an hour old. */
+  function dropOldTranscribeTimelines(now) {
+    const old = R.timelines().filter(t => { const m = new RegExp('^' + TRANSCRIBE + ' (\\d{12,})$').exec(String(t.GetName())); return m && now - Number(m[1]) > 3600e3; });
+    if (old.length) dropScratch(old);
+  }
+
   /* ---------- range markers (theme names, highlights) ---------- */
   /** Our markers on a timeline (customData starting with prefix) -> count removed */
   function clearMarkers(tl, prefix) {
@@ -152,29 +172,42 @@ module.exports = (R) => {
     /**
      * Resolve only: transcribe one clip with Resolve's own speech-to-text. The clip goes on a scratch timeline,
      * Timeline.CreateSubtitlesFromAudio makes subtitles, and their text and times (media seconds) come back; the
-     * timeline is deleted and Resolve is left as it was. Long clips take a while, and Resolve doesn't answer meanwhile.
+     * timeline is deleted and Resolve is left as it was.
+     * Measured in 21.1.2: Resolve transcribes in the BACKGROUND – the call returns at once (and throws "GetArgument"
+     * when given a settings dict, though it starts anyway) and the subtitles arrive all together later (~25 s for a
+     * 90 s clip). Deleting the timeline before then crashes Resolve, so this waits for them, and a timeline that may
+     * still be in use is left in the .scratch bin (cleared on a later run, once it's an hour old).
      * a: {id, language?} -> {id, name, path, items:[{text, start, end}]}
      */
-    storyTranscribe(a) {
+    async storyTranscribe(a) {
       const it = R.needItem(a.id), info = R.itemInfo(it);
       if (info.offline) throw R.err('OFFLINE', info.path);
       if (!info.hasAudio) throw R.err('NO_AUDIO', info.name, `“${info.name}” has no sound to transcribe.`, 'Pick your interview clips (with sound) in the Media Pool.');
-      return keepPlace(() => {
-        const tl = scratchTimeline('Ultra Studio transcribe');
+      const T = Object.assign({ poll: 1000, settle: 4000, max: secs => 180e3 + secs * 3000, now: () => Date.now() }, R.transcribeTiming);
+      dropOldTranscribeTimelines(T.now());
+      return keepPlace(async () => {
+        const tl = scratchTimeline(TRANSCRIBE + ' ' + T.now());
+        let inUse = false;   // Resolve may be writing into tl: never delete it then
         try {
           const got = placeRange(tl, it, info.rangeStart, info.rangeEnd, 0);
           const placed = got.find(ti => trackOf(ti)[0] === 'audio') || got[0];
           if (!placed) throw R.err('HOST_SCRIPT', 'AppendToTimeline placed nothing for ' + info.name);
           const t = R.itemTimes(tl, placed);
-          // settings by Resolve's own constants (only when this Resolve has them): longest lines, so phrases stay whole
+          // settings only by Resolve's own constants (JavaScript has none in 21.1, and an empty dict is refused)
           const api = R.api, set = {};
           if (api.SUBTITLE_CHARS_PER_LINE != null) set[api.SUBTITLE_CHARS_PER_LINE] = 60;
           if (api.SUBTITLE_LINE_BREAK != null && api.AUTO_CAPTION_LINE_DOUBLE != null) set[api.SUBTITLE_LINE_BREAK] = api.AUTO_CAPTION_LINE_DOUBLE;
           const lang = a.language && api['AUTO_CAPTION_' + String(a.language).toUpperCase()];
           if (api.SUBTITLE_LANGUAGE != null && lang != null) set[api.SUBTITLE_LANGUAGE] = lang;
-          if (!tl.CreateSubtitlesFromAudio(set)) throw R.err('HOST_SCRIPT', 'CreateSubtitlesFromAudio returned false', `Resolve couldn’t transcribe “${info.name}”.`, 'Check the clip plays with sound in Resolve, then try again. Transcribing needs DaVinci Resolve Studio.');
+          let started = false, why = '';
+          try { started = Object.keys(set).length ? tl.CreateSubtitlesFromAudio(set) : tl.CreateSubtitlesFromAudio(); } catch (e) { why = e.message; started = /GetArgument/i.test(why); }
+          if (!started) throw R.err('HOST_SCRIPT', 'CreateSubtitlesFromAudio: ' + (why || 'returned false'), `Resolve couldn’t transcribe “${info.name}”.`, 'Check the clip plays with sound in Resolve, then try again. Transcribing needs DaVinci Resolve Studio.');
+          inUse = true;
+          const subs = await waitForSubtitles(tl, T, info.rangeEnd - info.rangeStart);
+          if (!subs) throw R.err('HOST_SCRIPT', 'No subtitles after waiting ' + Math.round(T.max(info.rangeEnd - info.rangeStart) / 1000) + ' s', `Resolve hasn’t finished transcribing “${info.name}”.`, 'It may still be working, or heard no speech. Wait a minute, then press Transcribe with Resolve again.');
+          inUse = false;
           const items = [];
-          for (const { ti } of R.trackItems(tl, 'subtitle')) {
+          for (const ti of subs) {
             const text = String(ti.GetName() || '').replace(/\s+/g, ' ').trim();
             if (!text) continue;
             const s = R.tlSec(tl, ti.GetStart()), e = R.tlSec(tl, ti.GetEnd());
@@ -183,7 +216,7 @@ module.exports = (R) => {
           }
           items.sort((x, y) => x.start - y.start);
           return { id: info.id, name: info.name, path: info.path, language: a.language || '', items };
-        } finally { dropScratch([tl]); }
+        } finally { if (!inUse) dropScratch([tl]); }
       });
     },
 

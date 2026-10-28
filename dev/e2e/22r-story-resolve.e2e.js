@@ -3,7 +3,7 @@
 // Resolve itself: (1) a plain build from two themes; (2) every look option – clip colours on the timeline clips (not
 // the source clip), ★ strongest first, theme names as range markers; (3) a line played in the panel; (4) highlights on
 // a string-out as range markers, replaced and removed; (5) Transcribe with Resolve (its own subtitles, read back).
-const S = US.story, fs = require('fs');
+const S = US.story, fs = require('fs'), path = require('path');
 const BIN = 'Test – Story', SEQ = 'Test – Story themes (Resolve)', SEQ2 = 'Test – Story look (Resolve)', SEQH = 'Test – Story highlights (Resolve)', HANDLES = 0.2;
 const KEYS = ['story.binBase', 'story.handles', 'story.markers', 'story.themeNames', 'story.colourThemes', 'story.strongHighlight', 'story.strongFirst', 'story.strongLabel', 'story.colourMethod'];
 const prev = Object.fromEntries(KEYS.map(k => [k, US.settings.get(k)]));
@@ -85,15 +85,30 @@ try {
   const ir = await US.host.call('sequenceInfo', { seqId: seq.id });
   T.assert(ir.markers.length === 0 && ir.video[0].clips.length === 1, 'removed; the interview untouched');
 
-  // 5. Transcribe with Resolve: its own subtitles of the clip, read back as Story lines
-  await US.host.call('revealItem', { id: clip.id });   // selected in the Media Pool, as the person would
-  const t0 = Date.now();
-  const rr = await T.action('story.read', {});
-  const tr2 = st.transcripts.find(t => t.path && real(t.path) === real(clip.path));
-  T.assert(tr2 && tr2.lines.length >= 5, 'Resolve transcribed the interview: ' + (rr && rr.summary));
-  T.assert(tr2.lines.some(l => /family|university|grew up/i.test(l.text)), 'the words are there: ' + tr2.lines.slice(0, 3).map(l => l.text).join(' / '));
-  T.assert(tr2.lines.every(l => l.end > l.start && l.end <= 91), 'times inside the clip');
-  return { look: b2.summary, colours: c2.join(' '), highlights: h.sections.length, transcribed: `${tr2.lines.length} lines in ${((Date.now() - t0) / 1000).toFixed(0)} s`, first: tr2.lines[0].text.slice(0, 60) };
+  // 5. Transcribe with Resolve: its own subtitles of a clip, read back as Story lines. The test interview's sound is
+  //    synthetic (Resolve hears it as [MUSIC]), so a spoken clip is made with the Mac's own voice (say); on a PC this
+  //    step checks only that nothing is left behind.
+  const spoken = path.join(fs.realpathSync(US.host.extensionDir()), 'dev', 'test-project', 'exports', 'S001_spoken.wav');
+  if (!fs.existsSync(spoken) && process.platform === 'darwin') {
+    fs.mkdirSync(path.dirname(spoken), { recursive: true });
+    require('child_process').execFileSync('say', ['-o', spoken, '--file-format=WAVE', '--data-format=LEI16@48000', 'I grew up in a small town by the sea. My family ran a bakery on the high street. Every morning my father got up at four to bake the bread, and on Sundays we all went to the beach together.']);
+  }
+  let transcribed = 'skipped (no say on this computer)';
+  if (fs.existsSync(spoken)) {
+    const [sp] = await T.importOnce([spoken], BIN);
+    await US.host.call('revealItem', { id: sp.id });   // selected in the Media Pool, as the person would
+    const t0 = Date.now();
+    const rr = await T.action('story.read', {});
+    const tr2 = st.transcripts.find(t => t.path && real(t.path) === real(spoken));
+    T.assert(tr2 && tr2.lines.length >= 1, 'Resolve transcribed the spoken clip: ' + (rr && rr.summary));
+    const words = tr2.lines.map(l => l.text).join(' ');
+    T.assert(/bakery|small town|the sea|father/i.test(words), 'the words are there: ' + words.slice(0, 120));
+    T.assert(tr2.lines.every(l => l.end > l.start && l.start >= 0 && l.end <= 30), 'times inside the clip');
+    transcribed = `${tr2.lines.length} lines in ${((Date.now() - t0) / 1000).toFixed(0)} s: ${words.slice(0, 60)}`;
+  }
+  const left = await T.devEval("return R.timelines().filter(t => /^Ultra Studio transcribe/.test(t.GetName())).length");
+  T.assert(left === 0, 'no scratch timeline left behind: ' + left);
+  return { look: b2.summary, colours: c2.join(' '), highlights: h.sections.length, transcribed };
 } finally {
   Object.assign(st, saved); S.reindex && S.reindex(); S.save();
   for (const k of KEYS) US.settings.set(k, prev[k] == null ? '' : prev[k]);
