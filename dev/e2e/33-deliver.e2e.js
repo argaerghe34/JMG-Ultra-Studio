@@ -14,6 +14,7 @@ T.assert(v[0] === 1080 && v[1] === 1920, 'vertical 1080x1920, got ' + v);
 T.assert(s[0] === 1080 && s[1] === 1080, 'square 1080x1080, got ' + s);
 T.near(m[2], 6, 0.1, 'master length');
 T.assert(newest('Sound.wav') && newest('Thumbnail'), 'wav and thumbnail saved');
+await US.refreshContext();   // the panel's view of the open timeline follows the editor's within a moment
 T.assert(US.ctx.sequence && US.ctx.sequence.id === seq.id, 'original sequence reopened');
 const chap = US.deliver.chapters((await US.host.call('sequenceInfo', { seqId: seq.id, clips: false })).markers, 6, 'named');
 T.assert(chap.text.startsWith('0:00 Intro\n0:03 Second half'), 'chapters ' + chap.text);
