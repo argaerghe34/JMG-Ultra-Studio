@@ -38,6 +38,7 @@ module.exports = (R) => {
   function ensureTracks(tl, type, n) { while (tl.GetTrackCount(type) < n) if (!(type === 'audio' ? tl.AddTrack('audio', 'stereo') : tl.AddTrack(type))) throw R.err('HOST_SCRIPT', `Resolve would not add ${type} track ${n}`); }
   /** Lay a media range on a timeline at a time (seconds from its start). extra: trackIndex, mediaType. -> [TimelineItem] */
   function placeRange(tl, item, inSec, outSec, at, extra) {
+    if (R.num(at) == null) throw R.err('BAD_INPUT', `No time to place ${item.GetName()} at (${at})`);
     R.open(tl);
     const info = R.clipInfo(item, inSec, outSec, Object.assign({ trackIndex: 1, recordFrame: R.tlFrame(tl, at) }, extra || {}));
     ensureTracks(tl, 'video', info.trackIndex); ensureTracks(tl, 'audio', info.trackIndex);
@@ -83,7 +84,7 @@ module.exports = (R) => {
   /** Our markers on a timeline (customData starting with prefix) -> count removed */
   function clearMarkers(tl, prefix) {
     let n = 0;
-    for (const [frame, m] of Object.entries(R.markers(tl))) if (m && String(m.customData || '').startsWith(prefix)) { if (tl.DeleteMarkerByCustomData(m.customData) || tl.DeleteMarkerAtFrame(Number(frame))) n++; }
+    for (const [frame, m] of Object.entries(R.markers(tl))) if (m && String(m.customData || '').startsWith(prefix) && R.deleteMarker(tl, frame, m.customData)) n++;
     return n;
   }
   /** One range marker per section, named after it, in its theme's colour. -> {placed, log} */
@@ -91,15 +92,17 @@ module.exports = (R) => {
     const fps = R.fps(tl), taken = new Set(Object.keys(R.markers(tl)).map(Number)), log = [];
     let placed = 0;
     for (const s of sections || []) {
-      if (!(s.end > s.start)) continue;
+      const start = R.num(s && s.start), end = R.num(s && s.end);
+      if (start == null || end == null || !(end > start)) continue;
       // timeline marker frames count from the timeline's first frame (core.js); one marker per frame in Resolve
-      const f0 = Math.max(0, Math.round(s.start * fps));
+      const f0 = Math.max(0, Math.round(start * fps));
       let f = f0;
       while (taken.has(f)) f++;
-      const dur = Math.max(1, Math.round((s.end - s.start) * fps) - (f - f0));
+      const dur = Math.max(1, Math.round((end - start) * fps) - (f - f0));
       const colour = s.label != null && LABEL_MARKER[s.label] ? LABEL_MARKER[s.label] : 'Purple';
-      if (tl.AddMarker(f, colour, String(s.name || '').slice(0, 120), note, dur, prefix + R.newGuid().slice(3))) { taken.add(f); placed++; }
-      else log.push(`marker not added at ${s.start.toFixed(2)} s`);
+      let ok = false, why = '';
+      try { ok = tl.AddMarker(f, colour, String(s.name || '').slice(0, 120), note, dur, prefix + R.newGuid().slice(3)); } catch (e) { why = ': ' + e.message; }   // Resolve throws its refusals
+      if (ok) { taken.add(f); placed++; } else log.push(`marker not added at ${start.toFixed(2)} s${why}`);
     }
     return { placed, log };
   }
@@ -191,13 +194,15 @@ module.exports = (R) => {
      */
     storyPlace(a) {
       const tl = R.needSeq(a.seqId);
-      let cursor = a.cursor != null ? a.cursor : R.tlDuration(tl);
+      let cursor = R.num(a.cursor) != null ? R.num(a.cursor) : R.tlDuration(tl);
       const placed = [];
       for (const c of a.clips || []) {
         const it = R.needItem(c.id);
+        // a line without times is skipped (null), never sent to Resolve as NaN
+        if (R.num(c.in) == null || R.num(c.out) == null) { placed.push(null); continue; }
         const got = placeRange(tl, it, c.in, c.out, cursor);
         const main = mainItem(got);
-        if (!main) { placed.push(null); cursor += c.out - c.in; continue; }
+        if (!main) { placed.push(null); cursor += R.num(c.out) - R.num(c.in); continue; }
         colourItems(got, c.label);
         const s = span(tl, main);
         placed.push(s); cursor = s.end;

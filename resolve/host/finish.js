@@ -129,12 +129,14 @@ module.exports = function (R) {
         if (!tl) throw R.err('HOST_SCRIPT', 'CreateEmptyTimeline ' + name, 'Resolve couldn’t make the full-size timeline.', 'Check the project isn’t locked, then try again.');
         E.intoBin(tl, bin);
         E.setSize(tl, W, H, 'scaleToCrop');
-        try { tl.SetSetting('timelineFrameRate', String(R.fps(src))); } catch (e) { /* project rate */ }
+        try { tl.SetSetting('timelineFrameRate', String(R.fps(src))); } catch (e) { /* project rate */ }   // while it's empty
         R.open(tl);
         const mpi = src.GetMediaPoolItem && src.GetMediaPoolItem(), frames = src.GetEndFrame() - src.GetStartFrame();
-        const got = mpi && frames > 0 ? R.list(pool.AppendToTimeline([{ mediaPoolItem: mpi, startFrame: 0, endFrame: frames, trackIndex: 1, recordFrame: tl.GetStartFrame() }])).filter(Boolean) : [];
+        // Resolve 21 throws a refusal rather than answering []: either way, the resized copy below takes over
+        let got = [];
+        if (mpi && frames > 0) { try { got = R.list(pool.AppendToTimeline([{ mediaPoolItem: mpi, startFrame: 0, endFrame: frames, trackIndex: 1, recordFrame: tl.GetStartFrame() }])).filter(Boolean); } catch (e) { got = []; } }
         if (!got.length) {
-          pool.DeleteTimelines([tl]);
+          try { pool.DeleteTimelines([tl]); } catch (e) { /* left in the bin */ }
           via = 'copy';
           tl = R.inFolder(bin, () => src.DuplicateTimeline(name));
           if (!tl) throw R.err('HOST_SCRIPT', 'Nesting and DuplicateTimeline both refused', 'Resolve couldn’t make the full-size timeline.', 'Change the timeline’s size by hand in Timeline › Timeline Settings.');
@@ -168,16 +170,17 @@ module.exports = function (R) {
      * clash moves it on a frame.) a: {seqId, name, start, end} → {track, named, kind:'marker', placed, renamed, log}
      */
     addRenderRange(a) {
-      const tl = R.needSeq(a.seqId), fps = R.fps(tl), log = [];
-      if (!(a.end > a.start)) throw R.err('BAD_INPUT', 'Empty range ' + a.start + '–' + a.end, 'That range is empty.', 'Set In and Out points around the part to render, or move the playhead into the edit.');
+      const tl = R.needSeq(a.seqId), fps = R.fps(tl), log = [], start = R.num(a.start), end = R.num(a.end);
+      if (start == null || end == null || !(end > start)) throw R.err('BAD_INPUT', 'Empty range ' + a.start + '–' + a.end, 'That range is empty.', 'Set In and Out points around the part to render, or move the playhead into the edit.');
       const taken = new Set(Object.keys(R.markers(tl)).map(Number));
-      let f = Math.max(0, Math.round(a.start * fps));
+      let f = Math.max(0, Math.round(start * fps));
       const want = f;
       while (taken.has(f)) f++;
       if (f !== want) log.push(`moved on ${f - want} frame(s): another marker was at the start`);
-      const dur = Math.max(1, Math.round(a.end * fps) - f);
-      const ok = tl.AddMarker(f, RANGE_COLOR, String(a.name || 'Render'), 'Ultra Studio render range: its length is the part that renders, its name the file name.', dur, RANGE_TAG + R.newGuid().replace(/^us-/, ''));
-      if (!ok) throw R.err('HOST_SCRIPT', `AddMarker at ${f} refused`, 'Resolve didn’t add the render range.', 'Check the timeline isn’t locked, then try again.');
+      const dur = Math.max(1, Math.round(end * fps) - f);
+      let ok = false, why = '';
+      try { ok = tl.AddMarker(f, RANGE_COLOR, String(a.name || 'Render'), 'Ultra Studio render range: its length is the part that renders, its name the file name.', dur, RANGE_TAG + R.newGuid().replace(/^us-/, '')); } catch (e) { why = ': ' + e.message; }
+      if (!ok) throw R.err('HOST_SCRIPT', `AddMarker at ${f} refused${why}`, 'Resolve didn’t add the render range.', 'Check the timeline isn’t locked, then try again.');
       return { track: -1, named: true, kind: 'marker', placed: 1, renamed: 1, log };
     },
     /**

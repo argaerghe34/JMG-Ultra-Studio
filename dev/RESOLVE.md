@@ -23,7 +23,7 @@ stays, and they get no Resolve layer until they come back.
   the plugin by the installer) and gathers every `resolve/host/*.js`. Each module is
   `module.exports = (R) => ({ commandName(args) { … } })`, may be `async`, and runs one at a time.
   `resolve/host/base.js` (`R`) has the shared helpers: Media Pool index and ids, `itemInfo` (Premiere-shaped), bins,
-  timelines, seconds ↔ frames, `clipInfo` (inclusive end frame), `itemTimes`, markers (Ultra Studio's ids live in a
+  timelines, seconds ↔ frames, `clipInfo` (end frame exclusive for timelines – see "Measured" below), `itemTimes`, markers (Ultra Studio's ids live in a
   marker's `customData`; Resolve allows one marker per frame), colour maps, and `R.err(CODE, detail, title, action)`.
 - **Plugin shell:** `resolve/plugin/` (manifest.xml, package.json, main.js, preload.js). `main.js` opens the window
   with Node in the page (Blackmagic's "compatibility mode") and answers file dialogs over IPC. A file called `debug`

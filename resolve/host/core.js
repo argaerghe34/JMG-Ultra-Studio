@@ -56,7 +56,7 @@ module.exports = (R) => {
     return { fps: info.fps || R.clipFps(item), start: info.subclip ? Math.round(info.rangeStart * (info.fps || 25)) : 0 };
   }
   const folderFor = a => (a.binId ? R.needFolder(a.binId) : R.ensureBin(a.binPath || 'JMG Ultra Studio'));
-  function setName(item, name) { if (!name) return; if (!tryCall(() => item.SetName(name), false)) tryCall(() => item.SetClipProperty('Clip Name', name), false); }
+  function setName(item, name) { if (name == null || name === '') return; name = String(name); if (!tryCall(() => item.SetName(name), false)) tryCall(() => item.SetClipProperty('Clip Name', name), false); }
   function setLabel(item, label) {
     const c = label != null && label >= 0 ? R.LABEL_COLORS[label] : null;
     return c ? !!tryCall(() => item.SetClipColor(c), false) : !!tryCall(() => item.ClearClipColor(), false);
@@ -184,9 +184,10 @@ module.exports = (R) => {
       return o;
     },
 
-    openSequence(a) {
+    async openSequence(a) {
       const tl = R.needSeq(a.seqId);
-      if (!R.project().SetCurrentTimeline(tl) && R.id(R.project().GetCurrentTimeline()) !== R.id(tl)) throw R.err('HOST_SCRIPT', 'SetCurrentTimeline failed for ' + tl.GetName());
+      // Resolve 21 throws "Unable to execute script action" for a moment while busy: restoreTimeline tries again
+      if (!(await R.restoreTimeline(tl))) throw R.err('HOST_SCRIPT', 'SetCurrentTimeline failed for ' + tl.GetName());
       // showing it is the point: leave pages without a timeline for the Edit page
       if (/^(media|fusion)$/.test(String(tryCall(() => R.api.GetCurrentPage(), '')))) tryCall(() => R.api.OpenPage('edit'));
       return true;
@@ -228,6 +229,7 @@ module.exports = (R) => {
      */
     addSequenceMarkers(a) {
       const tl = R.needSeq(a.seqId), fps = R.fps(tl), list = a.markers || [], where = a.where;
+      R.checkMarkers(list);   // a marker without a time would match the first clip (NaN compares false) and reach Resolve as NaN
       const onTl = ms => R.addMarkers(tl, ms, tlMarkerFrame(tl, fps), fps);
       if (where !== 'clips' && where !== 'both') return onTl(list);
       const snap = { video: itemsWithTimes(tl, 'video'), audio: itemsWithTimes(tl, 'audio') }, out = [], origins = new Map();
@@ -261,9 +263,9 @@ module.exports = (R) => {
       const folder = folderFor(a), storage = R.api.GetMediaStorage(), out = [];
       R.inFolder(folder, () => {
         for (const s of a.items || []) {
-          const it = R.needItem(s.id), file = String(R.prop(it, 'File Path') || '');
-          if (!file) { out.push(null); continue; }
-          const fps = R.clipFps(it), f0 = Math.max(0, Math.round(s.start * fps)), f1 = Math.max(f0 + 1, Math.round(s.end * fps));
+          const it = R.needItem(s.id), file = String(R.prop(it, 'File Path') || ''), st = R.num(s.start), en = R.num(s.end);
+          if (!file || st == null || en == null) { out.push(null); continue; }   // never a NaN frame to Resolve
+          const fps = R.clipFps(it), f0 = Math.max(0, Math.round(st * fps)), f1 = Math.max(f0 + 1, Math.round(en * fps));
           const got = R.list(tryCall(() => storage.AddItemListToMediaPool([{ media: file, startFrame: f0, endFrame: f1 - 1 }]), []))[0];
           if (!got) { out.push(null); continue; }
           setName(got, s.name);
@@ -300,15 +302,20 @@ module.exports = (R) => {
      */
     placeClips(a) {
       const tl = R.open(R.needSeq(a.seqId)), fps = R.fps(tl), pool = R.pool(), clips = a.clips || [];
+      // track numbers as whole numbers ("1" + 1 would be track 11), times checked before anything is placed
+      const trk = x => Math.max(0, Math.round(R.num(x) || 0)) + 1;
       let maxV = 1, maxA = 1;
-      for (const c of clips) { maxV = Math.max(maxV, (c.v || 0) + 1); maxA = Math.max(maxA, (c.a || 0) + 1); }
+      for (const c of clips) {
+        maxV = Math.max(maxV, trk(c.v)); maxA = Math.max(maxA, trk(c.a));
+        if (R.num(c.in) == null || R.num(c.out) == null || (c.at != null && R.num(c.at) == null)) throw R.err('BAD_INPUT', `placeClips: clip ${c.id} has no usable in/out/at (${c.in}, ${c.out}, ${c.at})`);
+      }
       ensureTracks(tl, maxV, maxA);
-      let cursor = a.cursor != null ? a.cursor : R.tlDuration(tl);
+      let cursor = R.num(a.cursor) != null ? R.num(a.cursor) : R.tlDuration(tl);
       const placed = [];
       for (const c of clips) {
-        const it = R.needItem(c.id), info = R.itemInfo(it), at = c.at != null ? c.at : cursor;
+        const it = R.needItem(c.id), info = R.itemInfo(it), at = c.at != null ? R.num(c.at) : cursor;
         const wantV = c.video !== false && info.hasVideo, wantA = c.audio !== false && info.hasAudio && info.kind !== 'still';
-        const rec = R.tlFrame(tl, at), v = (c.v || 0) + 1, au = (c.a || 0) + 1, infos = [];
+        const rec = R.tlFrame(tl, at), v = trk(c.v), au = trk(c.a), infos = [];
         if (wantV && wantA && v === au) infos.push(R.clipInfo(it, c.in, c.out, { trackIndex: v, recordFrame: rec }));
         else {
           if (wantV) infos.push(R.clipInfo(it, c.in, c.out, { trackIndex: v, recordFrame: rec, mediaType: 1 }));
@@ -322,7 +329,7 @@ module.exports = (R) => {
           const p = { start: R.tlSec(tl, first.GetStart()), end: R.tlSec(tl, first.GetEnd()) };
           placed.push(p); if (c.at == null) cursor = p.end;
         } else {
-          placed.push(null); if (c.at == null) cursor = at + (c.out - c.in);
+          placed.push(null); if (c.at == null) cursor = at + (R.num(c.out) - R.num(c.in));
           if (infos.length) throw R.err('HOST_SCRIPT', `Resolve would not place ${it.GetName()} at ${at}`);
         }
       }
@@ -460,22 +467,26 @@ module.exports = (R) => {
           if (m.color) tryCall(() => ti.SetClipColor(m.color));
           if (m.props && typeof m.props === 'object') {
             const now = tryCall(() => ti.GetProperty(), {}) || {};
-            for (const [k, v] of Object.entries(m.props)) if (JSON.stringify(now[k]) !== JSON.stringify(v)) tryCall(() => ti.SetProperty(k, v));
+            // only real values go back (a None/NaN from GetProperty sent to SetProperty could abort Resolve)
+            for (const [k, v] of Object.entries(R.clean(m.props))) if ((typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') && JSON.stringify(now[k]) !== JSON.stringify(v)) tryCall(() => ti.SetProperty(k, v));
           }
           for (const [k, mk] of Object.entries(m.markers)) {
             const o = Number(k) - (p.ps - m.s);
-            if (o >= 0 && o < p.pe - p.ps) tryCall(() => ti.AddMarker(o, mk.color, mk.name || '', mk.note || '', Number(mk.duration) || 1, mk.customData || ''));
+            if (o >= 0 && o < p.pe - p.ps) tryCall(() => ti.AddMarker(o, String(mk.color || 'Blue'), String(mk.name || ''), String(mk.note || ''), Math.max(1, Math.round(Number(mk.duration) || 1)), String(mk.customData || '')));
           }
           const key = root(m.id) + '@' + p.rec;
           (linkSets.get(key) || linkSets.set(key, []).get(key)).push(ti);
         }
         if (tl.SetClipsLinked) for (const list of linkSets.values()) if (list.length > 1) tryCall(() => tl.SetClipsLinked(list, true));
         // timeline markers: take off every one that moves, then put them back in order (one marker per frame)
-        for (const x of moveMarks) tl.DeleteMarkerAtFrame(x.f);
+        // by customData when only that marker has it (the user's own markers may share one or have none), else by frame
+        const cdCount = new Map();
+        for (const mk of Object.values(tlMarks)) if (mk && mk.customData) cdCount.set(mk.customData, (cdCount.get(mk.customData) || 0) + 1);
+        for (const x of moveMarks) { const cd = tlMarks[x.f] && tlMarks[x.f].customData; R.deleteMarker(tl, x.f, cd && cdCount.get(cd) === 1 ? cd : ''); }
         const taken = new Set(Object.keys(R.markers(tl)).map(Number));
         for (const x of moveMarks.filter(y => !y.drop).sort((p, q) => p.nf - q.nf)) {
           let f = x.nf; while (taken.has(f)) f++;
-          if (tl.AddMarker(f, x.mk.color, x.mk.name || '', x.mk.note || '', x.nd, x.mk.customData || '')) taken.add(f);
+          if (tryCall(() => tl.AddMarker(f, String(x.mk.color || 'Blue'), String(x.mk.name || ''), String(x.mk.note || ''), x.nd, String(x.mk.customData || '')), false)) taken.add(f);
         }
         // check: the timeline should now end where the plan says
         let want = untouchedEnd;
@@ -494,13 +505,13 @@ module.exports = (R) => {
 
     /** Track output on/off (the eye / speaker). a: {seqId, video, index (0-based), mute} */
     muteTrack(a) {
-      const tl = R.needSeq(a.seqId), type = a.video ? 'video' : 'audio', i = (a.index || 0) + 1;
+      const tl = R.needSeq(a.seqId), type = a.video ? 'video' : 'audio', i = Math.round(R.num(a.index) || 0) + 1;
       if (i < 1 || i > tl.GetTrackCount(type)) throw R.err('NOT_FOUND', 'Track ' + a.index);
       if (!tl.SetTrackEnable(type, i, !a.mute)) throw R.err('HOST_SCRIPT', 'SetTrackEnable failed for ' + type + ' ' + i);
       return true;
     },
     setClipsDisabled(a) {
-      const tl = R.needSeq(a.seqId), type = a.video ? 'video' : 'audio', i = (a.index || 0) + 1;
+      const tl = R.needSeq(a.seqId), type = a.video ? 'video' : 'audio', i = Math.round(R.num(a.index) || 0) + 1;
       if (i < 1 || i > tl.GetTrackCount(type)) throw R.err('NOT_FOUND', 'Track ' + a.index);
       let n = 0;
       for (const ti of R.list(tl.GetItemListInTrack(type, i))) if (ti) { ti.SetClipEnabled(!a.disabled); n++; }
@@ -533,7 +544,7 @@ module.exports = (R) => {
       const it = R.needItem(a.id), info = R.itemInfo(it), fps = info.fps || 25;
       const tc = String(R.prop(it, 'Start TC') || ''), sf = R.tcToFrames(tc, fps), mediaStart = isFinite(sf) ? sf / fps : 0;
       if (info.subclip) return { in: info.rangeStart, out: info.rangeEnd, duration: info.duration, mediaStart, subclip: true };
-      const mk = tryCall(() => it.GetMarkInOut(), {}) || {}, m = mk.audio || mk.video;
+      const mk = R.clipMarks(it), m = mk.audio || mk.video;
       const i = m && m.in != null ? Number(m.in) / fps : 0, o = m && m.out != null ? (Number(m.out) + 1) / fps : info.duration;
       return { in: i, out: o, duration: info.duration, mediaStart, subclip: false };
     },

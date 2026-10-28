@@ -57,6 +57,13 @@ module.exports = function makeBase(api) {
     api, err, parseFps, framesToTC, tcToFrames, list, STILL_EXT, AUDIO_EXT,
     MARKER_COLORS, MARKER_BACK, LABEL_COLORS, LABEL_BACK, LABEL_HEX,
     fresh() { cache = null; },
+    /**
+     * Resolve 21.1 can abort (whole app) when a script sends it an odd value – undefined, null or NaN as an argument or
+     * inside a dict. num() is a finite number or null; clean(dict) drops every key whose value isn't a real value, so
+     * a key that isn't set is left out rather than sent empty.
+     */
+    num(v) { if (v == null || v === '' || typeof v === 'boolean') return null; const n = Number(v); return isFinite(n) ? n : null; },
+    clean(o) { const out = {}; for (const [k, v] of Object.entries(o || {})) if (v !== undefined && v !== null && !(typeof v === 'number' && !isFinite(v))) out[k] = v; return out; },
     pm() { const pm = api && api.GetProjectManager(); if (!pm) throw err('HOST_SCRIPT', 'Resolve gave no project manager.'); return pm; },
     project() { const p = R.pm().GetCurrentProject(); if (!p) throw err('NO_PROJECT'); return p; },
     pool() { return R.project().GetMediaPool(); },
@@ -128,6 +135,8 @@ module.exports = function makeBase(api) {
     },
     /** One clip property (quicker than all of them), never asked of a subtitle file (see isSubtitle). */
     prop(item, key) { if (R.isSubtitle(item)) return String(R.props(item)[key] || ''); try { return String(item.GetClipProperty(key) || ''); } catch (e) { return ''; } },
+    /** A clip's Mark In/Out ({} for none; never asked of a subtitle file, whose frame calls crash Resolve 21.1). */
+    clipMarks(item) { if (R.isSubtitle(item)) return {}; try { return item.GetMarkInOut() || {}; } catch (e) { return {}; } },
     clipFps(item, props) { return parseFps((props || R.props(item))['FPS']) || 25; },
     quickKind(item) {
       const p = R.props(item), type = String(p['Type'] || '');
@@ -186,8 +195,9 @@ module.exports = function makeBase(api) {
      */
     async restoreTimeline(tl) {
       if (!tl) return false;
+      let id = ''; try { id = R.id(tl); } catch (e) { return false; }   // a deleted timeline's object is dead
       for (let i = 0; i < 12; i++) {
-        try { if (!R.timelineById(R.id(tl))) return false; const cur = R.project().GetCurrentTimeline(); if (cur && R.id(cur) === R.id(tl)) return true; if (R.project().SetCurrentTimeline(tl)) return true; } catch (e) { /* busy */ }
+        try { if (!R.timelineById(id)) return false; const cur = R.project().GetCurrentTimeline(); if (cur && R.id(cur) === R.id(tl)) return true; if (R.project().SetCurrentTimeline(tl)) return true; } catch (e) { /* busy */ }
         await new Promise(res => setTimeout(res, 500));
       }
       return false;
@@ -228,8 +238,15 @@ module.exports = function makeBase(api) {
      * extra adds trackIndex, recordFrame, mediaType (1 video only, 2 audio only).
      */
     clipInfo(item, inSec, outSec, extra) {
-      const fps = R.clipFps(item), s = Math.max(0, Math.round(inSec * fps)), e = Math.max(s + 1, Math.round(outSec * fps));
-      return Object.assign({ mediaPoolItem: item, startFrame: s, endFrame: e }, extra || {});
+      // laying a subtitle file by script aborts Resolve 21.1 (see isSubtitle)
+      if (R.isSubtitle(item)) throw err('HOST_SCRIPT', 'Subtitle file ' + item.GetName() + ': not laid by script (it crashes Resolve 21.1)', 'Resolve can’t place a subtitle file by script.', 'Drag it from the Media Pool to the timeline yourself.');
+      const a = R.num(inSec), b = R.num(outSec);
+      if (a == null || b == null) throw err('BAD_INPUT', `Clip range ${inSec}–${outSec} for ${item.GetName()}`);
+      const fps = R.clipFps(item), s = Math.max(0, Math.round(a * fps)), e = Math.max(s + 1, Math.round(b * fps));
+      const ci = { mediaPoolItem: item, startFrame: s, endFrame: e };
+      // trackIndex, recordFrame, mediaType: whole frames, and left out when not set (never undefined/NaN)
+      for (const [k, v] of Object.entries(extra || {})) { const n = R.num(v); if (n != null) ci[k] = Math.round(n); }
+      return ci;
     },
     /** a timeline item in seconds: {start, end} on the timeline, {in, out} in its media (as Premiere reports them) */
     itemTimes(tl, ti) {
@@ -263,24 +280,46 @@ module.exports = function makeBase(api) {
      * toFrame(seconds) gives the marker frame for that owner. Two markers can't share a frame in Resolve, so a clash
      * moves the later one on by a frame. Returns the guids.
      */
+    /** Every marker must have a time (seconds) before any is added: none is sent to Resolve without one. */
+    checkMarkers(markers) {
+      const bad = (markers || []).filter(m => !m || R.num(m.start) == null);
+      if (bad.length) throw err('BAD_INPUT', `${bad.length} marker(s) without a time: ${bad.slice(0, 3).map(m => JSON.stringify(m)).join(', ')}`);
+    },
     addMarkers(owner, markers, toFrame, fps) {
+      R.checkMarkers(markers);
+      fps = R.num(fps) > 0 ? R.num(fps) : 25;
       const taken = new Set(Object.keys(R.markers(owner)).map(Number)), guids = [];
       for (const m of markers) {
-        let f = Math.max(0, Math.round(toFrame(m.start)));
+        const start = R.num(m.start), end = R.num(m.end);
+        let f = Math.max(0, Math.round(R.num(toFrame(start)) || 0));
         while (taken.has(f)) f++;
-        const dur = m.end != null && m.end > m.start ? Math.max(1, Math.round((m.end - m.start) * fps)) : 1;
+        const dur = end != null && end > start ? Math.max(1, Math.round((end - start) * fps)) : 1;
         const g = R.newGuid();
-        const ok = owner.AddMarker(f, R.markerColor(m.color), String(m.name || ''), String(m.comment || ''), dur, g);
-        if (!ok) throw err('HOST_SCRIPT', `Resolve would not add the marker “${m.name || ''}” at frame ${f}.`);
+        let ok = false, why = '';
+        try { ok = owner.AddMarker(f, R.markerColor(m.color), String(m.name == null ? '' : m.name), String(m.comment == null ? '' : m.comment), dur, g); } catch (e) { why = ' ' + e.message; }
+        if (!ok) throw err('HOST_SCRIPT', `Resolve would not add the marker “${m.name || ''}” at frame ${f}.${why}`);
         taken.add(f); guids.push(g);
       }
       return guids;
     },
+    /**
+     * Delete one marker: by its customData when it has one (fact: GetMarkers' keys are a frame early), else at its real
+     * frame (from R.markers). Resolve throws rather than answering false, so a refusal is just false here.
+     */
+    deleteMarker(owner, frame, customData) {
+      if (customData && owner.DeleteMarkerByCustomData) { try { if (owner.DeleteMarkerByCustomData(String(customData))) return true; } catch (e) { /* by frame */ } }
+      const f = R.num(frame);
+      if (f == null) return false;
+      try { return !!owner.DeleteMarkerAtFrame(Math.round(f)); } catch (e) { return false; }
+    },
     removeMarkers(owner, guids) {
       let n = 0;
       const want = new Set(guids), all = R.markers(owner);
-      // by our id: in Resolve 21 DeleteMarkerAtFrame refuses the very frame GetMarkers reports for a timeline marker
-      for (const [frame, info] of Object.entries(all)) if (info && want.has(info.customData)) { if ((owner.DeleteMarkerByCustomData && owner.DeleteMarkerByCustomData(info.customData)) || owner.DeleteMarkerAtFrame(Number(frame))) n++; }
+      for (const [frame, info] of Object.entries(all)) {
+        if (!info) continue;
+        // readMarkers names a marker without customData "frame:<real frame>"
+        if (info.customData ? want.has(info.customData) && R.deleteMarker(owner, frame, info.customData) : want.has('frame:' + frame) && R.deleteMarker(owner, frame, '')) n++;
+      }
       return n;
     },
     readMarkers(owner, toSec, fps) {

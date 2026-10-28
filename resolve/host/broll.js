@@ -15,14 +15,19 @@ module.exports = (R) => ({
     while (tl.GetTrackCount('video') < k) if (!tl.AddTrack('video')) throw R.err('HOST_SCRIPT', 'Resolve would not add video track ' + k);
     if (a.keepSound) while (tl.GetTrackCount('audio') < k) if (!tl.AddTrack('audio', 'stereo')) throw R.err('HOST_SCRIPT', 'Resolve would not add audio track ' + k);
     R.open(tl);
-    let placed = 0;
+    let placed = 0, firstErr = null;
     for (const s of a.shots || []) {
       const it = R.itemById(s.id); if (!it) continue;
-      const rec = R.tlFrame(tl, s.at);
-      const v = R.list(R.pool().AppendToTimeline([R.clipInfo(it, s.in, s.out, { trackIndex: k, recordFrame: rec, mediaType: 1 })])).filter(Boolean);
-      if (a.keepSound && R.itemInfo(it).hasAudio) R.pool().AppendToTimeline([R.clipInfo(it, s.in, s.out, { trackIndex: k, recordFrame: rec, mediaType: 2 })]);
-      if (v.length) placed++;
+      // a shot without a usable time is skipped: undefined/NaN never reaches AppendToTimeline (it can abort Resolve)
+      if (R.num(s.at) == null || R.num(s.in) == null || R.num(s.out) == null || R.isSubtitle(it)) continue;
+      const rec = R.tlFrame(tl, R.num(s.at));
+      try {
+        const v = R.list(R.pool().AppendToTimeline([R.clipInfo(it, s.in, s.out, { trackIndex: k, recordFrame: rec, mediaType: 1 })])).filter(Boolean);
+        if (a.keepSound && R.itemInfo(it).hasAudio) R.pool().AppendToTimeline([R.clipInfo(it, s.in, s.out, { trackIndex: k, recordFrame: rec, mediaType: 2 })]);
+        if (v.length) placed++;
+      } catch (e) { firstErr = firstErr || e; }   // Resolve throws a refusal: the other shots still go on
     }
+    if (!placed && firstErr) throw firstErr;
     try { tl.SetTrackName('video', k, name); } catch (e) { /* the name is a nicety */ }
     return { track: k - 1, placed, sound: !!a.keepSound };
   }

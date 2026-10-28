@@ -9,11 +9,45 @@
 'use strict';
 const fs = require('fs'), path = require('path');
 
+/**
+ * Like Resolve 21.1 (measured): an odd value sent to the API (undefined / null / NaN, as an argument or inside a dict or
+ * list) can abort the whole app. The fake throws instead and remembers it in crashes, and dev/tests/run.js fails the
+ * test even when the host code caught the throw (tryCall) – so such a value never goes unnoticed.
+ */
+const crashes = [];
+function badValue(v, depth) {
+  if (v === undefined || v === null || (typeof v === 'number' && !isFinite(v))) return true;
+  if (typeof v !== 'object' || depth > 3 || Buffer.isBuffer(v)) return false;
+  if (Array.isArray(v)) return v.some(x => badValue(x, depth + 1));
+  if (Object.values(v).some(x => typeof x === 'function')) return false;   // an API object (clip, timeline…)
+  return Object.values(v).some(x => badValue(x, depth + 1));
+}
+const describe = a => (a && typeof a === 'object' ? (Object.values(a).some(x => typeof x === 'function') ? '<object>' : '{' + Object.entries(a).map(([k, v]) => k + ':' + describe(v)).join(',') + '}') : String(a));
+
 function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = {}) {
   let nextId = 1;
   const uid = p => `${p}-${(nextId++).toString(16).padStart(6, '0')}`;
   const media = {}; // path -> {fps, frames, width, height, audioCh, type}
   const log = [];   // what was asked of "Resolve", for tests that check calls
+  /**
+   * Every API method (Capitalised) of o is checked when called: no bad values (badValue), not on a deleted object
+   * ("Unable to find proxy object", as after DeleteClips / DeleteTimelines), and F.fail[name] = 'why' makes it throw
+   * the way Resolve 21 reports errors. A test that replaces a method later is checked too.
+   */
+  function strict(o) {
+    for (const k of Object.keys(o)) {
+      if (typeof o[k] !== 'function' || !/^[A-Z]/.test(k)) continue;
+      const wrap = fn => (typeof fn !== 'function' ? fn : (...args) => {
+        if (o._dead) throw new Error(`${k}: Unable to find proxy object`);
+        if (F.fail && F.fail[k]) throw new Error(`Execute: ${k}: Error response (errorStr:${F.fail[k]})`);
+        if (args.some(x => badValue(x, 0))) { const c = `${k}(${args.map(describe).join(', ')})`; crashes.push(c); throw new Error('Resolve would abort: ' + c); }
+        return fn(...args);
+      });
+      let w = wrap(o[k]);
+      Object.defineProperty(o, k, { configurable: true, enumerable: true, get: () => w, set: v => { w = wrap(v); } });
+    }
+    return o;
+  }
 
   function markerHost(o, ownerName) {
     o._markers = {};
@@ -42,7 +76,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     f.GetSubFolderList = () => f._subs.slice();
     f.GetUniqueId = () => f._id;
     f.GetIsFolderStale = () => false;
-    return f;
+    return strict(f);
   }
   function clip(file, info, startFrame, endFrame) {
     const m = Object.assign({ fps, frames: 250, width, height, audioCh: 2, type: 'Video + Audio' }, info || {});
@@ -59,7 +93,8 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     };
     it.GetName = () => it._name;
     it.SetName = n => { it._name = n; return true; };
-    it.GetClipProperty = k => (k ? it._props()[k] : it._props());
+    // like Resolve 21.1: asking a subtitle file (.srt) for its clip properties aborts the app
+    it.GetClipProperty = k => { if (/^subtitle$/i.test(m.type)) { crashes.push('GetClipProperty of subtitle ' + it._name); throw new Error('Resolve would abort: GetMediaFrameExtentsWithFrameRate'); } return k ? it._props()[k] : it._props(); };
     it.SetClipProperty = (k, v) => { if (k === 'Clip Name') { it._name = v; return true; } return false; };
     it.GetMetadata = () => ({});
     it.SetMetadata = () => true;
@@ -75,7 +110,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     it.UnlinkProxyMedia = () => { it._proxy = ''; return true; };
     it.GetFlagList = () => [];
     markerHost(it, () => 'clip:' + it._name);
-    return it;
+    return strict(it);
   }
 
   const root = folder('Master');
@@ -109,7 +144,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     tl.DeleteClips = (items, ripple) => {
       for (const it of items) {
         const a = arr(it._type)[it._track - 1], i = a.indexOf(it); if (i < 0) continue;
-        a.splice(i, 1);
+        a.splice(i, 1); it._dead = true;
         if (ripple) { const len = it._end - it._start; for (const tr of tl._v.concat(tl._a)) for (const o of tr) if (o._start >= it._end) { o._start -= len; o._end -= len; } }
       }
       return true;
@@ -128,7 +163,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     // the timeline's own Media Pool entry
     tl._mpi = clip('', { type: 'Timeline', name, frames: 0 });
     tl._mpi._props = () => ({ 'Clip Name': tl._name, 'File Path': '', 'FPS': fps, 'Frames': String(tl.GetEndFrame() - tl._start), 'Type': 'Timeline', 'Resolution': `${width}x${height}`, 'Audio Ch': '2' });
-    return tl;
+    return strict(tl);
   }
   function timelineItem(tl, type, track, mpi, startFrame, endFrame, recordFrame) {
     const ti = { _id: uid('item'), _type: type, _track: track, _mpi: mpi, _srcStart: startFrame, _srcEnd: endFrame, _start: recordFrame, _end: recordFrame + (endFrame - startFrame) /* endFrame is exclusive here (measured in Resolve 21) */, _enabled: true, _color: '', _props: { ZoomX: 1, ZoomY: 1, Pan: 0, Tilt: 0, Opacity: 100 } };
@@ -153,7 +188,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     ti.GetLinkedItems = () => tl._v.concat(tl._a).flat().filter(o => o !== ti && o._mpi === mpi && o._start === ti._start);
     ti.SmartReframe = () => true;
     markerHost(ti, () => 'item:' + ti.GetName());
-    return ti;
+    return strict(ti);
   }
   function cloneItem(it, tl) { const c = timelineItem(tl, it._type, it._track, it._mpi, it._srcStart, it._srcEnd, it._start); c._end = it._end; c._enabled = it._enabled; c._color = it._color; return c; }
   function place(tl, info, type, track, at) {
@@ -180,7 +215,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     AddSubFolder: (parent, name) => { if (parent._subs.some(f => f._name === name)) return null; const f = folder(name); parent._subs.push(f); return f; },
     GetCurrentFolder: () => current,
     SetCurrentFolder: f => { current = f; return true; },
-    CreateEmptyTimeline: name => { if (timelines.some(t => t._name === name)) return null; const tl = timeline(name); timelines.push(tl); current._clips.push(tl._mpi); currentTl = tl; return tl; },
+    CreateEmptyTimeline: name => { if (/[:/\\?*<>|]/.test(name)) throw new Error('Execute: CreateEmptyTimeline: Error response (errorStr:Unable to create a timeline)'); if (timelines.some(t => t._name === name)) return null; const tl = timeline(name); timelines.push(tl); current._clips.push(tl._mpi); currentTl = tl; return tl; },
     CreateTimelineFromClips: (name, clips) => { const tl = pool.CreateEmptyTimeline(name); if (!tl) return null; pool.AppendToTimeline(clips); return tl; },
     AppendToTimeline: (clips) => {
       const tl = currentTl; if (!tl) return [];
@@ -199,14 +234,15 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     },
     ImportMedia: (items) => [].concat(items).map(p => { const file = typeof p === 'string' ? p : p.FilePath; if (!media[file] && !fs.existsSync(file)) return null; const it = clip(file, media[file]); current._clips.push(it); return it; }).filter(Boolean),
     MoveClips: (items, target) => { for (const it of items) { const f = findItemFolder(it); if (f) f._clips.splice(f._clips.indexOf(it), 1); target._clips.push(it); } return true; },
-    DeleteClips: (items) => { for (const it of items) { const f = findItemFolder(it); if (f) f._clips.splice(f._clips.indexOf(it), 1); } return true; },
-    DeleteTimelines: (tls) => { for (const t of tls) { const i = timelines.indexOf(t); if (i >= 0) timelines.splice(i, 1); const f = findItemFolder(t._mpi); if (f) f._clips.splice(f._clips.indexOf(t._mpi), 1); if (currentTl === t) currentTl = timelines[0] || null; } return true; },
+    DeleteClips: (items) => { for (const it of items) { const f = findItemFolder(it); if (f) f._clips.splice(f._clips.indexOf(it), 1); it._dead = true; } return true; },
+    DeleteTimelines: (tls) => { for (const t of tls) { t._dead = true; const i = timelines.indexOf(t); if (i >= 0) timelines.splice(i, 1); const f = findItemFolder(t._mpi); if (f) f._clips.splice(f._clips.indexOf(t._mpi), 1); if (currentTl === t) currentTl = timelines[0] || null; } return true; },
     DeleteFolders: (fs2) => { (function walk(f) { f._subs = f._subs.filter(s => !fs2.includes(s)); f._subs.forEach(walk); })(root); return true; },
     GetSelectedClips: () => F.selected.slice(),
     SetSelectedClip: it => { F.selected = [it]; return true; },
     ImportTimelineFromFile: () => null,
     GetUniqueId: () => 'pool-1'
   };
+  strict(pool);
   const project = {
     GetName: () => projectName,
     GetUniqueId: () => 'project-1',
@@ -220,7 +256,11 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     GetRenderFormats: () => ({ MP4: 'mp4', QuickTime: 'mov', Wave: 'wav', 'Audio Only': 'wav' }),
     GetRenderCodecs: f => (f === 'wav' ? { 'Linear PCM': 'LinearPCM' } : { 'H.264': 'H264', 'H.265': 'H265', 'Apple ProRes 422 HQ': 'ProRes422HQ' }),
     GetCurrentRenderFormatAndCodec: () => Object.assign({}, renderFormat),
-    SetCurrentRenderFormatAndCodec: (format, codec) => { renderFormat = { format, codec }; return true; },
+    SetCurrentRenderFormatAndCodec: (format, codec) => {
+      const f = Object.values(project.GetRenderFormats()), c = Object.values(project.GetRenderCodecs(format));
+      if (!f.includes(format) || !c.includes(codec)) throw new Error('Execute: SetCurrentRenderFormatAndCodec: Error response (errorStr:Unknown render codec/format combination)');
+      renderFormat = { format, codec }; return true;
+    },
     GetCurrentRenderMode: () => renderMode,
     SetCurrentRenderMode: m => { renderMode = m; return true; },
     GetRenderPresetList: () => ['H.264 Master', 'YouTube - 1080p', 'Vimeo - 1080p', 'ProRes 422 HQ', 'Audio Only'],
@@ -248,6 +288,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     ExportCurrentFrameAsStill: file => { try { fs.writeFileSync(file, Buffer.from('89504e470d0a1a0a', 'hex')); return true; } catch (e) { return false; } },
     RefreshLUTList: () => true
   };
+  strict(project);
   let saved = 0;
   const pm = {
     GetCurrentProject: () => (F.noProject ? null : project),
@@ -255,6 +296,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     GetCurrentDatabase: () => ({ DbType: 'Disk', DbName: 'Local Database' }),
     GetCurrentFolder: () => ''
   };
+  strict(pm);
   const storage = {
     GetMountedVolumeList: () => ['/'],
     AddItemListToMediaPool: (...items) => items.flat().map(x => {
@@ -262,6 +304,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
       const it = clip(x.media, media[x.media], x.startFrame, x.endFrame); current._clips.push(it); return it;
     })
   };
+  strict(storage);
   let page = 'edit';
   const resolve = {
     GetProjectManager: () => pm,
@@ -272,11 +315,12 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     GetCurrentPage: () => page,
     OpenPage: p => { page = p; return true; }
   };
+  strict(resolve);
 
   const F = {
     resolve, project, pool, root, timelines, log, media, selected: [],
     get saved() { return saved; }, get currentTimeline() { return currentTl; }, get renderJobs() { return renderJobs; },
-    renderFails: false, renderContent: null, noProject: false,
+    renderFails: false, renderContent: null, noProject: false, fail: {}, crashes,
     /** Register a media file (it needn't exist on disk) and import it: F.addMedia('/m/a.mp4', {fps, frames, type, bin}) */
     addMedia(file, info = {}) {
       media[file] = Object.assign({ fps, frames: 250, width, height, audioCh: 2, type: 'Video + Audio' }, info);
@@ -287,11 +331,11 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     /** A timeline made from clips laid end to end: F.addTimeline('Cut', [{item, in, out, track?, at?}]) with frames */
     addTimeline(name, parts = []) {
       const tl = pool.CreateEmptyTimeline(name);
-      for (const p of parts) pool.AppendToTimeline([{ mediaPoolItem: p.item, startFrame: p.in, endFrame: p.out, trackIndex: p.track || 1, recordFrame: p.at != null ? tl._start + p.at : undefined, mediaType: p.mediaType }]);
+      for (const p of parts) pool.AppendToTimeline([Object.assign({ mediaPoolItem: p.item, startFrame: p.in, endFrame: p.out, trackIndex: p.track || 1 }, p.at != null ? { recordFrame: tl._start + p.at } : {}, p.mediaType ? { mediaType: p.mediaType } : {})]);
       return tl;
     }
   };
   return F;
 }
 
-module.exports = { make };
+module.exports = { make, crashes };

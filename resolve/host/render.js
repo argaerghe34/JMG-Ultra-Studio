@@ -118,6 +118,11 @@ function engine(R) {
   const toWav = new Map();    // job id → the WAV it was asked for (Resolve renders PCM in a .mov; converted when done)
   const pr = () => R.project();
   const call = (o, fn, ...args) => { try { return o && typeof o[fn] === 'function' ? o[fn](...args) : undefined; } catch (e) { return undefined; } };
+  /**
+   * Did Resolve take it? Resolve 21 THROWS its refusals ("Execute: …: Error response"), so a throw is a no (call() turns
+   * it into undefined, which "=== false" missed). A method this Resolve doesn't have counts as taken, as before.
+   */
+  const took = (o, fn, ...args) => { try { return !(o && typeof o[fn] === 'function') || o[fn](...args) !== false; } catch (e) { return false; } };
 
   /* ---------- formats and codecs ---------- */
   function formats() { return call(pr(), 'GetRenderFormats') || {}; }
@@ -144,7 +149,7 @@ function engine(R) {
 
   /* ---------- settings in and out ---------- */
   /** Settings that may not apply to every codec go one at a time, so one refusal doesn't lose the rest. */
-  function setOptional(o) { const out = {}; for (const [k, v] of Object.entries(o || {})) out[k] = call(pr(), 'SetRenderSettings', { [k]: v }) !== false; return out; }
+  function setOptional(o) { const out = {}; for (const [k, v] of Object.entries(R.clean(o))) out[k] = took(pr(), 'SetRenderSettings', { [k]: v }); return out; }
   function sizeFor(rec, tl) {
     const s = R.size(tl);
     if (rec.size === 'timeline') return s;
@@ -160,7 +165,7 @@ function engine(R) {
       if (!rec) throw R.err('PRESET_MISSING', 'Unknown Ultra Studio recipe ' + p);
       if (rec.audioOnly) {
         if (!call(pr(), 'LoadRenderPreset', AUDIO_ONLY)) throw R.err('PRESET_MISSING', 'LoadRenderPreset ' + AUDIO_ONLY, 'Resolve’s “Audio Only” render preset is missing.', 'Reset Resolve’s render presets on the Deliver page, then try again.');
-        if (call(pr(), 'SetRenderSettings', { ExportVideo: false, ExportAudio: true }) === false) throw R.err('RENDER_FAILED', 'SetRenderSettings audio only', 'Resolve didn’t take the render settings.', 'Open the Deliver page once, then try again.');
+        if (!took(pr(), 'SetRenderSettings', { ExportVideo: false, ExportAudio: true })) throw R.err('RENDER_FAILED', 'SetRenderSettings audio only', 'Resolve didn’t take the render settings.', 'Open the Deliver page once, then try again.');
         setOptional(rec.opt);
         return { ext: 'mov', rate: rec.rate, name: rec.name, wav: true };
       }
@@ -168,8 +173,8 @@ function engine(R) {
       if (!codec) throw R.err('PRESET_MISSING', `No ${rec.format} / ${rec.codec.map(String).join(' or ')} in GetRenderFormats/GetRenderCodecs`, `Resolve can’t render ${rec.name} on this computer.`, 'Choose another render preset, then try again.');
       if (!call(pr(), 'SetCurrentRenderFormatAndCodec', format, codec)) throw R.err('RENDER_FAILED', `SetCurrentRenderFormatAndCodec(${format}, ${codec}) refused`, 'Resolve didn’t take the render settings.', 'Open the Deliver page once, then try again.');
       const s = { ExportVideo: !!rec.video, ExportAudio: !!rec.audio };
-      if (rec.video) { const z = sizeFor(rec, tl); s.FormatWidth = z.width; s.FormatHeight = z.height; }
-      if (call(pr(), 'SetRenderSettings', s) === false) throw R.err('RENDER_FAILED', 'SetRenderSettings ' + JSON.stringify(s), 'Resolve didn’t take the render settings.', 'Open the Deliver page once, then try again.');
+      if (rec.video) { const z = sizeFor(rec, tl); s.FormatWidth = Math.round(z.width); s.FormatHeight = Math.round(z.height); }
+      if (!took(pr(), 'SetRenderSettings', R.clean(s))) throw R.err('RENDER_FAILED', 'SetRenderSettings ' + JSON.stringify(s), 'Resolve didn’t take the render settings.', 'Open the Deliver page once, then try again.');
       let rate = rec.rate || 0;
       if (rate) { if (!setOptional({ AudioSampleRate: rate }).AudioSampleRate) { rate = 48000; setOptional({ AudioSampleRate: 48000 }); } }
       setOptional(rec.opt);
@@ -200,11 +205,10 @@ function engine(R) {
     const saved = !!call(P, 'SaveAsNewRenderPreset', snap);
     try { return await fn(); } finally {
       if (saved) { call(P, 'LoadRenderPreset', snap); call(P, 'DeleteRenderPreset', snap); }
-      if (fc && fc.format) call(P, 'SetCurrentRenderFormatAndCodec', fc.format, fc.codec);
-      if (mode != null) call(P, 'SetCurrentRenderMode', mode);
-      const now = call(P, 'GetCurrentTimeline');
-      if (tl && R.timelineById(R.id(tl)) && (!now || R.id(now) !== R.id(tl))) call(P, 'SetCurrentTimeline', tl);
-      if (page && call(R.api, 'GetCurrentPage') !== page) call(R.api, 'OpenPage', page);
+      if (fc && fc.format && fc.codec) call(P, 'SetCurrentRenderFormatAndCodec', String(fc.format), String(fc.codec));
+      if (R.num(mode) != null) call(P, 'SetCurrentRenderMode', R.num(mode));
+      if (tl) await R.restoreTimeline(tl);   // Resolve may be busy for a moment: it tries again, never throws
+      if (page && call(R.api, 'GetCurrentPage') !== page) call(R.api, 'OpenPage', String(page));
     }
   }
 
@@ -215,17 +219,19 @@ function engine(R) {
   /** Put a timeline's In/Out back as GetMarkInOut gave them ({} = none: cleared). */
   function restoreMarks(tl, m) {
     call(tl, 'ClearMarkInOut', 'all');
-    for (const type of ['video', 'audio']) { const v = m && m[type]; if (v && v.in != null && v.out != null) call(tl, 'SetMarkInOut', v.in, v.out, type); }
+    for (const type of ['video', 'audio']) { const v = m && m[type], i = v && R.num(v.in), o = v && R.num(v.out); if (i != null && o != null) call(tl, 'SetMarkInOut', Math.round(i), Math.round(o), type); }
   }
   function addJob(tl, out, preset, range) {
     const P = pr();
     R.open(tl);
     const info = applyPreset(preset, tl);
     call(P, 'SetCurrentRenderMode', 1);   // single clip
-    const dir = path.dirname(out), base = path.basename(out).replace(/\.[^.]+$/, '');
+    if (!out) throw R.err('BAD_INPUT', 'No file to render to', 'There’s no export file name.', 'Choose where to save the render, then try again.');
+    const dir = path.dirname(String(out)), base = path.basename(String(out)).replace(/\.[^.]+$/, '');
     const s = { TargetDir: dir, CustomName: base };
     if (range) {
-      const a = R.tlFrame(tl, Math.max(0, range.start)), b = Math.min(R.tlFrame(tl, range.end), tl.GetEndFrame()) - 1;   // MarkOut is the last frame
+      const rs = R.num(range.start), re = R.num(range.end);
+      const a = rs == null ? NaN : R.tlFrame(tl, Math.max(0, rs)), b = re == null ? NaN : Math.min(R.tlFrame(tl, re), tl.GetEndFrame()) - 1;   // MarkOut is the last frame
       if (!(b >= a)) throw R.err('BAD_INPUT', `Empty range ${range.start}–${range.end}`, 'That range is empty.', 'Set the range around the part to render, then try again.');
       Object.assign(s, { SelectAllFrames: false, MarkIn: a, MarkOut: b });
     } else s.SelectAllFrames = true;
@@ -234,7 +240,7 @@ function engine(R) {
     const marks = range ? call(tl, 'GetMarkInOut') || {} : null;
     let id;
     try {
-      if (call(P, 'SetRenderSettings', s) === false) throw R.err('RENDER_FAILED', 'SetRenderSettings ' + JSON.stringify(s), 'Resolve didn’t take the render settings.', 'Check the export folder exists and can be written to, then try again.');
+      if (!took(P, 'SetRenderSettings', s)) throw R.err('RENDER_FAILED', 'SetRenderSettings ' + JSON.stringify(s), 'Resolve didn’t take the render settings.', 'Check the export folder exists and can be written to, then try again.');
       id = call(P, 'AddRenderJob');
       if (!id) { call(R.api, 'OpenPage', 'deliver'); id = call(P, 'AddRenderJob'); }   // some versions add jobs only from the Deliver page
     } finally { if (marks) restoreMarks(tl, marks); }
@@ -253,7 +259,7 @@ function engine(R) {
     const info = R.itemInfo(item), fps = info.fps || 25;
     if (info.subclip) return { start: info.rangeStart, end: info.rangeEnd, info };
     // the same range as audioClipRange (core.js), so the panel's offsets line up with what was rendered
-    const m = call(item, 'GetMarkInOut') || {}, mk = m.audio || m.video;
+    const m = R.clipMarks(item), mk = m.audio || m.video;
     const start = mk && mk.in != null ? Number(mk.in) / fps : 0, end = mk && mk.out != null ? (Number(mk.out) + 1) / fps : info.duration;
     return end > start ? { start, end, info } : { start: 0, end: info.duration, info };
   }
@@ -272,11 +278,16 @@ function engine(R) {
       if (info.fps) call(tl, 'SetSetting', 'timelineFrameRate', String(info.fps));
       if (info.width && info.height) { call(tl, 'SetSetting', 'timelineResolutionWidth', String(info.width)); call(tl, 'SetSetting', 'timelineResolutionHeight', String(info.height)); }
     }
-    R.open(tl);
-    const a = whole ? (info.subclip ? info.rangeStart : 0) : r.start, b = whole ? (info.subclip ? info.rangeEnd : info.duration) : r.end;
-    const ci = R.clipInfo(item, a, b, Object.assign({ trackIndex: 1, recordFrame: tl.GetStartFrame() }, mediaType ? { mediaType } : {}));
-    const placed = R.list(pool.AppendToTimeline([ci]));
-    if (!placed.length) { dropScratch(tl); throw R.err('RENDER_FAILED', 'AppendToTimeline refused ' + info.name, 'Resolve couldn’t put the clip on a temporary timeline.', 'Check the clip plays in Resolve, then try again.'); }
+    // Resolve throws its refusals (and clipInfo refuses a subtitle file): the scratch timeline mustn't be left behind
+    let placed = [], why = null;
+    try {
+      R.open(tl);
+      const a = whole ? (info.subclip ? info.rangeStart : 0) : r.start, b = whole ? (info.subclip ? info.rangeEnd : info.duration) : r.end;
+      const ci = R.clipInfo(item, a, b, Object.assign({ trackIndex: 1, recordFrame: tl.GetStartFrame() }, mediaType ? { mediaType } : {}));
+      placed = R.list(pool.AppendToTimeline([ci])).filter(Boolean);
+    } catch (e) { why = e; }
+    if (why && why.usCode) { dropScratch(tl); throw why; }
+    if (!placed.length) { dropScratch(tl); throw R.err('RENDER_FAILED', 'AppendToTimeline refused ' + info.name + (why ? ': ' + why.message : ''), 'Resolve couldn’t put the clip on a temporary timeline.', 'Check the clip plays in Resolve, then try again.'); }
     return tl;
   }
   function dropScratch(tl) {
@@ -333,7 +344,7 @@ function engine(R) {
     ids = (ids && ids.length ? ids : Array.from(pending)).map(String);
     if (!ids.length) return false;
     if (call(P, 'IsRenderingInProgress')) throw R.err('BUSY', 'IsRenderingInProgress', 'Resolve is already rendering.', 'Wait for that render to finish (or stop it on the Deliver page), then try again.');
-    if (call(P, 'StartRendering', ids) === false) throw R.err('RENDER_FAILED', 'StartRendering ' + ids.join(','), 'Resolve didn’t start rendering.', 'Open the Deliver page to see if a render is waiting for you, then try again.');
+    if (!took(P, 'StartRendering', ids)) throw R.err('RENDER_FAILED', 'StartRendering ' + ids.join(','), 'Resolve didn’t start rendering.', 'Open the Deliver page to see if a render is waiting for you, then try again.');
     ids.forEach(id => pending.delete(id));
     return true;
   }
@@ -363,11 +374,14 @@ function engine(R) {
 
   /** A timeline's size and its frame-size settings (custom per timeline). mismatch: how other-size clips fill it. */
   function setSize(tl, w, h, mismatch) {
-    tl.SetSetting('useCustomSettings', '1');
-    tl.SetSetting('timelineResolutionWidth', String(w));
-    tl.SetSetting('timelineResolutionHeight', String(h));
-    try { tl.SetSetting('timelineOutputResolutionWidth', String(w)); tl.SetSetting('timelineOutputResolutionHeight', String(h)); } catch (e) { /* follows the timeline size */ }
-    if (mismatch) { try { tl.SetSetting('timelineInputResMismatchBehavior', mismatch); } catch (e) { /* project default */ } }
+    w = Math.round(w); h = Math.round(h);
+    if (!(w > 0 && h > 0)) return false;
+    // each one alone: Resolve throws a refusal, and the size is checked below anyway
+    call(tl, 'SetSetting', 'useCustomSettings', '1');
+    call(tl, 'SetSetting', 'timelineResolutionWidth', String(w));
+    call(tl, 'SetSetting', 'timelineResolutionHeight', String(h));
+    call(tl, 'SetSetting', 'timelineOutputResolutionWidth', String(w)); call(tl, 'SetSetting', 'timelineOutputResolutionHeight', String(h));   // else it follows the timeline size
+    if (mismatch) call(tl, 'SetSetting', 'timelineInputResMismatchBehavior', String(mismatch));
     const s = R.size(tl);
     return s.width === w && s.height === h;
   }
@@ -442,13 +456,13 @@ module.exports = function (R) {
         before = tl.GetCurrentTimecode() || '';
         const fps = R.fps(tl), f = Math.max(tl.GetStartFrame(), Math.min(R.tlFrame(tl, Number(a.seconds) || 0), tl.GetEndFrame() - 1));
         const tc = R.framesToTC(f, fps, R.dropFrame(tl));
-        const attempt = where => { tried.push(where); tl.SetCurrentTimecode(tc); return !!pr.ExportCurrentFrameAsStill(file) && R.exists(file); };
+        const attempt = where => { tried.push(where); try { tl.SetCurrentTimecode(tc); return !!pr.ExportCurrentFrameAsStill(file) && R.exists(file); } catch (e) { tried.push(e.message); return false; } };
         ok = attempt(api.GetCurrentPage ? api.GetCurrentPage() : 'edit');
-        if (!ok) { api.OpenPage('color'); ok = attempt('color'); }   // some versions export stills from the Color page only
+        if (!ok) { try { api.OpenPage('color'); } catch (e) { /* tried anyway */ } ok = attempt('color'); }   // some versions export stills from the Color page only
       } finally {
         try { if (before) tl.SetCurrentTimecode(before); } catch (e) { /* leave it */ }
-        if (was && R.id(was) !== R.id(tl)) pr.SetCurrentTimeline(was);
-        if (page && api.GetCurrentPage && api.GetCurrentPage() !== page) api.OpenPage(page);
+        if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was);
+        try { if (page && api.GetCurrentPage && api.GetCurrentPage() !== page) api.OpenPage(page); } catch (e) { /* stays */ }
       }
       if (!ok) throw R.err('RENDER_FAILED', 'ExportCurrentFrameAsStill failed on ' + tried.join(', ') + ' → ' + file, 'Resolve couldn’t save the frame.', 'Check the timeline has a picture at the playhead, then try again.');
       return file;

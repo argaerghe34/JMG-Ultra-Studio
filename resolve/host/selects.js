@@ -15,14 +15,15 @@ module.exports = (R) => {
      */
     selectsPlaceWhole(a) {
       const tl = R.needSeq(a.seqId);
-      let cursor = a.cursor != null ? a.cursor : R.tlDuration(tl);
+      let cursor = R.num(a.cursor) != null ? R.num(a.cursor) : R.tlDuration(tl);
       const placed = [];
       R.open(tl);
       for (const id of a.ids || []) {
         const it = R.itemById(id);
-        if (!it) { placed.push(null); continue; }
-        const p = R.props(it), frames = Number(p['Frames']) || 1;
-        let s = Number(p['Start']), e = Number(p['End']);
+        // a subtitle file laid by script aborts Resolve 21.1
+        if (!it || R.isSubtitle(it)) { placed.push(null); continue; }
+        const p = R.props(it), frames = Math.max(1, Math.round(Number(p['Frames']) || 1));
+        let s = Math.round(Number(p['Start'])), e = Math.round(Number(p['End']));
         if (!isFinite(s) || !isFinite(e) || e < s) { s = 0; e = frames - 1; }
         e += 1; // a subclip's End is its last frame; AppendToTimeline's endFrame is exclusive (base.js clipInfo)
         const got = R.list(R.pool().AppendToTimeline([{ mediaPoolItem: it, startFrame: s, endFrame: e, trackIndex: 1, recordFrame: R.tlFrame(tl, cursor) }])).filter(Boolean);
@@ -90,14 +91,15 @@ module.exports = (R) => {
               if (!tl) throw new Error('no scratch timeline');
               made.push(tl); tls[s.id] = tl;
               // the clip's own size, so the still is too
-              if (info.width && info.height) { tl.SetSetting('useCustomSettings', '1'); tl.SetSetting('timelineResolutionWidth', String(info.width)); tl.SetSetting('timelineResolutionHeight', String(info.height)); }
+              if (info.width && info.height) { try { tl.SetSetting('useCustomSettings', '1'); tl.SetSetting('timelineResolutionWidth', String(info.width)); tl.SetSetting('timelineResolutionHeight', String(info.height)); } catch (e) { /* the project's size */ } }
             }
             R.open(tl);
             for (const { ti } of R.trackItems(tl, 'video').concat(R.trackItems(tl, 'audio'))) { try { tl.DeleteClips([ti], false); } catch (e) { /* replaced below */ } }
-            const got = R.list(pool.AppendToTimeline([R.clipInfo(it, s.seconds, s.seconds + 0.5, { trackIndex: 1, recordFrame: tl.GetStartFrame(), mediaType: 1 })])).filter(Boolean);
+            if (!s.out || R.num(s.seconds) == null) throw new Error('no time or file');   // never NaN to Resolve
+            const got = R.list(pool.AppendToTimeline([R.clipInfo(it, R.num(s.seconds), R.num(s.seconds) + 0.5, { trackIndex: 1, recordFrame: tl.GetStartFrame(), mediaType: 1 })])).filter(Boolean);
             if (!got.length) throw new Error('not placed');
             tl.SetCurrentTimecode(R.framesToTC(tl.GetStartFrame(), R.fps(tl), R.dropFrame(tl)));
-            const file = /\.png$/i.test(s.out) ? s.out : s.out + '.png';
+            const file = /\.png$/i.test(String(s.out)) ? String(s.out) : s.out + '.png';
             try { fs.unlinkSync(file); } catch (e) { /* not there */ }
             let ok = pr.ExportCurrentFrameAsStill(file);
             // some Resolve versions export stills only from the Color page
