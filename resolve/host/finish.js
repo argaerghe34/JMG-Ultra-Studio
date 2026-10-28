@@ -187,7 +187,7 @@ module.exports = function (R) {
     /** The file extension a preset writes ('mp4', 'mov', …), or '' if Resolve can't tell. a: {seqId, preset} */
     async presetExtension(a) {
       const p = String(a.preset || '');
-      if (p.indexOf(E.TOKEN) === 0) { const r = E.RECIPES[p.slice(E.TOKEN.length)]; return r ? E.extOf(E.formatKey(r.format) || r.format) : ''; }
+      if (p.indexOf(E.TOKEN) === 0) { const r = E.RECIPES[p.slice(E.TOKEN.length)]; return !r ? '' : r.audioOnly ? 'wav' : E.extOf(E.formatKey(r.format) || r.format); }
       const tl = R.needSeq(a.seqId);
       try { return await E.withRestore(async () => E.applyPreset(p, tl).ext); } catch (e) { return ''; }
     }

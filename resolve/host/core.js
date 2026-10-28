@@ -360,8 +360,9 @@ module.exports = (R) => {
       let cuts = 0;
       const rs = [];
       for (const r of a.ranges || []) {
-        const f0 = Math.max(0, Math.round(r[0] * fps)), f1 = Math.round(r[1] * fps);
-        if (f1 - f0 < 1) continue;
+        // [start, end] in seconds (as Premiere's extractRanges); anything unreadable is skipped, never treated as "all"
+        const f0 = Math.max(0, Math.round(Number(r && r[0]) * fps)), f1 = Math.round(Number(r && r[1]) * fps);
+        if (!isFinite(f0) || !isFinite(f1) || f1 - f0 < 1) continue;
         cuts++; rs.push([f0, f1]);
       }
       rs.sort((x, y) => x[0] - y[0]);

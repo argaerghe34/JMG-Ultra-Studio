@@ -20,26 +20,27 @@ test('presets: Ultra Studio’s recipes when Resolve has the formats, empty when
   assert.deepStrictEqual(await S.run('presets'), { wav16k: 'resolve:wav16k', wav48: 'resolve:wav48', h264proxy: 'resolve:proxy' });
   assert.deepStrictEqual(await S.run('encoderPresets'), { h264: 'resolve:h264', proxy: 'resolve:proxy', analysis: 'resolve:analysis', wav: 'resolve:wav' });
   assert.strictEqual(await S.run('encoderListen'), true);
-  S.F.project.GetRenderFormats = () => ({ MP4: 'mp4', QuickTime: 'mov' });   // no Wave format here
+  S.F.project.GetRenderPresetList = () => ['H.264 Master'];   // no "Audio Only" preset here (WAV comes from it)
   assert.strictEqual((await S.run('presets')).wav16k, '');
   assert.strictEqual((await S.run('encoderPresets')).h264, 'resolve:h264');
 });
 
-test('renderAudio of a timeline: sound only, WAV 16 kHz, whole timeline, named as asked; settings put back', async () => {
+test('renderAudio of a timeline: sound only, a WAV (48 kHz: Resolve 21 refuses 16 kHz), whole timeline, named as asked; settings put back', async () => {
   const S = withTimeline();
   const P = S.F.project;
   P.SetRenderSettings({ TargetDir: '/Users/me/Renders', CustomName: 'Mine' });
   P.SetCurrentRenderFormatAndCodec('mov', 'ProRes422HQ'); P.SetCurrentRenderMode(0);
   const out = path.join(S.dir, 'sound.wav');
   const r = await S.run('renderAudio', { seqId: S.tl.GetUniqueId(), out });
-  assert.strictEqual(r.path, out); assert.ok(r.size > 44); assert.strictEqual(r.rate, 16000);
+  assert.strictEqual(r.path, out); assert.ok(r.size > 44); assert.strictEqual(r.rate, 48000); assert.strictEqual(r.resampled, true);
   const j = S.F.jobLog[0];
-  assert.deepStrictEqual(j.format, { format: 'wav', codec: 'LinearPCM' });
+  assert.strictEqual(j.settings.AudioCodec, 'lpcm', 'Resolve’s Audio Only preset: PCM (in a .mov, turned into the WAV)');
   assert.strictEqual(j.mode, 1, 'single clip');
   assert.strictEqual(j.settings.ExportVideo, false); assert.strictEqual(j.settings.ExportAudio, true);
   assert.strictEqual(j.settings.SelectAllFrames, true);
   assert.strictEqual(j.settings.TargetDir, S.dir); assert.strictEqual(j.settings.CustomName, 'sound');
-  assert.strictEqual(j.settings.AudioSampleRate, 16000);
+  assert.strictEqual(j.settings.AudioSampleRate, 48000);
+  assert.ok(!require('fs').readdirSync(S.dir).some(f => f.endsWith('.mov')), 'the .mov Resolve wrote is gone');
   assert.strictEqual(j.timeline, 'Cut');
   assert.strictEqual(S.F.renderJobs.length, 0, 'our job is off the Render Queue');
   assert.deepStrictEqual(P.GetCurrentRenderFormatAndCodec(), { format: 'mov', codec: 'ProRes422HQ' }, 'format and codec put back');
@@ -281,4 +282,17 @@ test('core audio in Resolve: a timeline’s sound is rendered by Resolve and rea
     const a = await US.audio.forSequence(S.tl.GetUniqueId(), {});
     assert.strictEqual(a.sr, 16000); assert.ok(Math.abs(a.duration - 2) < 0.01); assert.ok(a.data.length > 30000);
   } finally { env.restore(); }
+});
+
+test('movPcmToWav: Resolve’s Audio Only .mov becomes the same sound as a WAV (16/24-bit, either byte order, several chunks)', () => {
+  const { makeMovPcm, makeWav } = require('./resolve-render-kit');
+  const { movPcmToWav } = require('../../resolve/host/render');
+  const dir = require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'us-movpcm-'));
+  for (const o of [{}, { bits: 24 }, { bigEndian: true }, { bits: 24, bigEndian: true, chunks: 7 }, { chunks: 3 }]) {
+    const mov = path.join(dir, 'a.mov'), wav = path.join(dir, 'a.wav');
+    require('fs').writeFileSync(mov, makeMovPcm(48000, 2, 0.5, o));
+    const r = movPcmToWav(mov, wav);
+    assert.deepStrictEqual([r.rate, r.channels, r.bits, r.frames], [48000, 2, o.bits || 16, 24000], JSON.stringify(o));
+    assert.ok(require('fs').readFileSync(wav).equals(makeWav(48000, 2, 0.5, o)), 'identical to the WAV of the same sound ' + JSON.stringify(o));
+  }
 });

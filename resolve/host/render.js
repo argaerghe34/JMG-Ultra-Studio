@@ -20,10 +20,14 @@ const RECIPES = {
   prores: { name: 'ProRes 422 HQ – timeline size', format: 'mov', codec: [/422.*hq|hq.*422/i, /prores/i], size: 'timeline', audio: true, video: true, opt: { AudioCodec: 'lpcm', AudioSampleRate: 48000 } },
   proxy: { name: 'H.264 1280×720', format: 'mp4', codec: [/^h\.?264$/i, /264/], size: [1280, 720], audio: true, video: true, opt: { AudioCodec: 'aac', AudioSampleRate: 48000 } },
   analysis: { name: 'H.264 1280×720 (analysis copy)', format: 'mp4', codec: [/^h\.?264$/i, /264/], size: [1280, 720], audio: true, video: true, opt: { AudioCodec: 'aac', AudioSampleRate: 48000 } },
-  wav: { name: 'WAV 48 kHz 16-bit', format: 'wav', codec: [/pcm/i], audio: true, video: false, rate: 48000, opt: { AudioBitDepth: 16 } },
-  wav48: { name: 'WAV 48 kHz 16-bit', format: 'wav', codec: [/pcm/i], audio: true, video: false, rate: 48000, opt: { AudioBitDepth: 16 } },
-  wav16k: { name: 'WAV 16 kHz 16-bit (48 kHz if Resolve won’t)', format: 'wav', codec: [/pcm/i], audio: true, video: false, rate: 16000, opt: { AudioBitDepth: 16 } }
+  // Resolve 21 can't be set to its Wave format by script ("Unknown render codec/format combination" for every codec,
+  // and GetRenderCodecs('wav') is empty) and won't take 16 kHz. So WAV = its "Audio Only" preset (PCM in a .mov),
+  // turned into a plain WAV on this computer when the render is done (movPcmToWav, no change to the sound).
+  wav: { name: 'WAV 48 kHz 16-bit', audioOnly: true, audio: true, video: false, rate: 48000, opt: { AudioCodec: 'lpcm', AudioSampleRate: 48000, AudioBitDepth: 16 } },
+  wav48: { name: 'WAV 48 kHz 16-bit', audioOnly: true, audio: true, video: false, rate: 48000, opt: { AudioCodec: 'lpcm', AudioSampleRate: 48000, AudioBitDepth: 16 } },
+  wav16k: { name: 'WAV 48 kHz 16-bit (Resolve won’t render 16 kHz; the panel resamples)', audioOnly: true, audio: true, video: false, rate: 48000, opt: { AudioCodec: 'lpcm', AudioSampleRate: 48000, AudioBitDepth: 16 } }
 };
+const AUDIO_ONLY = 'Audio Only';
 const TOKEN = 'resolve:';
 const SNAPSHOT = 'JMG Ultra Studio – your render settings';
 const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -45,6 +49,64 @@ function wavHeader(file) {
   } catch (e) { return null; } finally { if (fd != null) fs.closeSync(fd); }
 }
 
+/**
+ * The PCM sound of a QuickTime file (Resolve's "Audio Only" render) as a WAV: the first sound track's samples, in
+ * order, chunk by chunk, with the byte order made little-endian. Handles 'lpcm' (version 2 sound description, with
+ * its flags), 'sowt' / 'twos' / 'in24' / 'in32' / 'fl32'. → {rate, channels, bits, frames}
+ */
+function movPcmToWav(src, dst) {
+  const b = fs.readFileSync(src);
+  const box = (o, end) => { if (o + 8 > end) return null; let size = b.readUInt32BE(o), h = 8; if (size === 1) { size = Number(b.readBigUInt64BE(o + 8)); h = 16; } else if (size === 0) size = end - o; return { type: b.toString('latin1', o + 4, o + 8), start: o + h, end: o + size }; };
+  const kids = (o, end) => { const out = []; for (let x; (x = box(o, end)) && x.end > o; o = x.end) out.push(x); return out; };
+  const find = (list, type) => list.find(x => x.type === type);
+  const moov = find(kids(0, b.length), 'moov');
+  if (!moov) throw new Error('no moov in ' + src);
+  let stbl = null;
+  for (const trak of kids(moov.start, moov.end).filter(x => x.type === 'trak')) {
+    const mdia = find(kids(trak.start, trak.end), 'mdia'); if (!mdia) continue;
+    const m = kids(mdia.start, mdia.end), hdlr = find(m, 'hdlr');
+    if (!hdlr || b.toString('latin1', hdlr.start + 8, hdlr.start + 12) !== 'soun') continue;
+    const minf = find(m, 'minf'); stbl = minf && find(kids(minf.start, minf.end), 'stbl'); if (stbl) break;
+  }
+  if (!stbl) throw new Error('no sound track in ' + src);
+  const s = kids(stbl.start, stbl.end), stsd = find(s, 'stsd'), e = stsd.start + 8;   // first sample description
+  const fmt = b.toString('latin1', e + 4, e + 8), ver = b.readUInt16BE(e + 16);
+  let channels, bits, rate, float = false, big;
+  if (ver === 2) {
+    // version 2: …, sizeOfStruct (e+36), sample rate float64 (e+40), channels (e+48), 0x7F000000, bits (e+56), flags (e+60)
+    rate = b.readDoubleBE(e + 40); channels = b.readUInt32BE(e + 48); bits = b.readUInt32BE(e + 56);
+    const flags = b.readUInt32BE(e + 60); float = !!(flags & 1); big = !!(flags & 2);
+  } else {
+    channels = b.readUInt16BE(e + 24); bits = b.readUInt16BE(e + 26); rate = b.readUInt32BE(e + 32) / 65536;
+    big = fmt !== 'sowt'; if (fmt === 'in24') bits = 24; if (fmt === 'in32') bits = 32; if (fmt === 'fl32') { bits = 32; float = true; }
+    if (ver === 1 && /^(in24|in32|fl32)$/.test(fmt)) { const en = kids(e + 52, e + b.readUInt32BE(e)).find(x => x.type === 'enda'); big = !(en && b.readUInt16BE(en.start)); }
+  }
+  if (!/^(lpcm|sowt|twos|in24|in32|fl32|raw )$/.test(fmt) || !channels || !bits) throw new Error(`not PCM sound (${fmt}, ${channels} ch, ${bits} bit)`);
+  const bpf = channels * bits / 8;
+  const co = find(s, 'stco') || find(s, 'co64'), wide = co.type === 'co64';
+  const offsets = []; for (let i = 0, n = b.readUInt32BE(co.start + 4); i < n; i++) offsets.push(wide ? Number(b.readBigUInt64BE(co.start + 8 + i * 8)) : b.readUInt32BE(co.start + 8 + i * 4));
+  const sc = find(s, 'stsc'), runs = []; for (let i = 0, n = b.readUInt32BE(sc.start + 4); i < n; i++) runs.push([b.readUInt32BE(sc.start + 8 + i * 12), b.readUInt32BE(sc.start + 12 + i * 12)]);
+  const sz = find(s, 'stsz'), constSize = b.readUInt32BE(sz.start + 4), sizes = constSize ? null : Array.from({ length: b.readUInt32BE(sz.start + 8) }, (_, i) => b.readUInt32BE(sz.start + 12 + i * 4));
+  // samples per chunk → bytes per chunk (a "sample" here is one frame of all channels, or a packet of that size)
+  const parts = []; let sample = 0, total = 0;
+  offsets.forEach((off, i) => {
+    let per = 0; for (const [first, n] of runs) if (first <= i + 1) per = n;
+    let bytes = 0; for (let k = 0; k < per; k++) bytes += sizes ? sizes[sample + k] || 0 : constSize * (constSize < bpf ? bpf / constSize : 1);
+    if (!sizes && constSize === 1) bytes = per * bpf;   // old QuickTime: sizes counted in single samples
+    sample += per; const part = b.subarray(off, Math.min(b.length, off + bytes)); parts.push(part); total += part.length;
+  });
+  let data = Buffer.concat(parts, total - (total % bpf));
+  const w = bits / 8;
+  if (big && w > 1) { data = Buffer.from(data); for (let i = 0; i + w <= data.length; i += w) data.subarray(i, i + w).reverse(); }
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0); h.writeUInt32LE(36 + data.length, 4); h.write('WAVEfmt ', 8); h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(float ? 3 : 1, 20); h.writeUInt16LE(channels, 22); h.writeUInt32LE(Math.round(rate), 24);
+  h.writeUInt32LE(Math.round(rate) * bpf, 28); h.writeUInt16LE(bpf, 32); h.writeUInt16LE(bits, 34); h.write('data', 36); h.writeUInt32LE(data.length, 40);
+  const tmp = dst + '.part';
+  fs.writeFileSync(tmp, Buffer.concat([h, data])); fs.renameSync(tmp, dst);
+  return { rate: Math.round(rate), channels, bits, frames: data.length / bpf };
+}
+
 /** One render engine per connection (render.js and finish.js share it: job ids, scratch timelines). */
 const engines = new WeakMap();
 function engine(R) {
@@ -52,6 +114,7 @@ function engine(R) {
   const scratch = new Map();  // render job id → scratch timeline id (deleted when the job is over)
   const keep = new Set();     // job ids to leave in the Render Queue when done (removeWhenDone: false)
   const pending = new Set();  // job ids added but not started
+  const toWav = new Map();    // job id → the WAV it was asked for (Resolve renders PCM in a .mov; converted when done)
   const pr = () => R.project();
   const call = (o, fn, ...args) => { try { return o && typeof o[fn] === 'function' ? o[fn](...args) : undefined; } catch (e) { return undefined; } };
 
@@ -71,7 +134,11 @@ function engine(R) {
   }
   /** a render format → the file extension it writes ('mxf_op1a' → 'mxf') */
   const extOf = format => String(format || '').toLowerCase().replace(/_.*$/, '') || 'mp4';
-  function recipeOk(key) { const r = RECIPES[key], f = r && formatKey(r.format); return !!(f && codecFor(f, r.codec)); }
+  function recipeOk(key) {
+    const r = RECIPES[key]; if (!r) return false;
+    if (r.audioOnly) return R.list(call(pr(), 'GetRenderPresetList')).map(String).includes(AUDIO_ONLY);
+    const f = formatKey(r.format); return !!(f && codecFor(f, r.codec));
+  }
   const token = key => (recipeOk(key) ? TOKEN + key : '');
 
   /* ---------- settings in and out ---------- */
@@ -90,6 +157,12 @@ function engine(R) {
     if (p.startsWith(TOKEN)) {
       const rec = RECIPES[p.slice(TOKEN.length)];
       if (!rec) throw R.err('PRESET_MISSING', 'Unknown Ultra Studio recipe ' + p);
+      if (rec.audioOnly) {
+        if (!call(pr(), 'LoadRenderPreset', AUDIO_ONLY)) throw R.err('PRESET_MISSING', 'LoadRenderPreset ' + AUDIO_ONLY, 'Resolve’s “Audio Only” render preset is missing.', 'Reset Resolve’s render presets on the Deliver page, then try again.');
+        if (call(pr(), 'SetRenderSettings', { ExportVideo: false, ExportAudio: true }) === false) throw R.err('RENDER_FAILED', 'SetRenderSettings audio only', 'Resolve didn’t take the render settings.', 'Open the Deliver page once, then try again.');
+        setOptional(rec.opt);
+        return { ext: 'mov', rate: rec.rate, name: rec.name, wav: true };
+      }
       const format = formatKey(rec.format), codec = format && codecFor(format, rec.codec);
       if (!codec) throw R.err('PRESET_MISSING', `No ${rec.format} / ${rec.codec.map(String).join(' or ')} in GetRenderFormats/GetRenderCodecs`, `Resolve can’t render ${rec.name} on this computer.`, 'Choose another render preset, then try again.');
       if (!call(pr(), 'SetCurrentRenderFormatAndCodec', format, codec)) throw R.err('RENDER_FAILED', `SetCurrentRenderFormatAndCodec(${format}, ${codec}) refused`, 'Resolve didn’t take the render settings.', 'Open the Deliver page once, then try again.');
@@ -156,6 +229,7 @@ function engine(R) {
     if (!id) throw R.err('RENDER_FAILED', 'AddRenderJob returned nothing for ' + out, 'Resolve didn’t add the render to its queue.', 'Open the Deliver page, check the render settings there, then try again.');
     id = String(id);
     pending.add(id);
+    if (info.wav) { toWav.set(id, path.join(dir, base + '.wav')); return { id, ext: 'wav', rate: info.rate, file: path.join(dir, base + '.wav') }; }
     return { id, ext: info.ext, rate: info.rate, file: path.join(dir, base + '.' + info.ext) };
   }
 
@@ -230,6 +304,10 @@ function engine(R) {
       const out = { id, status: state, progress: state === 'complete' ? 1 : Math.max(0, Math.min(1, (Number(st.CompletionPercentage) || 0) / 100)), error: String(st.Error || ''), file };
       if (st.EstimatedTimeRemainingInMs != null) out.etaMs = Number(st.EstimatedTimeRemainingInMs) || 0;
       if (state === 'missing') out.error = 'The render was taken off Resolve’s Render Queue.';
+      if (toWav.has(id) && state === 'complete') {
+        const wav = toWav.get(id); toWav.delete(id);
+        try { movPcmToWav(file, wav); if (file !== wav) fs.unlinkSync(file); out.file = wav; } catch (e) { out.status = 'failed'; out.error = 'Couldn’t read the sound Resolve rendered: ' + e.message; }
+      } else if (/failed|cancelled|missing/.test(state)) toWav.delete(id);
       if (/complete|failed|cancelled|missing/.test(state)) finish(id, state);
       return out;
     });
@@ -432,3 +510,4 @@ module.exports = function (R) {
 module.exports.engine = engine;
 module.exports.RECIPES = RECIPES;
 module.exports.wavHeader = wavHeader;
+module.exports.movPcmToWav = movPcmToWav;

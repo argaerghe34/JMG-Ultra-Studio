@@ -7,6 +7,9 @@ const [clip] = await T.importOnce([T.media('interview', 'I001_interview.mp4')], 
 const info = await C('itemInfo', { id: clip.id });
 T.assert(info.fps > 20 && info.duration > 10 && info.width === 1920 && info.hasAudio, 'clip details: ' + JSON.stringify(info));
 const found = {};
+// leftovers from an earlier run that stopped half way
+const stale = (await C('clipMarkers', { id: clip.id })).filter(m => m.name === 'on clip').map(m => m.guid);
+if (stale.length) await C('removeClipMarkers', { id: clip.id, guids: stale });
 
 // a timeline of two ranges: 2–4 s and 10–13 s of the interview
 const seq = await T.freshSequence('Test – Resolve basics', clip.id, BIN);
@@ -46,7 +49,7 @@ T.near(subInfo.rangeStart, 5, 0.05, 'subclip starts 5 s in'); T.near(subInfo.ran
 
 // a copy, cut down (Silence Cut's way of working)
 const copy = await C('cloneSequence', { seqId: seq.id });
-const cut = await C('extractRanges', { seqId: copy.id, ranges: [{ start: 0.5, end: 1.5 }] });
+const cut = await C('extractRanges', { seqId: copy.id, ranges: [[0.5, 1.5]] });
 found.extract = cut;
 const ci = await C('sequenceInfo', { seqId: copy.id });
 T.near(ci.duration, 4, 0.05, 'a second removed from the copy');
