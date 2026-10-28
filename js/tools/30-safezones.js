@@ -312,5 +312,5 @@
     }
   });
 
-  US.safezones = { render, renderLetterbox, letterboxRect, APPS, CROPS, RATIOS };
+  US.safezones = { render, renderLetterbox, letterboxRect, guideName, letterboxName, APPS, CROPS, RATIOS };
 })();
