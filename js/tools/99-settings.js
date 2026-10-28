@@ -63,6 +63,9 @@
             h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
           ], { open: true })),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
+        ui.card(h('div.card-title', 'Markers'),
+          ui.field('Markers go on', ui.segmented({ options: [{ value: 'sequence', label: 'Timeline' }, { value: 'clips', label: 'Clips' }, { value: 'both', label: 'Both' }], value: US.settings.get('markers.where', 'sequence'), onChange: x => US.settings.set('markers.where', x) }),
+            'For every tool that marks a sequence (Story, Selects, Beats, Songs, Silence Cut, Final Check, Deliver notes). Clips: each marker goes on the source clip under it, so it shows wherever that clip is used. A marker with no clip under it stays on the timeline. Remove buttons take them off either way.')),
         ui.card(h('div.card-title', 'Story'),
           ui.toggle({ label: 'Keep Story next to the project', value: US.settings.get('story.withProject', true) !== false, onChange: x => { US.settings.set('story.withProject', x); if (x && US.story && US.story.save) US.story.save(); }, hint: 'Story’s transcripts, themes and narratives are also saved in a “JMG Ultra Studio” folder next to the project, so the project opened on another computer – from the same drive, or a copy of the folder – finds them. Anyone you share that folder with can read the transcripts. Switched off, Story is kept on this computer only.' })),
         ui.card(h('div.card-title', 'Files'),

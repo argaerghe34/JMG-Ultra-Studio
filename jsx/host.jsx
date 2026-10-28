@@ -410,11 +410,62 @@ var UStudio = (function () {
         for (var i = 0; i < del.length; i++) { coll.deleteMarker(del[i]); n++; }
         return n;
     }
+    /**
+     * The source clip under a sequence time: the topmost enabled video clip there, else the first audio clip.
+     * Returns {item, at: media seconds, until: media seconds where this use of the clip ends} or null.
+     */
+    function clipUnder(seq, t) {
+        function look(coll, fromTop) {
+            for (var k = 0; k < coll.numTracks; k++) {
+                var tr = coll[fromTop ? coll.numTracks - 1 - k : k];
+                for (var c = 0; c < tr.clips.numItems; c++) {
+                    var ti = tr.clips[c];
+                    if (ti.disabled || t < ti.start.seconds - 1e-6 || t >= ti.end.seconds) continue;
+                    var pi = null; try { pi = ti.projectItem; } catch (e) { }
+                    if (!pi) continue;
+                    var sp = 1; try { sp = ti.getSpeed() || 1; } catch (e) { }
+                    return { item: pi, at: ti.inPoint.seconds + (t - ti.start.seconds) * sp, until: ti.outPoint.seconds, speed: Math.abs(sp) };
+                }
+            }
+            return null;
+        }
+        return look(seq.videoTracks, true) || look(seq.audioTracks, false);
+    }
+    /**
+     * Sequence markers can go on the timeline, on the clips under them, or both (a.where: 'sequence' | 'clips' | 'both').
+     * A clip marker's id is "clip:<item id>:<guid>", so removeSequenceMarkers removes it too and the tools need not know.
+     * With 'clips', a marker with no clip under it stays on the timeline, so nothing is lost.
+     */
+    function addSequenceMarkers(seq, list, where) {
+        if (where !== 'clips' && where !== 'both') return addMarkers(seq.markers, list);
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            var mk = list[i], u = clipUnder(seq, mk.start), placed = false;
+            if (u) {
+                var cm = {}; for (var k in mk) cm[k] = mk[k];
+                cm.start = u.at;
+                cm.end = mk.end != null && mk.end > mk.start ? Math.min(u.until, u.at + (mk.end - mk.start) * u.speed) : null;
+                var g = addMarkers(u.item.getMarkers(), [cm]);
+                out.push('clip:' + u.item.nodeId + ':' + g[0]); placed = true;
+            }
+            if (where === 'both' || !placed) out.push(addMarkers(seq.markers, [mk])[0]);
+        }
+        return out;
+    }
     /** Markers on a source clip (visible in the Source Monitor and on every use of the clip). */
     fn.addClipMarkers = function (a) { return addMarkers(needItem(a.id).getMarkers(), a.markers); };
-    fn.addSequenceMarkers = function (a) { return addMarkers(needSeq(a.seqId).markers, a.markers); };
+    fn.addSequenceMarkers = function (a) { return addSequenceMarkers(needSeq(a.seqId), a.markers, a.where); };
     fn.removeClipMarkers = function (a) { return removeMarkers(needItem(a.id).getMarkers(), a.guids); };
-    fn.removeSequenceMarkers = function (a) { return removeMarkers(needSeq(a.seqId).markers, a.guids); };
+    fn.removeSequenceMarkers = function (a) {
+        var plain = [], byItem = {}, n = 0;
+        for (var i = 0; i < a.guids.length; i++) {
+            var m = /^clip:(.+):([^:]+)$/.exec(a.guids[i]);
+            if (m) (byItem[m[1]] = byItem[m[1]] || []).push(m[2]); else plain.push(a.guids[i]);
+        }
+        for (var id in byItem) { var it = itemById(id); if (it) n += removeMarkers(it.getMarkers(), byItem[id]); }
+        if (plain.length) n += removeMarkers(needSeq(a.seqId).markers, plain);
+        return n;
+    };
     fn.clipMarkers = function (a) {
         var c = needItem(a.id).getMarkers(), out = [], m = c.getFirstMarker();
         while (m) { out.push({ guid: m.guid, start: m.start.seconds, end: m.end.seconds, name: m.name, comment: m.comments, color: m.getColorByIndex() }); m = c.getNextMarker(m); }

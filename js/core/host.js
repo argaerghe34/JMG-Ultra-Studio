@@ -56,10 +56,10 @@
   };
 
   /* ---------- the ExtendScript bridge ---------- */
-  const cep = window.__adobe_cep__;
   let chain = Promise.resolve();
 
   function rawEval(script, timeoutMs) {
+    const cep = window.__adobe_cep__;
     return new Promise((resolve, reject) => {
       if (!cep) return reject(new UserError('HOST_SCRIPT', { detail: 'Not running inside Premiere (no __adobe_cep__).' }));
       let done = false;
@@ -73,6 +73,8 @@
    * Resolves with the function's return value; rejects with a UserError carrying a plain message.
    */
   function call(fn, args, opts = {}) {
+    // Settings › Markers: sequence markers can also (or instead) go on the clips under them – one place for every tool
+    if (fn === 'addSequenceMarkers' && args && args.where == null) args = Object.assign({}, args, { where: US.settings.get('markers.where', 'sequence') });
     const script = 'UStudio.run(' + JSON.stringify(fn) + ',' + JSON.stringify(JSON.stringify(args == null ? {} : args)) + ')';
     const p = chain.then(async () => {
       const t0 = performance.now();
