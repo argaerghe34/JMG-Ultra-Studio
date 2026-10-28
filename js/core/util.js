@@ -27,7 +27,7 @@
       else if (k === 'html') el.innerHTML = v;
       else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k in el && typeof v !== 'string') el[k] = v;
-      else el.setAttribute(k, v === true ? '' : v);
+      else el.setAttribute(k, v === true ? '' : (k === 'title' || k === 'placeholder') ? say(v) : v);
     }
     append(el, kids);
     return el;
@@ -35,10 +35,12 @@
   function append(el, kids) {
     for (const k of kids.flat(Infinity)) {
       if (k == null || k === false) continue;
-      el.appendChild(k instanceof Node ? k : document.createTextNode(String(k)));
+      el.appendChild(k instanceof Node ? k : document.createTextNode(say(String(k))));
     }
     return el;
   }
+  /** Text in the editor's own words (js/core/platform.js: “sequence” reads “timeline” in Resolve). */
+  function say(t) { return US.say ? US.say(t) : t; }
   US.h = h;
   US.append = append;
   US.clear = el => { while (el.firstChild) el.removeChild(el.firstChild); return el; };

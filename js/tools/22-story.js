@@ -1547,8 +1547,8 @@
           h('div.muted', 'Premiere’s own transcription is free, accurate and stays on this computer. Select your interviews in the Project panel › right-click › Transcribe. When it’s done, read them in here.'),
           ui.actionButton(state.transcripts.length ? 'Read Premiere’s transcripts again' : 'Read Premiere’s transcripts', () => US.actions.run('story.read', {}), { icon: 'refresh' }),
           h('div.row', ui.button('Import transcript files…', { icon: 'folder', onClick: async () => {
-            const r = window.cep && window.cep.fs ? window.cep.fs.showOpenDialogEx(true, false, 'Choose transcript files', '', ['srt', 'vtt', 'txt', 'csv', 'tsv', 'json', 'prtranscript']) : null;
-            if (r && r.data && r.data.length) await US.jobs.run({ title: 'Importing transcripts', tool: 'story' }, job => importFiles(job, r.data.map(US.normPath))).then(render);
+            const files = US.app.pickFiles({ multi: true, title: 'Choose transcript files', ext: ['srt', 'vtt', 'txt', 'csv', 'tsv', 'json', 'prtranscript'] });
+            if (files.length) await US.jobs.run({ title: 'Importing transcripts', tool: 'story' }, job => importFiles(job, files.map(US.normPath))).then(render);
           } }), h('span.field-hint', 'SRT, VTT, CSV, JSON or text with timecodes'))));
         if (!state.transcripts.length) { el.appendChild(ui.note('Reading saves your project first, because that’s where Premiere keeps its transcripts.')); return; }
         const named = Array.from(speakers).filter(Boolean).length, one = (n, w) => (n === 1 ? w : w + 's');

@@ -17,7 +17,7 @@ const errors = [];
 w.addEventListener('error', e => errors.push(e.error ? e.error.stack : e.message));
 const ctx = dom.getInternalVMContext();
 const run = f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
-for (const f of ['util', 'store', 'host', 'jobs', 'ui', 'app']) run(`js/core/${f}.js`);
+for (const f of ['util', 'platform', 'store', 'host', 'jobs', 'ui', 'app']) run(`js/core/${f}.js`);
 const US = w.US;
 let presetsResolve;
 US.host.call = async (fn, a) => {

@@ -22,7 +22,7 @@
     const f = [path.join(dir, 'docs', 'guide.html'), path.join(dir, 'dev', 'docs', 'Read me first.html')].find(x => fs.existsSync(x));
     if (!f) return ui.toast({ type: 'warn', title: 'The guide isn’t installed', text: 'It’s the “Read me first” file next to the installer.' });
     const url = 'file://' + (US.fsx.isWin ? '/' + f.replace(/\\/g, '/') : f).split('/').map(encodeURIComponent).join('/').replace(/%3A/g, ':');
-    try { window.cep.util.openURLInDefaultBrowser(url); } catch (e) { require('child_process').exec((US.fsx.isWin ? 'start "" "' : 'open "') + f + '"'); }
+    US.app.openUrl(url);
   }
 
   US.tools.register({

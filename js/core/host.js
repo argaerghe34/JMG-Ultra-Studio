@@ -34,8 +34,8 @@
       const [t, a] = CATALOG[code] || CATALOG.UNKNOWN;
       super(opts.title || t);
       this.code = CATALOG[code] ? code : 'UNKNOWN';
-      this.title = opts.title || t;
-      this.action = opts.action || a;
+      this.title = US.say(opts.title || t);
+      this.action = US.say(opts.action || a);
       this.detail = opts.detail || '';
     }
   }

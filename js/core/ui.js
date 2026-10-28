@@ -155,7 +155,7 @@
       h('div.tool-head', h('div.tool-icon', US.icon(icon, 20)), h('div.tool-titles', h('div.tool-title', title), sub),
         help && h('button.icon-btn', { title: 'How this works', onclick: () => ui.modal({ title, body: h('div.help', typeof help === 'string' ? h('p', help) : help), buttons: [{ label: 'Got it', value: true, kind: 'primary' }] }) }, US.icon('info', 16))),
       body);
-    return { el, body, setSubtitle: t => { sub.textContent = t; } };
+    return { el, body, setSubtitle: t => { sub.textContent = US.say(t); } };
   };
 
   /* ---------- "Works on" picker shared by tools ---------- */
@@ -172,8 +172,8 @@
     const binSel = ui.select({ options: [], placeholder: 'Choose a bin…', onChange: () => { refreshStatus(); onChange && onChange(); } });
     const seqSel = ui.select({ options: [], placeholder: 'Choose a sequence…', onChange: () => { refreshStatus(); onChange && onChange(); } });
     const fileBtn = ui.button('Choose file…', { small: true, icon: 'folder', onClick: async () => {
-      const r = window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx ? window.cep.fs.showOpenDialogEx(false, false, 'Choose a file', '', fileFilter || []) : null;
-      if (r && r.data && r.data.length) { filePath = US.normPath(r.data[0]); refreshStatus(); onChange && onChange(); }
+      const files = US.app.pickFiles({ title: 'Choose a file', ext: fileFilter || [] });
+      if (files.length) { filePath = US.normPath(files[0]); refreshStatus(); onChange && onChange(); }
     } });
     const seg = ui.segmented({ options: modes.map(m => ({ value: m, label: labels[m] })), value: mode, onChange: v => { mode = v; US.settings.set('src.mode.' + modes.join(), v); layout(); refreshLists(); onChange && onChange(); } });
     const extra = h('div.src-extra');
@@ -202,15 +202,15 @@
       try {
         if (mode === 'selection') {
           const s = await US.host.call('selectionSummary', { kinds });
-          status.textContent = s.count ? `${US.plural(s.count, 'clip')} selected${s.skipped ? ` (${s.skipped} skipped: ${s.skippedWhy})` : ''}` : 'Select clips in the Project panel.';
+          status.textContent = US.say(s.count ? `${US.plural(s.count, 'clip')} selected${s.skipped ? ` (${s.skipped} skipped: ${s.skippedWhy})` : ''}` : 'Select clips in the Project panel.');
           status.classList.toggle('warn', !s.count);
         } else if (mode === 'bin') {
           const id = binSel.get(); US.settings.set('src.bin', id);
           if (!id) { status.textContent = 'Pick a bin.'; status.classList.add('warn'); return; }
           const s = await US.host.call('binSummary', { binId: id, kinds });
-          status.textContent = `${US.plural(s.count, 'clip')} in this bin${s.sub ? ' (including sub-bins)' : ''}`; status.classList.toggle('warn', !s.count);
+          status.textContent = US.say(`${US.plural(s.count, 'clip')} in this bin${s.sub ? ' (including sub-bins)' : ''}`); status.classList.toggle('warn', !s.count);
         } else if (mode === 'sequence') {
-          status.textContent = seqSel.get() ? '' : 'Pick a sequence.'; status.classList.toggle('warn', !seqSel.get());
+          status.textContent = US.say(seqSel.get() ? '' : 'Pick a sequence.'); status.classList.toggle('warn', !seqSel.get());
         } else if (mode === 'file') {
           status.textContent = filePath ? US.basename(filePath) : 'No file chosen.'; status.classList.toggle('warn', !filePath);
         }

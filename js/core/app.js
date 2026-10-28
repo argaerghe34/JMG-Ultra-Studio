@@ -172,7 +172,7 @@
     const p = els.ctxProject, s = els.ctxSeq;
     p.querySelector('span').textContent = c.project ? c.project.name : 'No project open';
     p.classList.toggle('off', !c.project);
-    s.querySelector('span').textContent = c.sequence ? c.sequence.name : 'No sequence';
+    s.querySelector('span').textContent = US.say(c.sequence ? c.sequence.name : 'No sequence');
     s.classList.toggle('off', !c.sequence);
     s.title = c.sequence ? `${c.sequence.name} · ${c.sequence.width}×${c.sequence.height} · ${+c.sequence.fps.toFixed(3)} fps · ${US.fmtDur(c.sequence.duration)}` : 'No active sequence';
   }
@@ -182,7 +182,7 @@
   function setIdleStatus() {
     els.status.className = 'status';
     els.statusWho.textContent = 'Ready';
-    els.statusMsg.textContent = US.ctx.project ? '' : '· open a project in Premiere to begin';
+    els.statusMsg.textContent = US.say(US.ctx.project ? '' : '· open a project in Premiere to begin');
     els.statusTime.textContent = '';
   }
   let tick = null;
@@ -190,7 +190,7 @@
     clearTimeout(resultTimer);
     els.status.className = 'status running';
     els.statusWho.textContent = job.who;
-    els.statusMsg.textContent = '· ' + job.title + (job.msg ? ' — ' + job.msg : '');
+    els.statusMsg.textContent = US.say('· ' + job.title + (job.msg ? ' — ' + job.msg : ''));
     els.statusBar.classList.toggle('indeterminate', job.indeterminate);
     els.statusFill.style.width = (job.frac * 100).toFixed(1) + '%';
     renderTime(job);
@@ -205,7 +205,7 @@
     clearInterval(tick); markRailBusy(job.tool, false);
     els.status.className = 'status ' + (r.ok ? 'ok' : r.cancelled ? '' : 'error');
     els.statusWho.textContent = r.ok ? 'Done' : r.cancelled ? 'Stopped' : 'Didn’t finish';
-    els.statusMsg.textContent = '· ' + job.title + ' — ' + r.summary;
+    els.statusMsg.textContent = US.say('· ' + job.title + ' — ' + r.summary);
     els.statusTime.textContent = US.fmtDur(job.elapsed);
     resultTimer = setTimeout(setIdleStatus, r.ok ? 12000 : 20000);
     pollContext(true);

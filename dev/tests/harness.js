@@ -19,7 +19,7 @@ function load(extra = []) {
     global.Node = function () {};
     global.addEventListener = () => {};
     global.getComputedStyle = () => ({ getPropertyValue: () => '' });
-    for (const f of ['util', 'store', 'host', 'jobs', 'ui', 'app']) vm.runInThisContext(fs.readFileSync(path.join(ROOT, 'js', 'core', f + '.js'), 'utf8'), { filename: f + '.js' });
+    for (const f of ['util', 'platform', 'store', 'host', 'jobs', 'ui', 'app']) vm.runInThisContext(fs.readFileSync(path.join(ROOT, 'js', 'core', f + '.js'), 'utf8'), { filename: f + '.js' });
     loaded = new Set();
   }
   for (const f of extra) {

@@ -290,7 +290,7 @@
       const showFolder = () => folderLines.forEach(l => { l.textContent = folder ? `Saving to ${folder}` : 'Saving to Documents › JMG Ultra Studio › Exports › <sequence name and date>'; });
       const folderRow = () => {
         const line = h('div.field-hint'); folderLines.push(line); showFolder();
-        return h('div.row', h('div.grow', line), ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = window.cep.fs.showOpenDialogEx(false, true, 'Where should the exports go?', folder || US.fsx.exportsDir(), []); if (r && r.data && r.data[0]) { folder = US.normPath(r.data[0]); showFolder(); } } catch (e) { ui.showError(e); } } }));
+        return h('div.row', h('div.grow', line), ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = US.app.pickFiles({ folder: true, title: 'Where should the exports go?', start: folder || US.fsx.exportsDir() }); if (r[0]) { folder = US.normPath(r[0]); showFolder(); } } catch (e) { ui.showError(e); } } }));
       };
       let lastDir = '';
       const openFolder = () => lastDir && require('child_process').exec((US.fsx.isWin ? 'explorer "' : 'open "') + lastDir + '"');
@@ -313,7 +313,7 @@
       const rangeList = h('div'), rangeTrackLine = h('div.field-hint');
       const presetSel = ui.select({ options: [], onChange: v => {
         if (v === '__pick') {
-          try { const r = window.cep.fs.showOpenDialogEx(false, false, 'Choose an export preset (.epr)', ro.preset ? path.dirname(ro.preset) : path.dirname(US.fsx.exportsDir()), ['epr']); if (r && r.data && r.data[0]) ro.preset = US.normPath(r.data[0]); } catch (e) { ui.showError(e); }
+          try { const r = US.app.pickFiles({ title: US.app.is('resolve') ? 'Choose a render preset (.xml)' : 'Choose an export preset (.epr)', start: ro.preset ? path.dirname(ro.preset) : path.dirname(US.fsx.exportsDir()), ext: [US.app.is('resolve') ? 'xml' : 'epr'] }); if (r[0]) ro.preset = US.normPath(r[0]); } catch (e) { ui.showError(e); }
           saveRo(); fillPresets(); return;
         }
         ro.preset = v; saveRo();

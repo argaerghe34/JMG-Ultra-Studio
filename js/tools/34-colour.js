@@ -702,8 +702,7 @@
         fillThumbs(imgs, 'luts');
       }
       const addLut = ui.button('Add a LUT file…', { small: true, icon: 'plus', onClick: () => {
-        const r = window.cep && window.cep.fs ? window.cep.fs.showOpenDialogEx(true, false, 'Choose LUT files', '', ['cube']) : null;
-        const files = ((r && r.data) || []).map(US.normPath); if (!files.length) return;
+        const files = US.app.pickFiles({ multi: true, title: 'Choose LUT files', ext: ['cube'] }).map(US.normPath); if (!files.length) return;
         US.settings.set('colour.extraLuts', [...new Set(US.settings.get('colour.extraLuts', []).concat(files))]);
         drawLuts();
       } });

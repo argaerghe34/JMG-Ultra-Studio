@@ -16,7 +16,7 @@ const errors = [];
 w.addEventListener('error', e => errors.push(e.error ? e.error.stack : e.message));
 const ctx = dom.getInternalVMContext();
 const run = f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
-for (const f of ['util', 'store', 'host', 'jobs', 'ui', 'app', 'time', 'transcript']) run(`js/core/${f}.js`);
+for (const f of ['util', 'platform', 'store', 'host', 'jobs', 'ui', 'app', 'time', 'transcript']) run(`js/core/${f}.js`);
 const US = w.US;
 // a fake Premiere
 const SEQ = { id: 's1', name: 'Cut', fps: 25, frame: 0.04, duration: 30, video: [{ index: 0, name: 'Video 1', clips: [] }], audio: [{ index: 0, name: 'Audio 1', muted: false, clips: [] }], markers: [] };
