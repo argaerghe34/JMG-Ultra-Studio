@@ -1,3 +1,13 @@
+## What's new in 1.3.4
+
+- **Song Splitter lays adjustment layers above your edit.** On a sequence, **Adjustment layers above the edit** puts each song on a new **Songs** track as an adjustment layer numbered 1, 2, 3…, with the talk and applause too, colour-coded (songs green, talk blue, applause orange).
+- **Render ranges from any layer track.** Deliver › Render ranges can take its ranges from the **Songs** track (or any track with adjustment layers), not only **Renders** – name the songs, then render them all in one go.
+- **Render only one colour** – for example just the songs.
+- **See and change your ranges in Ultra Studio:** each range is listed with its colour and times; go to it, rename it, change its start and end (or set it to your In and Out points), change its colour, or delete it.
+- **The list keeps itself up to date** while you add, trim or rename layers in the Timeline.
+- **A file-name ending** (such as *_1* or *_v2*) on every render and on the export pack.
+- *Premiere first:* these arrive in DaVinci Resolve in its next update.
+
 ## What's new in 1.3.3
 
 - **JMG Ultra Studio for DaVinci Resolve Studio.** The same panel now runs in DaVinci Resolve Studio (19.1 or later, Mac and Windows) from **Workspace › Workflow Integrations › JMG Ultra Studio**, with Story, Selects, B-roll, Silence Cut, Beats, Songs, Sound Check, Final Check, Safe Zones, Deliver and the Assistant. A few things work differently because of what Resolve lets add-ons do: see *Premiere and Resolve: what's different* in the guide.

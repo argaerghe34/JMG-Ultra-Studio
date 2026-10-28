@@ -37,12 +37,16 @@ Click any line to jump the playhead there. **Add markers for these** marks them 
 Exports go through **Media Encoder**, and the status bar shows its real progress. Files land in *Documents › JMG Ultra Studio › Exports › <sequence and date>*, or a folder you choose. Earlier exports are never overwritten. Safe Zones guides are hidden automatically first.
 
 **Render ranges** – several renders from one sequence, each a part you mark yourself:
-1. Type a name and press **Add a render range**. An adjustment layer goes on a **Renders** track above your edit, between your In and Out points (or for 10 seconds from the playhead). You can also put adjustment layers there yourself, from the Project panel.
-2. In the Timeline, trim each layer to the part you want and rename it (right-click › Rename). The layer's name becomes the file name: *Teaser 30s* → *Teaser 30s.mp4*.
-3. Pick the **Export settings**: the built-in H.264 presets, any preset you've saved in Media Encoder or in Premiere's Export screen, or **Choose a preset file…**.
-4. Press **Send the renders to Media Encoder**. Every range is queued in timeline order and rendered one after another, with progress in the status bar. Turn off **Start rendering straight away** to leave them waiting in Media Encoder's queue instead.
+1. Choose the **Track** whose adjustment layers are the ranges: **Renders** (made the first time you add a range), or any track that holds adjustment layers – for example **Songs**, where Song Splitter puts its songs.
+2. Type a name and press **Add a render range**. An adjustment layer goes on that track, between your In and Out points (or for 10 seconds from the playhead), in the colour you pick next to the button. You can also put adjustment layers there yourself, from the Project panel.
+3. Each range is listed with its colour, times and length. Click one to go there. **Rename** gives it (and its file) a name: *Teaser 30s* → *Teaser 30s.mp4*. **Times…** sets its start and end as the Timeline shows them, or to your In and Out points (type *In/Out*). **Colour** changes its colour, and **Delete** takes it off the timeline. You can still trim and rename layers in the Timeline: the list follows the Timeline by itself within a few seconds (**Refresh** does it at once).
+4. **Colour**: render every range, or only the ranges of one colour – for example only the songs, not the talk and applause.
+5. Pick the **Export settings**: the built-in H.264 presets, any preset you've saved in Media Encoder or in Premiere's Export screen, or **Choose a preset file…**. **Add to every file name** puts an ending on each file, such as *_1* or *_v2* (*Song 1_v2.mp4*); the export pack uses it too.
+6. Press **Send the renders to Media Encoder**. Every range is queued in timeline order and rendered one after another, with progress in the status bar. Turn off **Start rendering straight away** to leave them waiting in Media Encoder's queue instead.
 
 Switch a layer off (Enable, in its right-click menu) to skip it. An empty adjustment layer doesn't change the picture, but any effect you add to one shows in that render. Your own In and Out points are left as they were. If the project has no adjustment layer, an invisible clip is used instead, and it renders the same way.
+
+*Colours:* Premiere doesn't tell add-ons the colour of a clip in the Timeline, so Ultra Studio knows the colours it gave – from Song Splitter, **Add a render range** and **Colour** here. Change a range's colour here rather than in the Timeline, or it won't be picked up by the colour filter.
 
 **Client notes** – paste notes like `0:12 lose the cough` or `01:05 – swap the music`, or a Frame.io CSV. Ranges (`1:20-1:32`) become long markers, and notes against a 01:00:00:00 timecode are shifted automatically. Check the preview, pick a colour and press **Add notes as markers**. **Remove note markers** undoes it.
 

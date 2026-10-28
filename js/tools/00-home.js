@@ -4,6 +4,7 @@
   const US = window.US, h = US.h, ui = US.ui;
 
   const WHATS_NEW = [
+    'New in 1.3.4 – Song Splitter can put each song on a “Songs” track as a numbered, colour-coded adjustment layer (talk and applause too). Deliver › Render ranges renders from any layer track, only one colour if you like, with an ending such as _v2 on every file name – and you can rename, move, recolour and delete ranges right in the list, which follows the Timeline by itself.',
     'New in 1.3.3 – Markers on the clips themselves: Settings › Markers › Clips (or Both), for every tool that marks a sequence. Also new: JMG Ultra Studio for DaVinci Resolve Studio. Colour and Camera Switch are paused for now.',
     'New in 1.3.2 – Render ranges (Deliver): put adjustment layers on a “Renders” track above your edit and name each one. Every range goes to Media Encoder, one after another, with the export preset you choose, and each file is named after its layer. Plus fixes from the first full test on Windows.',
     'New in 1.3.1 – Story travels with the project: it’s also saved in a “JMG Ultra Studio” folder next to the project, so the same project opened on your Mac or your PC (from the same drive, or a copy of the folder) opens Story where you left it.',

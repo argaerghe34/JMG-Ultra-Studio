@@ -4,6 +4,7 @@ Point it at the **sound-desk recording** (a clip or WAV) or your **multicam sequ
 
 - The list is editable: **rename** songs (it can't recognise titles, so type them), **join** or **split** parts at a time, change a part's type, and click to jump there.
 - **Add to Premiere** can add any combination of: a marker for each song (and for applause and talk too), a subclip for each song, and a sequence for each song. On a sequence it makes trimmed copies, one per song.
+- **Adjustment layers above the edit** (on a sequence): a new top track called **Songs** with an adjustment layer for each song, numbered **1, 2, 3…** (with its title once you've renamed it), plus the talk and applause, colour-coded – songs green, talk blue, applause orange. Name the songs in the Timeline, then **Deliver › Render ranges** renders each one: choose the **Songs** track and the songs' colour. Running it again replaces the layers; **Remove song layers** takes them away.
 - **Copy** or **Save** the setlist with timecodes (text and spreadsheet).
 - **Remove my markers** takes away only the markers it added.
 
