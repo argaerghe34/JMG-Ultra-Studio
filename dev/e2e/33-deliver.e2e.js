@@ -6,7 +6,7 @@ await T.open(seq.id);
 const r = await T.action('deliver.pack', { outputs: 'master,v916,s11,wav,thumb' });
 T.assert(r.dir && T.fs.existsSync(r.dir), 'export folder exists');
 const files = T.fs.readdirSync(r.dir).filter(f => f.startsWith('E2E Deliver'));
-async function dims(f) { const v = document.createElement('video'); v.muted = true; v.src = 'file://' + T.path.join(r.dir, f).split('/').map(encodeURIComponent).join('/'); await new Promise(res => { v.onloadedmetadata = res; v.onerror = res; setTimeout(res, 5000); }); const d = [v.videoWidth, v.videoHeight, v.duration]; v.removeAttribute('src'); v.load(); return d; }
+async function dims(f) { const v = document.createElement('video'); v.muted = true; v.src = T.fileUrl(T.path.join(r.dir, f)); await new Promise(res => { v.onloadedmetadata = res; v.onerror = res; setTimeout(res, 5000); }); const d = [v.videoWidth, v.videoHeight, v.duration]; v.removeAttribute('src'); v.load(); return d; }
 const newest = suffix => files.filter(f => f.includes(suffix)).sort((a, b) => T.fs.statSync(T.path.join(r.dir, b)).mtimeMs - T.fs.statSync(T.path.join(r.dir, a)).mtimeMs)[0];
 const m = await dims(newest('Master')), v = await dims(newest('9x16')), s = await dims(newest('1x1'));
 T.assert(m[0] === 1920 && m[1] === 1080, 'master 1920x1080, got ' + m);

@@ -57,6 +57,14 @@ function makePremiere({ adjustment = false, qeMethods = ['newTransparentVideo'],
   for (let i = 0; i < tracks; i++) { seq._v.push(track('v', i + 1)); seq._a.push(track('a', i + 1)); }
   seq.videoTracks = coll(seq._v, 'numTracks'); seq.audioTracks = coll(seq._a, 'numTracks');
   Object.defineProperty(seq, 'end', { get: () => String(Math.round(Math.max(0, ...seq._v.flatMap(t => t._clips.map(c => c._end))) * TICKS)) });
+  // sequence In/Out (seconds, like Premiere 26) and a Media Encoder that records what it was given
+  seq._io = [0, 0];
+  seq.setInPoint = s => { if (typeof s !== 'number') throw new Error('seconds only'); seq._io[0] = s; };
+  seq.setOutPoint = s => { if (typeof s !== 'number') throw new Error('seconds only'); seq._io[1] = s; };
+  seq.getInPointAsTime = () => T(seq._io[0]); seq.getOutPointAsTime = () => T(seq._io[1]);
+  seq.getExportFileExtension = () => 'mov';
+  const encoded = [];
+  const encoder = { launchEncoder() {}, encodeSequence(s, out, preset, area) { encoded.push({ out, preset, area, io: s._io.slice() }); return String(encoded.length); } };
   const project = { rootItem: root, path: '/x/P.prproj', name: 'P.prproj', activeSequence: seq, sequences: coll([seq], 'numSequences'), openSequence() { return true; } };
   const qeProject = {
     reflect: { methods: qeMethods.map(n => ({ name: n })) },
@@ -67,11 +75,12 @@ function makePremiere({ adjustment = false, qeMethods = ['newTransparentVideo'],
     newTransparentVideo(...args) { logs.push('newTransparentVideo/' + args.length); if (args.length !== transparentArgs) throw new Error('bad args'); add(item('Transparent Video', { duration: 5 })); return true; },
     newAdjustmentLayer(...args) { logs.push('newAdjustmentLayer/' + args.length); if (args.length !== 5) throw new Error('bad args'); add(item('Adjustment Layer', { adj: true, duration: 5 })); return true; }
   };
-  const ctx = { app: { project, enableQE() {}, path: '/Applications/Premiere/' }, qe: { project: qeProject }, Time, $: { os: 'Macintosh' }, File: function () { return { exists: false }; }, JSON };
+  const ctx = { app: { project, enableQE() {}, path: '/Applications/Premiere/', encoder }, qe: { project: qeProject }, Time, $: { os: 'Macintosh' }, File: function () { return { exists: false }; }, JSON };
   vm.createContext(ctx);
-  for (const f of ['jsx/host.jsx', 'jsx/tools/story.jsx']) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
+  // alphabetical, as Premiere loads them: finish.jsx comes first and only reaches story.jsx's label-clip helpers when called
+  for (const f of ['jsx/host.jsx', 'jsx/tools/finish.jsx', 'jsx/tools/story.jsx']) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
   const call = (fn, args) => { const r = JSON.parse(ctx.UStudio.run(fn, JSON.stringify(args))); if (!r.ok) { const e = new Error(r.error.detail); e.code = r.error.code; e.title = r.error.title; throw e; } return r.data; };
-  return { call, seq, root, interview, logs, findAll: name => { const out = []; ctx.UStudio.walk(root, c => { if (c.name === name) out.push(c); }); return out; } };
+  return { call, seq, root, interview, logs, encoded, findAll: name => { const out = []; ctx.UStudio.walk(root, c => { if (c.name === name) out.push(c); }); return out; } };
 }
 
 test('relabel: timeline clips get the theme colour, the source clip keeps its own', () => {
@@ -178,4 +187,56 @@ test('highlights: when the track can’t be renamed, the remembered track is reu
   P.seq._v[r1.track].overwriteClip(P.interview, 20);
   const r3 = P.call('storyHighlights', { seqId: 's1', trackIndex: r1.track, sections: [{ name: 'C', start: 5, end: 6 }] });
   assert.notStrictEqual(r3.track, r1.track, 'a track with the editor’s own clips is never treated as ours');
+});
+
+/* ---------- Deliver › Render ranges (finish.jsx) ---------- */
+test('render ranges: added on a new top track named “Renders”, named, listed in order; the track is reused', () => {
+  const P = makePremiere({ adjustment: true });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 60 }] });
+  const a = P.call('addRenderRange', { seqId: 's1', name: 'Teaser 30s', start: 10, end: 40 });
+  const b = P.call('addRenderRange', { seqId: 's1', name: 'Hook', start: 0, end: 5 });
+  assert.strictEqual(a.kind, 'adjustment'); assert.strictEqual(a.track, 3); assert.strictEqual(b.track, 3, 'same track the second time');
+  assert.strictEqual(P.seq._v[3].name, 'Renders');
+  const r = P.call('renderRanges', { seqId: 's1' });
+  assert.strictEqual(r.track, 3);
+  assert.deepStrictEqual(r.ranges.map(x => [x.name, x.start, x.end]), [['Hook', 0, 5], ['Teaser 30s', 10, 40]]);
+  assert.strictEqual(P.findAll('Adjustment Layer').length, 1, 'the project’s adjustment layer keeps its name');
+});
+test('render ranges: no adjustment layer → an invisible clip, still found as a range', () => {
+  const P = makePremiere();
+  const a = P.call('addRenderRange', { seqId: 's1', name: 'Clip A', start: 2, end: 4 });
+  assert.strictEqual(a.kind, 'transparent');
+  assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1' }).ranges.map(x => x.name), ['Clip A']);
+  assert.throws(() => P.call('addRenderRange', { seqId: 's1', name: 'Empty', start: 4, end: 4 }), e => e.code === 'BAD_INPUT');
+});
+test('render ranges: only a track named “Renders” counts – grading layers and Story’s theme layers never export', () => {
+  const P = makePremiere({ adjustment: true });
+  const adj = P.findAll('Adjustment Layer')[0];
+  P.seq._v[2].overwriteClip(adj, 3);   // a look over the edit, on the top track
+  P.call('storyThemeLayers', { seqId: 's1', sections: [{ name: 'Family', start: 0, end: 2 }] });
+  assert.strictEqual(P.call('renderRanges', { seqId: 's1' }).track, -1);
+  P.seq._v[2].name = ' renders ';   // you named the track yourself
+  assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1' }).ranges.map(x => [x.start, x.end]), [[3, 8]]);
+  const a = P.call('addRenderRange', { seqId: 's1', name: 'Hook', start: 10, end: 12 });
+  assert.strictEqual(a.track, 2, 'your track is used, not a new one');
+});
+test('render ranges: says so when Premiere won’t name the new track', () => {
+  const P = makePremiere({ adjustment: true, trackNamesWritable: false });
+  assert.strictEqual(P.call('addRenderRange', { seqId: 's1', name: 'Hook', start: 0, end: 2 }).named, false);
+});
+test('render ranges: each is queued with In/Out set to it, and the editor’s In/Out come back', () => {
+  const P = makePremiere({ adjustment: true });
+  P.seq._io = [1, 9];
+  P.call('queueRangeExport', { seqId: 's1', out: '/out/A.mov', preset: '/p.epr', start: 10, end: 40 });
+  P.call('queueRangeExport', { seqId: 's1', out: '/out/B.mov', preset: '/p.epr', start: 0, end: 5 });
+  assert.deepStrictEqual(P.encoded.map(e => [e.out, e.area, e.io]), [['/out/A.mov', 1, [10, 40]], ['/out/B.mov', 1, [0, 5]]]);
+  assert.deepStrictEqual(P.seq._io, [1, 9], 'In/Out put back');
+  P.seq._io = [-400000, -400000];   // how Premiere reports “no In/Out”
+  P.call('queueRangeExport', { seqId: 's1', out: '/out/C.mov', preset: '/p.epr', start: 2, end: 4 });
+  assert.deepStrictEqual(P.seq._io, [-400000, -400000], 'no In/Out before, none after');
+  P.seq._io = [-400000, 30];   // only an Out point
+  const r = P.call('queueRangeExport', { seqId: 's1', out: '/out/D.mov', preset: '/p.epr', start: 2, end: 4 });
+  assert.deepStrictEqual(P.seq._io, [-400000, 30], 'a lone Out point survives');
+  assert.strictEqual(r.restored, true); assert.strictEqual(r.id, '4');
+  assert.strictEqual(P.call('presetExtension', { seqId: 's1', preset: '/p.epr' }), 'mov');
 });

@@ -599,12 +599,18 @@
   async function resolveItems(transcripts) {
     const paths = Array.from(new Set(transcripts.map(t => t.path).filter(Boolean)));
     const clips = paths.length ? await projectClips(paths) : [];
-    const byPath = new Map();
-    for (const c of clips) { const k = US.pathKey(c.path), had = byPath.get(k); if (!had || (had.sub && !c.sub)) byPath.set(k, c); }
+    const byPath = new Map(), copies = new Map();
+    for (const c of clips) {
+      const k = US.pathKey(c.path), had = byPath.get(k);
+      if (!had || (had.sub && !c.sub)) byPath.set(k, c);
+      if (!c.sub) copies.set(k, (copies.get(k) || []).concat(c));
+    }
     const out = new Map();
     let all = null; // fallback: same file name anywhere in the project (media moved, or reached through another folder/link)
     for (const t of transcripts) {
-      let c = t.path ? byPath.get(US.pathKey(t.path)) : null;
+      // the same file imported into several bins: stay with the clip this transcript already belongs to
+      const k = t.path ? US.pathKey(t.path) : null;
+      let c = k ? ((copies.get(k) || []).find(x => x.id === t.itemId) || byPath.get(k)) : null;
       if (!c && (t.path || t.name)) {
         if (!all) all = (await projectClips()).filter(x => !x.sub);
         const base = US.basename(t.path || t.name).toLowerCase();

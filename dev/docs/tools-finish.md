@@ -36,6 +36,14 @@ Click any line to jump the playhead there. **Add markers for these** marks them 
 
 Exports go through **Media Encoder**, and the status bar shows its real progress. Files land in *Documents › JMG Ultra Studio › Exports › <sequence and date>*, or a folder you choose. Earlier exports are never overwritten. Safe Zones guides are hidden automatically first.
 
+**Render ranges** – several renders from one sequence, each a part you mark yourself:
+1. Type a name and press **Add a render range**. An adjustment layer goes on a **Renders** track above your edit, between your In and Out points (or for 10 seconds from the playhead). You can also put adjustment layers there yourself, from the Project panel.
+2. In the Timeline, trim each layer to the part you want and rename it (right-click › Rename). The layer's name becomes the file name: *Teaser 30s* → *Teaser 30s.mp4*.
+3. Pick the **Export settings**: the built-in H.264 presets, any preset you've saved in Media Encoder or in Premiere's Export screen, or **Choose a preset file…**.
+4. Press **Send the renders to Media Encoder**. Every range is queued in timeline order and rendered one after another, with progress in the status bar. Turn off **Start rendering straight away** to leave them waiting in Media Encoder's queue instead.
+
+Switch a layer off (Enable, in its right-click menu) to skip it. An empty adjustment layer doesn't change the picture, but any effect you add to one shows in that render. Your own In and Out points are left as they were. If the project has no adjustment layer, an invisible clip is used instead, and it renders the same way.
+
 **Client notes** – paste notes like `0:12 lose the cough` or `01:05 – swap the music`, or a Frame.io CSV. Ranges (`1:20-1:32`) become long markers, and notes against a 01:00:00:00 timecode are shifted automatically. Check the preview, pick a colour and press **Add notes as markers**. **Remove note markers** undoes it.
 
 **Chapters** – builds a YouTube chapter list from your named markers (`0:00 Intro`, `1:23 Family`…). It starts at 0:00 and warns about YouTube's rules (at least 3 chapters, each 10 seconds or longer). **Copy** it into the video description.

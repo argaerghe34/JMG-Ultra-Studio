@@ -216,3 +216,13 @@ test('files: a copy next to the project that couldn’t be read when opening is 
   const dir = path.join(pr.dir, 'JMG Ultra Studio');
   assert.ok(fs.readdirSync(dir).some(f => /backup from unreadable copy/.test(f)));
 });
+test('building: the same file in several bins – Story stays with the clip its transcript belongs to', async () => {
+  const realCall = US.host.call;
+  US.host.call = async fn => fn === 'storyClips' ? [{ id: 'audio', path: '/m/I001.mp4' }, { id: 'story', path: '/m/I001.mp4' }, { id: 'sub', path: '/m/I001.mp4', sub: true }] : null;
+  try {
+    const t = { key: 'k', path: '/m/I001.mp4', itemId: 'story' };
+    assert.strictEqual((await S.resolveItems([t])).get('k'), 'story');
+    const fresh = { key: 'f', path: '/m/I001.mp4' };
+    assert.strictEqual((await S.resolveItems([fresh])).get('f'), 'audio', 'a new transcript takes the first master clip');
+  } finally { US.host.call = realCall; }
+});

@@ -32,7 +32,9 @@ try {
   T.assert(st.themes.find(t => t.id === 'sync-test').lineIds.every(id => now.has(id)), 'the theme still finds every line');
   // building finds Premiere's clip by its id or file name, whatever the path
   const items = await S.resolveItems([again]);
-  T.assert(items.get(key) === ruth.id, `the clip is still found for building (${items.get(key)} vs ${ruth.id})`);
+  // I001 is in several bins of the test project: any copy of Ruth's file will do
+  const found = items.get(key) && (await US.host.call('itemsInfo', { ids: [items.get(key)] }))[0];
+  T.assert(found && real(found.path) === real(ruth.path), `the clip is still found for building (${items.get(key)}: ${found && found.path})`);
   return { file: US.basename(file), lines: ids.length, clip: ruth.id };
 } finally {
   // put Story back as it was, here and next to the project

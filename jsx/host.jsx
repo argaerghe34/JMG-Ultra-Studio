@@ -555,9 +555,12 @@ var UStudio = (function () {
     /* ---------- import / render / export ---------- */
     fn.importFiles = function (a) {
         var bin = a.binId ? needItem(a.binId) : ensureBin(a.binPath || 'JMG Ultra Studio');
-        var before = {};
+        var before = {}, paths = [], missing = [];
+        // a file that isn't there can stop Premiere on Windows (an error it waits on, even with its dialogs off): leave it out
+        for (var i = 0; i < a.paths.length; i++) { if (new File(a.paths[i]).exists) paths.push(a.paths[i]); else missing.push(a.paths[i]); }
+        if (!paths.length) throw err('NOTHING_FOUND', 'Not on disk: ' + missing.join(', '), missing.length > 1 ? 'Those files aren’t there any more.' : 'That file isn’t there any more.', 'Check the drive is connected, then try again.');
         walk(bin, function (c) { before[c.nodeId] = true; });
-        project().importFiles(a.paths, true, bin, !!a.asNumberedStills);
+        project().importFiles(paths, true, bin, !!a.asNumberedStills);
         var out = [];
         walk(bin, function (c) { if (!before[c.nodeId] && c.type !== 2) out.push({ id: c.nodeId, name: c.name, path: (function () { try { return c.getMediaPath(); } catch (e) { return ''; } })() }); });
         return out;

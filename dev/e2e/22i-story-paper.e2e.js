@@ -10,7 +10,8 @@ const st = S.loadState(), saved = JSON.parse(JSON.stringify({ wall: st.wall, the
 try {
   const [ruth] = await T.importOnce([T.media('interview', 'I001_interview.mp4')], BIN);
   await S.importFiles(US.jobs.testJob('story'), [T.media('transcripts', 'I001_interview.srt')]);
-  const t = st.transcripts.find(x => x.itemId === ruth.id);
+  // the test project has I001 in several bins (Audio, Story, E2E): its transcript may belong to any of those copies
+  const t = st.transcripts.find(x => x.itemId === ruth.id) || st.transcripts.find(x => x.path && US.pathKey(x.path) === US.pathKey(ruth.path));
   T.assert(t && t.lines.length >= 5, 'I001 transcript linked to the clip');
   const [a, b, c, d, e] = t.lines;
   const theme = (id, name, label, ids) => ({ id, name, label, custom: true, picked: true, lineIds: ids, manual: ids.slice() });
@@ -21,7 +22,7 @@ try {
   S.save();
   const timing = (await US.host.call('storyTiming', { ids: [ruth.id] }))[ruth.id];
   const tcOf = sec => US.storyExport.tc(timing.start + sec, { fps: timing.fps, drop: timing.drop });
-  const textOf = f => cp.execFileSync('textutil', ['-convert', 'txt', '-stdout', f]).toString();
+  const textOf = f => T.docxText(f);
 
   const r = await T.action('story.paperEdit', { format: 'docx' });
   T.assert(fs.existsSync(r.file) && /paper edit/.test(r.file), 'Word file saved: ' + r.summary);

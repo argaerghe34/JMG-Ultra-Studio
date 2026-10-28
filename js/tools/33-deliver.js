@@ -14,6 +14,17 @@
     thumb: { label: 'Thumbnail (frame at the playhead)', short: 'Thumbnail', kind: 'image' }
   };
   const safeName = s => String(s).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Export';
+  const defaultDir = seqName => path.join(US.fsx.exportsDir(), 'Exports', `${safeName(seqName)} ${new Date().toISOString().slice(0, 10)}`);
+
+  // guides would be burned in
+  async function hideGuides(seqId, job) {
+    const guides = await US.host.call('guideStatus', { seqId });
+    if (guides.some(g => !g.hidden)) {
+      job.set({ msg: 'Hiding the Safe Zones guides so they don’t export' });
+      await US.host.call('showGuides', { seqId, show: false });
+      US.log('info', 'Hid Safe Zones guides before exporting', '', 'deliver');
+    }
+  }
 
   async function exportPack(o, job) {
     const seqId = o.seqId || (US.ctx.sequence && US.ctx.sequence.id);
@@ -23,16 +34,10 @@
     const seq = await US.host.call('sequenceInfo', { seqId, clips: false });
     const presets = await US.host.call('encoderPresets');
     if (!presets.h264 || (keys.includes('wav') && !presets.wav)) throw new US.UserError('PRESET_MISSING', { detail: JSON.stringify(presets) });
-    const dir = o.folder || path.join(US.fsx.exportsDir(), 'Exports', `${safeName(seq.name)} ${new Date().toISOString().slice(0, 10)}`);
+    const dir = o.folder || defaultDir(seq.name);
     US.fsx.ensureDir(dir);
 
-    // guides would be burned in
-    const guides = await US.host.call('guideStatus', { seqId });
-    if (guides.some(g => !g.hidden)) {
-      job.set({ msg: 'Hiding the Safe Zones guides so they don’t export' });
-      await US.host.call('showGuides', { seqId, show: false });
-      US.log('info', 'Hid Safe Zones guides before exporting', '', 'deliver');
-    }
+    await hideGuides(seqId, job);
 
     // 1. reframed versions (new sequences in JMG Ultra Studio/Deliver)
     const plan = [];
@@ -75,6 +80,79 @@
     US.log(failed.length ? 'error' : 'ok', `Exports in ${dir}`, tasks.map(t => `${t.ok ? '✓' : '✗'} ${path.basename(t.out)}${t.ok ? '' : ' – ' + t.error}`).concat(thumb ? ['✓ ' + path.basename(thumb)] : []).join('\n'), 'deliver');
     if (failed.length) throw new US.UserError('RENDER_FAILED', { title: `${failed.length} of ${tasks.length} exports failed.`, action: 'Open Media Encoder to see why, then try those again.', detail: failed.map(t => `${path.basename(t.out)}: ${t.error}`).join('\n') });
     return { summary: `${ok.length + (thumb ? 1 : 0)} files saved`, dir };
+  }
+
+  /* ---------- render ranges: adjustment layers on a “Renders” track above the edit, one file each ---------- */
+  // names Premiere (or we) give a layer before you name it yourself, in Premiere's main languages
+  const PLAIN_NAMES = /^(adjustment layer|einstellungsebene|calque d'effets|capa de ajuste|livello di regolazione|camada de ajuste|調整レイヤー|ultra studio render range|transparent video)?( \d+)?$/i;
+  /** Ranges from Premiere → the renders, in timeline order, named after their layer; switched-off and empty ones left out. */
+  function rangePlan(ranges, seqName, ext, dir) {
+    const taken = new Set();   // lower case: Windows file names ignore case
+    return ranges.filter(r => !r.disabled && r.end - r.start > 0.01).sort((a, b) => a.start - b.start).map((r, i) => {
+      const base = safeName(PLAIN_NAMES.test(String(r.name || '').trim()) ? `${seqName} - Render ${i + 1}` : r.name);
+      let name = base;
+      for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})`;
+      taken.add(name.toLowerCase());
+      return { name, start: r.start, end: r.end, out: path.join(dir, `${name}.${ext}`) };
+    });
+  }
+  /** Export presets saved in Media Encoder or Premiere (Documents › Adobe › …), newest version first. -> [{name, path, from}] */
+  function userPresets(docs) {
+    const out = [], seen = new Set();
+    const walk = (dir, depth, from) => {
+      let list; try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+      for (const d of list.sort((a, b) => a.name.localeCompare(b.name))) {
+        const p = path.join(dir, d.name);
+        if (d.isDirectory()) { if (depth > 0 && !/ingest|proxy/i.test(d.name)) walk(p, depth - 1, from); continue; }
+        const key = d.name.toLowerCase();
+        if (/\.epr$/i.test(d.name) && !seen.has(key) && out.length < 300) { seen.add(key); out.push({ name: d.name.replace(/\.epr$/i, ''), path: p, from }); }
+      }
+    };
+    const versions = root => { try { return fs.readdirSync(root).filter(v => /^\d/.test(v)).sort((a, b) => parseFloat(b) - parseFloat(a)).map(v => path.join(root, v)); } catch (e) { return []; } };
+    for (const v of versions(path.join(docs, 'Adobe', 'Adobe Media Encoder'))) walk(path.join(v, 'Presets'), 2, 'Media Encoder');
+    for (const v of versions(path.join(docs, 'Adobe', 'Premiere Pro'))) walk(v, 4, 'Premiere Pro');
+    return out;
+  }
+  /** Where a new range goes: the sequence's In/Out if you set them, else 10 seconds from the playhead. */
+  function newRangeSpan(info, playhead) {
+    const d = info.duration;
+    // a point that isn't set reads as -400000 s: no In means the start, no Out the end
+    const i = info.inPoint >= 0 ? info.inPoint : 0, o = info.outPoint >= 0 ? Math.min(info.outPoint, d) : d;
+    if (o > i + 0.04 && !(i < 0.04 && o >= d - 0.04)) return { start: i, end: o };
+    const start = Math.max(0, Math.min(playhead || 0, d - 1));
+    return { start, end: Math.min(d, start + 10) };
+  }
+
+  async function exportRanges(o, job) {
+    const seqId = o.seqId || (US.ctx.sequence && US.ctx.sequence.id);
+    if (!seqId) throw new US.UserError('NO_SEQUENCE');
+    const seq = await US.host.call('sequenceInfo', { seqId, clips: false });
+    const found = await US.host.call('renderRanges', { seqId });
+    const preset = o.preset || (await US.host.call('encoderPresets')).h264;
+    if (!preset || !fs.existsSync(preset)) throw new US.UserError('PRESET_MISSING', { title: 'The export preset isn’t there any more.', action: 'Choose the preset again in Deliver › Render ranges.', detail: String(preset) });
+    const ext = (await US.host.call('presetExtension', { seqId, preset })) || 'mp4';
+    const dir = o.folder || defaultDir(seq.name);
+    const plan = rangePlan(found.ranges, seq.name, ext, dir);
+    if (!plan.length) throw new US.UserError('NOTHING_FOUND', { title: 'No render ranges on this sequence.', action: 'Add one with “Add a render range”, or put adjustment layers on a top video track named “Renders”.' });
+    US.fsx.ensureDir(dir);
+    await hideGuides(seqId, job);
+    const tasks = plan.map(p => ({ seqId, out: p.out, preset, name: p.name, range: { start: p.start, end: p.end }, overwrite: !!o.replace }));
+    await US.encoder.run(tasks, job, { label: 'Rendering', from: 0.05, to: 1, queueOnly: !!o.queueOnly });
+    const io = tasks.map(t => t.inOutNotRestored).filter(Boolean).pop();
+    if (io) {
+      const at = s => s < 0 ? 'none' : US.fmtDur(s);
+      US.log('warn', 'Your In and Out points couldn’t be put back', `They were In ${at(io.in)}, Out ${at(io.out)}. Set them again in the Timeline.`, 'deliver');
+      ui.toast({ type: 'warn', title: 'Set your In and Out points again', text: `Premiere didn’t take them back after queuing the renders (they were In ${at(io.in)}, Out ${at(io.out)}).`, timeout: 15000 });
+    }
+    const list = tasks.map(t => `${t.queued ? '→' : t.ok ? '✓' : '✗'} ${path.basename(t.out)} (${US.fmtDur(t.range.start)}–${US.fmtDur(t.range.end)})${t.ok || t.queued ? '' : ' – ' + t.error}`).join('\n');
+    if (o.queueOnly) {
+      US.log('ok', `${US.plural(tasks.length, 'render')} queued in Media Encoder for ${dir}`, list, 'deliver');
+      return { summary: `${US.plural(tasks.length, 'render')} queued in Media Encoder – press its green Start button`, dir, files: tasks.map(t => t.out) };
+    }
+    const failed = tasks.filter(t => !t.ok);
+    US.log(failed.length ? 'error' : 'ok', `Render ranges in ${dir}`, list, 'deliver');
+    if (failed.length) throw new US.UserError('RENDER_FAILED', { title: `${failed.length} of ${tasks.length} renders failed.`, action: 'Open Media Encoder to see why, then try those again.', detail: failed.map(t => `${path.basename(t.out)}: ${t.error}`).join('\n') });
+    return { summary: `${US.plural(tasks.length, 'render')} saved`, dir, files: tasks.map(t => t.out) };
   }
 
   /* ---------- client notes ---------- */
@@ -143,6 +221,14 @@
     },
     run: (p, job) => exportPack({ outputs: String(p.outputs).split(',').map(s => s.trim()), fullSize: outOpts().fullSize }, job)
   });
+  const rangeOpts = () => Object.assign({ preset: '', queueOnly: false, replace: false }, US.settings.get('deliver.ranges', {}));
+  US.actions.register({
+    id: 'deliver.ranges', tool: 'deliver', title: 'Render the adjustment-layer ranges', changes: true,
+    describe: 'Sends each render range of the active sequence (an adjustment layer on the “Renders” track above the edit) to Media Encoder, one after another, each file named after its layer, with the chosen preset.',
+    examples: ['render the ranges', 'export each adjustment layer', 'render all the render layers'],
+    match: t => /render|export/i.test(t) && /\branges?\b|adjustment layers?|render layers?/i.test(t) ? { _score: 2 } : null,
+    run: (p, job) => exportRanges(rangeOpts(), job)
+  });
   US.actions.register({
     id: 'deliver.notes', tool: 'deliver', title: 'Turn client notes into markers', changes: true,
     describe: 'Adds a red marker on the active sequence for every timecoded note in the given text.',
@@ -189,22 +275,26 @@
   US.tools.register({
     id: 'deliver', name: 'Deliver', short: 'Deliver', icon: 'deliver', group: 'finish', order: 33,
     blurb: 'Every export in one go, client notes as markers, YouTube chapters.',
-    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers'],
+    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'addRenderRange', 'queueRangeExport', 'presetExtension'],
     create() {
       const v = ui.toolView({ icon: 'deliver', title: 'Deliver', blurb: 'Export everything in one go, turn client notes into markers, and make YouTube chapters.' });
-      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'notes', label: 'Client notes' }, { value: 'chapters', label: 'Chapters' }], value: 'pack', onChange: t => showTab(t) });
-      const panes = { pack: h('div.tool-body'), notes: h('div.tool-body'), chapters: h('div.tool-body') };
+      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'notes', label: 'Client notes' }, { value: 'chapters', label: 'Chapters' }], value: 'pack', onChange: t => showTab(t) });
+      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), notes: h('div.tool-body'), chapters: h('div.tool-body') };
       const seqLine = h('div.field-hint');
 
       /* export pack */
       let o = outOpts(), folder = '';
       const toggles = Object.keys(OUTPUTS).map(k => ui.toggle({ label: OUTPUTS[k].label, value: o.outputs.includes(k), onChange: on => { o.outputs = on ? o.outputs.concat(k) : o.outputs.filter(x => x !== k); US.settings.set('deliver', o); } }));
-      const folderLine = h('div.field-hint');
-      const showFolder = () => { folderLine.textContent = folder ? `Saving to ${folder}` : 'Saving to Documents › JMG Ultra Studio › Exports › <sequence name and date>'; };
-      showFolder();
-      const chooseFolder = ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = window.cep.fs.showOpenDialogEx(false, true, 'Where should the exports go?', folder || US.fsx.exportsDir(), []); if (r && r.data && r.data[0]) { folder = US.normPath(r.data[0]); showFolder(); } } catch (e) { ui.showError(e); } } });
+      // the export folder is shared by the pack and the render ranges
+      const folderLines = [];
+      const showFolder = () => folderLines.forEach(l => { l.textContent = folder ? `Saving to ${folder}` : 'Saving to Documents › JMG Ultra Studio › Exports › <sequence name and date>'; });
+      const folderRow = () => {
+        const line = h('div.field-hint'); folderLines.push(line); showFolder();
+        return h('div.row', h('div.grow', line), ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = window.cep.fs.showOpenDialogEx(false, true, 'Where should the exports go?', folder || US.fsx.exportsDir(), []); if (r && r.data && r.data[0]) { folder = US.normPath(r.data[0]); showFolder(); } } catch (e) { ui.showError(e); } } }));
+      };
       let lastDir = '';
-      const openBtn = ui.button('Open export folder', { small: true, icon: 'folder', onClick: () => lastDir && require('child_process').exec((US.fsx.isWin ? 'explorer "' : 'open "') + lastDir + '"') });
+      const openFolder = () => lastDir && require('child_process').exec((US.fsx.isWin ? 'explorer "' : 'open "') + lastDir + '"');
+      const openBtn = ui.button('Open export folder', { small: true, icon: 'folder', onClick: openFolder });
       openBtn.classList.add('hidden');
       const packBtn = ui.actionButton('Export', async () => {
         const r = await US.jobs.run({ title: 'Exporting the delivery pack', tool: 'deliver' }, job => exportPack({ outputs: o.outputs, folder, fullSize: o.fullSize }, job));
@@ -213,9 +303,78 @@
       panes.pack.append(
         ui.card(h('div.card-title', 'Outputs'), toggles,
           ui.section('More options', [ui.toggle({ label: 'Social versions at full platform size', hint: '1080×1920, 1080×1080, 1080×1350 (or 2160 wide from a 4K edit) instead of Auto Reframe’s own size.', value: o.fullSize !== false, onChange: x => { o.fullSize = x; US.settings.set('deliver', o); } })], { open: false }),
-          h('div.row', h('div.grow', folderLine), chooseFolder)),
+          folderRow()),
         ui.note('Vertical, square and portrait versions are made with Premiere’s Auto Reframe as new sequences in “JMG Ultra Studio › Deliver”, so you can tweak them before re-exporting. Safe Zones guides are hidden automatically.'),
         packBtn, openBtn);
+
+      /* render ranges */
+      let ro = rangeOpts(), builtIn = [];
+      const saveRo = () => US.settings.set('deliver.ranges', ro);
+      const rangeList = h('div'), rangeTrackLine = h('div.field-hint');
+      const presetSel = ui.select({ options: [], onChange: v => {
+        if (v === '__pick') {
+          try { const r = window.cep.fs.showOpenDialogEx(false, false, 'Choose an export preset (.epr)', ro.preset ? path.dirname(ro.preset) : path.dirname(US.fsx.exportsDir()), ['epr']); if (r && r.data && r.data[0]) ro.preset = US.normPath(r.data[0]); } catch (e) { ui.showError(e); }
+          saveRo(); fillPresets(); return;
+        }
+        ro.preset = v; saveRo();
+      } });
+      async function fillPresets() {
+        try {
+          const p = await US.host.call('deliverPresets');
+          builtIn = [{ path: p.h264, name: 'H.264 – Match Source, high bitrate' }, { path: p.youtube1080, name: 'H.264 – YouTube 1080p' }, { path: p.youtube2160, name: 'H.264 – YouTube 4K' }].filter(x => x.path);
+        } catch (e) { US.log('warn', 'Built-in export presets not found', String(e && e.message || e), 'deliver'); }
+        const mine = userPresets(path.dirname(US.fsx.exportsDir()));
+        const opts = builtIn.map(x => ({ value: x.path, label: x.name }))
+          .concat(mine.map(x => ({ value: x.path, label: `${x.name} (your ${x.from} preset)` })));
+        if (ro.preset && !opts.some(x => x.value === ro.preset)) opts.push({ value: ro.preset, label: `${path.basename(ro.preset, '.epr')} (chosen file)` });
+        opts.push({ value: '__pick', label: 'Choose a preset file…' });
+        if (!ro.preset || !opts.some(x => x.value === ro.preset)) ro.preset = opts[0].value === '__pick' ? '' : opts[0].value;
+        presetSel.setOptions(opts, ro.preset);
+      }
+      async function showRanges() {
+        const s = US.ctx.sequence; US.clear(rangeList); rangeTrackLine.textContent = '';
+        if (!s) { rangeList.appendChild(ui.note('Open a sequence in the Timeline first.', 'warn')); return; }
+        try {
+          const found = await US.host.call('renderRanges', { seqId: s.id });
+          const plan = rangePlan(found.ranges, s.name, 'mp4', '');
+          const off = found.ranges.length - plan.length;
+          if (!found.ranges.length) { rangeList.appendChild(ui.note('No render ranges yet. Add one below, then trim it and rename it in the Timeline – the export takes the layer’s name.', 'info')); return; }
+          rangeTrackLine.textContent = `On ${found.trackName || 'V' + (found.track + 1)} · ${US.plural(plan.length, 'render')}${off ? ` · ${off} switched off or empty, left out` : ''}`;
+          rangeList.appendChild(ui.list(plan.map(p => ({ title: p.name, sub: `${US.fmtDur(p.start)} – ${US.fmtDur(p.end)}`, right: US.fmtDur(p.end - p.start) }))));
+        } catch (e) { ui.showError(e); }
+      }
+      const rangeName = ui.input({ placeholder: 'Name, e.g. Teaser 30s' });
+      const addRange = ui.button('Add a render range', { small: true, icon: 'plus', onClick: async () => {
+        const s = US.ctx.sequence; if (!s) return ui.showError(new US.UserError('NO_SEQUENCE'));
+        try {
+          const info = await US.host.call('sequenceInfo', { seqId: s.id, clips: false });
+          const have = (await US.host.call('renderRanges', { seqId: s.id })).ranges.length;
+          const span = newRangeSpan(info, s.playhead);
+          const name = rangeName.value.trim() || `Render ${have + 1}`;
+          const r = await US.host.call('addRenderRange', Object.assign({ seqId: s.id, name }, span));
+          if (!r.placed) throw new US.UserError('HOST_SCRIPT', { title: 'Premiere didn’t place the render range.', action: 'Check the sequence isn’t locked, then try again.', detail: r.log.join('\n') });
+          if (!r.named) ui.toast({ type: 'info', title: 'Name the new top track “Renders”', text: 'Premiere didn’t let Ultra Studio name it. Double-click the track name in the Timeline and type Renders – only that track’s layers are rendered.', timeout: 15000 });
+          if (r.kind !== 'adjustment') ui.toast({ type: 'info', title: 'Added as an invisible clip', text: 'There’s no adjustment layer in this project, so the range is an invisible clip instead. It renders just the same. Add one with File › New › Adjustment Layer if you’d rather.', timeout: 12000 });
+          rangeName.value = '';
+          US.log('ok', `Render range “${name}” added`, `${US.fmtDur(span.start)} – ${US.fmtDur(span.end)}`, 'deliver');
+          await showRanges();
+        } catch (e) { ui.showError(e); }
+      } });
+      const rangeBtn = ui.actionButton('Send the renders to Media Encoder', async () => {
+        const r = await US.jobs.run({ title: 'Rendering the render ranges', tool: 'deliver' }, job => exportRanges(Object.assign({}, ro, { folder }), job));
+        if (r && r.dir) { lastDir = r.dir; rangeOpen.classList.remove('hidden'); }
+      });
+      const rangeOpen = ui.button('Open export folder', { small: true, icon: 'folder', onClick: openFolder });
+      rangeOpen.classList.add('hidden');
+      panes.ranges.append(
+        ui.card(h('div.row', h('div.grow.card-title', 'Render ranges'), ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: showRanges })), rangeTrackLine, rangeList,
+          h('div.row', h('div.grow', rangeName), addRange)),
+        ui.card(ui.field('Export settings', presetSel, 'Presets you save in Media Encoder or Premiere’s Export screen are listed here too.'),
+          ui.toggle({ label: 'Start rendering straight away', hint: 'Off: the renders wait in Media Encoder’s queue until you press its green Start button.', value: !ro.queueOnly, onChange: x => { ro.queueOnly = !x; saveRo(); } }),
+          ui.toggle({ label: 'Replace earlier renders with the same name', hint: 'Off: a new copy is saved as “Name (2)”.', value: !!ro.replace, onChange: x => { ro.replace = x; saveRo(); } }),
+          folderRow()),
+        ui.note('Each adjustment layer on the “Renders” track marks one render: its length is the part that exports, its name becomes the file name, and they all go to Media Encoder in timeline order. Switch a layer off (Enable in the Timeline) to skip it. Effects you add to a layer show in that render only.'),
+        rangeBtn, rangeOpen);
 
       /* client notes */
       const notesBox = h('textarea.input', { rows: 9, placeholder: 'Paste notes here, one per line, e.g.\n0:12 lose the cough\n01:05 – swap the music here\n1:20-1:32 tighten this bit\n\nFrame.io CSV exports work too.' });
@@ -269,14 +428,18 @@
         ui.button('Copy', { kind: 'primary', small: true, onClick: () => { ui.copy(chapterText.value); ui.toast({ type: 'ok', title: 'Chapters copied – paste them into the YouTube description', timeout: 2500 }); } }),
         ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: buildChapters }))), chapterNotes);
 
-      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'notes') reparse(); }
+      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'notes') reparse(); if (t === 'ranges') { fillPresets(); showRanges(); } }
+      // another sequence opened while Render ranges is showing: list its ranges
+      let shownSeq = null;
+      const refreshRanges = US.debounce(() => { if (!panes.ranges.classList.contains('hidden')) showRanges(); }, 400);
+      US.bus.on('context', () => { const id = US.ctx.sequence && US.ctx.sequence.id; if (id !== shownSeq) { shownSeq = id; refreshRanges(); } });
       function renderCtx() { seqLine.textContent = US.ctx.sequence ? `Sequence: ${US.ctx.sequence.name} (${US.ctx.sequence.width}×${US.ctx.sequence.height}, ${US.fmtDur(US.ctx.sequence.duration)})` : 'Open a sequence in the Timeline first.'; }
       US.bus.on('context', renderCtx);
-      v.body.append(seqLine, tabs, panes.pack, panes.notes, panes.chapters);
+      v.body.append(seqLine, tabs, panes.pack, panes.ranges, panes.notes, panes.chapters);
       showTab('pack');
       return { el: v.el, onShow(opt) { renderCtx(); if (opt && opt.tab) showTab(opt.tab); } };
     }
   });
 
-  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS };
+  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS, rangePlan, userPresets, newRangeSpan };
 })();

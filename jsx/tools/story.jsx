@@ -309,4 +309,7 @@
         if (!seq.createCaptionTrack(U.needItem(id), 0, Sequence.CAPTION_FORMAT_SUBTITLE)) throw U.err('HOST_SCRIPT', 'createCaptionTrack returned false', 'Premiere didn’t add the captions.', 'Check the sequence isn’t locked, then try again.');
         return { itemId: id };
     };
+
+    // shared with Deliver's render ranges (finish.jsx)
+    U.labelParts = { isAdj: isAdj, findAdjustmentLayer: findAdjustmentLayer, findByName: findByName, makeLabelClip: makeLabelClip, placeSections: placeSections, ensureVideoTracks: ensureVideoTracks, trackByName: trackByName };
 })();

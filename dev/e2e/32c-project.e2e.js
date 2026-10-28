@@ -1,6 +1,8 @@
 // Final Check › Check the project: unused clips, imported twice, and moving unused clips into a bin and back.
 // a file no sequence ever uses (kept next to the test project, so it never goes offline)
 const fresh = T.path.join(T.fs.realpathSync(US.host.extensionDir()), 'dev', 'test-project', 'tidy', 'C002_unused_copy.mp4');
+// tidy/ isn't in the repository (.gitignore): make the copy on a fresh checkout
+if (!T.fs.existsSync(fresh)) { T.fs.mkdirSync(T.path.dirname(fresh), { recursive: true }); T.fs.copyFileSync(T.media('concert', 'C002_blurry.mp4'), fresh); }
 const [mixed] = await T.importOnce([fresh], 'Test – Tidy');
 const dup = (await US.host.call('importFiles', { paths: [T.media('concert', 'C001_sharp_static.mp4')], binPath: 'Test – Tidy' }))[0];
 const a = US.check.audit((await US.host.call('tidyAudit')).items);

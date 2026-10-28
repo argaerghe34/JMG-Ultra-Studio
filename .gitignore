@@ -25,3 +25,7 @@ desktop.ini
 /dev/test-media/real/
 /dev/test-media/unreadable/C006_whip_pan_prores.mov
 /dev/test-project/JMG Ultra Studio/
+
+# The Windows test project (dev/test-project-win): only the .prproj is kept
+/dev/test-project-win/*
+!/dev/test-project-win/UltraStudioTest-win.prproj

@@ -473,3 +473,15 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   Unit 231 (15 new). Premiere: full e2e 34/34 first time (new 22l-story-sync); monday.sh green (89 commands),
   installed copy identical, Premiere closed. The e2e had changed the shared settings story.tab and story.narrativeAI
   → set back (Premiere closed); dev/e2e/run.js now restores those two as well. Released v1.3.1.
+- Wed 28 Oct – 1.3.2, first full test on Windows (dev/WINDOWS-REPORT.md, PR windows-fixes, issues #1–#11) and
+  Render ranges (Deliver), asked for by Jacob: adjustment layers on a "Renders" track above the edit, each rendered by
+  Media Encoder under its own name, in timeline order, with a chosen preset (built-in H.264, or his own Media Encoder /
+  Premiere presets). The sequence In/Out is set to each range while queuing (Media Encoder copies it then) and put
+  back; "none" reads as -400000 s. Only the Renders track counts, so grading layers and Story's theme layers never
+  export. Windows app fixes: cache/temp in LOCALAPPDATA, rename retries, path case in Story, CSV for Excel, Safe Zones
+  shade names, missing files no longer passed to importFiles (one stopped Premiere answering for hours), Selects kicks a
+  muted play() when the panel's browser holds back a paused video's first frame (it did after busy spells) and reads by seeking when fast playback drops frames (12–17 of ~30
+  here; a whip pan fell between samples), Story stays with a transcript's own clip when a file is
+  in several bins. Test fixes: Node docx reader instead of textutil, file URLs, Array.indexOf in a jsx helper (34).
+  dev/win/build.js builds the zip on Windows with Unix modes (the .command files stay executable). Independent review
+  of Render ranges: 5 fixed. Unit 243. Premiere (PC): e2e 35 tests – see the report.

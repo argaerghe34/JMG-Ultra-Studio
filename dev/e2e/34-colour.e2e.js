@@ -4,7 +4,8 @@ const [a, b] = await T.importOnce([T.media('concert', 'C001_sharp_static.mp4'), 
 const seq = await T.freshSequence('E2E Colour', a.id, 'Test – E2E');
 await US.host.call('placeClips', { seqId: seq.id, clips: [{ id: a.id, in: 0, out: 6, at: 0 }, { id: b.id, in: 0, out: 6, at: 7 }] });   // a gap before clip 2
 await T.open(seq.id);
-const sel = (idx) => US.host.rawEval(`(function(){ var s=UStudio.needSeq(${JSON.stringify(seq.id)}), t=s.videoTracks[0]; for (var i=0;i<t.clips.numItems;i++) t.clips[i].setSelected(${JSON.stringify(idx)}.indexOf(i) >= 0, true); return 'ok'; })()`);
+// ExtendScript has no Array indexOf (it threw here before, leaving whatever was selected): UStudio.contains instead
+const sel = async (idx) => { const r = await US.host.rawEval(`(function(){ var s=UStudio.needSeq(${JSON.stringify(seq.id)}), t=s.videoTracks[0]; for (var i=0;i<t.clips.numItems;i++) t.clips[i].setSelected(UStudio.contains(${JSON.stringify(idx)}, i), true); return 'ok'; })()`); T.assert(r === 'ok', 'clips selected: ' + r); };
 const lumetriValue = (clip, inst, prop) => US.host.rawEval(`(function(){ var ti=UStudio.needSeq(${JSON.stringify(seq.id)}).videoTracks[0].clips[${clip}], n=0; for (var c=0;c<ti.components.numItems;c++) if (ti.components[c].displayName==='Lumetri Color') { if (n++ === ${inst}) return String(ti.components[c].properties[${prop}].getValue()); } return 'none'; })()`);
 const frameStats = async t => C.stats((await (async () => { const p = await US.host.call('exportFrame', { seqId: seq.id, seconds: t, outBase: path.join(US.fsx.tempDir(), 'e2e-col-' + Date.now()) }); const img = new Image(); img.src = 'data:image/png;base64,' + fs.readFileSync(p).toString('base64'); await img.decode(); const c = document.createElement('canvas'); c.width = 160; c.height = 90; const g = c.getContext('2d'); g.drawImage(img, 0, 0, 160, 90); fs.unlinkSync(p); return g.getImageData(0, 0, 160, 90).data; })()));
 const out = {};
