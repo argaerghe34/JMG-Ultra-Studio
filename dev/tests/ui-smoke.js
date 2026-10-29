@@ -187,6 +187,17 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     checks.push(`ask card: ${rows()} clips after taking one out`);
     card.remove();
   }
+  // Settings: draws with no AI – the Without AI section, usage by key, the code box and About; the top bar's AI chip
+  {
+    run('js/core/ai.js'); run('js/tools/99-settings.js');
+    const set = US.tools.get('settings').create(); w.document.body.appendChild(set.el); set.onShow && set.onShow({ section: 'without-ai' });
+    await new Promise(r => setTimeout(r, 50));
+    const txt = set.el.textContent;
+    for (const want of ['Without AI – what still works', 'Never use AI', 'Needs AI', 'By API key', 'About']) if (!txt.includes(want)) errors.push('Settings: no “' + want + '”');
+    if (set.el.querySelector('[data-section="without-ai"] .section.closed')) errors.push('Settings: Without AI didn’t open when asked');
+    if (!set.el.querySelector('.settings-code input')) errors.push('Settings: no code box');
+    set.el.remove();
+  }
   // the Ask tab in My interviews mode: the welcome, examples and earlier asks
   {
     US.settings.set('assistant.mode', 'interviews');

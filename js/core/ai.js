@@ -15,6 +15,7 @@
       const s = readSecrets();
       if (value) s[name] = value; else delete s[name];
       US.fsx.writeJSON(secretsFile, s);
+      if (value && KEY_PROVIDER[name]) noteKey(KEY_PROVIDER[name], value, { added: Date.now() });
       try { fs.chmodSync(secretsFile, 0o600); } catch (e) { /* Windows */ }
       US.bus.emit('secrets', name);
     }
@@ -41,11 +42,36 @@
     const w5 = cc ? (cc.ephemeral_5m_input_tokens || 0) : (u.cache_creation_input_tokens || 0), w1h = cc ? (cc.ephemeral_1h_input_tokens || 0) : 0;
     return ((u.input_tokens || 0) * p.in + w5 * p.cacheWrite + w1h * p.in * 2 + (u.cache_read_input_tokens || 0) * p.cacheRead + (u.output_tokens || 0) * p.out) / 1e6;
   }
-  function record(model, usage, feature, cost) {
+  /* ---------- usage per API key: each key known by a fingerprint and its last 4 characters – never the key itself ---------- */
+  const KEY_PROVIDER = { anthropicKey: 'claude', geminiKey: 'gemini' };
+  const keyId = key => US.fsx.hash('api-key:' + key);
+  /** Register a key (when it's saved in Settings: added = then). */
+  function noteKey(provider, key, { added = null } = {}) {
+    try {
+      const l = ledger(), id = keyId(key);
+      l.keys = l.keys || {};
+      if (!l.keys[id]) l.keys[id] = { provider, last4: String(key).slice(-4), added, name: '', calls: 0, cost: 0, tokensIn: 0, tokensOut: 0, first: null, last: null, months: {} };
+      else if (added && !l.keys[id].added) l.keys[id].added = added;
+      if (!l.trackedSince) l.trackedSince = Date.now();
+      US.fsx.writeJSON(ledgerFile, l);
+    } catch (e) { /* bookkeeping only */ }
+  }
+  // keys saved before usage was tracked per key: known from now on
+  try { for (const [n, p] of Object.entries(KEY_PROVIDER)) { const k = readSecrets()[n]; if (k) { const l = ledger(); if (!(l.keys && l.keys[keyId(k)])) noteKey(p, k); } } } catch (e) { /* no keys */ }
+  function record(model, usage, feature, cost, key) {
     try {
       const l = ledger(), k = monthKey(), m = l.months[k] || { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0, byFeature: {}, byModel: {} };
       const tin = (usage.input_tokens || usage.promptTokenCount || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
       const tout = (usage.output_tokens || 0) + (usage.candidatesTokenCount || 0) + (usage.thoughtsTokenCount || 0);
+      if (key) {
+        l.keys = l.keys || {};
+        const id = keyId(key), provider = /^gemini/.test(model) ? 'gemini' : 'claude';
+        const K = l.keys[id] || (l.keys[id] = { provider, last4: String(key).slice(-4), added: null, name: '', calls: 0, cost: 0, tokensIn: 0, tokensOut: 0, first: null, last: null, months: {} });
+        const KM = K.months[k] || (K.months[k] = { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
+        for (const x of [K, KM]) { x.calls++; x.cost += cost; x.tokensIn += tin; x.tokensOut += tout; }
+        K.last = Date.now(); if (!K.first) K.first = K.last;
+        if (!l.trackedSince) l.trackedSince = K.last;
+      }
       m.calls++; m.cost += cost; m.tokensIn += tin; m.tokensOut += tout;
       m.cacheRead = (m.cacheRead || 0) + (usage.cache_read_input_tokens || 0); m.cacheWrite = (m.cacheWrite || 0) + (usage.cache_creation_input_tokens || 0);
       const f = m.byFeature[feature || 'Other'] || (m.byFeature[feature || 'Other'] = { calls: 0, cost: 0 }); f.calls++; f.cost += cost;
@@ -200,7 +226,7 @@
     if (r.status !== 200 || !r.json) throw httpError('Claude', r);
     const msg = r.json;
     const usedModel = msg.model && MODELS[msg.model] ? msg.model : model;
-    if (msg.usage) record(usedModel, msg.usage, feature, costOf(usedModel, msg.usage));
+    if (msg.usage) record(usedModel, msg.usage, feature, costOf(usedModel, msg.usage), key);
     if (msg.usage && (msg.usage.cache_read_input_tokens || msg.usage.cache_creation_input_tokens)) noteWarm([].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []), usedModel, startedAt);
     if (msg.stop_reason === 'refusal') throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(msg.stop_details || {}) });
     if (msg.stop_reason === 'max_tokens') throw new US.UserError('AI_FAILED', { title: 'The AI’s answer was too long and got cut off.', action: 'Try a smaller request (fewer clips or interviews at once).', detail: 'stop_reason max_tokens' });
@@ -256,7 +282,7 @@
     if (r.status !== 200 || !r.json) throw httpError('Gemini', r);
     // the “-latest” names follow Google's newest model: remember which one answered, so Settings can say
     if (r.json.modelVersion) noteGemini(used, r.json.modelVersion);
-    if (r.json.usageMetadata) record(r.json.modelVersion || used, r.json.usageMetadata, feature, 0); // within Google's free allowance
+    if (r.json.usageMetadata) record(r.json.modelVersion || used, r.json.usageMetadata, feature, 0, key); // within Google's free allowance
     const cand = (r.json.candidates || [])[0];
     if (!cand) throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(r.json.promptFeedback || r.json).slice(0, 500) });
     const text = ((cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
@@ -285,6 +311,23 @@
 
   US.ai = {
     CLAUDE_MODEL, MODELS, claudeModel, estimate, costOf, fmtUSD, warmUntil,
+    /**
+     * Usage per API key, newest first: [{id, provider, name, last4, added, first, last, calls, cost, tokensIn, tokensOut,
+     * thisMonth, current}], and what was used before keys were tracked: {since, claude:{calls, cost}, gemini:{calls, cost}}.
+     */
+    keyUsage() {
+      const l = ledger(), cur = Object.fromEntries(Object.entries(KEY_PROVIDER).map(([n, p]) => [p, readSecrets()[n] ? keyId(readSecrets()[n]) : '']));
+      const keys = Object.entries(l.keys || {}).map(([id, K]) => Object.assign({ id }, K, { thisMonth: K.months[monthKey()] || { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 }, current: cur[K.provider] === id }))
+        .sort((a, b) => (b.current - a.current) || ((b.added || b.first || 0) - (a.added || a.first || 0)));
+      // before: all the months' totals by model, less what the keys account for
+      const before = { since: l.trackedSince || null, claude: { calls: 0, cost: 0 }, gemini: { calls: 0, cost: 0 } };
+      for (const m of Object.values(l.months || {})) for (const [model, b] of Object.entries(m.byModel || {})) { const p = /^gemini/.test(model) ? 'gemini' : 'claude'; before[p].calls += b.calls; before[p].cost += b.cost; }
+      for (const K of keys) { const b = before[K.provider]; if (b) { b.calls -= K.calls; b.cost -= K.cost; } }
+      for (const p of ['claude', 'gemini']) { before[p].calls = Math.max(0, before[p].calls); before[p].cost = Math.max(0, before[p].cost); }
+      return { keys, before };
+    },
+    /** A name for a key (the providers don't tell apps the name you gave it). */
+    nameKey(id, name) { const l = ledger(); if (l.keys && l.keys[id]) { l.keys[id].name = String(name || '').trim().slice(0, 60); US.fsx.writeJSON(ledgerFile, l); } },
     /** Spending this month: {calls, cost, tokensIn, tokensOut, byFeature, byModel} */
     spending: thisMonth,
     approveTotal: (usd, feature) => provider() === 'claude' ? approveTotal(usd, feature) : Promise.resolve(),

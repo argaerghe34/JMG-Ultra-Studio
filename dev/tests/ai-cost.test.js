@@ -73,3 +73,21 @@ test('Gemini: when the thinking model is busy, the quick model answers instead',
     assert.strictEqual(asked.length, 1);
   } finally { https.request = real; US.settings.set('aiProvider', savedP); US.secrets.set('geminiKey', ''); }
 });
+test('usage per API key: a saved key is listed by when it was added and its last 4 characters; the key itself is never written to the ledger', () => {
+  const fs = require('fs'), path = require('path');
+  const had = { a: US.secrets.get('anthropicKey'), g: US.secrets.get('geminiKey') };
+  try {
+    US.secrets.set('anthropicKey', 'sk-ant-test-key-number-one-ABCD');
+    US.secrets.set('anthropicKey', 'sk-ant-test-key-number-two-WXYZ');
+    US.secrets.set('geminiKey', 'gm-test-key-QRST');
+    const u = US.ai.keyUsage();
+    const claude = u.keys.filter(k => k.provider === 'claude');
+    for (const l4 of ['ABCD', 'WXYZ']) assert.ok(claude.some(k => k.last4 === l4 && k.added > 0), l4 + ' listed, with when it was added');
+    assert.strictEqual(claude.filter(k => k.current).map(k => k.last4).join(), 'WXYZ', 'the one in use now');
+    assert.ok(u.keys.some(k => k.provider === 'gemini' && k.last4 === 'QRST' && k.current));
+    US.ai.nameKey(claude.find(k => k.last4 === 'ABCD').id, 'Old work key');
+    assert.strictEqual(US.ai.keyUsage().keys.find(k => k.last4 === 'ABCD').name, 'Old work key');
+    const ledger = fs.readFileSync(path.join(US.fsx.dataDir, 'ai-usage.json'), 'utf8');
+    assert.ok(!/number-one|number-two|gm-test-key/.test(ledger), 'no key text in the ledger');
+  } finally { US.secrets.set('anthropicKey', had.a); US.secrets.set('geminiKey', had.g); }
+});

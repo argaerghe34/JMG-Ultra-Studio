@@ -280,3 +280,11 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 .range-colour { width: auto; min-width: 92px; padding: 2px 6px; font-size: 11px; height: 24px; }
 /* top bar: a copy that isn't a released version */
 .unpublished-tag { margin-left: 6px; padding: 0 5px; border: 1px solid var(--warn); border-radius: 4px; color: var(--warn); font-size: 10px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; vertical-align: 1px; }
+.settings-keys { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+/* AI status: the top bar chip, the note on AI features without AI, Settings › Without AI */
+.ai-chip { border: 1px solid var(--border); background: transparent; color: var(--text-2); border-radius: 999px; padding: 2px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.ai-chip:hover { color: var(--text); border-color: var(--text-3); }
+.ai-chip.off { color: var(--warn); border-color: var(--warn); }
+.no-ai-note { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 12px; color: var(--text-2); margin: 4px 0; line-height: 1.4; }
+.no-ai-note a { color: var(--accent-hi, var(--accent)); }
+.settings-noai { margin: 4px 0 8px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.4; }

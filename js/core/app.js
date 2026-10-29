@@ -102,6 +102,16 @@
 
   /* ---------- shell ---------- */
   let els = {};
+  /** The top bar's AI chip: the model in use, or “No AI” (features then run their basic versions). */
+  function drawAIChip() {
+    const c = els.aiChip; if (!c) return;
+    const on = !!(US.ai && US.ai.available()), name = on ? US.ai.label().replace(/^Claude /, '') : '';
+    c.textContent = on ? `AI · ${name}` : 'No AI';
+    c.classList.toggle('off', !on);
+    c.title = on ? `AI requests go to ${US.ai.label()} (text only – never footage). Click for Settings.` : 'No AI is connected: Story’s AI features run their basic versions, and Ask › My interviews needs AI. Click to see what’s different, or to add a key.';
+  }
+  US.bus.on('secrets', drawAIChip);
+  US.bus.on('settings', k => { if (/^(aiProvider|claudeModel|geminiModel)$/.test(k)) drawAIChip(); });
   function buildShell() {
     const app = US.$('#app'); US.clear(app);
     els.ctxProject = h('div.ctx-chip', { title: 'Open project' }, US.icon('folder', 13), h('span', '…'));
@@ -110,6 +120,7 @@
       h('div.brand', h('div.brand-mark', 'JU'), h('div.brand-name', 'JMG Ultra Studio', h('small', { title: 'Version' }, `v${US.version}`),
         US.build ? h('span.unpublished-tag', { title: `Not a released version – ${US.build.dev ? 'running straight from the source folder' : `a test copy${US.build.at ? ' from ' + new Date(US.build.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}${US.build.from ? ` (${US.build.from})` : ''}`}. Install a release to go back.` }, 'unpublished') : null)),
       h('div.ctx', els.ctxProject, els.ctxSeq),
+      els.aiChip = h('button.ai-chip', { onclick: () => open('settings', { section: 'ai' }) }),
       h('button.icon-btn', { title: 'Activity log', onclick: () => toggleLog() }, US.icon('log', 16)),
       h('button.icon-btn', { title: 'Settings', onclick: () => open('settings') }, US.icon('gear', 16)));
 
@@ -128,6 +139,7 @@
     els.rail = h('div.rail');
     els.view = h('div.view');
     app.append(header, els.status, h('div.main', els.rail, els.view));
+    drawAIChip();
     buildRail();
     buildLogDrawer();
     setIdleStatus();

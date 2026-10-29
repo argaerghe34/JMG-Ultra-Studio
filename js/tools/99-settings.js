@@ -78,6 +78,33 @@
         const rows = Object.entries(m.byFeature || {}).sort((a, b) => b[1].cost - a[1].cost || b[1].calls - a[1].calls).slice(0, 8)
           .map(([name, f]) => ({ title: name, right: `${f.calls} × · ${f.cost ? '$' + f.cost.toFixed(2) : 'free'}` }));
         if (rows.length) spendBox.appendChild(ui.list(rows));
+        renderKeys();
+      }
+      /* usage per API key: each key by when it was added (and the name you give it), its last 4 characters, what it used */
+      const keysBox = h('div.settings-keys');
+      const when = t => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const kTok = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round(n / 1000) + 'k');
+      function renderKeys() {
+        US.clear(keysBox);
+        let u; try { u = US.ai.keyUsage(); } catch (e) { return; }
+        const PROV = { claude: 'Claude', gemini: 'Gemini' };
+        const rows = u.keys.map(K => {
+          const label = K.name || `${PROV[K.provider]} key ${K.added ? 'added ' + when(K.added) : `in use before ${when(u.before.since || K.first || Date.now())}`}`;
+          const money = K.provider === 'gemini' ? 'no charge' : `$${K.cost.toFixed(2)}`;
+          return h('div.list-row',
+            h('span.swatch', { style: { background: K.current ? 'var(--ok)' : 'var(--text-3)' }, title: K.current ? 'The key in use now' : 'Not in use now' }),
+            h('div.list-main', h('div.list-title', label, K.current ? ui.pill('in use', 'var(--ok)') : null),
+              h('div.list-sub', `${PROV[K.provider]} · …${K.last4}${K.name && K.added ? ` · added ${when(K.added)}` : ''} · ${US.plural(K.calls, 'request')} · ${kTok(K.tokensIn + K.tokensOut)} tokens · ${money}${K.last ? ` · last used ${when(K.last)}` : ' · not used yet'}`),
+              K.thisMonth.calls ? h('div.list-sub', `This month: ${US.plural(K.thisMonth.calls, 'request')} · ${kTok(K.thisMonth.tokensIn + K.thisMonth.tokensOut)} tokens${K.provider === 'gemini' ? '' : ` · $${K.thisMonth.cost.toFixed(2)}`}`) : null),
+            ui.button(K.name ? 'Rename' : 'Name it', { small: true, kind: 'ghost', title: 'Claude and Google don’t tell apps the name you gave a key – type it here', onClick: async () => { const nm = await ui.promptText({ title: 'Name this key', label: `${PROV[K.provider]} key …${K.last4}`, value: K.name, ok: 'Save' }); if (nm != null) { US.ai.nameKey(K.id, nm); renderKeys(); } } }));
+        });
+        const b = u.before, old = [];
+        if (b.claude.calls) old.push(`Claude ${US.plural(b.claude.calls, 'request')} · $${b.claude.cost.toFixed(2)}`);
+        if (b.gemini.calls) old.push(`Gemini ${US.plural(b.gemini.calls, 'request')} · no charge`);
+        keysBox.append(h('div.field-label', 'By API key'),
+          rows.length ? h('div.list', rows) : h('div.field-hint', 'No keys yet.'),
+          old.length ? h('div.field-hint', `Before keys were tracked separately${b.since ? ` (until ${when(b.since)})` : ''}: ${old.join(' · ')} – which key isn’t known.`) : null,
+          h('div.field-hint', 'Keys are told apart by a fingerprint and their last 4 characters – the keys themselves stay in this computer’s key store. Claude and Google don’t share a key’s name with apps, so give it one here.'));
       }
       US.bus.on('ai-usage', renderSpend);
       status();
@@ -95,7 +122,7 @@
           ui.field('Gemini model', h('div.row', h('div.grow', gemSel), gemCheck), h('span', gemHint, ' Free tier: Google may use what you send to improve its products, and people there may read it – so not for interviews you’ve promised to keep private. Its daily limits are low (check aistudio.google.com › Rate limits). With billing switched on in Google AI Studio, Google doesn’t use it, and 3.8 Flash costs $0.75 / $3.75 per million tokens in / out until 31 Dec 2026, then $1.50 / $7.50.')),
           ui.field('Claude model', modelSel, 'Opus gives the best story judgement. Sonnet costs about half; Haiku a fortieth but is noticeably weaker at story work.'),
           ui.section('Cost', [
-            spendBox,
+            spendBox, keysBox,
             h('div.grid2', ui.field('Ask before a request costing', askSel), ui.field('Monthly limit (US$)', capInput, 'Ultra Studio stops before going over it. Also set a limit at console.anthropic.com.')),
             h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
           ], { open: true })),
@@ -143,7 +170,35 @@
         return h('div.settings-code', input, shown ? ui.button('Hide them again', { small: true, kind: 'ghost', onClick: () => { US.settings.set('showHidden', false); ui.toast({ type: 'ok', title: 'Hidden again – reopening the panel…' }); reopen(); } }) : null);
       }
 
-      return { el: v.el };
+      /* what works without AI – the notes on AI features link here */
+      function withoutAI() {
+        const row = (name, what, lose) => h('li', h('b', name + ': '), what, lose ? h('span.muted', ' Without AI you lose: ' + lose) : null);
+        return h('div', { dataset: { section: 'without-ai' } }, ui.section('Without AI – what still works', [
+          h('div.field-hint', 'Without a key, with AI switched Off, or when the AI can’t be reached, almost everything still works. The top bar says “No AI” then, and each AI feature shows “No AI – basic version”. Nothing about your interviews leaves this computer.'),
+          h('div.field-label', 'Never use AI'),
+          h('div.field-hint', 'Silence, Selects, Songs, Beats, Check, Safe Zones and Deliver – all their analysis runs on this computer. In Story: reading transcripts, Search (words, other forms of a word, related and mis-heard words), building sequences, bins, highlights, captions, the paper edit, the transcript of a sequence, How picky and the ★ strength rating.'),
+          h('div.field-label', 'A basic version without AI'),
+          h('ul.settings-noai', [
+            row('Find themes', 'groups lines by built-in topic word lists (family, faith, community…); your own themes by word search.', 'smarter, better-named themes, and lines that touch a theme without its usual words.'),
+            row('Find more', 'a word search on the topic, leaving out lines you already have.', 'lines that say it in other words.'),
+            row('Moments', 'found from the words and timing – restarts, stumbles, “are we rolling?”, laughter, swearing, a second voice, the interviewer reacting, long pauses, emotional words.', 'each moment checked and described; expect more false alarms.'),
+            row('Questions', 'lines sharing the question’s words, plus the speech around them (the answer after the question, when the interviewer is heard).', 'answers in other words, and exact answer boundaries.'),
+            row('Narrative from a brief', 'a short strong line first, the most relevant lines (mixing voices), the most heartfelt line last, fitted to the length; the next-best lines as alternatives.', 'a shaped story, tightened lines, a purpose for each beat, the client notes and reasons for the alternatives.'),
+            row('Interview log', 'everything – speakers, themes, strongest lines, moments, timecodes.', 'the summary of each interview.'),
+            row('Overnight prep', 'runs the basic Themes, Moments and log.', '')]),
+          h('div.field-label', 'Needs AI'),
+          h('div.field-hint', 'Ask › My interviews, and free-form requests in Ask › Anything – without AI, Ask still understands its built-in commands (“cut the silences”, “find the bloopers”…) and type “help” to list them.'),
+          h('div.field-label', 'When the AI is set up but fails'),
+          h('div.field-hint', 'No internet, a usage limit or a cost you decline: you get a message saying what happened and nothing is half done. Find themes has a “Without AI” button, the other features a switch to turn the AI off; the interview log leaves out the summaries; Find more falls back to its word search.')
+        ], { open: false }));
+      }
+      v.body.querySelector('.card').appendChild(withoutAI());
+
+      return { el: v.el, onShow(opt) {
+        status();
+        const want = opt && opt.section;
+        if (want) setTimeout(() => { const t = v.el.querySelector(`[data-section="${want}"]`) || (want === 'ai' ? v.el.querySelector('.card') : null); if (!t) return; const sec = t.querySelector('.section'); if (sec && want !== 'ai') sec.classList.remove('closed'); t.scrollIntoView({ block: 'start' }); }, 30);
+      } };
     }
   });
 })();

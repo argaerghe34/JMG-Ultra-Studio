@@ -1642,6 +1642,11 @@
     return out.join('\n');
   }
 
+  /** Shown on a feature that works best with AI when there's none: it runs its basic version – and what that means. */
+  function noAINote(what) {
+    return h('div.no-ai-note', ui.pill('No AI – basic version', 'var(--warn)'), h('span', what + ' '),
+      h('a', { href: '#', onclick: e => { e.preventDefault(); US.tools.open('settings', { section: 'without-ai' }); } }, 'What’s different without AI'));
+  }
   /** The switch for every Story build: clips in the order they were filmed, within each group. */
   function orderToggle(onChange) {
     return ui.toggle({ label: 'Keep clips in the order they were filmed', hint: 'Within each group: interview by interview, in time order – instead of best first or story order.', value: !!US.settings.get('story.keepOrder', false), onChange: x => { US.settings.set('story.keepOrder', x); if (onChange) onChange(x); } });
@@ -2105,6 +2110,7 @@
           const seqSel = ui.select({ options: [], placeholder: 'Choose your cut…', onChange: v => { cutSeq = v; } });
           US.host.call('listSequences').then(seqs => { if (!cutSeq) cutSeq = (US.ctx.sequence && US.ctx.sequence.id) || ''; seqSel.setOptions(seqs.map(q => ({ value: q.id, label: q.name })), cutSeq); }).catch(() => {});
           el.appendChild(h('div.story-more-opts',
+            aiOn ? null : noAINote('Find more searches for the topic’s words (and related words). With AI it also finds lines that say it in other words.'),
             aiOn ? ui.toggle({ label: `Let ${US.ai.label()} find lines that say it in other words`, hint: 'Only the text of your lines is sent.', value: moreAI, onChange: x => { moreAI = x; US.settings.set('story.moreAI', x); render(); } }) : null,
             aiOn && moreAI ? readsControl('findMore') : null,
             ui.toggle({ label: 'Not already in my cut', hint: 'Also leave out lines already used in a sequence.', value: notInCut, onChange: x => { notInCut = x; render(); } }),
@@ -2147,7 +2153,7 @@
         const box = h('div', h('div.card', { dataset: { section: 'questions' } },
           h('div.card-title', 'Interview questions', saved ? h('span.right', saved.by === 'ai' ? `answers found by ${aiOn ? US.ai.label() : 'AI'}` : 'basic – no AI') : null),
           h('div.muted', aiOn ? `Type the questions you asked. ${US.ai.label()} reads the transcripts in order and finds every full answer to each – from where they start answering to where they move on – labelled by question. Only the text of your lines is sent.`
-            : 'Type the questions you asked. The basic version finds the lines that share each question’s words. Add an AI key in Settings to find every full answer properly.'),
+            : 'Type the questions you asked.'), aiOn ? null : noAINote('It finds the lines that share each question’s words, and the speech around them. With AI it finds every full answer, in any words.'),
           ta, h('div.row', count), aiOn ? cost : null,
           h('div.row', ui.actionButton(saved ? 'Find the answers again' : 'Find the answers', () => go(!!aiOn), { icon: 'spark', block: false }),
             aiOn ? ui.button('Without AI', { onClick: () => go(false) }) : null)));
@@ -2201,7 +2207,7 @@
           h('div.card-title', 'Moments', saved ? h('span.right', saved.by === 'ai' ? `checked by ${aiOn ? US.ai.label() : 'AI'}` : 'basic – no AI') : null),
           h('div.muted', 'Bloopers, funny bits, off-camera voices and poignant moments – found from what’s said and how it’s timed: restarts and retakes, “are we rolling?”, laughter, swearing, a second voice, the interviewer reacting, long pauses mid-thought and emotional words.'),
           aiOn ? ui.toggle({ label: `Let ${US.ai.label()} check each moment`, hint: 'Sends the text of each moment with a line either side – nothing else.', value: momentsAI, onChange: x => { momentsAI = x; US.settings.set('story.momentsAI', x); render(); } })
-            : h('div.field-hint', 'Basic version: found from the words and timing alone. Add an AI key in Settings to have each moment checked and described.'),
+            : noAINote('Moments are found from the words and timing alone. With AI each one is checked and described.'),
           aiOn && momentsAI ? momentsCostLine() : null,
           ui.actionButton(saved ? 'Find moments again' : 'Find moments', () => US.actions.run('story.moments', { useAI: !!(aiOn && momentsAI), type: momentType }).then(() => render()), { icon: 'spark' })));
         if (!saved) return box;
@@ -2374,7 +2380,7 @@
           await US.actions.run('story.themes', { useAI }); render();
         };
         el.appendChild(ui.card(h('div.card-title', 'Find themes'),
-          h('div.muted', aiOn ? `${US.ai.label()} reads the text of your lines once and finds your themes and its own in the same pass – nothing is read twice.` : 'Story finds your themes by their words and groups the rest by what they’re about (family, faith, community…). Add an AI key in Settings for smarter, named themes.'),
+          aiOn ? h('div.muted', `${US.ai.label()} reads the text of your lines once and finds your themes and its own in the same pass – nothing is read twice.`) : noAINote('Story finds your themes by their words and groups the rest by built-in topics (family, faith, community…). With AI they’re smarter and better named.'),
           ui.field('Your themes', ownIn, 'Separate them with commas. Leave it empty to let Story find them all.'),
           h('div.row', ui.actionButton(aiOn ? `Find themes with ${US.ai.label()}` : 'Find themes', () => findThemes(!!aiOn), { icon: 'spark', block: false }),
             aiOn ? ui.button('Without AI', { onClick: () => findThemes(false) }) : null),
@@ -2911,7 +2917,7 @@
           input, parsed,
           ui.field('Client notes and context', ctxBox, h('span', ctxInfo)), h('div.row', ctxLoad, ctxClear),
           aiOn ? ui.toggle({ label: `Let ${US.ai.label()} shape the story`, hint: 'It chooses the order, tightens lines by a few words and says what each one does. Only the text of your lines is sent.', value: narAI, onChange: x => { narAI = x; US.settings.set('story.narrativeAI', x); renderBuild(); } }) : null,
-          useAI ? readsControl('narrative') : h('div.field-hint', h('b', 'Basic version (no AI): '), 'a short strong line first, then the most relevant lines (mixing voices) and the most heartfelt line last, fitted to the length.'),
+          useAI ? readsControl('narrative') : !aiOn ? noAINote('A short strong line first, then the most relevant lines and the most heartfelt line last, fitted to the length. Client notes need AI.') : h('div.field-hint', h('b', 'Basic version (no AI): '), 'a short strong line first, then the most relevant lines (mixing voices) and the most heartfelt line last, fitted to the length.'),
           ui.actionButton(latest ? 'Make another narrative' : 'Make the narrative', go, { icon: 'spark' }),
           latest ? narrativeView(latest) : null);
       }
