@@ -176,11 +176,13 @@
       r = await call('storyCue', { id, seconds, play: false, open: i === 0, mode: cue.mode });
       if (r && r.mode && r.mode !== cue.mode) { if (cue.mode || r.mode === 'clip') US.log('info', `Play: Premiere counts the Source Monitor ${r.mode === 'clip' ? 'from the clip’s first frame' : 'in the clip’s own timecode'}`); cue.mode = r.mode; }   // try that way first next time
     }
-    if (play) r = await call('storyCue', { id, seconds, play: true, open: false, mode: cue.mode });
-    // ▶ that misses its line: say exactly where it landed, so the cause can be found from the activity log
-    const landed = there(r);
-    if (!landed) US.log('warn', 'Play: the Source Monitor didn’t land on the line', JSON.stringify({ wanted: seconds, position: r && r.position, loaded: r && r.loaded, asked: id, timing: r && r.timing, tries: r && r.tries }));
-    return Object.assign({ landed }, r);
+    const landed = there(r), tried = (r && r.tries) || [];
+    if (play) r = await call('storyCue', { id, seconds, play: true, open: false, mode: cue.mode, there: landed });
+    // ▶ that misses its line (or plays from somewhere else): say exactly what happened, for the activity log
+    const start = r && r.timing ? r.timing.start : 0, p = r && r.playing;
+    const playsRight = !play || p == null || [seconds, start + seconds].some(x => p >= x - 0.3 && p <= x + 2);
+    if (!landed || !playsRight) US.log('warn', landed ? 'Play: it landed on the line but played from elsewhere' : 'Play: the Source Monitor didn’t land on the line', JSON.stringify({ wanted: seconds, position: r && r.position, playing: p, loaded: r && r.loaded, asked: id, timing: r && r.timing, tries: tried.concat((r && r.tries) || []) }));
+    return Object.assign({ landed, playsRight }, r);
   }
 
   /**

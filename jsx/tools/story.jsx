@@ -90,14 +90,36 @@
         };
         var near = function (x) { return Math.abs(x - want) < 0.12 || Math.abs(x - (t.start + want)) < 0.12; };
         var order = a.mode === 'clip' ? ['clip', 'media'] : ['media', 'clip'], pos = null, mode = '';
+        // already there (the panel checked): just play – jumping again straight before playing made Premiere 26.5 play
+        // from the clip's first frame (measured 29 Oct 2026)
+        if (a.play && a.there) order = [];
         for (var i = 0; i < order.length; i++) {
             if (order[i] === 'clip' && !(t.start > 0) && i > 0) break;   // no camera timecode: both ways are the same
             pos = go(order[i] === 'media' ? t.start + want : want, order[i]);
             if (near(pos)) { mode = order[i]; break; }
         }
-        if (a.play) app.sourceMonitor.play(1);
+        var before = app.sourceMonitor.getPosition().seconds, after = null;
+        if (a.play) {
+            $.sleep(120);
+            app.sourceMonitor.play(1);
+            $.sleep(350);
+            after = app.sourceMonitor.getPosition().seconds;
+            tries.push('play from ' + before + ' -> ' + after);
+            // playing from somewhere else (the first frame): jump back and start it with the Source Monitor's own player
+            if (!(after >= before - 0.3 && after <= before + 2)) {
+                try { app.sourceMonitor.play(0); } catch (e0) { }
+                try { p.stop(); } catch (e1) { }
+                var code = tc((mode === 'clip' ? 0 : t.start) + want, t);
+                try { p.startScrubbing(); p.scrubTo(code); p.endScrubbing(); } catch (e2) { }
+                $.sleep(150);
+                try { p.play(1); tries.push('qe play'); } catch (e3) { tries.push('qe play: ' + e3); try { app.sourceMonitor.play(1); } catch (e4) { } }
+                $.sleep(350);
+                after = app.sourceMonitor.getPosition().seconds;
+                tries.push('again from ' + code + ' -> ' + after);
+            }
+        }
         var loaded = ''; try { var pi = app.sourceMonitor.getProjectItem(); loaded = pi ? pi.nodeId : ''; } catch (e) { loaded = '?'; }
-        return { position: app.sourceMonitor.getPosition().seconds, timing: t, loaded: loaded, mode: mode, tries: tries };
+        return { position: before, playing: after, timing: t, loaded: loaded, mode: mode, tries: tries };
     };
     fn.storyStop = function () { try { app.enableQE(); qe.source.player.stop(); } catch (e) { } return true; };
 
