@@ -315,6 +315,16 @@
    */
   async function themeMatchesAI(theme, lines, { limit = 60, job, reads = readsFor('ownTheme') } = {}) {
     if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
+    if (ctxOn()) {
+      // the shared transcript: the AI reads everything in scope (cached an hour) and picks – no word search first
+      const batches = SAI().contextPicks(scopeTranscripts(lines), { system: OWN_PICK_SYSTEM, feature: 'Your own theme', maxTokens: 4000, task: () => `Theme: ${theme}\nChoose up to ${limit} lines, best first.` });
+      job && job.set({ who: 'ai', msg: `${US.ai.label()} is choosing lines for “${theme}”` });
+      const r = await SAI().runPicks(batches, { limit, job, nameOf: nameOfLine, label: `choosing lines for “${theme}”` });
+      const out = r.picks.map(p => ({ line: p.line, score: p.rel, rel: p.rel, hits: [], reasons: p.reasons }));
+      if (!out.length) return themeMatches(theme, lines, { limit });
+      out.missing = r.missing;
+      return out;
+    }
     job && job.set({ who: 'ai', msg: `${US.ai.label()} is thinking of ways people talk about “${theme}”` });
     const ex = await US.ai.json(expandRequest(theme, 'theme', 'Your own theme'));
     const queries = [theme].concat((ex.phrases || []).map(String).filter(Boolean).slice(0, 25));
@@ -372,7 +382,7 @@
     const lines = await linesInScope(job), ai = !!(useAI && US.ai && US.ai.available());
     let mine, found;
     if (ai) {
-      const all = await SAI().findThemes(lines, { limit: readsFor('themes'), max: 10, job, nameOf: nameOfLine, own });
+      const all = await SAI().findThemes(lines, { limit: readsFor('themes'), max: 10, job, nameOf: nameOfLine, own, context: ctxOn() ? scopeTranscripts(lines) : null });
       mine = all.filter(t => t.own); found = all.filter(t => !t.own);
       Object.assign(found, { missing: all.missing, requests: all.requests });
       for (const t of mine) if (!t.lineIds.length) { const m = themeMatches(t.name, lines); Object.assign(t, { lineIds: m.map(x => x.line.id), scores: Object.fromEntries(m.map(x => [x.line.id, +x.rel.toFixed(3)])), searched: true }); }
@@ -556,8 +566,14 @@
    */
   async function findMore(job, topic, { useAI = false, exclude = new Set(), limit = 120, feature = 'Find more', reads = readsFor('findMore') } = {}) {
     if (!String(topic || '').trim()) throw new US.UserError('BAD_INPUT', { title: 'Type a topic first.', action: 'For example “community” or “the day we arrived”.' });
-    const lines = (await linesInScope(job)).filter(l => !exclude.has(l.id));
+    const inScope = await linesInScope(job), lines = inScope.filter(l => !exclude.has(l.id));
     const ai = useAI && US.ai && US.ai.available();
+    if (ai && ctxOn()) {
+      const batches = SAI().contextPicks(scopeTranscripts(inScope), { system: FIND_PICK_SYSTEM, feature, exclude, allow: l => !exclude.has(l.id), task: () => `Topic: ${topic}\nPick up to ${limit} lines on it.` });
+      job && job.set({ who: 'ai', msg: `${US.ai.label()} is looking for more about “${topic}”` });
+      const r = await SAI().runPicks(batches, { limit, exclude, job, nameOf: nameOfLine, label: `finding more about “${topic}”` });
+      if (r.picks.length) { const out = r.picks; out.missing = r.missing; return out; }
+    }
     let queries = [topic];
     if (ai) {
       job && job.set({ who: 'ai', msg: `${US.ai.label()} is thinking of ways people talk about “${topic}”` });
@@ -1175,6 +1191,16 @@
    */
   async function narrativeShortlist(job, brief, from, { reads, maxLen, max = 120, lines = scopeLines() }) {
     const usable = lines.filter(l => { return l.end - l.start <= maxLen && !notForStory(l); });
+    if (ctxOn()) {
+      const ok = new Set(usable.map(l => l.id));
+      const batches = SAI().contextPicks(scopeTranscripts(lines), { system: SHORTLIST_SYSTEM, feature: 'Narrative cut', allow: l => ok.has(l.id),
+        task: () => `Brief: ${brief.topic || 'the interviews'}${brief.tone ? ` (tone: ${brief.tone})` : ''}\nPick up to 60 lines that could work in it, best first – each no longer than ${Math.round(maxLen)} seconds, and not the interviewer.` });
+      job && job.set({ who: 'ai', msg: `${US.ai.label()} is reading the interviews for the story` });
+      const r = await SAI().runPicks(batches, { limit: max, job, nameOf: nameOfLine, label: 'shortlisting lines' });
+      const pool = r.picks.map(p => { const q = T.quality(p.line); return { id: p.line.id, rel: p.rel, strength: q.score, heart: MO().heart(p.line.text), from: from.get(p.line.id) || [] }; });
+      pool.missing = r.missing; pool.read = lines.length;
+      return pool;
+    }
     const hit = new Map();
     if (brief.topic) {
       job && job.set({ who: 'ai', msg: `${US.ai.label()} is thinking of ways people talk about “${brief.topic}”` });
@@ -1288,13 +1314,13 @@
    */
   function momentsPlan({ opts = pickyFor(null) } = {}) {
     const found = momentCandidates(), cap = MO().capFor(opts.s), ai = US.ai && US.ai.available();
-    const key = [candMemo.key, cap, ai ? US.ai.label() : 'none'].join('|');
+    const key = [candMemo.key, cap, ai ? US.ai.label() : 'none', ctxOn(), Math.floor(Date.now() / 60000)].join('|');
     if (planMemo && planMemo.key === key) return planMemo.plan;
     const plan = { found: found.length, checked: Math.min(found.length, cap), cap, every: cap === Infinity, calls: 0, usd: 0, free: false, name: ai ? US.ai.label() : '' };
     if (ai && plan.checked) {
-      const reqs = MO().requests(found, { lineOf: id => lineById.get(id), ctxOf: lineContext(), speakerName, max: cap });
-      plan.calls = reqs.length;
-      for (const b of reqs) { const e = US.ai.estimateFor ? US.ai.estimateFor(b.req) : { usd: 0, free: true }; plan.usd += e.usd || 0; plan.free = !!e.free; if (e.name) plan.name = e.name; }
+      const reqs = MO().requests(found, { lineOf: id => lineById.get(id), ctxOf: lineContext(), speakerName, max: cap, transcripts: ctxOn() ? scopeTranscripts() : null });
+      const c = SAI().cost(reqs.map(b => b.req));
+      Object.assign(plan, { calls: reqs.length, usd: c.usd, free: c.free }, c.name ? { name: c.name } : {});
     }
     planMemo = { key, plan };
     return plan;
@@ -1310,7 +1336,7 @@
       plan = momentsPlan();
       // many small requests never reach the per-request question, so approve the whole run once (and check the monthly cap)
       if (!plan.free && US.ai.approveTotal) await US.ai.approveTotal(plan.usd, `Checking ${plan.checked} moments (${plan.calls} requests)`);
-      list = await MO().classifyAI(list, { lineOf: id => lineById.get(id), ctxOf: lineContext(), speakerName, job, max: plan.cap });
+      list = await MO().classifyAI(list, { lineOf: id => lineById.get(id), ctxOf: lineContext(), speakerName, job, max: plan.cap, transcripts: ctxOn() ? scopeTranscripts() : null });
     }
     // a run on part of the material keeps the moments found before in the rest (the interview log uses them all)
     const sc = scopeOf(), mineIds = sc.kind === 'all' ? null : new Set(scopeLines().map(l => l.id));
@@ -1400,13 +1426,31 @@
 
   /* ================= reading transcripts ================= */
   /* ================= interview questions ================= */
-  const Q = () => US.storyQuestions;
+  const Q = () => US.storyQuestions, CTX = () => US.storyContext, ctxOn = () => !!(US.storyContext && US.storyContext.on());
   /** Each question's colour: the theme colours in turn. */
   const questionLabel = q => THEME_PALETTE[q % THEME_PALETTE.length];
   /** The transcripts with only the lines being worked on (What to work on), in project order. */
   function scopeTranscripts(lines = scopeLines()) {
     const keep = new Set(lines.map(l => l.id));
-    return state.transcripts.map(t => ({ key: t.key, name: t.name, lines: t.lines.filter(l => keep.has(l.id)) })).filter(t => t.lines.length);
+    return state.transcripts.map((t, i) => ({ key: t.key, name: t.name, n: i + 1, lines: t.lines.filter(l => keep.has(l.id)) })).filter(t => t.lines.length);
+  }
+  /** The shared transcript of what you're working on: how big, what it costs, and until when Claude holds it. */
+  let ctxMemo = null;
+  function contextInfo() {
+    const model = US.ai.claudeModel(), key = [linesStamp, scopeLabel(), model].join('|');
+    if (!ctxMemo || ctxMemo.key !== key) {
+      const reqs = CTX().requests(scopeTranscripts(), { task: () => '', feature: '' });
+      ctxMemo = { key, blocks: reqs.map(b => b.req.user[0]), lines: scopeLines().length, chars: reqs.reduce((n, b) => n + b.req.user[0].text.length, 0) };
+    }
+    const now = Date.now(), untils = ctxMemo.blocks.map(b => US.ai.warmUntil(b, model)), until = untils.length && untils.every(u => u > now) ? Math.min(...untils) : 0;
+    const p = US.ai.MODELS[model], tok = ctxMemo.chars / 3.6;
+    return { lines: ctxMemo.lines, parts: ctxMemo.blocks.length, until, first: tok * p.in * 2 / 1e6, again: tok * p.cacheRead / 1e6 };
+  }
+  /** “Claude Opus 5.5 has your 2,340 lines until 15:42 – each request reads them for about 1¢, plus its answer.” */
+  function contextLine() {
+    const c = contextInfo(), fmt = US.ai.fmtUSD, n = c.lines.toLocaleString('en-GB');
+    if (c.until) return `${US.ai.label()} has your ${n} lines until ${new Date(c.until).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} – each request reads them for about ${fmt(c.again)}, plus its answer.`;
+    return `${US.ai.label()} reads all ${n} lines once (about ${fmt(c.first)}${c.parts > 1 ? ` in ${c.parts} parts` : ''}) and keeps them for an hour: every request after that – Themes, Find more, Moments, Questions, Ask – reads them for about ${fmt(c.again)}, plus its answer.`;
   }
   /** Find every answer to the editor's questions (with AI: full answers; without: the lines that share the words). */
   async function findAnswers(job, { questions, useAI = false }) {
@@ -1587,6 +1631,7 @@
    * involves – lines, cost with the current model, requests and time. Remembered per project.
    */
   function readsControl(feature) {
+    if (ctxOn()) return h('div.field-hint.story-reads-cost', contextLine());
     const stops = SAI().stopsFor(feature), total = scopeLines().length;
     const line = h('div.field-hint.story-reads-cost');
     const show = i => { const n = stops[i], p = readsPlan(feature, n); line.textContent = SAI().describe(p, { lines: p.lines, all: p.all }); };
@@ -1828,6 +1873,7 @@
       /** “Claude Opus 5.5 reads 2,340 lines · about 40¢ · 2 requests · ~1 min” */
       function questionsCost(questions) {
         if (!(US.ai && US.ai.available())) return '';
+        if (ctxOn()) return contextLine();
         const ts = scopeTranscripts(), n = ts.reduce((k, t) => k + t.lines.length, 0);
         if (!n) return '';
         const reqs = Q().requests(questions.length ? questions : ['An example question about something?'], ts).map(b => b.req);
@@ -3105,7 +3151,7 @@
     narrativePool, makeNarrative, narrativeColumn, narrativeGroups, buildNarrative, makePromo, latestNarrative: id => latestNarrative(id), trimOf,
     readsFor, setReads, readsPlan, rankCandidates,
     findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,
-    findAnswers, buildAnswers, answerSpans, scopeTranscripts: () => scopeTranscripts(),
+    findAnswers, buildAnswers, answerSpans, scopeTranscripts: (...a) => scopeTranscripts(...a), contextInfo: () => contextInfo(), contextLine: () => contextLine(),
     /** tests only: use a state object without a project */
     _useState(s) { session = null; clearTimeout(sharedTimer); sharedTimer = null; state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }
   };

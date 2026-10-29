@@ -50,6 +50,13 @@
   /** Sum the estimates for every request a job will make. -> {requests, usd, free, name, secs} */
   function cost(reqs) {
     const p = { requests: reqs.length, usd: 0, free: false, name: US.ai && US.ai.label ? US.ai.label() : '', secs: 0 };
+    // a cached block (the shared transcript) is written by the first request of a job and read by the ones after it
+    const seen = new Set();
+    reqs = reqs.map(r => {
+      if (!Array.isArray(r.user)) return r;
+      const user = r.user.map(b => { if (!b || !b.cache || !b.text) return b; const k = b.text.length + ':' + b.text.slice(0, 200) + b.text.slice(-200); if (seen.has(k)) return Object.assign({}, b, { warm: true }); seen.add(k); return b; });
+      return Object.assign({}, r, { user });
+    });
     for (const r of reqs) {
       const e = US.ai && US.ai.estimateFor ? US.ai.estimateFor(r) : { usd: 0, free: true };
       p.usd += e.usd || 0; p.free = !!e.free; if (e.name) p.name = e.name;
@@ -99,6 +106,17 @@
     } }));
   }
   /**
+   * The same, from the shared transcript (Story › the shared transcript): the AI reads everything in scope once an hour
+   * and picks from it. allow(line) -> whether a line may be picked; exclude: ids the editor already has (named in the task).
+   */
+  function contextPicks(transcripts, { system, task, feature, maxTokens = 8000, allow = null, exclude = new Set() }) {
+    const C = US.storyContext, ex = Array.from(exclude);
+    return C.requests(transcripts, { feature, maxTokens, effort: 'low', task: (k, n) =>
+      `${system}\n\n${task(k, n)}\nPut the lines you pick in one group with key "picks"; each item is one line (“from” and “to” the same id, “lead” and “tag” ""), with note = why in a few words and score = how well it fits.` +
+      (ex.length ? `\nLeave out these lines – the editor already has them: ${ex.slice(0, 3000).join(' ')}` : '') + C.partNote(k, n) })
+      .map(b => ({ lines: allow ? b.lines.filter(allow) : b.lines, req: b.req }));
+  }
+  /**
    * Send the batches and merge: every pick with its score (or, without one, its place in the answer), best first;
    * a batch that fails twice is skipped and reported. -> {picks:[{line, rel, reasons}], missing:[{part, lines, error}]}
    */
@@ -108,9 +126,10 @@
       job && job.check && job.check();
       if (batches.length > 1) { job && job.set && job.set({ who: 'ai', msg: `${US.ai.label()}: ${label} part ${k + 1} of ${batches.length}` }); job && job.progress && job.progress(0.1 + 0.85 * k / batches.length); }
       const b = batches[k], info = {};
-      const r = await ask(b.req, info);
+      let r = await ask(b.req, info);
       if (!r) { missing.push({ part: k + 1, of: batches.length, lines: b.lines.length, name: partName(b.lines, nameOf), error: info.error }); continue; }
       const known = new Map(b.lines.map(l => [l.id, l]));
+      if (r.groups) r = US.storyContext.asPicks(r, new Set(known.keys()));
       const raw = (r.picks || (r.lineIds || []).map(id => ({ lineId: id }))).filter(p => p && known.has(String(p.lineId)) && !exclude.has(String(p.lineId)));
       raw.forEach((p, i) => got.push({ line: known.get(String(p.lineId)), score: p.score != null && isFinite(+p.score) ? Math.max(0, Math.min(1, +p.score)) : 1 - 0.6 * i / Math.max(1, raw.length - 1), k, i, reason: String(p.reason || '').slice(0, 140) }));
     }
@@ -140,13 +159,21 @@
     return T().inOrder(best, lines);
   }
   /** The instruction after the lines: the editor's own themes (if any) are found in the same pass as the others. */
-  function themesTask(max, own = []) {
+  function themesTask(max, own = [], field = '“yours”') {
     if (!own.length) return `Group the interview lines above into between 3 and ${max} themes.`;
-    return `The editor wants these themes: ${own.map(x => `“${x}”`).join(', ')}. List them first, with exactly these names, and put every line that fits one of them in it (an empty list of lines if nothing fits); set “yours” to the editor's theme name for these, and to "" for the others. ` +
+    return `The editor wants these themes: ${own.map(x => `“${x}”`).join(', ')}. List them first, with exactly these names, and put every line that fits one of them in it (an empty list of lines if nothing fits); set ${field} to the editor's theme name for these, and to "" for the others. ` +
       `Then group the other lines into up to ${max} more themes of your own.`;
   }
   /** Every request Find themes will make (the merge one estimated from the expected size). -> {pool, batches:[{lines, req}], merge} */
-  function themesRequests(lines, { limit = 1200, max = 10, own = [] } = {}) {
+  function themesRequests(lines, { limit = 1200, max = 10, own = [], context = null } = {}) {
+    if (context) {
+      const C = US.storyContext;
+      const batches = C.requests(context, { feature: 'Find themes', maxTokens: 16000, effort: 'low', task: (k, n) => `${THEME_SYSTEM}\n\n${themesTask(max, own, '“key”')}\n` +
+        `Make each theme a group: key = the editor's theme name for their themes (exactly as they wrote it) and "" for your own, name, summary = one sentence, items = its lines, best first, each one line (“from” and “to” the same id; “lead”, “note” and “tag” ""; score = how well it fits).${C.partNote(k, n)}` });
+      const pool = batches.flatMap(b => b.lines);
+      const merge = batches.length > 1 ? mergeRequest(batches.flatMap((b, k) => Array.from({ length: max }, (_, i) => ({ id: `p${k + 1}.${i + 1}`, name: 'Example theme name', summary: 'An example one-sentence summary of what this theme is about, for the estimate.', lineIds: Array(Math.ceil(b.lines.length / max / 3)) }))), max) : null;
+      return { pool, batches, merge };
+    }
     const pool = themesPool(lines, limit), parts = split(pool, T().aiRow);
     const batches = parts.map(b => ({ lines: b, req: {
       system: THEME_SYSTEM, user: T().aiUser('Interview lines (id<TAB>speaker<TAB>text):\n' + b.map(T().aiRow).join('\n'), themesTask(max, own)),
@@ -189,9 +216,9 @@
    * Find themes across `limit` lines (Infinity = all), in batches if needed. -> themes [{id, name, summary, lineIds}]
    * with .missing (parts that couldn't be read) and .merged (how many part-themes went in).
    */
-  async function findThemes(lines, { limit = 1200, max = 10, job, nameOf = () => '', own = [] } = {}) {
+  async function findThemes(lines, { limit = 1200, max = 10, job, nameOf = () => '', own = [], context = null } = {}) {
     if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
-    const plan = themesRequests(lines, { limit, max, own });
+    const plan = themesRequests(lines, { limit, max, own, context });
     if (US.ai.approveTotal) await US.ai.approveTotal(cost(plan.batches.map(b => b.req).concat(plan.merge ? [plan.merge] : [])).usd, `Find themes (${US.plural(plan.batches.length, 'request')})`);
     const parts = [], missing = [];
     for (let k = 0; k < plan.batches.length; k++) {
@@ -199,8 +226,10 @@
       const b = plan.batches[k];
       job && job.set && job.set({ who: 'ai', msg: plan.batches.length > 1 ? `${US.ai.label()} is reading part ${k + 1} of ${plan.batches.length} (${fmtN(b.lines.length)} lines)` : `${US.ai.label()} is reading ${fmtN(b.lines.length)} lines` });
       job && job.progress && job.progress(0.05 + 0.8 * k / plan.batches.length);
-      const info = {}, r = await ask(b.req, info);
+      const info = {};
+      let r = await ask(b.req, info);
       if (!r) { missing.push({ part: k + 1, of: plan.batches.length, lines: b.lines.length, name: partName(b.lines, nameOf), error: info.error }); continue; }
+      if (r.groups) r = { themes: r.groups.map(g => ({ name: g.name, summary: g.summary, yours: g.key, lineIds: (g.items || []).map(i => String(i.from)) })) };
       const known = new Set(b.lines.map(l => l.id)), used = new Set(), ownOf = ownFor(own, r.themes || []);
       (r.themes || []).forEach((t, i) => {
         const ids = (t.lineIds || []).map(String).filter(id => known.has(id) && !used.has(id) && used.add(id));
@@ -262,5 +291,5 @@
     return themes.map(t => (t && t.yours ? match(t.yours) : null) || match(t && t.name));
   }
 
-  US.storyAI = { themesTask, ownMatcher, ownFor, ownThemeSchema, STOPS, DEFAULTS, stopsFor, stopLabel, toStored, fromStored, BATCH, split, secondsFor, cost, fmtTime, describe, ask, PICK_SCHEMA, pickRequests, runPicks, missingNote, themesPool, themesRequests, mergeRequest, combine, groupByName, normName, findThemes, MERGE_SCHEMA };
+  US.storyAI = { contextPicks, themesTask, ownMatcher, ownFor, ownThemeSchema, STOPS, DEFAULTS, stopsFor, stopLabel, toStored, fromStored, BATCH, split, secondsFor, cost, fmtTime, describe, ask, PICK_SCHEMA, pickRequests, runPicks, missingNote, themesPool, themesRequests, mergeRequest, combine, groupByName, normName, findThemes, MERGE_SCHEMA };
 })();

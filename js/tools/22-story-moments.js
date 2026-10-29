@@ -172,8 +172,21 @@
    * The requests that check these candidates (the best `max`), in batches of `chunk`: [{part, req}]. Used to send them
    * and, before that, to estimate what they cost.
    */
-  function requests(cands, { lineOf, ctxOf, speakerName = s => s, chunk = 60, max = 240 } = {}) {
+  const MOMENT_TASK = 'Find moments: for each candidate line listed below, decide what it is – funny (a joke, laughter, a funny story), blooper (a restart, stumble, swearing, crew chatter, a mistake), off-camera (someone other than the interviewee speaks or reacts), poignant (a moving, emotional moment), or none (nothing special). Read the lines around it in the transcripts above for context. Give a short reason (a few words) and a score from 0 to 1 for how good a moment it is. Answer for every candidate.';
+  function requests(cands, { lineOf, ctxOf, speakerName = s => s, chunk = 60, max = 240, transcripts = null } = {}) {
     const list = cands.slice(0, max), out = [];
+    // the shared transcript (cached an hour): the AI already has the context, so it only needs the ids and the cues
+    if (transcripts && US.storyContext) {
+      const C = US.storyContext, big = Math.max(chunk, 120);
+      for (let i = 0; i < list.length; i += big) {
+        const part = list.slice(i, i + big);
+        for (const b of C.requests(transcripts, { feature: 'Moments', maxTokens: 12000, effort: 'low', task: (k, n) => `${MOMENT_TASK}\nMake one group per type (key = funny, blooper, off-camera, poignant or none); each item is one candidate (“from” and “to” its id; “lead” and “tag” ""; note = the reason; score).${C.partNote(k, n)}\n\nCandidates (id<TAB>cues):\n${part.map(m => `${m.lineId}\t${m.cues.join(',')}`).join('\n')}` })) {
+          const ids = new Set(b.lines.map(l => l.id)), mine = part.filter(m => ids.has(m.lineId));
+          if (mine.length) out.push({ part: mine, req: b.req });
+        }
+      }
+      return out;
+    }
     for (let i = 0; i < list.length; i += chunk) {
       const part = list.slice(i, i + chunk);
       out.push({ part, req: {
@@ -185,15 +198,17 @@
     }
     return out;
   }
-  async function classifyAI(cands, { lineOf, ctxOf, speakerName = s => s, job, chunk = 60, max = 240 } = {}) {
+  async function classifyAI(cands, { lineOf, ctxOf, speakerName = s => s, job, chunk = 60, max = 240, transcripts = null } = {}) {
     if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
-    const batches = requests(cands, { lineOf, ctxOf, speakerName, chunk, max }), n = Math.min(max, cands.length), out = [];
-    batches.forEach((b, k) => { b.from = k * chunk; });
+    const batches = requests(cands, { lineOf, ctxOf, speakerName, chunk, max, transcripts }), n = Math.min(max, cands.length), out = [];
+    let at = 0; batches.forEach(b => { b.from = at; at += b.part.length; });
     for (const b of batches) {
       job && job.check && job.check();
       job && job.set({ who: 'ai', msg: `${US.ai.label()} is checking moments ${b.from + 1}–${b.from + b.part.length} of ${n}` });
       job && job.progress && job.progress(0.15 + 0.8 * b.from / n);
-      out.push(...merge(b.part, await US.ai.json(b.req)));
+      let r = await US.ai.json(b.req);
+      if (r && r.groups) r = { moments: US.storyContext.items(r, new Set(b.part.map(m => m.lineId))).map(x => ({ lineId: x.from, type: x.group.key, reason: x.note, score: x.score })) };
+      out.push(...merge(b.part, r));
     }
     return out.concat(cands.slice(max)).sort((a, b) => b.score - a.score);
   }

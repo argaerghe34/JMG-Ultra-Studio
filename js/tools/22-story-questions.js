@@ -70,6 +70,15 @@
     } }));
   }
 
+  /** The same from the shared transcript (cached an hour, shared with the other Story features). -> [{part, lines, req}] */
+  function contextRequests(questions, transcripts) {
+    const C = US.storyContext;
+    return C.requests(transcripts, { feature: 'Interview questions', maxTokens: 16000, effort: 'medium', task: (k, n) =>
+      `Task: find the answers to the editor's interview questions. ${SYSTEM.replace(/^You help a documentary editor find the answers to their interview questions\. /, '')}\n\n` +
+      `Questions:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\n` +
+      `Make one group per question that has answers: key = the question's number ("1", "2"…), name = the question, summary "". Each item is one full answer: from = the line where they start answering, to = the last line before they move on, lead = the line where the interviewer asks it (or ""), note = what they say in a few words, score = how well and how fully it answers, tag "".${C.partNote(k, n)}` });
+  }
+
   /* ---------- reading the answers ---------- */
   /** id -> {t (the transcript), n, i (place in it)} */
   function indexOf(transcripts) { const m = new Map(); transcripts.forEach((t, n) => (t.lines || []).forEach((l, i) => m.set(l.id, { t, n: n + 1, i }))); return m; }
@@ -161,14 +170,17 @@
    */
   async function findAI(questions, transcripts, { job, nameOf = () => '' } = {}) {
     if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
-    const SAI = US.storyAI, batches = requests(questions, transcripts), idx = indexOf(transcripts), list = [], missing = [];
+    const SAI = US.storyAI, ctx = !!(US.storyContext && US.storyContext.on());
+    const batches = ctx ? contextRequests(questions, transcripts).map(b => ({ part: b.part, req: b.req })) : requests(questions, transcripts), idx = indexOf(transcripts), list = [], missing = [];
     if (batches.length > 1 && US.ai.approveTotal) await US.ai.approveTotal(SAI.cost(batches.map(b => b.req)).usd, `Interview questions (${batches.length} requests)`);
     for (let k = 0; k < batches.length; k++) {
       job && job.check && job.check();
       const b = batches[k], lines = b.part.flatMap(p => p.lines);
       job && job.set && job.set({ who: 'ai', msg: batches.length > 1 ? `${US.ai.label()} is reading part ${k + 1} of ${batches.length} (${US.plural(lines.length, 'line')})` : `${US.ai.label()} is reading ${US.plural(lines.length, 'line')} for the answers` });
       job && job.progress && job.progress(0.05 + 0.9 * k / batches.length);
-      const info = {}, r = await SAI.ask(b.req, info);
+      const info = {};
+      let r = await SAI.ask(b.req, info);
+      if (r && r.groups) r = { answers: US.storyContext.items(r).map(x => ({ question: +x.group.key, from: x.from, to: x.to, asked: x.lead, summary: x.note, score: x.score })) };
       if (!r) { missing.push({ part: k + 1, of: batches.length, lines: lines.length, name: b.part.map(p => nameOf(p) || `Interview ${p.n}`).join(', '), error: info.error }); continue; }
       list.push(...collect(r.answers, idx, questions.length, new Set(lines.map(l => l.id))));
     }
@@ -178,5 +190,5 @@
     return out;
   }
 
-  US.storyQuestions = { parse, short, parts, requests, indexOf, collect, organise, linesOf, basic, findAI, SCHEMA, SYSTEM, BATCH, MAX_SPAN };
+  US.storyQuestions = { parse, short, parts, requests, contextRequests, indexOf, collect, organise, linesOf, basic, findAI, SCHEMA, SYSTEM, BATCH, MAX_SPAN };
 })();

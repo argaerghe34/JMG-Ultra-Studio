@@ -47,12 +47,29 @@
       const tin = (usage.input_tokens || usage.promptTokenCount || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
       const tout = (usage.output_tokens || 0) + (usage.candidatesTokenCount || 0) + (usage.thoughtsTokenCount || 0);
       m.calls++; m.cost += cost; m.tokensIn += tin; m.tokensOut += tout;
+      m.cacheRead = (m.cacheRead || 0) + (usage.cache_read_input_tokens || 0); m.cacheWrite = (m.cacheWrite || 0) + (usage.cache_creation_input_tokens || 0);
       const f = m.byFeature[feature || 'Other'] || (m.byFeature[feature || 'Other'] = { calls: 0, cost: 0 }); f.calls++; f.cost += cost;
       const b = m.byModel[model] || (m.byModel[model] = { calls: 0, cost: 0 }); b.calls++; b.cost += cost;
       l.months[k] = m; US.fsx.writeJSON(ledgerFile, l);
-      US.log('info', `AI: ${feature || 'request'} · ${(MODELS[model] || { name: model }).name} · ${tin.toLocaleString()} in / ${tout.toLocaleString()} out tokens${cost ? ` · $${cost.toFixed(3)}` : ' · free'}`);
+      const cr = usage.cache_read_input_tokens || 0, cw = usage.cache_creation_input_tokens || 0;
+      US.log('info', `AI: ${feature || 'request'} · ${(MODELS[model] || { name: model }).name} · ${tin.toLocaleString()} in / ${tout.toLocaleString()} out tokens${cr ? ` (${cr.toLocaleString()} read from the cache)` : ''}${cw ? ` (${cw.toLocaleString()} written to the cache)` : ''}${cost ? ` · $${cost.toFixed(3)}` : ' · free'}`);
       US.bus.emit('ai-usage', m);
     } catch (e) { /* never let bookkeeping break a request */ }
+  }
+
+  /* ---------- what Claude is holding in its cache (per model): a block sent with cache:'1h' stays an hour from its last use ---------- */
+  const warmFile = path.join(US.fsx.dataDir, 'ai-cache.json');
+  const warmKey = (model, b) => model + ':' + US.fsx.hash(b.text || '');
+  const ttlOf = b => (b.cache === '1h' ? 3600e3 : 300e3);
+  function warmMap() { const m = US.fsx.readJSON(warmFile, {}), now = Date.now(); for (const k of Object.keys(m)) if (m[k].until < now) delete m[k]; return m; }
+  /** When a cached block (sent before) runs out, or 0 if Claude isn't holding it. A little early, to be safe. */
+  function warmUntil(b, model = claudeModel()) { const e = warmMap()[warmKey(model, b)]; return e ? e.until - 60e3 : 0; }
+  function noteWarm(blocks, model, startedAt) {
+    try {
+      const m = warmMap();
+      for (const b of blocks) if (b && b.cache && b.text) m[warmKey(model, b)] = { until: startedAt + ttlOf(b), chars: b.text.length };
+      US.fsx.writeJSON(warmFile, m);
+    } catch (e) { /* only an estimate */ }
   }
 
   /** Rough cost before sending: ~3.6 characters per token for English; output allowance grows with effort (thinking). */
@@ -61,11 +78,13 @@
     const m = model || claudeModel(), p = MODELS[m];
     const inTok = Math.ceil((blocksText(system).length + blocksText(user).length) / 3.6) + 50;
     const cached = [].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []).filter(b => b && b.cache);
-    const cachedTok = Math.ceil(cached.reduce((n, b) => n + (b.text || '').length, 0) / 3.6), longCache = cached.some(b => b.cache === '1h');
-    const writePremium = cachedTok * (longCache ? p.in : p.cacheWrite - p.in);   // worst case: first run writes the cache
+    // a block Claude still holds is read at the cache price; one it doesn't is written (5 minutes 1.25×, an hour 2×)
+    const now = Date.now(), tok = b => Math.ceil((b.text || '').length / 3.6);
+    let premium = 0, readTok = 0;
+    for (const b of cached) { if (b.warm || warmUntil(b, m) > now) { premium -= tok(b) * (p.in - p.cacheRead); readTok += tok(b); } else premium += tok(b) * (b.cache === '1h' ? p.in : p.cacheWrite - p.in); }
     const thinking = { low: 800, medium: 3000, high: 8000, xhigh: 16000, max: 32000 }[effort] || 3000;
     const outTok = Math.min(maxTokens, (expectedOutput || 1500) + thinking);
-    return { model: m, name: p.name, inputTokens: inTok, outputTokens: outTok, usd: (inTok * p.in + writePremium + outTok * p.out) / 1e6 };
+    return { model: m, name: p.name, inputTokens: inTok, outputTokens: outTok, cachedTokens: readTok, usd: (inTok * p.in + premium + outTok * p.out) / 1e6 };
   }
   const fmtUSD = x => (x < 0.01 ? 'under 1¢' : x < 1 ? `${Math.round(x * 100)}¢` : `$${x.toFixed(2)}`);
 
@@ -166,11 +185,14 @@
     const headers = { 'x-api-key': key, 'anthropic-version': '2026-10-21' };
     if (price.fallbacks) { body.fallbacks = 'default'; headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; }
     let r;
+    const startedAt = Date.now();
     try { r = await postJSON('api.anthropic.com', '/v1/messages', headers, body, 300000); }
     catch (e) { throw networkError('Claude', e); }
     if (r.status !== 200 || !r.json) throw httpError('Claude', r);
     const msg = r.json;
-    if (msg.usage) record(msg.model && MODELS[msg.model] ? msg.model : model, msg.usage, feature, costOf(msg.model && MODELS[msg.model] ? msg.model : model, msg.usage));
+    const usedModel = msg.model && MODELS[msg.model] ? msg.model : model;
+    if (msg.usage) record(usedModel, msg.usage, feature, costOf(usedModel, msg.usage));
+    if (msg.usage && (msg.usage.cache_read_input_tokens || msg.usage.cache_creation_input_tokens)) noteWarm([].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []), usedModel, startedAt);
     if (msg.stop_reason === 'refusal') throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(msg.stop_details || {}) });
     if (msg.stop_reason === 'max_tokens') throw new US.UserError('AI_FAILED', { title: 'The AI’s answer was too long and got cut off.', action: 'Try a smaller request (fewer clips or interviews at once).', detail: 'stop_reason max_tokens' });
     const text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
@@ -178,12 +200,35 @@
   }
 
   /* ---------- Gemini (Google AI Studio key) ---------- */
+  const GEMINI_DEFAULT = 'gemini-flash-latest', GEMINI_FAST_DEFAULT = 'gemini-flash-lite-latest';
+  /** 'gemini-3.8-flash' -> 'Gemini 3.8 Flash'; a “-latest” name -> the model it last turned out to be. */
+  function geminiName(id) {
+    id = String(id || '');
+    if (/-latest$/.test(id)) { const seen = (US.settings.get('geminiSeen', {}) || {})[id]; return seen ? geminiName(seen) : /lite/.test(id) ? 'Gemini Flash-Lite (latest)' : 'Gemini Flash (latest)'; }
+    return id.replace(/^models\//, '').split('-').map(w => (w === 'gemini' ? 'Gemini' : w === 'flash' ? 'Flash' : w === 'lite' ? 'Lite' : w === 'pro' ? 'Pro' : w === 'preview' ? '(preview)' : w)).join(' ').replace('Flash Lite', 'Flash-Lite');
+  }
+  function noteGemini(alias, version) {
+    const seen = US.settings.get('geminiSeen', {}) || {};
+    if (seen[alias] !== version) US.settings.set('geminiSeen', Object.assign({}, seen, { [alias]: version }));
+  }
+  /** The text models this key can use (Flash, Flash-Lite and Pro), newest first. */
+  async function geminiModels() {
+    const key = US.secrets.get('geminiKey');
+    if (!key) return [];
+    const r = await new Promise(resolve => {
+      const req = https.request({ host: 'generativelanguage.googleapis.com', path: '/v1beta/models?pageSize=200', method: 'GET', headers: { 'x-goog-api-key': key }, timeout: 20000 }, res => { const c = []; res.on('data', x => c.push(x)); res.on('end', () => { try { resolve(JSON.parse(Buffer.concat(c).toString('utf8'))); } catch (e) { resolve({}); } }); });
+      req.on('error', () => resolve({})); req.on('timeout', () => { req.destroy(); resolve({}); }); req.end();
+    });
+    const ver = n => (n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1];
+    return (r.models || []).map(m => m.name.replace(/^models\//, '')).filter(n => /^gemini-[\d.]+-(flash|pro)/.test(n) && !/tts|image|audio|live|embedding|omni|exp/.test(n))
+      .sort((a, b) => ver(b) - ver(a) || a.localeCompare(b));
+  }
   async function gemini({ system, user, schema, maxTokens = 16000, fast, feature }) {
     system = blocksText(system); user = blocksText(user);
     const key = US.secrets.get('geminiKey');
     if (!key) throw new US.UserError('AI_KEY');
     // the "flash" models think before answering (10–45 s); "flash-lite" answers quick requests in about a second
-    const model = fast ? US.settings.get('geminiFastModel', 'gemini-flash-lite-latest') : US.settings.get('geminiModel', 'gemini-flash-latest');
+    const model = fast ? US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT) : US.settings.get('geminiModel', GEMINI_DEFAULT);
     const body = {
       systemInstruction: { parts: [{ text: system + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '') }] },
       contents: [{ role: 'user', parts: [{ text: user }] }],
@@ -195,12 +240,14 @@
     // the thinking model is often overloaded (503 "high demand", rate limits, or no answer for minutes):
     // then the quick model answers this request instead of failing or keeping the editor waiting
     if (!fast && (r.status === 0 || r.status === 429 || r.status >= 500)) {
-      const lite = US.settings.get('geminiFastModel', 'gemini-flash-lite-latest');
+      const lite = US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT);
       US.log('info', `Gemini ${model} was busy (${r.status || 'no answer'}), so ${lite} answered instead`, '', 'ai');
       try { r = await ask(lite, 120000); used = lite; } catch (e) { throw networkError('Gemini', e); }
     }
     if (r.status !== 200 || !r.json) throw httpError('Gemini', r);
-    if (r.json.usageMetadata) record(used, r.json.usageMetadata, feature, 0); // within Google's free allowance
+    // the “-latest” names follow Google's newest model: remember which one answered, so Settings can say
+    if (r.json.modelVersion) noteGemini(used, r.json.modelVersion);
+    if (r.json.usageMetadata) record(r.json.modelVersion || used, r.json.usageMetadata, feature, 0); // within Google's free allowance
     const cand = (r.json.candidates || [])[0];
     if (!cand) throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(r.json.promptFeedback || r.json).slice(0, 500) });
     const text = ((cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
@@ -228,7 +275,7 @@
   }
 
   US.ai = {
-    CLAUDE_MODEL, MODELS, claudeModel, estimate, costOf, fmtUSD,
+    CLAUDE_MODEL, MODELS, claudeModel, estimate, costOf, fmtUSD, warmUntil,
     /** Spending this month: {calls, cost, tokensIn, tokensOut, byFeature, byModel} */
     spending: thisMonth,
     approveTotal: (usd, feature) => provider() === 'claude' ? approveTotal(usd, feature) : Promise.resolve(),
@@ -237,10 +284,11 @@
     budgetLeft() { const job = US.jobs.current, key = job ? job.id : 'none'; return unattended.has(key) ? unattended.get(key) : null; },
     endBudget() { const job = US.jobs.current; unattended.delete(job ? job.id : 'none'); },
     /** What a request would cost with the current provider (Gemini: free). */
-    estimateFor(req) { const p = provider(); return p === 'claude' ? estimate(req) : { usd: 0, free: true, name: 'Gemini' }; },
+    estimateFor(req) { const p = provider(); return p === 'claude' ? estimate(req) : { usd: 0, free: true, name: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)) }; },
     provider,
     available: () => provider() !== 'none',
-    label: () => ({ claude: MODELS[claudeModel()].name, gemini: 'Gemini', none: 'No AI' }[provider()]),
+    label: () => ({ claude: MODELS[claudeModel()].name, gemini: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)), none: 'No AI' }[provider()]),
+    geminiName, geminiModels, GEMINI_DEFAULT, GEMINI_FAST_DEFAULT,
     /** Plain text answer. */
     async text({ system, user, maxTokens, effort, fast, feature }) {
       const p = provider();

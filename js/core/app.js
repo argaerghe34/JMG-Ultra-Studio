@@ -9,7 +9,7 @@
   let currentId = null;
   /** Tools taken out for now (the user asked: Colour and Cameras 28 Oct 2026, B-roll and Sound 29 Oct 2026). Their code
       stays; delete an id here to bring one back. The unit tests set window.US_SHOW_PAUSED so the paused tools' code is still tested. */
-  US.PAUSED_TOOLS = window.US_SHOW_PAUSED ? [] : ['colour', 'cameras', 'broll', 'sound'];
+  US.PAUSED_TOOLS = window.US_SHOW_PAUSED || (US.settings && US.settings.get('showHidden', false)) ? [] : ['colour', 'cameras', 'broll', 'sound'];   // Settings › a code shows them
   US.tools = {
     /** register({id, name, short, icon, group, blurb, order, create: () => ({el, onShow?, onHide?})}) */
     register(def) {
