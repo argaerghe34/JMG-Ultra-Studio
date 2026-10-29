@@ -875,7 +875,7 @@
    * (every theme in order, as How picky chooses), 'narrative' (a narrative made from a brief: narrative = its id, empty
    * = the newest) or 'board'.
    */
-  async function exportBoard(job, format = 'docx', { source = BOARD ? 'board' : 'themes', narrative = '' } = {}) {
+  async function exportBoard(job, format = 'docx', { source = BOARD ? 'board' : 'themes', narrative = '', asked = false } = {}) {
     await ready(); loadState(); B().ensure(state.wall); ensureColours();
     const E = EX(), keep = k => !k.hidden && (k.idea != null || lineById.has(k.lineId));
     let groups;
@@ -886,6 +886,9 @@
     } else if (source === 'board') {
       groups = state.wall.columns.map(c => ({ name: c.name, label: columnLabel(c), cards: c.cards.filter(keep) }));
       if (state.wall.loose.length) groups.push({ name: 'Not in a group', label: null, cards: state.wall.loose.map(l => l.card).filter(keep) });
+    } else if (source === 'questions') {
+      if (!state.questions) throw new US.UserError('NOTHING_FOUND', { title: 'There are no answers yet.', action: 'Find the answers in Story › 3 Find › Questions first.' });
+      groups = state.questions.results.map(r => ({ name: `Q${r.q + 1}. ${r.question}`, label: questionLabel(r.q), cards: answerSpans(r, { asked }).map(s => ({ lineId: s.lineId, span: s, note: s.a.summary })) }));
     } else groups = themeGroups().map(g => ({ name: g.name, label: g.label, cards: g.lineIds.map(id => ({ lineId: id })) }));
     const used = groups.filter(g => g.cards.length);
     if (!used.some(g => g.cards.some(k => k.idea == null))) throw new US.UserError('NOTHING_FOUND', source === 'board' ? { title: 'The board has no lines on it yet.', action: 'Put your themes on the board, or tick lines in Find and press “Add to board”.' } : { title: 'Your themes have no lines yet.', action: 'Find themes first (Story › 2 Themes), or choose a less picky setting.' });
@@ -895,18 +898,18 @@
     const timing = ids.length ? await US.host.call('storyTiming', { ids }) : {};
     const card = k => {
       if (k.idea != null) return { idea: k.idea };
-      const l = lineById.get(k.lineId), t = clipOfLine.get(k.lineId), tr = trimOf(k), a = tr ? tr.start : l.start, b = tr ? tr.end : l.end;
+      const l = lineById.get(k.lineId), t = clipOfLine.get(k.lineId), tr = k.span || trimOf(k), a = tr ? tr.start : l.start, b = tr ? tr.end : l.end;
       const it = t && timing[items.get(t.key)], src = sec => (it ? E.tc(it.start + sec, { fps: it.fps, drop: it.drop }) : E.tc(sec));
-      const who = speakerName(l.speaker);
-      return { speaker: who === speakerName('') ? '' : who, interview: interviewLabel(k.lineId), clip: t ? t.name : '', srcIn: src(a), srcOut: src(b), dur: b - a, text: tr ? tr.text : l.text, strong: isStrong(l), note: k.note || '' };
+      const who = speakerName(k.span ? k.span.speaker : l.speaker);
+      return { speaker: who === speakerName('') ? '' : who, interview: interviewLabel(k.lineId), clip: t ? t.name : '', srcIn: src(a), srcOut: src(b), dur: b - a, text: tr ? tr.text : l.text, strong: !k.span && isStrong(l), note: k.note || '' };
     };
     const project = US.ctx.project ? US.ctx.project.name.replace(/\.prproj$/i, '') : '';
-    const doc = { title: 'Paper edit', project, date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    const doc = { title: source === 'questions' ? 'Interview answers' : 'Paper edit', project, date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       groups: used.map(g => ({ name: g.name, colour: g.label != null ? labelName(g.label) : '', hex: g.label != null ? labelHex(g.label) : '', cards: g.cards.map(card) })) };
     const body = format === 'csv' ? E.paperCSV(doc) : format === 'txt' ? E.paperText(doc) : E.paperDocx(doc);
     const dir = US.fsx.ensureDir(US.settings.get('story.exportDir') || path.join(US.fsx.exportsDir(), 'Transcripts'));
     const d = new Date(), stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const file = uniquePath(path.join(dir, `${fileSafe(project || 'Story')} - paper edit ${stamp}.${E.EXT[format] || 'docx'}`));
+    const file = uniquePath(path.join(dir, `${fileSafe(project || 'Story')} - ${source === 'questions' ? 'interview answers' : 'paper edit'} ${stamp}.${E.EXT[format] || 'docx'}`));
     require('fs').writeFileSync(file, body);
     return { file, summary: `Saved “${US.basename(file)}” · ${E.paperSummary(doc)}` };
   }
@@ -1396,6 +1399,56 @@
   }
 
   /* ================= reading transcripts ================= */
+  /* ================= interview questions ================= */
+  const Q = () => US.storyQuestions;
+  /** Each question's colour: the theme colours in turn. */
+  const questionLabel = q => THEME_PALETTE[q % THEME_PALETTE.length];
+  /** The transcripts with only the lines being worked on (What to work on), in project order. */
+  function scopeTranscripts(lines = scopeLines()) {
+    const keep = new Set(lines.map(l => l.id));
+    return state.transcripts.map(t => ({ key: t.key, name: t.name, lines: t.lines.filter(l => keep.has(l.id)) })).filter(t => t.lines.length);
+  }
+  /** Find every answer to the editor's questions (with AI: full answers; without: the lines that share the words). */
+  async function findAnswers(job, { questions, useAI = false }) {
+    await ready(); loadState();
+    const ts = scopeTranscripts(await linesInScope(job));
+    if (!ts.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no lines to read.', action: 'Choose what to work on in Story › 1 Interviews.' });
+    const ai = useAI && US.ai && US.ai.available();
+    const results = ai ? await Q().findAI(questions, ts, { job, nameOf: p => (ts.find(t => t.key === p.key) || {}).name }) : Q().basic(questions, ts);
+    state.questions = { at: Date.now(), by: ai ? 'ai' : 'basic', list: questions, results: Array.from(results), missing: SAI().missingNote(results.missing) };
+    saveNow();
+    const n = results.reduce((k, r) => k + r.answers.length, 0), none = results.filter(r => !r.answers.length).length;
+    return { summary: `${US.plural(n, 'answer')} to ${US.plural(questions.length, 'question')}${none ? ` · ${none} with no answer found` : ''}${state.questions.missing ? ' · ' + state.questions.missing : ''}` };
+  }
+  /** Each answer as one clip from its first line to its last (with the question being asked first, if wanted). */
+  function answerSpans(r, { asked = false } = {}) {
+    const idx = Q().indexOf(state.transcripts);
+    return r.answers.map(a => {
+      const ls = Q().linesOf(a, idx, { asked });
+      if (!ls.length) return null;
+      const multi = new Set(ls.map(l => l.speaker)).size > 1;
+      return { a, lineId: ls[0].id, speaker: (ls.find(l => l.id === a.from) || ls[0]).speaker, start: ls[0].start, end: ls[ls.length - 1].end, text: ls.map(l => (multi ? `${speakerName(l.speaker)}: ` : '') + l.text).join(' ') };
+    }).filter(Boolean);
+  }
+  /** A new sequence: each question's answers together (best first), in the question's colour, a marker on each answer. */
+  async function buildAnswers(job, { asked = false, name = 'Story – interview answers' } = {}) {
+    await ready(); loadState();
+    const sq = state.questions;
+    if (!sq) throw new US.UserError('NOTHING_FOUND', { title: 'There are no answers yet.', action: 'Type your questions in Story › 3 Find › Questions and press “Find the answers”.' });
+    const groups = sq.results.map(r => {
+      const g = { name: `Q${r.q + 1} ${Q().short(r.question)}`, label: questionLabel(r.q), lineIds: [], trims: {}, lineMarks: {}, pinned: new Set(), ideas: [] };
+      for (const s of answerSpans(r, { asked })) {
+        if (g.trims[s.lineId]) continue;
+        g.lineIds.push(s.lineId); g.trims[s.lineId] = { start: s.start, end: s.end };
+        g.lineMarks[s.lineId] = { name: `Q${r.q + 1}: ${s.a.summary || Q().short(r.question, 6)}`, comment: r.question };
+      }
+      return g;
+    }).filter(g => g.lineIds.length);
+    if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'No answers were found to build.', action: 'Try the questions in other words, or with AI.' });
+    const L = lookOptions();
+    return buildSequence(job, { name, groups, look: Object.assign({}, L, { strong: Object.assign({}, L.strong, { first: false, highlight: false }) }) });
+  }
+
   async function readPremiereTranscripts(job, opts = {}) {
     if (RES) return readResolveTranscripts(job, opts);
     await ready(); loadState();
@@ -1710,6 +1763,7 @@
       /* ---------- Search and Find more ---------- */
       let lastQuery = '', strongOnly = US.settings.get('story.strong', false), results = [], targetTheme = null, targetColumn = null;
       let moreMode = false, moreResults = [], moreTopic = '', moreInfo = '';
+      let questionsMode = false, qAsked = US.settings.get('story.qAsked', false);
       let momentsMode = false, momentType = 'all', momentsAI = US.settings.get('story.momentsAI', true), momSeq = '';
       let momColours = US.settings.get('story.momentColours', true), momLabels = US.settings.get('story.momentLabels', true);
       let moreAI = US.settings.get('story.moreAI', true), notInCut = false, cutSeq = '';
@@ -1717,7 +1771,7 @@
       /** Open Find more (from Search, a theme or a board column) and run it. */
       function startFindMore({ topic = '', theme = null, column = null } = {}) {
         targetTheme = theme ? theme.id : null; targetColumn = column ? column.id : null;
-        lastQuery = topic; moreMode = true; momentsMode = false; moreResults = []; moreInfo = '';
+        lastQuery = topic; moreMode = true; momentsMode = questionsMode = false; moreResults = []; moreInfo = '';
         show('search');
         if (topic) runFindMore(topic);
       }
@@ -1741,11 +1795,13 @@
         el.appendChild(scopeChip());
         const tgt = targetTheme && state.themes.find(t => t.id === targetTheme), tcol = targetColumn && state.wall.columns.find(c => c.id === targetColumn);
         if (tgt || tcol) el.appendChild(h('div.note.story-target', h('span.story-swatch.static', { style: { background: labelHex(tgt ? tgt.label : columnLabel(tcol)) } }), h('span.grow', `Adding lines to “${(tgt || tcol).name}” – tick lines, then press “Add to ${(tgt || tcol).name}”.`), ui.button('Done', { small: true, kind: 'ghost', onClick: () => { targetTheme = null; targetColumn = null; render(); } })));
-        const input = ui.input({ value: lastQuery, placeholder: 'e.g. volunteering, "open door", lonely…', onEnter: q => { moreMode = momentsMode = false; run(q); } });
+        const input = ui.input({ value: lastQuery, placeholder: 'e.g. volunteering, "open door", lonely…', onEnter: q => { moreMode = momentsMode = questionsMode = false; run(q); } });
         el.appendChild(h('div.row.story-find-row', h('div.grow', input),
-          ui.button('Search', { kind: moreMode || momentsMode ? 'secondary' : 'primary', icon: 'target', onClick: () => { moreMode = momentsMode = false; run(input.value); } }),
-          ui.button('Find more', { kind: moreMode && !momentsMode ? 'primary' : 'secondary', icon: 'spark', title: 'Anything that touches on this topic and isn’t selected yet', onClick: () => { moreMode = true; momentsMode = false; lastQuery = input.value; runFindMore(input.value); } }),
-          ui.button('Moments', { kind: momentsMode ? 'primary' : 'secondary', icon: 'star', title: 'Bloopers, funny bits, off-camera voices and poignant moments', onClick: () => { momentsMode = true; render(); } })));
+          ui.button('Search', { kind: moreMode || momentsMode || questionsMode ? 'secondary' : 'primary', icon: 'target', onClick: () => { moreMode = momentsMode = questionsMode = false; run(input.value); } }),
+          ui.button('Find more', { kind: moreMode && !momentsMode && !questionsMode ? 'primary' : 'secondary', icon: 'spark', title: 'Anything that touches on this topic and isn’t selected yet', onClick: () => { moreMode = true; momentsMode = questionsMode = false; lastQuery = input.value; runFindMore(input.value); } }),
+          ui.button('Moments', { kind: momentsMode ? 'primary' : 'secondary', icon: 'star', title: 'Bloopers, funny bits, off-camera voices and poignant moments', onClick: () => { momentsMode = true; questionsMode = false; render(); } }),
+          ui.button('Questions', { kind: questionsMode ? 'primary' : 'secondary', icon: 'note', title: 'Type your interview questions – find every full answer to each, labelled by question', onClick: () => { questionsMode = true; momentsMode = false; render(); } })));
+        if (questionsMode) { el.appendChild(questionsView()); el.appendChild(nextBar('search')); return; }
         if (momentsMode) { el.appendChild(momentsView()); el.appendChild(pickedBar()); el.appendChild(nextBar('search')); return; }
         if (moreMode) {
           const aiOn = US.ai && US.ai.available();
@@ -1768,6 +1824,69 @@
         setTimeout(() => input.focus(), 30);
         function run(q) { lastQuery = q; results = q.trim() ? T.search(q, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : []; render(); }
       }
+      /* ---------- Interview questions ---------- */
+      /** “Claude Opus 5.5 reads 2,340 lines · about 40¢ · 2 requests · ~1 min” */
+      function questionsCost(questions) {
+        if (!(US.ai && US.ai.available())) return '';
+        const ts = scopeTranscripts(), n = ts.reduce((k, t) => k + t.lines.length, 0);
+        if (!n) return '';
+        const reqs = Q().requests(questions.length ? questions : ['An example question about something?'], ts).map(b => b.req);
+        return `${US.ai.label()} reads ${SAI().describe(SAI().cost(reqs), { lines: n })}`;
+      }
+      function questionsView() {
+        const aiOn = US.ai && US.ai.available(), saved = state.questions;
+        const cost = h('div.field-hint.story-moments-cost'), count = h('span.field-hint.grow');
+        let timer = null;
+        const update = () => { const qs = Q().parse(ta.value); count.textContent = qs.length ? US.plural(qs.length, 'question') : 'No questions yet'; if (aiOn) cost.textContent = questionsCost(qs); };
+        const ta = h('textarea.input.story-questions-input', { rows: 7, placeholder: 'One question per line – paste them from your question sheet (numbers are fine), e.g.\nWhat brought you to Israel?\nTell me about your first day.\nWhat does community mean to you?',
+          oninput: () => { state.questionsText = ta.value; save(); clearTimeout(timer); timer = setTimeout(update, 400); } }, state.questionsText != null ? state.questionsText : saved ? saved.list.join('\n') : '');
+        const go = useAI => {
+          const questions = Q().parse(ta.value);
+          if (!questions.length) { ui.toast({ type: 'info', title: 'Type your questions first.', text: 'One question per line.' }); return; }
+          state.questionsText = ta.value; saveNow();
+          US.jobs.run({ title: `Finding the answers to ${US.plural(questions.length, 'question')}`, tool: 'story' }, job => findAnswers(job, { questions, useAI })).then(() => render());
+        };
+        const box = h('div', h('div.card', { dataset: { section: 'questions' } },
+          h('div.card-title', 'Interview questions', saved ? h('span.right', saved.by === 'ai' ? `answers found by ${aiOn ? US.ai.label() : 'AI'}` : 'basic – no AI') : null),
+          h('div.muted', aiOn ? `Type the questions you asked. ${US.ai.label()} reads the transcripts in order and finds every full answer to each – from where they start answering to where they move on – labelled by question. Only the text of your lines is sent.`
+            : 'Type the questions you asked. The basic version finds the lines that share each question’s words. Add an AI key in Settings to find every full answer properly.'),
+          ta, h('div.row', count), aiOn ? cost : null,
+          h('div.row', ui.actionButton(saved ? 'Find the answers again' : 'Find the answers', () => go(!!aiOn), { icon: 'spark', block: false }),
+            aiOn ? ui.button('Without AI', { onClick: () => go(false) }) : null)));
+        update();
+        if (!saved) return box;
+        const idx = Q().indexOf(state.transcripts), total = saved.results.reduce((k, r) => k + r.answers.length, 0);
+        box.appendChild(h('div.story-moments-bar',
+          h('div.row', h('span.field-hint.grow', `${US.plural(total, 'answer')} to ${US.plural(saved.results.length, 'question')}${saved.missing ? ' · ' + saved.missing : ''}`),
+            ui.button('Save as Word', { small: true, icon: 'note', title: 'A document with a heading per question and every answer under it, with source timecodes', onClick: () => US.jobs.run({ title: 'Saving the answers', tool: 'story' }, async job => { const r = await exportBoard(job, 'docx', { source: 'questions', asked: qAsked }); openFile(r.file); return r; }) }),
+            ui.button('Build the answers', { small: true, kind: 'primary', icon: 'film', title: 'A new sequence: each question’s answers together, best first, in the question’s colour, with a marker on each answer', onClick: () => US.jobs.run({ title: 'Building the answers', tool: 'story' }, job => buildAnswers(job, { asked: qAsked })) })),
+          ui.toggle({ label: 'Start each answer with the question being asked', hint: 'When the interviewer is heard asking it.', value: qAsked, onChange: x => { qAsked = x; US.settings.set('story.qAsked', x); render(); } })));
+        for (const r of saved.results) {
+          const sec = h('div.story-q');
+          const len = r.answers.reduce((k, a) => { const ls = Q().linesOf(a, idx, { asked: qAsked }); return k + (ls.length ? ls[ls.length - 1].end - ls[0].start : 0); }, 0);
+          sec.appendChild(h('div.story-q-head', h('span.story-dot', { style: { background: labelHex(questionLabel(r.q)) } }), h('b', `Q${r.q + 1}`), h('span.grow', r.question),
+            h('span.field-hint', r.answers.length ? `${US.plural(r.answers.length, 'answer')} · ${US.fmtDur(len)}` : 'no answer found')));
+          for (const a of r.answers) { const row = answerRow(r, a, idx); if (row) sec.appendChild(row); }
+          box.appendChild(sec);
+        }
+        return box;
+      }
+      /** One answer: its whole text (the first few lines until clicked), who and where, the AI's summary, play, remove. */
+      function answerRow(r, a, idx) {
+        const ls = Q().linesOf(a, idx, { asked: qAsked });
+        if (!ls.length) return null;
+        const first = ls[0], last = ls[ls.length - 1], t = clipOfLine.get(first.id), multi = new Set(ls.map(l => l.speaker)).size > 1;
+        const text = h('div.story-text.story-q-text.clamp', { title: 'Click to show it all', onclick: () => text.classList.toggle('clamp') },
+          ls.map(l => h('span' + (l.id === a.asked ? '.story-q-asked' : ''), (multi ? `${speakerName(l.speaker)}: ` : '') + l.text + ' ')));
+        const who = speakerName(first.speaker) !== speakerName('') ? speakerName(a.asked && qAsked && ls[1] ? ls[1].speaker : first.speaker) : '';
+        return h('div.story-row.story-q-row',
+          h('span.story-bar', { style: { background: labelHex(questionLabel(r.q)) } }),
+          h('div.story-main', text, a.summary ? h('div.story-why', a.summary) : null,
+            h('div.story-meta', `${[who, t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(first.start)}–${US.fmtDur(last.end)} · ${US.fmtDur(last.end - first.start)}`, a.by === 'basic' ? ui.pill('basic', 'var(--text-2)') : null)),
+          playButton(first),
+          iconBtn('close', 'Not an answer – take it out', () => { r.answers = r.answers.filter(x => x !== a); saveNow(); render(); }));
+      }
+
       /* ---------- Moments ---------- */
       /** “Claude Opus 5.5 checks the best 240 of 1,455 candidates (How picky: Balanced) – about 27¢.” */
       function momentsCostLine() {
@@ -2623,8 +2742,9 @@
       return { el: v.el, onShow(opts) {
         if (opts && opts.tab) tab = opts.tab;
         if (opts && opts.section) pendingSection = opts.section;
-        if (opts && (opts.section === 'moments' || opts.moments)) { momentsMode = true; moreMode = false; if (opts.type) momentType = opts.type; }
-        else if (opts && opts.tab === 'search') momentsMode = false;
+        if (opts && (opts.section === 'moments' || opts.moments)) { momentsMode = true; moreMode = questionsMode = false; if (opts.type) momentType = opts.type; }
+        else if (opts && opts.questions) { questionsMode = true; momentsMode = moreMode = false; }
+        else if (opts && opts.tab === 'search') momentsMode = questionsMode = false;
         if (opts && opts.more) { moreMode = true; moreTopic = lastQuery = opts.more.topic; moreResults = opts.more.results; moreInfo = opts.more.info || ''; targetTheme = targetColumn = null; }
         else if (opts && opts.query != null && opts.tab === 'search') { moreMode = false; lastQuery = opts.query; results = T.search(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }); }
         show(tab);
@@ -2985,6 +3105,7 @@
     narrativePool, makeNarrative, narrativeColumn, narrativeGroups, buildNarrative, makePromo, latestNarrative: id => latestNarrative(id), trimOf,
     readsFor, setReads, readsPlan, rankCandidates,
     findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,
+    findAnswers, buildAnswers, answerSpans, scopeTranscripts: () => scopeTranscripts(),
     /** tests only: use a state object without a project */
     _useState(s) { session = null; clearTimeout(sharedTimer); sharedTimer = null; state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }
   };

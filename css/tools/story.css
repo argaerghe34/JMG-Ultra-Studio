@@ -185,3 +185,12 @@
 .story-scope-item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .story-scope-status { margin-top: 6px; }
 .story-speakers { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+/* Find › Questions */
+.story-questions-input { width: 100%; min-height: 110px; resize: vertical; font: inherit; line-height: 1.45; margin: 6px 0 2px; }
+.story-q { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 4px; }
+.story-q-head { display: flex; align-items: baseline; gap: 6px; padding: 4px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.story-q-head .story-dot { align-self: center; flex: none; }
+.story-q-head .field-hint { flex: none; }
+.story-q-text { cursor: pointer; }
+.story-q-text.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.story-q-asked { color: var(--text-2); font-style: italic; }

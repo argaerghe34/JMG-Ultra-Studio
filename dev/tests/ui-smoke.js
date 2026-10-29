@@ -31,7 +31,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-timeline', '22-story']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-timeline', '22-story']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -132,6 +132,19 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   if (!mk) errors.push('no “Make themes of these”'); else { mk.click(); await new Promise(r => setTimeout(r, 20)); if (!st.themes.some(t => t.name === 'Moments · Bloopers' && t.lineIds.length === blRows && t.label === US.storyMoments.TYPES.blooper.label)) errors.push('moments theme not made in the blooper colour'); }
   if (!Array.from(tool.el.querySelectorAll('.story-moments-bar .btn')).some(b => /Build these moments/.test(b.textContent))) errors.push('no “Build these moments”');
   if (Array.from(tool.el.querySelectorAll('.story-moments-bar .toggle')).filter(t => /Colour by type|Label each moment/.test(t.textContent)).length !== 2) errors.push('no colour / label switches for moments');
+  // Find › Questions: the questions, every answer under its question, take one out, save as Word
+  tool.onShow({ tab: 'search', questions: true }); await new Promise(r => setTimeout(r, 20));
+  const qta = tool.el.querySelector('.story-questions-input');
+  if (!qta) errors.push('no questions box'); else { qta.value = '1. What does family mean to you?\n2. Tell me about your faith.'; qta.dispatchEvent(new w.Event('input')); }
+  await S.findAnswers(US.jobs.testJob(), { questions: US.storyQuestions.parse(qta ? qta.value : ''), useAI: false });
+  tool.onShow({ tab: 'search', questions: true }); await new Promise(r => setTimeout(r, 20));
+  const qHeads = tool.el.querySelectorAll('.story-q-head').length, qRows = tool.el.querySelectorAll('.story-q-row').length;
+  if (qHeads !== 2 || !qRows) errors.push(`questions: ${qHeads} questions, ${qRows} answers`);
+  const qx = tool.el.querySelector('.story-q-row .icon-btn[title^="Not an answer"]');
+  if (qx) { qx.click(); await new Promise(r => setTimeout(r, 20)); if (tool.el.querySelectorAll('.story-q-row').length !== qRows - 1) errors.push('taking an answer out did not stick'); }
+  const qdoc = await S.exportBoard(US.jobs.testJob(), 'txt', { source: 'questions' });
+  if (!/Interview answers/.test(fs.readFileSync(qdoc.file, 'utf8')) || !/Q1\. What does family mean to you\?/.test(fs.readFileSync(qdoc.file, 'utf8'))) errors.push('answers document: ' + qdoc.summary);
+  checks.push(`questions: ${qHeads} questions, ${qRows} answers · ${qdoc.summary}`);
   // Search › Find more renders results with reasons (lines not yet selected)
   st.picky = { s: S.PICKY_LEVELS.all };
   st.themes = st.themes.filter(t => t.custom && !t.picked);
