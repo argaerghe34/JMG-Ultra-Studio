@@ -169,7 +169,8 @@
   async function cue(id, seconds, { play = false } = {}) {
     if (US.app.is('resolve')) return cueHere(id, seconds, play);
     // the clip asked for must be the one loaded (a jump made while the last clip is still showing would move that one)
-    const there = r => r && (!r.loaded || r.loaded === '?' || r.loaded === id) && (Math.abs(r.position - seconds) < 0.12 || (r.timing && Math.abs(r.position - (r.timing.start + seconds)) < 0.12));
+    // landed: on the time counted from the clip's first frame (or, where Premiere counts in camera timecode, that – see storyCue)
+    const there = r => r && (!r.loaded || r.loaded === '?' || r.loaded === id) && (Math.abs(r.position - seconds) < 0.12 || (r.mode === 'media' && r.timing && Math.abs(r.position - (r.timing.start + seconds)) < 0.12));
     let r = null;
     for (let i = 0; i < 12 && !there(r); i++) {
       if (i) await new Promise(res => setTimeout(res, i < 4 ? 80 : 160));

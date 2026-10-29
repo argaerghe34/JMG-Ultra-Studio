@@ -78,9 +78,10 @@
         app.enableQE();
         var p = qe.source.player;
         try { p.stop(); } catch (e) { }
-        // Premiere counts the Source Monitor either from the media's own timecode (a camera's 19:46:03:16) or from the
-        // clip's first frame (0) – measured 29 Oct 2026: a jump in camera timecode was ignored (the monitor stayed at 0).
-        // Try the way that worked last time first, then the other; say which landed.
+        // The Source Monitor counts from the clip's first frame (0), whatever the camera timecode (measured in Premiere
+        // 26.5.2, 29 Oct 2026, on a clip starting 19:39:28:20): a jump given in camera timecode is reported back as if it
+        // had worked, but the playhead stays at the first frame and plays from there. So jump counting from the first
+        // frame; camera timecode is only a fallback for a Premiere that does it the other way.
         var go = function (sec, how) {
             var code = tc(sec, t);
             try { p.startScrubbing(); p.scrubTo(code); p.endScrubbing(); } catch (e) { tries.push(how + ' ' + code + ': ' + e); }
@@ -89,30 +90,30 @@
             return at;
         };
         var near = function (x) { return Math.abs(x - want) < 0.12 || Math.abs(x - (t.start + want)) < 0.12; };
-        var order = a.mode === 'clip' ? ['clip', 'media'] : ['media', 'clip'], pos = null, mode = '';
+        var order = a.mode === 'media' ? ['media', 'clip'] : ['clip', 'media'], pos = null, mode = '';
         // already there (the panel checked): just play – jumping again straight before playing made Premiere 26.5 play
         // from the clip's first frame (measured 29 Oct 2026)
         if (a.play && a.there) order = [];
         for (var i = 0; i < order.length; i++) {
-            if (order[i] === 'clip' && !(t.start > 0) && i > 0) break;   // no camera timecode: both ways are the same
+            if (!(t.start > 0) && i > 0) break;   // no camera timecode: both ways are the same
             pos = go(order[i] === 'media' ? t.start + want : want, order[i]);
-            if (near(pos)) { mode = order[i]; break; }
+            // counting from the first frame, the monitor must say exactly that; camera timecode it only echoes back
+            if (order[i] === 'clip' ? Math.abs(pos - want) < 0.12 : near(pos)) { mode = order[i]; break; }
         }
         var before = app.sourceMonitor.getPosition().seconds, after = null;
         if (a.play) {
-            $.sleep(120);
+            $.sleep(300);
             app.sourceMonitor.play(1);
             $.sleep(350);
             after = app.sourceMonitor.getPosition().seconds;
             tries.push('play from ' + before + ' -> ' + after);
-            // playing from somewhere else (the first frame): jump back and start it with the Source Monitor's own player
-            if (!(after >= before - 0.3 && after <= before + 2)) {
-                try { app.sourceMonitor.play(0); } catch (e0) { }
+            // playing from somewhere else: jump again counting from the first frame, wait for it, and play
+            if (Math.abs(after - want) > 2 && !(after >= before - 0.3 && after <= before + 2)) {
                 try { p.stop(); } catch (e1) { }
-                var code = tc((mode === 'clip' ? 0 : t.start) + want, t);
+                var code = tc(want, t);
                 try { p.startScrubbing(); p.scrubTo(code); p.endScrubbing(); } catch (e2) { }
-                $.sleep(150);
-                try { p.play(1); tries.push('qe play'); } catch (e3) { tries.push('qe play: ' + e3); try { app.sourceMonitor.play(1); } catch (e4) { } }
+                $.sleep(600);
+                app.sourceMonitor.play(1);
                 $.sleep(350);
                 after = app.sourceMonitor.getPosition().seconds;
                 tries.push('again from ' + code + ' -> ' + after);
