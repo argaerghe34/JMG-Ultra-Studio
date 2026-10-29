@@ -1234,11 +1234,11 @@
     return (id && cols.find(c => c.id === id)) || cols.reduce((best, c) => (!best || (c.narrative.at || 0) >= (best.narrative.at || 0) ? c : best), null); // ties: the later group
   }
   /** A narrative as a new board group “Narrative · 60 s · topic” – each card notes what the line does. */
-  function narrativeColumn(nar, brief, poolN = 0) {
+  function narrativeColumn(nar, brief, poolN = 0, pool = {}) {
     const base = `Narrative · ${fmtSecs(brief.seconds)} · ${brief.topic || nar.title}`;
     let name = base; for (let n = 2; state.wall.columns.some(c => c.name === name); n++) name = `${base} (${n})`;
     const col = { id: US.uid('c'), name, cards: nar.beats.map(b => Object.assign({ lineId: b.lineId, note: b.purpose }, b.dropStart || b.dropEnd ? { trim: { dropStart: b.dropStart, dropEnd: b.dropEnd } } : {})),
-      narrative: { title: nar.title, logline: nar.logline, by: nar.by, seconds: brief.seconds, topic: brief.topic, tone: brief.tone, pool: poolN, at: Date.now(), alternates: (nar.alternates || []).filter(a => lineById.has(a.lineId)), context: !!brief.context } };
+      narrative: { title: nar.title, logline: nar.logline, by: nar.by, seconds: brief.seconds, topic: brief.topic, tone: brief.tone, pool: poolN, at: Date.now(), alternates: (nar.alternates || []).filter(a => lineById.has(a.lineId)), shortlist: (pool.ranked || []).slice(0, 300), context: !!brief.context } };
     B().ensure(state.wall);
     state.wall.columns.push(col);
     ensureColours(); saveNow();
@@ -1255,9 +1255,11 @@
     if (!pool.length) throw new US.UserError('NOTHING_FOUND', brief.topic ? { title: `There are no lines about “${brief.topic}” yet.`, action: 'Try other words, or find themes first.' } : { title: 'There are no selects to make a story from yet.', action: 'Find themes first – or say what the video is about.' });
     const lineOf = id => lineById.get(id);
     const nar = ai
-      ? await N().withAI(pool, brief, { handles: L.handles, lineOf, speakerName, interviewName: interviewLabel, orderOf: projectOrder(), job })
-      : N().basic(pool, brief.seconds, { handles: L.handles, lineOf, title: brief.topic ? US.cap(brief.topic) : 'Narrative' });
-    const col = narrativeColumn(nar, brief, pool.length);
+      ? await N().withAI(pool, brief, { handles: L.handles, lineOf, speakerName, interviewName: interviewLabel, orderOf: projectOrder(), job, alternates: Math.min(altCount(), N().ALTERNATES_AI) })
+      : N().basic(pool, brief.seconds, { handles: L.handles, lineOf, title: brief.topic ? US.cap(brief.topic) : 'Narrative', alternates: altCount() });
+    // the whole shortlist, best first: more alternatives than the AI named can follow from it
+    pool.ranked = pool.slice().sort((a, b) => (b.rel * 0.6 + b.strength * 0.4) - (a.rel * 0.6 + a.strength * 0.4)).map(c => c.id);
+    const col = narrativeColumn(nar, brief, pool.length, pool);
     const secs = N().total(nar.beats, L.handles);
     const short = (secs < brief.seconds * 0.9 ? ' – it came out shorter: add more selects or try a broader topic' : '') + (pool.missing && pool.missing.length ? ` · ${SAI().missingNote(pool.missing)}` : '');
     return { narrative: nar, column: col, brief, summary: `“${nar.title}” – ${US.plural(nar.beats.length, 'line')}, ${US.fmtDur(secs)} (asked for ${fmtSecs(brief.seconds)}${short})${nar.by === 'basic' ? ' · basic version (no AI)' : ''} – ${BOARD ? 'on the board' : 'saved'} as “${col.name}”` };
@@ -1267,10 +1269,20 @@
    * the colour of the theme it came from, trimmed lines at their trimmed times.
    */
   const ALT_LABEL = 12; // Tan: alternatives stand apart from the story's colours
+  const ALT_COUNTS = [5, 12, 25, 50, 100, Infinity];
+  /** How many alternatives the editor wants (Infinity = every shortlisted line that didn't make the story). */
+  const altCount = () => { const v = US.settings.get('story.narrativeAltCount', 12); return v === 'all' ? Infinity : Math.max(1, +v || 12); };
   /** The narrative's alternatives still worth offering (not in the story now), at most n. */
-  function narrativeAlternates(col, n = US.settings.get('story.narrativeAltCount', 8)) {
-    const inStory = new Set(col.cards.filter(k => k.lineId).map(k => k.lineId));
-    return ((col.narrative && col.narrative.alternates) || []).filter(a => lineById.has(a.lineId) && !inStory.has(a.lineId)).slice(0, n);
+  function narrativeAlternates(col, n = altCount()) {
+    const inStory = new Set(col.cards.filter(k => k.lineId).map(k => k.lineId)), seen = new Set(), out = [];
+    // the AI's picks first (each with a reason), then the rest of the shortlist, best first
+    const named = (col.narrative && col.narrative.alternates) || [], rest = ((col.narrative && col.narrative.shortlist) || []).map(id => ({ lineId: id, why: '' }));
+    for (const a of named.concat(rest)) {
+      if (out.length >= n) break;
+      if (!lineById.has(a.lineId) || inStory.has(a.lineId) || seen.has(a.lineId)) continue;
+      seen.add(a.lineId); out.push(a);
+    }
+    return out;
   }
   function narrativeGroups(col, { alternates = US.settings.get('story.narrativeAlts', true) } = {}) {
     const g = wallGroups([col])[0]; if (!g || !g.lineIds.length) return [];
@@ -2926,10 +2938,9 @@
       }
       /** Lines that didn't make the story, offered after the payoff – shown here, and built at the end of the sequence if wanted. */
       function altsBox(col) {
-        const all = ((col.narrative && col.narrative.alternates) || []).filter(a => lineById.has(a.lineId));
-        if (!all.length) return null;
-        const on = US.settings.get('story.narrativeAlts', true), n = US.settings.get('story.narrativeAltCount', 8), shown = narrativeAlternates(col, N().ALTERNATES);
-        const count = ui.select({ options: [3, 5, 8, 12].map(x => ({ value: String(x), label: `${x}` })), value: String(n), onChange: x => { US.settings.set('story.narrativeAltCount', +x); renderBuild(); } });
+        if (!narrativeAlternates(col, 1).length) return null;
+        const on = US.settings.get('story.narrativeAlts', true), n = altCount(), shown = narrativeAlternates(col, Infinity);
+        const count = ui.select({ options: ALT_COUNTS.map(x => ({ value: x === Infinity ? 'all' : String(x), label: x === Infinity ? `All (${shown.length})` : `${x}` })), value: n === Infinity ? 'all' : String(ALT_COUNTS.includes(n) ? n : 12), onChange: x => { US.settings.set('story.narrativeAltCount', x === 'all' ? 'all' : +x); renderBuild(); } });
         return ui.section(`Alternative selects (${shown.length})`, [
           h('div.field-hint', 'Strong lines that didn’t make the story – to swap in, or to take it another way. They can go at the end of the sequence, after the payoff, each with a marker saying why.'),
           h('div.row', ui.toggle({ label: 'Add them at the end of the sequence', value: on, onChange: x => { US.settings.set('story.narrativeAlts', x); renderBuild(); } }), on ? h('div.row', h('span.field-hint', 'How many'), count) : null),

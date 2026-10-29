@@ -91,3 +91,13 @@ test('narrative: the client’s notes go after the cached listing; alternatives 
   const basic = N.basic(pool, 12, { lineOf });
   assert.ok(basic.alternates.length && basic.alternates.every(a => !basic.beats.some(b => b.lineId === a.lineId)), 'the basic version offers the next best lines');
 });
+
+test('narrative alternatives: the AI’s (with reasons) first, then the rest of the shortlist – as many as asked, up to all of them', () => {
+  S._useState({ transcripts: [JSON.parse(JSON.stringify(RUTH)), JSON.parse(JSON.stringify(SAM))] });
+  const col = { cards: [{ lineId: 'a2' }], narrative: { alternates: [{ lineId: 'b2', why: 'four languages' }, { lineId: 'a2', why: 'in the story' }], shortlist: ['a2', 'b2', 'a3', 'b1', 'zz', 'a4'] } };
+  assert.deepStrictEqual(S.narrativeAlternates(col, Infinity).map(a => a.lineId + (a.why ? ':' + a.why : '')), ['b2:four languages', 'a3', 'b1', 'a4']);
+  assert.deepStrictEqual(S.narrativeAlternates(col, 2).map(a => a.lineId), ['b2', 'a3']);
+  const req = US.storyNarrative.aiRequest([{ id: 'a2', strength: 0.5 }], { topic: 't', seconds: 30, tone: '' }, { lineOf: id => RUTH.lines.find(l => l.id === id), alternates: 500 });
+  assert.ok(/Alternates: up to 40\./.test(req.user[1]), 'the AI names at most 40 with reasons; the rest come from the shortlist');
+  assert.ok(!/\d+ lines you didn/.test(req.system), 'the count isn’t in the system text, so the cached listing is shared whatever the count');
+});
