@@ -2,7 +2,13 @@
 // selects sequence built from them. Which camera each cut shows isn't scriptable; the panel reads it from the saved project.
 (function (U) {
     var fn = U.fn;
-    function isMc(pi) { try { return !!pi && pi.isMulticamClip(); } catch (e) { return false; } }
+    // a Multi-Camera Source Sequence says so; a nested sequence with multicam switched on only says it's a sequence
+    // (whether each cut really is multicam then comes from the saved project, which marks it IsMulticam)
+    function isMc(pi) {
+        if (!pi) return false;
+        try { if (pi.isMulticamClip()) return true; } catch (e) { }
+        try { return !!pi.isSequence(); } catch (e) { return false; }
+    }
     function mediaPath(pi) { try { return pi.getMediaPath(); } catch (e) { return ''; } }
     /** The multicam source sequence behind a multicam project item. */
     function sourceSeqOf(pi) {
