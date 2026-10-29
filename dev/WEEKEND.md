@@ -536,3 +536,8 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   frame 0 and plays from there (measured on Jacob's clips starting 19:39:28:20). Story ▶ and Selects' preview now jump
   from the first frame (camera timecode only as a fallback); verified on his footage (16:48 and 2:00 both play from the
   line). The test media all start at 00:00:00:00, so the e2e never saw it – a camera-timecode clip in the e2e is due.
+  → **v1.3.5** released 29 Oct 14:05 for Premiere and Resolve (both zips on the release; issue #14 for the PC).
+  Tested: Jacob on his Mac in Premiere 26.5.2, 372 unit tests, headless screen tests; the e2e suites were not re-run
+  (Premiere was in use – `dev/monday.sh` quits it); Resolve 1.3.5 not yet tried in Resolve itself. Premiere on the
+  Mac has the real 1.3.5 install (copied as the installer does, without waiting for Premiere to quit); Resolve on the
+  Mac still has 1.3.4 until it can be quit. Due: the e2e suites on 1.3.5 and a camera-timecode clip in the e2e.
