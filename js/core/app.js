@@ -107,7 +107,8 @@
     els.ctxProject = h('div.ctx-chip', { title: 'Open project' }, US.icon('folder', 13), h('span', '…'));
     els.ctxSeq = h('div.ctx-chip', { title: 'Active sequence' }, US.icon('film', 13), h('span', '…'));
     const header = h('div.header',
-      h('div.brand', h('div.brand-mark', 'JU'), h('div.brand-name', 'JMG Ultra Studio', h('small', { title: 'Version' }, `v${US.version}`))),
+      h('div.brand', h('div.brand-mark', 'JU'), h('div.brand-name', 'JMG Ultra Studio', h('small', { title: 'Version' }, `v${US.version}`),
+        US.build ? h('span.unpublished-tag', { title: `Not a released version – ${US.build.dev ? 'running straight from the source folder' : `a test copy${US.build.at ? ' from ' + new Date(US.build.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}${US.build.from ? ` (${US.build.from})` : ''}`}. Install a release to go back.` }, 'unpublished') : null)),
       h('div.ctx', els.ctxProject, els.ctxSeq),
       h('button.icon-btn', { title: 'Activity log', onclick: () => toggleLog() }, US.icon('log', 16)),
       h('button.icon-btn', { title: 'Settings', onclick: () => open('settings') }, US.icon('gear', 16)));
@@ -265,7 +266,7 @@
       const ping = await US.host.call('ping', {}, { timeout: 15000 });
       US.premiere = ping;
       if (US.fsx.isWin && !US.app.is('resolve')) { try { US.fsx.setDocumentsDir(await US.host.rawEval('Folder.myDocuments.fsName', 5000)); } catch (e) { /* keep the default */ } }
-      US.log('info', `Started JMG Ultra Studio ${US.version} in ${US.app.full} ${ping.version}`);
+      US.log('info', `Started JMG Ultra Studio ${US.version}${US.build ? ` (unpublished${US.build.from ? ': ' + US.build.from : ''})` : ''} in ${US.app.full} ${ping.version}`);
     } catch (e) {
       // the Resolve connection (resolve/host/index.js) explains itself with usTitle/usAction
       const x = e && e.usTitle ? { title: US.say(e.usTitle), action: US.say(e.usAction || ''), detail: String(e.stack || e.message) } : US.errors.explain(e);

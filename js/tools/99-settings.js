@@ -117,7 +117,7 @@
       function about() {
         let taps = [], last = -1;
         const joke = h('div.settings-joke.hidden');
-        const card = ui.card(h('div.card-title', 'About'), h('div.muted', `JMG Ultra Studio ${US.version} · ${(US.premiere && US.premiere.app && /Resolve/.test(US.premiere.app) ? US.premiere.app : US.app.full)} ${US.premiere ? US.premiere.version : ''}`), h('div.muted.small', 'Works on a copy: tools that change a sequence always make a new one first. Nothing is uploaded.'), joke);
+        const card = ui.card(h('div.card-title', 'About'), h('div.muted', `JMG Ultra Studio ${US.version}${US.build ? ` (unpublished${US.build.from ? ' – ' + US.build.from : ''})` : ''} · ${(US.premiere && US.premiere.app && /Resolve/.test(US.premiere.app) ? US.premiere.app : US.app.full)} ${US.premiere ? US.premiere.version : ''}`), h('div.muted.small', 'Works on a copy: tools that change a sequence always make a new one first. Nothing is uploaded.'), joke);
         card.addEventListener('click', () => {
           const now = Date.now();
           taps = taps.filter(t => now - t < 3000).concat(now);

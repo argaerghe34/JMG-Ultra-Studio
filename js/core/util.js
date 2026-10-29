@@ -11,6 +11,18 @@
       return m ? m[1] : '1.3.4';
     } catch (e) { return '1.3.4'; }
   })();
+  /** An unpublished copy – one copied in to try before a release (dev/try-in-premiere.sh leaves unpublished.json), or
+      Premiere using the source folder itself (dev link) – or null for a released install. {from, at, dev} */
+  US.build = (function () {
+    try {
+      const fs = require('fs'), path = require('path');
+      let p = decodeURIComponent(location.pathname); if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
+      const dir = path.dirname(p), f = path.join(dir, 'unpublished.json');
+      if (fs.existsSync(f)) return Object.assign({ from: '', at: '' }, JSON.parse(fs.readFileSync(f, 'utf8')));
+      if (fs.existsSync(path.join(dir, '.git'))) return { from: 'the source folder', at: '', dev: true };
+    } catch (e) { /* a released install */ }
+    return null;
+  })();
   US.name = 'JMG Ultra Studio';
 
   /** Build a DOM element: h('div.card#id', {onclick, class, style, ...}, children...) */
