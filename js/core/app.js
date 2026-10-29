@@ -118,7 +118,8 @@
     els.statusFill = h('div.status-fill');
     els.statusBar = h('div.status-bar', els.statusFill);
     els.statusTime = h('span', '');
-    els.stop = h('button.btn.small.secondary.status-stop', { onclick: e => { e.stopPropagation(); US.jobs.cancel(); } }, US.icon('stop', 12), 'Stop');
+    els.stopLabel = h('span', 'Stop');
+    els.stop = h('button.btn.small.secondary.status-stop', { title: 'Stop after this step – three quick clicks stop at once', onclick: e => { e.stopPropagation(); const left = US.jobs.cancel(); els.stopLabel.textContent = left > 0 ? `Stop now (${left} more)` : 'Stop'; } }, US.icon('stop', 12), els.stopLabel);
     els.status = h('div.status', { title: 'Click for the activity log', onclick: () => toggleLog(true) },
       h('div.status-dot'),
       h('div.status-text', h('div.status-line', els.statusWho, els.statusMsg), els.statusBar),
@@ -204,7 +205,7 @@
     const left = !job.indeterminate && isFinite(job.eta) && job.frac > 0.03 ? ' · ' + US.fmtEta(job.eta) + ' left' : '';
     els.statusTime.textContent = [pct, US.fmtDur(job.elapsed)].filter(Boolean).join(' · ') + left;
   }
-  US.bus.on('jobstart', job => { clearInterval(tick); tick = setInterval(() => { if (US.jobs.current) renderTime(US.jobs.current); }, 500); markRailBusy(job.tool, true); });
+  US.bus.on('jobstart', job => { if (els.stopLabel) els.stopLabel.textContent = 'Stop'; clearInterval(tick); tick = setInterval(() => { if (US.jobs.current) renderTime(US.jobs.current); }, 500); markRailBusy(job.tool, true); });
   US.bus.on('jobend', (job, r) => {
     clearInterval(tick); markRailBusy(job.tool, false);
     els.status.className = 'status ' + (r.ok ? 'ok' : r.cancelled ? '' : 'error');

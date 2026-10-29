@@ -10,9 +10,13 @@
         var tb = String(c['Column.Intrinsic.MediaTimebase'] || '');
         var m = /([\d.]+)\s*fps/i.exec(tb);
         if (m) fps = Number(m[1]);
-        var startTicks = c['Column.Intrinsic.MediaStart'] ? Number(c['Column.Intrinsic.MediaStart']) : 0;
-        drop = xmpField(item, 'MediaStart').indexOf(';') >= 0;
-        return { fps: fps, drop: drop, start: startTicks / U.TICKS, audioOnly: !m };
+        // the media's own start (camera timecode such as 14:22:10:05): Premiere gives it in ticks, or as a timecode –
+        // read either, or a start of 0 makes ▶ jump before the first frame and Premiere ignores the jump
+        var raw = String(c['Column.Intrinsic.MediaStart'] || ''), xmp = xmpField(item, 'MediaStart'), start = 0;
+        if (/^-?\d+(\.\d+)?$/.test(raw)) start = Number(raw) / U.TICKS;
+        else { var sec = U.tcToSec(raw || xmp, tb); if (isFinite(sec)) start = sec; }
+        drop = xmp.indexOf(';') >= 0 || raw.indexOf(';') >= 0;
+        return { fps: fps, drop: drop, start: start, audioOnly: !m, startRaw: raw, startXmp: xmp };
     }
     function pad2(n) { return (n < 10 ? '0' : '') + n; }
     /** seconds of media timecode -> "HH:MM:SS:FF" (drop-frame aware for 29.97/59.94) */

@@ -128,6 +128,9 @@
     const job = US.jobs.current; approvedJobs.set(job ? job.id : 'none', Math.max(usd, 1e-9));
   }
 
+  // requests in flight, so three quick clicks on Stop can cut them off (a request already answered is still billed by the provider)
+  const live = new Set();
+  US.bus.on('hard-stop', () => { for (const req of live) req.destroy(new US.UserError('CANCELLED')); live.clear(); });
   function postJSON(host, pathname, headers, body, timeoutMs = 90000) {
     return new Promise((resolve, reject) => {
       const data = Buffer.from(JSON.stringify(body));
@@ -140,6 +143,8 @@
           resolve({ status: res.statusCode, json, text });
         });
       });
+      live.add(req);
+      req.on('close', () => live.delete(req));
       req.on('timeout', () => req.destroy(new Error('timeout after ' + timeoutMs + 'ms')));
       req.on('error', e => reject(e));
       req.write(data); req.end();
@@ -157,6 +162,7 @@
     return new US.UserError('AI_FAILED', { detail });
   }
   function networkError(provider, e) {
+    if (e && e.code === 'CANCELLED') return e;   // three quick clicks on Stop
     const timeout = /timeout/i.test(String(e && e.message));
     return new US.UserError('AI_FAILED', timeout
       ? { title: `${provider} took too long to answer.`, action: 'Try again. If it keeps happening, switch to the other AI in Settings.', detail: String(e && e.message) }

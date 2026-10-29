@@ -59,6 +59,9 @@
 
   /* ---------- the ExtendScript bridge ---------- */
   let chain = Promise.resolve();
+  // three quick clicks on Stop: calls still waiting their turn are dropped (the one Premiere is running finishes on its own)
+  let epoch = 0;
+  US.bus.on('hard-stop', () => { epoch++; });
 
   function rawEval(script, timeoutMs) {
     const cep = window.__adobe_cep__;
@@ -78,7 +81,9 @@
     // Settings › Markers: sequence markers can also (or instead) go on the clips under them – one place for every tool
     if (fn === 'addSequenceMarkers' && args && args.where == null) args = Object.assign({}, args, { where: US.settings.get('markers.where', 'sequence') });
     const script = 'UStudio.run(' + JSON.stringify(fn) + ',' + JSON.stringify(JSON.stringify(args == null ? {} : args)) + ')';
+    const mine = epoch;
     const p = chain.then(async () => {
+      if (mine !== epoch) throw new UserError('CANCELLED');
       const t0 = performance.now();
       // Premiere can stop answering while it shows a message box of its own (e.g. an export error);
       // nothing returns until someone clicks it, so tell the person after a minute instead of spinning silently.
@@ -171,7 +176,10 @@
       r = await call('storyCue', { id, seconds, play: false, open: i === 0 });
     }
     if (play) r = await call('storyCue', { id, seconds, play: true, open: false });
-    return Object.assign({ landed: there(r) }, r);
+    // ▶ that misses its line: say exactly where it landed, so the cause can be found from the activity log
+    const landed = there(r);
+    if (!landed) US.log('warn', 'Play: the Source Monitor didn’t land on the line', JSON.stringify({ wanted: seconds, position: r && r.position, loaded: r && r.loaded, asked: id, timing: r && r.timing }));
+    return Object.assign({ landed }, r);
   }
 
   /**

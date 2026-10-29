@@ -61,7 +61,7 @@
     get elapsed() { return (performance.now() - this.started) / 1000; }
     get eta() { return this._eta; }
     log(text, detail) { return US.log('info', text, detail, this.tool); }
-    _emit() { US.bus.emit('job', this); }
+    _emit() { if (!this.ended) US.bus.emit('job', this); }   // a job stopped at once may still be finishing in the background
   }
 
   /**
@@ -78,7 +78,11 @@
     US.bus.emit('jobstart', job);
     job._emit();
     try {
-      const result = await fn(job);
+      // three quick clicks on Stop end the job at once (hardStop): the work left behind stops at its next check, AI requests in
+      // flight are cut off, and Premiere calls still waiting their turn are dropped
+      const work = Promise.resolve().then(() => fn(job));
+      work.catch(() => {});
+      const result = await Promise.race([work, new Promise((_, reject) => { job._hard = () => reject(new US.UserError('CANCELLED')); })]);
       const secs = job.elapsed;
       const summary = (result && result.summary) || opts.doneText || 'Done';
       US.log('ok', `${job.title}: ${summary} (${US.fmtDur(secs)})`, '', job.tool);
@@ -88,7 +92,7 @@
     } catch (err) {
       const x = US.errors.explain(err);
       if (x.code === 'CANCELLED') {
-        US.log('info', `${job.title}: stopped by you`, '', job.tool);
+        US.log('info', `${job.title}: ${job.hard ? 'stopped at once by you (three clicks on Stop)' : 'stopped by you'}`, '', job.tool);
         US.bus.emit('jobend', job, { ok: false, cancelled: true, summary: 'Stopped' });
       } else {
         US.log('error', `${job.title}: ${x.title}`, x.detail, job.tool);
@@ -98,8 +102,19 @@
       }
       return undefined;
     } finally {
+      job.ended = true;
       current = null;
     }
+  }
+  const QUICK = 2000;   // three clicks on Stop within this many ms stop at once
+  /** Stop now: end the job straight away and cut off whatever it's waiting for (AI requests, Premiere calls not yet started). */
+  function hardStop() {
+    const j = current;
+    if (!j) return;
+    j.cancelled = true; j.hard = true;
+    US.log('info', `Stopping at once: ${j.title}`);
+    US.bus.emit('hard-stop', j);
+    if (j._hard) j._hard();
   }
 
   /* Premiere stops answering scripts while one of its own message boxes is open (an export error, a missing-media
@@ -129,6 +144,17 @@
     get current() { return current; },
     /** A job object for tests and nested work that shouldn't take over the status bar. */
     testJob(title = 'test') { const j = new Job({ title, tool: 'test' }); j._emit = () => {}; return j; },
-    cancel() { if (current) { current.cancelled = true; current.msg = 'Stopping after this step…'; current._emit(); US.log('info', `Stop requested: ${current.title}`); } }
+    /** Stop: the first click stops after the current step; three quick clicks (within 2 s) stop at once (hardStop).
+        -> how many more quick clicks stop it at once (0 when it has) */
+    cancel() {
+      const j = current;
+      if (!j) return 0;
+      const now = Date.now();
+      j._taps = (j._taps || []).filter(t => now - t < QUICK).concat(now);
+      if (j._taps.length >= 3) { hardStop(); return 0; }
+      if (!j.cancelled) { j.cancelled = true; j.msg = 'Stopping after this step… (three quick clicks on Stop stop it at once)'; j._emit(); US.log('info', `Stop requested: ${j.title}`); }
+      return 3 - j._taps.length;
+    },
+    hardStop
   };
 })();
