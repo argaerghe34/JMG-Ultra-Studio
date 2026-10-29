@@ -132,6 +132,21 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   if (!mk) errors.push('no “Make themes of these”'); else { mk.click(); await new Promise(r => setTimeout(r, 20)); if (!st.themes.some(t => t.name === 'Moments · Bloopers' && t.lineIds.length === blRows && t.label === US.storyMoments.TYPES.blooper.label)) errors.push('moments theme not made in the blooper colour'); }
   if (!Array.from(tool.el.querySelectorAll('.story-moments-bar .btn')).some(b => /Build these moments/.test(b.textContent))) errors.push('no “Build these moments”');
   if (Array.from(tool.el.querySelectorAll('.story-moments-bar .toggle')).filter(t => /Colour by type|Label each moment/.test(t.textContent)).length !== 2) errors.push('no colour / label switches for moments');
+  // Find › Search: Select all ticks every line shown, Unselect all clears them; the bar offers a new sequence you name
+  {
+    st.picked = [];
+    tool.onShow({ tab: 'search', query: 'family' }); await new Promise(r => setTimeout(r, 20));
+    const sa = Array.from(tool.el.querySelectorAll('.story-pane:not(.hidden) .story-select-row .btn')).find(b => /^Select all \d+/.test(b.textContent));
+    const shown = tool.el.querySelectorAll('.story-pane:not(.hidden) .story-results .story-row').length;
+    if (!sa) errors.push('find: no Select all'); else {
+      sa.click(); await new Promise(r => setTimeout(r, 20));
+      if ((st.picked || []).length !== shown) errors.push(`select all: ${(st.picked || []).length} of ${shown} ticked`);
+      if (!Array.from(tool.el.querySelectorAll('.story-picked .btn')).some(b => /Add to a new sequence/.test(b.textContent))) errors.push('picked bar: no “Add to a new sequence…”');
+      const un = Array.from(tool.el.querySelectorAll('.story-pane:not(.hidden) .story-select-row .btn')).find(b => b.textContent === 'Unselect all');
+      if (!un) errors.push('find: no Unselect all after selecting'); else { un.click(); await new Promise(r => setTimeout(r, 20)); if ((st.picked || []).length) errors.push('unselect all left ' + st.picked.length); }
+      checks.push(`select all: ${shown} lines`);
+    }
+  }
   // Find › Questions: the questions, every answer under its question, take one out, save as Word
   tool.onShow({ tab: 'search', questions: true }); await new Promise(r => setTimeout(r, 20));
   const qta = tool.el.querySelector('.story-questions-input');

@@ -2185,7 +2185,7 @@
         US.host.call('listSequences').then(seqs => { if (!momSeq) { const g = guessStringOut(seqs); momSeq = (g && g.id) || (US.ctx.sequence && US.ctx.sequence.id) || ''; } seqSel.setOptions(seqs.map(q => ({ value: q.id, label: q.name })), momSeq); }).catch(() => {});
         const marked = momSeq && state.momentMarkers && state.momentMarkers[momSeq];
         box.appendChild(h('div.story-moments-bar',
-          h('div.row', h('span.field-hint.grow', `${US.plural(shown.length, 'moment')} shown${list.length > kept.length ? ` · ${list.length - kept.length} more at a less picky setting` : ''}`),
+          h('div.row', h('span.field-hint.grow', `${US.plural(shown.length, 'moment')} shown${list.length > kept.length ? ` · ${list.length - kept.length} more at a less picky setting` : ''}`), selectAllToggle(shown.slice(0, 300).map(m => m.lineId)),
             BOARD ? ui.button('Add to board', { small: true, icon: 'story', title: 'A board group per type: Moments · Bloopers, Moments · Funny…', onClick: () => { const n = addMomentsToBoard(shown); ui.toast({ type: 'ok', title: n ? `${US.plural(n, 'moment')} added to the board` : 'They’re all on the board already', action: n ? { label: 'Open board', fn: () => show('wall') } : null }); } })
               : ui.button('Make themes of these', { small: true, icon: 'story', title: 'A theme per type – “Moments · Funny”, “Moments · Bloopers”… – each in its type’s colour, to build, put in bins or share', onClick: () => { const r = momentsTheme(shown, momentType); ui.toast({ type: 'ok', title: r.added ? `${US.plural(r.added, 'moment')} in ${r.themes.length === 1 ? `the theme “${r.theme.name}”` : `${r.themes.length} themes (one per type)`}` : 'They’re all in their themes already', action: { label: 'Open Themes', fn: () => show('themes') } }); } }),
             ui.button('Build these moments', { small: true, kind: 'primary', icon: 'film', title: 'A new sequence, grouped by type, each type in its own colour and every clip labelled', onClick: () => US.jobs.run({ title: 'Building the moments', tool: 'story' }, job => buildMoments(job, shown, { colour: momColours, labels: momLabels, name: `Story – moments${momentType === 'all' ? '' : ' – ' + M.TYPES[momentType].plural.toLowerCase()}` })) })),
@@ -2209,7 +2209,7 @@
         US.clear(list);
         if (!lastQuery.trim()) { list.appendChild(h('div.field-hint', `Search ${US.plural(scopeLines().length, 'line')} (${scopeLabel().replace(/^All /, 'all ')}). Tick lines to add them to a theme or build them. “Find more” looks for anything on a topic that isn’t in a theme yet.`)); return; }
         if (!results.length) { list.appendChild(ui.empty({ icon: 'target', title: 'Nothing found', text: 'Try a shorter or different word, or “Find more”.' })); return; }
-        list.appendChild(h('div.field-hint', `${US.plural(results.length, 'line')} · best first`));
+        list.appendChild(h('div.row.story-select-row', h('span.field-hint.grow', `${US.plural(results.length, 'line')} · best first`), selectAllToggle(results.map(r => r.line.id))));
         const p = picked();
         for (const r of results) list.appendChild(lineRow(r.line, { hits: r.hits, checked: p.has(r.line.id), onCheck: on => { togglePick(r.line.id, on); } }));
       }
@@ -2224,12 +2224,24 @@
           const k = keep(), p = picked();
           const rows = moreResults.filter(r => k.has(r.line.id));
           if (!rows.length) { box.appendChild(ui.empty({ icon: 'target', title: moreResults.length ? 'Nothing at this setting' : 'Nothing new found', text: moreResults.length ? 'Choose a less picky setting above.' : 'Everything on this topic is already selected – or try other words.' })); return; }
+          box.appendChild(h('div.row.story-select-row', h('span.grow'), selectAllToggle(rows.map(r => r.line.id))));
           for (const r of rows) box.appendChild(lineRow(r.line, { reasons: r.reasons, checked: p.has(r.line.id), onCheck: on => togglePick(r.line.id, on) }));
         };
         list.append(h('div.field-hint', `Find more: “${moreTopic}” – ${US.plural(moreResults.length, 'new line')}. ${moreInfo}`),
           moreResults.length ? ui.section('How picky', [pickyControl({ withOptions: true, get: () => pickyFor(null), countAt: o => pickLines(moreResults.map(r => r.line.id), { relOf: id => relOf.get(id), groupOf: interviewOf, opts: o }).length, set: partial => { state.picky = Object.assign(pickyFor(null), partial); saveNow(); drawMore(list); } })], { open: false }) : null,
           box);
         drawRows();
+      }
+      /** “Select all 24” / “Unselect all” for the lines on screen. */
+      function selectAllToggle(ids) {
+        ids = ids.filter(id => lineById.has(id));
+        if (!ids.length) return null;
+        const p = picked(), all = ids.every(id => p.has(id));
+        return ui.button(all ? 'Unselect all' : `Select all ${ids.length}`, { small: true, kind: 'ghost', title: all ? 'Untick every line shown' : 'Tick every line shown', onClick: () => {
+          const q = picked();
+          ids.forEach(id => (all ? q.delete(id) : q.add(id)));
+          state.picked = Array.from(q); save(); render();
+        } });
       }
       function togglePick(id, on) {
         const p = picked(); if (on) p.add(id); else p.delete(id);
@@ -2247,7 +2259,10 @@
               : ui.button('Add to theme…', { small: true, onClick: () => addPickedToTheme(ids) }),
           !tgt && !tcol ? ui.button('New theme from these', { small: true, onClick: async () => { const nm = await ui.promptText({ title: 'New theme', label: 'Name', value: US.cap((moreMode && moreTopic) || lastQuery || 'New theme') }); if (!nm) return; const th = newThemeFrom(nm.trim(), ids); done(ids.length, th.name); } }) : null,
           BOARD ? ui.button('Add to board', { small: true, onClick: () => { addToWall(ids, 'Picked lines'); ui.toast({ type: 'ok', title: `${US.plural(n, 'line')} added to the board`, action: { label: 'Open board', fn: () => show('wall') } }); } }) : null,
-          tgt || tcol || moreMode ? null : ui.button('Build sequence', { small: true, kind: 'primary', onClick: () => US.actions.run('story.build', { source: 'picked' }) }),
+          ui.button('Add to a new sequence…', { small: true, kind: tgt || tcol ? 'secondary' : 'primary', icon: 'film', title: 'A new sequence of the ticked lines – you name it', onClick: async () => {
+            const nm = await ui.promptText({ title: `New sequence of ${US.plural(n, 'line')}`, label: 'Name', value: `Story – ${US.cap((questionsMode ? '' : moreMode ? moreTopic : momentsMode ? 'moments' : lastQuery) || 'picked lines')}`, ok: 'Build it' });
+            if (nm && nm.trim()) US.actions.run('story.build', { source: 'picked', name: nm.trim() });
+          } }),
           ui.button('Clear', { small: true, kind: 'ghost', onClick: () => { state.picked = []; save(); render(); } }));
       }
       async function addPickedToTheme(ids) {

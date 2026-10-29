@@ -194,3 +194,4 @@
 .story-q-text { cursor: pointer; }
 .story-q-text.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .story-q-asked { color: var(--text-2); font-style: italic; }
+.story-select-row { align-items: center; margin-bottom: 4px; }
