@@ -74,14 +74,30 @@
     fn.storyCue = function (a) {
         var it = U.needItem(a.id);
         if (a.open !== false) app.sourceMonitor.openProjectItem(it);
-        var t = clipTiming(it);
+        var t = clipTiming(it), want = Math.max(0, a.seconds || 0), tries = [];
         app.enableQE();
         var p = qe.source.player;
         try { p.stop(); } catch (e) { }
-        p.startScrubbing(); p.scrubTo(tc(t.start + Math.max(0, a.seconds || 0), t)); p.endScrubbing();
+        // Premiere counts the Source Monitor either from the media's own timecode (a camera's 19:46:03:16) or from the
+        // clip's first frame (0) – measured 29 Oct 2026: a jump in camera timecode was ignored (the monitor stayed at 0).
+        // Try the way that worked last time first, then the other; say which landed.
+        var go = function (sec, how) {
+            var code = tc(sec, t);
+            try { p.startScrubbing(); p.scrubTo(code); p.endScrubbing(); } catch (e) { tries.push(how + ' ' + code + ': ' + e); }
+            var at = app.sourceMonitor.getPosition().seconds;
+            tries.push(how + ' ' + code + ' -> ' + at);
+            return at;
+        };
+        var near = function (x) { return Math.abs(x - want) < 0.12 || Math.abs(x - (t.start + want)) < 0.12; };
+        var order = a.mode === 'clip' ? ['clip', 'media'] : ['media', 'clip'], pos = null, mode = '';
+        for (var i = 0; i < order.length; i++) {
+            if (order[i] === 'clip' && !(t.start > 0) && i > 0) break;   // no camera timecode: both ways are the same
+            pos = go(order[i] === 'media' ? t.start + want : want, order[i]);
+            if (near(pos)) { mode = order[i]; break; }
+        }
         if (a.play) app.sourceMonitor.play(1);
         var loaded = ''; try { var pi = app.sourceMonitor.getProjectItem(); loaded = pi ? pi.nodeId : ''; } catch (e) { loaded = '?'; }
-        return { position: app.sourceMonitor.getPosition().seconds, timing: t, loaded: loaded };
+        return { position: app.sourceMonitor.getPosition().seconds, timing: t, loaded: loaded, mode: mode, tries: tries };
     };
     fn.storyStop = function () { try { app.enableQE(); qe.source.player.stop(); } catch (e) { } return true; };
 

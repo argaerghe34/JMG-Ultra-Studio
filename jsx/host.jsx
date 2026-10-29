@@ -373,7 +373,12 @@ var UStudio = (function () {
                 app.enableQE();
                 var pl = qe.source.player;
                 try { pl.stop(); } catch (e) { }
-                pl.startScrubbing(); pl.scrubTo(framesToTC(Math.round((start + Math.max(0, a.seconds)) * fps), pseudo)); pl.endScrubbing();
+                var want = Math.max(0, a.seconds);
+                pl.startScrubbing(); pl.scrubTo(framesToTC(Math.round((start + want) * fps), pseudo)); pl.endScrubbing();
+                // some Premiere versions count the Source Monitor from the clip's first frame, not its camera timecode: a
+                // jump in camera timecode is then ignored – go there counting from the first frame instead
+                var at = app.sourceMonitor.getPosition().seconds;
+                if (start > 0 && Math.abs(at - want) > 0.12 && Math.abs(at - (start + want)) > 0.12) { pl.startScrubbing(); pl.scrubTo(framesToTC(Math.round(want * fps), pseudo)); pl.endScrubbing(); }
             } catch (e) { }
         }
         return true;

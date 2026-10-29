@@ -173,12 +173,13 @@
     let r = null;
     for (let i = 0; i < 12 && !there(r); i++) {
       if (i) await new Promise(res => setTimeout(res, i < 4 ? 80 : 160));
-      r = await call('storyCue', { id, seconds, play: false, open: i === 0 });
+      r = await call('storyCue', { id, seconds, play: false, open: i === 0, mode: cue.mode });
+      if (r && r.mode && r.mode !== cue.mode) { if (cue.mode || r.mode === 'clip') US.log('info', `Play: Premiere counts the Source Monitor ${r.mode === 'clip' ? 'from the clip’s first frame' : 'in the clip’s own timecode'}`); cue.mode = r.mode; }   // try that way first next time
     }
-    if (play) r = await call('storyCue', { id, seconds, play: true, open: false });
+    if (play) r = await call('storyCue', { id, seconds, play: true, open: false, mode: cue.mode });
     // ▶ that misses its line: say exactly where it landed, so the cause can be found from the activity log
     const landed = there(r);
-    if (!landed) US.log('warn', 'Play: the Source Monitor didn’t land on the line', JSON.stringify({ wanted: seconds, position: r && r.position, loaded: r && r.loaded, asked: id, timing: r && r.timing }));
+    if (!landed) US.log('warn', 'Play: the Source Monitor didn’t land on the line', JSON.stringify({ wanted: seconds, position: r && r.position, loaded: r && r.loaded, asked: id, timing: r && r.timing, tries: r && r.tries }));
     return Object.assign({ landed }, r);
   }
 
