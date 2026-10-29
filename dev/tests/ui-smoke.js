@@ -31,7 +31,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-timeline', '22-story']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -145,6 +145,41 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   const qdoc = await S.exportBoard(US.jobs.testJob(), 'txt', { source: 'questions' });
   if (!/Interview answers/.test(fs.readFileSync(qdoc.file, 'utf8')) || !/Q1\. What does family mean to you\?/.test(fs.readFileSync(qdoc.file, 'utf8'))) errors.push('answers document: ' + qdoc.summary);
   checks.push(`questions: ${qHeads} questions, ${qRows} answers · ${qdoc.summary}`);
+  // Ask: the answer card – groups, clips, every way it can land, taking a clip out and moving a group
+  {
+    const ids = st.transcripts[0].lines.map(l => l.id);
+    const res = US.storyAsk.organise([{ answer: 'Two things stand out.', groups: [{ key: '', name: 'Family', summary: 's', items: [{ from: ids[0], to: ids[2], lead: '', note: 'n', score: 0.9, tag: '' }, { from: ids[4], to: ids[4], lead: '', note: 'n2', score: 0.5, tag: '' }] }, { key: '', name: 'Work', summary: '', items: [{ from: ids[6], to: ids[7], lead: '', note: '', score: 0.4, tag: '' }] }] }], US.storyAsk.indexOf(st.transcripts));
+    res.groups.forEach((g, i) => { g.label = i + 1; });
+    const ask = { id: 'ask-test', request: 'a 45-second opening about family', at: Date.now(), rounds: [], result: res, scope: 'All interviews' };
+    st.asks = [ask];
+    let refined = '';
+    const card = S.askCard(ask, { onRefine: t => { refined = t; } });
+    w.document.body.appendChild(card);
+    const rows = () => card.querySelectorAll('.story-q-row').length;
+    if (card.querySelectorAll('.ask-group').length !== 2 || rows() !== 3) errors.push(`ask card: ${card.querySelectorAll('.ask-group').length} groups, ${rows()} clips`);
+    if (!/you asked for 0:45/.test(card.textContent)) errors.push('ask card: no wanted length');
+    for (const land of ['mark', 'themes', 'doc', 'sequence']) {
+      const b = Array.from(card.querySelectorAll('.ask-landing .seg')).find(x => x.dataset.value === land || x.textContent === { mark: 'Mark a sequence', themes: 'Themes', doc: 'Word or text', sequence: 'New sequence' }[land]);
+      if (!b) { errors.push('ask card: no ' + land); continue; }
+      b.click(); await new Promise(r => setTimeout(r, 10));
+    }
+    card.querySelector('.story-q-row .icon-btn[title="Take this clip out"]').click(); await new Promise(r => setTimeout(r, 10));
+    if (rows() !== 2) errors.push('ask card: taking a clip out did not stick');
+    card.querySelector('.ask-group .icon-btn[title="Move the group down"]').click(); await new Promise(r => setTimeout(r, 10));
+    if (ask.result.groups[0].name !== 'Work') errors.push('ask card: moving a group did not stick');
+    const inp = card.querySelector('.ask-refine input'); inp.value = 'shorter'; inp.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter' }));
+    if (refined !== 'shorter') errors.push('ask card: follow-up not sent');
+    checks.push(`ask card: ${rows()} clips after taking one out`);
+    card.remove();
+  }
+  // the Ask tab in My interviews mode: the welcome, examples and earlier asks
+  {
+    US.settings.set('assistant.mode', 'interviews');
+    const as = US.tools.get('assistant').create(); w.document.body.appendChild(as.el); as.onShow && as.onShow();
+    const txt = as.el.textContent;
+    if (!/Ask anything about what your interviews say/.test(txt) || !/Earlier:/.test(txt)) errors.push('Ask tab (interviews): ' + txt.slice(0, 200));
+    US.settings.set('assistant.mode', 'auto'); as.el.remove();
+  }
   // Search › Find more renders results with reasons (lines not yet selected)
   st.picky = { s: S.PICKY_LEVELS.all };
   st.themes = st.themes.filter(t => t.custom && !t.picked);

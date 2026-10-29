@@ -902,6 +902,9 @@
     } else if (source === 'board') {
       groups = state.wall.columns.map(c => ({ name: c.name, label: columnLabel(c), cards: c.cards.filter(keep) }));
       if (state.wall.loose.length) groups.push({ name: 'Not in a group', label: null, cards: state.wall.loose.map(l => l.card).filter(keep) });
+    } else if (source === 'ask') {
+      const a = askById(narrative);
+      groups = a.result.groups.map(g => ({ name: g.name, label: g.label, cards: askSpans(g, { lead: asked }).map(s => ({ lineId: s.lineId, span: s, note: s.item.note })) }));
     } else if (source === 'questions') {
       if (!state.questions) throw new US.UserError('NOTHING_FOUND', { title: 'There are no answers yet.', action: 'Find the answers in Story › 3 Find › Questions first.' });
       groups = state.questions.results.map(r => ({ name: `Q${r.q + 1}. ${r.question}`, label: questionLabel(r.q), cards: answerSpans(r, { asked }).map(s => ({ lineId: s.lineId, span: s, note: s.a.summary })) }));
@@ -920,12 +923,12 @@
       return { speaker: who === speakerName('') ? '' : who, interview: interviewLabel(k.lineId), clip: t ? t.name : '', srcIn: src(a), srcOut: src(b), dur: b - a, text: tr ? tr.text : l.text, strong: !k.span && isStrong(l), note: k.note || '' };
     };
     const project = US.ctx.project ? US.ctx.project.name.replace(/\.prproj$/i, '') : '';
-    const doc = { title: source === 'questions' ? 'Interview answers' : 'Paper edit', project, date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    const doc = { title: source === 'questions' ? 'Interview answers' : source === 'ask' ? A().title(askById(narrative).request) : 'Paper edit', project, date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       groups: used.map(g => ({ name: g.name, colour: g.label != null ? labelName(g.label) : '', hex: g.label != null ? labelHex(g.label) : '', cards: g.cards.map(card) })) };
     const body = format === 'csv' ? E.paperCSV(doc) : format === 'txt' ? E.paperText(doc) : E.paperDocx(doc);
     const dir = US.fsx.ensureDir(US.settings.get('story.exportDir') || path.join(US.fsx.exportsDir(), 'Transcripts'));
     const d = new Date(), stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const file = uniquePath(path.join(dir, `${fileSafe(project || 'Story')} - ${source === 'questions' ? 'interview answers' : 'paper edit'} ${stamp}.${E.EXT[format] || 'docx'}`));
+    const file = uniquePath(path.join(dir, `${fileSafe(project || 'Story')} - ${source === 'questions' ? 'interview answers' : source === 'ask' ? 'ask – ' + fileSafe(A().title(askById(narrative).request)).slice(0, 40) : 'paper edit'} ${stamp}.${E.EXT[format] || 'docx'}`));
     require('fs').writeFileSync(file, body);
     return { file, summary: `Saved “${US.basename(file)}” · ${E.paperSummary(doc)}` };
   }
@@ -1491,6 +1494,225 @@
     if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'No answers were found to build.', action: 'Try the questions in other words, or with AI.' });
     const L = lookOptions();
     return buildSequence(job, { name, groups, look: Object.assign({}, L, { strong: Object.assign({}, L.strong, { first: false, highlight: false }) }) });
+  }
+
+  /* ================= Ask your interviews ================= */
+  const A = () => US.storyAsk;
+  const askIdx = () => A().indexOf(state.transcripts);
+  /**
+   * Ask anything about the interviews (or follow up an earlier ask: askId). The AI reads the shared transcript of what
+   * you're working on (cached an hour) and answers in words and groups of clips. Nothing changes in Premiere.
+   * -> {ask, summary}; the ask is kept with the project (the last 20).
+   */
+  async function askInterviews(job, { request, askId = null }) {
+    await ready(); loadState();
+    if (!state.transcripts.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no transcripts yet.', action: `Story needs them first: ${READ_FIRST} (Story › 1 Interviews).` });
+    if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
+    if (!String(request || '').trim()) throw new US.UserError('BAD_INPUT', { title: 'Type what you’re looking for first.' });
+    state.asks = state.asks || [];
+    const prev = askId ? state.asks.find(x => x.id === askId) : null;
+    const ts = scopeTranscripts(await linesInScope(job));
+    if (!ts.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no lines to read.', action: 'Choose what to work on in Story › 1 Interviews.' });
+    // the first message is always the transcripts + the original request, so a follow-up reads it from the cache
+    const reqs = CTX().requests(ts, { feature: 'Ask', maxTokens: 16000, effort: 'medium', task: (k, n) => A().task(prev ? prev.request : request, k, n) });
+    const rounds = prev ? prev.rounds.concat([{ text: request }]) : [{ text: request }], r = rounds.length - 1;
+    if (reqs.length > 1 && US.ai.approveTotal) await US.ai.approveTotal(SAI().cost(reqs.map(b => b.req)).usd, `Ask (${reqs.length} parts)`);
+    const out = [], missing = [];
+    for (let k = 0; k < reqs.length; k++) {
+      job && job.check && job.check();
+      job && job.set && job.set({ who: 'ai', msg: reqs.length > 1 ? `${US.ai.label()} is reading part ${k + 1} of ${reqs.length}` : `${US.ai.label()} is reading ${US.plural(reqs[k].lines.length, 'line')}` });
+      job && job.progress && job.progress(0.05 + 0.9 * k / reqs.length);
+      const turns = [];
+      for (let j = 1; j <= r; j++) turns.push({ assistant: JSON.stringify((rounds[j - 1].parts || [])[k] || { answer: '', groups: [] }), user: A().followUp(rounds[j].text) });
+      const info = {}, ans = await SAI().ask(Object.assign({}, reqs[k].req, { turns }), info);
+      if (!ans) missing.push({ part: k + 1, of: reqs.length, lines: reqs[k].lines.length, name: `Interviews ${reqs[k].part.map(p => p.n).join(', ')}`, error: info.error });
+      out.push(ans || { answer: '', groups: [] });
+    }
+    if (missing.length === reqs.length) throw missing[0].error || new US.UserError('AI_FAILED');
+    rounds[r].parts = out;
+    const result = A().organise(out, askIdx());
+    result.groups.forEach((g, i) => { g.label = THEME_PALETTE[i % THEME_PALETTE.length]; });
+    const ask = prev || { id: US.uid('ask'), request, at: Date.now() };
+    Object.assign(ask, { rounds, result, scope: scopeLabel(), by: US.ai.label(), updated: Date.now(), missing: SAI().missingNote(missing) });
+    state.asks = [ask].concat(state.asks.filter(x => x !== ask)).slice(0, 20);
+    saveNow();
+    const t = A().totals(result.groups, askIdx());
+    return { ask, summary: result.groups.length ? `${US.plural(result.groups.length, 'group')} · ${US.plural(t.clips, 'clip')} · ${US.fmtDur(t.seconds)}` : 'Answered in words – no clips' };
+  }
+  function askById(id) { loadState(); const a = (state.asks || []).find(x => x.id === id); if (!a) throw new US.UserError('NOT_FOUND', { title: 'That answer isn’t here any more.', action: 'Ask again.' }); return a; }
+  /** Each clip as one span from its first line to its last (its lead first, when wanted). */
+  function askSpans(g, { lead = false } = {}) {
+    const idx = askIdx();
+    return g.items.map(it => {
+      const ls = A().linesOf(it, idx, { lead });
+      if (!ls.length) return null;
+      const multi = new Set(ls.map(l => l.speaker)).size > 1;
+      return { item: it, lineId: ls[0].id, lineIds: ls.map(l => l.id), speaker: (ls.find(l => l.id === it.from) || ls[0]).speaker, start: ls[0].start, end: ls[ls.length - 1].end, text: ls.map(l => (multi ? `${speakerName(l.speaker)}: ` : '') + l.text).join(' ') };
+    }).filter(Boolean);
+  }
+  /** A new sequence from an answer: its groups in order, each clip whole, each group in its colour, a marker on each clip. */
+  async function buildAsk(job, { askId, name, lead = false }) {
+    const a = askById(askId);
+    const groups = a.result.groups.map(g => {
+      const G = { name: g.name, label: g.label, lineIds: [], trims: {}, lineMarks: {}, pinned: new Set(), ideas: [] };
+      for (const s of askSpans(g, { lead })) {
+        if (G.trims[s.lineId]) continue;
+        G.lineIds.push(s.lineId); G.trims[s.lineId] = { start: s.start, end: s.end };
+        if (s.item.note) G.lineMarks[s.lineId] = { name: s.item.note.slice(0, 60), comment: `${g.name}: ${s.item.note}` };
+      }
+      return G;
+    }).filter(g => g.lineIds.length);
+    if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'This answer has no clips to build.', action: 'Ask for clips, or follow up with “show me the clips”.' });
+    const L = lookOptions();
+    return buildSequence(job, { name: name || `Ask – ${A().title(a.request)}`, groups, look: Object.assign({}, L, { strong: Object.assign({}, L.strong, { first: false, highlight: false }) }) });
+  }
+  /** Range markers on a sequence where the answer's clips are heard (your string-out), in each group's colour. */
+  async function markAsk(job, { askId, seqId }) {
+    const a = askById(askId);
+    if (!seqId) throw new US.UserError('NO_SEQUENCE', { action: 'Choose the sequence to mark first.' });
+    const tl = await timelineTranscript(job, { seqId, tracks: 'auto' }), marks = [];
+    for (const g of a.result.groups) for (const s of askSpans(g)) {
+      const ids = new Set(s.lineIds), es = tl.result.entries.filter(e => ids.has(e.lineId)).sort((x, y) => x.start - y.start);
+      let run = null;
+      const flush = () => { if (run) marks.push({ start: run.start, end: run.end, name: `${g.name}${s.item.note ? ': ' + s.item.note : ''}`.slice(0, 64), comment: s.text.slice(0, 500), color: LABEL_TO_MARKER[g.label] != null ? LABEL_TO_MARKER[g.label] : 2 }); };
+      for (const e of es) { if (run && e.start - run.end < 1.5) run.end = Math.max(run.end, e.end); else { flush(); run = { start: e.start, end: e.end }; } }
+      flush();
+    }
+    if (!marks.length) throw new US.UserError('NOTHING_FOUND', { title: `None of these clips are in “${tl.info.name}”.`, action: tl.result.entries.length ? 'Choose the sequence with these interviews in it (a string-out).' : `The clips in this sequence have no transcripts yet – ${READ_FIRST}.` });
+    state.askMarkers = state.askMarkers || {};
+    const old = state.askMarkers[seqId];
+    if (old && old.guids && old.guids.length) { try { await US.host.call('removeSequenceMarkers', { seqId, guids: old.guids }); } catch (e) { /* already gone */ } }
+    job.set({ who: 'premiere', msg: `Marking ${US.plural(marks.length, 'clip')}` });
+    const guids = await US.host.call('addSequenceMarkers', { seqId, markers: marks });
+    state.askMarkers[seqId] = { guids: guids || [], at: Date.now(), askId };
+    saveNow();
+    return { summary: `${US.plural(marks.length, 'range marker')} on “${tl.info.name}”${old ? ' (the earlier Ask markers replaced)' : ''}` };
+  }
+  async function removeAskMarkers(job, seqId) {
+    loadState();
+    const old = state.askMarkers && state.askMarkers[seqId];
+    if (!old) return { summary: 'No Ask markers on that sequence.' };
+    await US.host.call('removeSequenceMarkers', { seqId, guids: old.guids || [] });
+    delete state.askMarkers[seqId]; saveNow();
+    return { summary: `${US.plural((old.guids || []).length, 'marker')} removed` };
+  }
+  /** A theme per group (every line of its clips), in the group's colour – then Story's bins, builds and documents work on them. */
+  function askThemes(askId) {
+    const a = askById(askId), made = [];
+    for (const g of a.result.groups) {
+      const ids = Array.from(new Set(askSpans(g).flatMap(s => s.lineIds)));
+      if (!ids.length) continue;
+      const th = newThemeFrom(g.name, ids); th.label = g.label; made.push(th);
+    }
+    saveNow();
+    return made;
+  }
+  /** The answer as plain text: the reply, then each group with its clips. */
+  function askText(askId) {
+    const a = askById(askId), out = [a.request, '', a.result.answer || ''];
+    for (const g of a.result.groups) {
+      out.push('', `${g.name}${g.summary ? ' – ' + g.summary : ''}`);
+      askSpans(g).forEach((s, i) => { const t = clipOfLine.get(s.lineId); out.push(`${i + 1}. ${[speakerName(s.speaker) !== speakerName('') ? speakerName(s.speaker) : '', t ? t.name : ''].filter(Boolean).join(' · ')} ${US.fmtDur(s.start)}–${US.fmtDur(s.end)}${s.item.note ? ` (${s.item.note})` : ''}`, `   “${s.text}”`); });
+    }
+    return out.join('\n');
+  }
+
+  /** Play a line in the Source Monitor (Resolve: here), from a moment before it. */
+  async function cueLine(l, at = l.start) {
+    const t = clipOfLine.get(l.id);
+    try {
+      const items = await resolveItems([t]), id = items.get(t.key);
+      if (!id) throw new US.UserError('NOT_FOUND', { title: `“${t.name}” isn’t linked to a clip.`, action: 'Link it in Story › 1 Interviews › Interviews and speakers, then try again.' });
+      await US.host.cue(id, Math.max(0, at - 0.2), { play: true });
+    } catch (err) { ui.showError(err); }
+  }
+  /**
+   * The answer to an ask, to check before anything happens: the reply, then each group's clips (play, move, take out),
+   * group names and colours to change, and how it lands – a new sequence, markers on a sequence, themes, Word or text.
+   * onRefine(text): a follow-up typed under it.
+   */
+  function askCard(a, { onRefine } = {}) {
+    const box = h('div.ask-card');
+    let landing = US.settings.get('ask.landing', 'sequence'), seqPick = (US.ctx.sequence && US.ctx.sequence.id) || '', seqs = null;
+    const lead = () => US.settings.get('ask.lead', false);
+    const changed = () => { a.updated = Date.now(); saveNow(); draw(); };
+    const move = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return; const [x] = arr.splice(i, 1); arr.splice(j, 0, x); };
+    function clipRow(g, it, i) {
+      const idx = askIdx(), ls = A().linesOf(it, idx, { lead: lead() });
+      if (!ls.length) return null;
+      const first = ls[0], last = ls[ls.length - 1], t = clipOfLine.get(first.id), multi = new Set(ls.map(l => l.speaker)).size > 1;
+      const main = (ls.find(l => l.id === it.from) || first).speaker;
+      const text = h('div.story-text.story-q-text.clamp', { title: 'Click to show it all', onclick: () => text.classList.toggle('clamp') },
+        ls.map(l => h('span' + (l.id === it.lead ? '.story-q-asked' : ''), (multi ? `${speakerName(l.speaker)}: ` : '') + l.text + ' ')));
+      const btn = (icon, title, fn) => h('button.icon-btn', { title, onclick: e => { e.stopPropagation(); fn(); } }, US.icon(icon, 13));
+      return h('div.story-row.story-q-row',
+        h('span.story-bar', { style: { background: labelHex(g.label) } }),
+        h('div.story-main', text, it.note ? h('div.story-why', it.note) : null,
+          h('div.story-meta', `${[speakerName(main) !== speakerName('') ? speakerName(main) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(first.start)}–${US.fmtDur(last.end)} · ${US.fmtDur(last.end - first.start)}`)),
+        h('button.icon-btn', { title: RES ? 'Play this clip here' : 'Play in the Source Monitor', onclick: e => { e.stopPropagation(); cueLine(first); } }, US.icon('play', 15)),
+        h('div.ask-moves', btn('up', 'Earlier', () => { move(g.items, i, -1); changed(); }), btn('down', 'Later', () => { move(g.items, i, 1); changed(); })),
+        btn('close', 'Take this clip out', () => { g.items.splice(i, 1); if (!g.items.length) a.result.groups = a.result.groups.filter(x => x !== g); changed(); }));
+    }
+    function landingBox() {
+      const L = lookOptions(), wrap = h('div.ask-landing');
+      const seg = ui.segmented({ options: [{ value: 'sequence', label: 'New sequence' }, { value: 'mark', label: 'Mark a sequence' }, { value: 'themes', label: 'Themes' }, { value: 'doc', label: 'Word or text' }], value: landing, onChange: x => { landing = x; US.settings.set('ask.landing', x); draw(); } });
+      wrap.appendChild(seg);
+      const run = (title, fn) => US.jobs.run({ title, tool: 'story' }, fn);
+      if (landing === 'sequence') {
+        const name = ui.input({ value: `Ask – ${A().title(a.request)}` });
+        wrap.append(h('div.field-hint', 'Each group in turn, in the order shown, every clip whole – in the group’s colour, with a marker saying what each clip is. Your clips are never changed.'),
+          ui.field('Sequence name', name),
+          ui.toggle({ label: 'Colour each group', value: L.colour, onChange: x => US.settings.set('story.colourThemes', x) }),
+          ui.field('Group names in the timeline', ui.segmented({ options: RES ? [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Range markers' }, { value: 'none', label: 'Off' }] : [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Name layer' }, { value: 'both', label: 'Both' }, { value: 'none', label: 'Off' }], value: L.themeNames === 'both' && RES ? 'layer' : L.themeNames, onChange: x => US.settings.set('story.themeNames', x) }),
+            RES ? 'Markers sit at the start of each group; range markers span it.' : 'Name layer: an adjustment layer above each group, named after it, in its colour.'),
+          ui.actionButton('Build the sequence', () => run('Building your answer', job => buildAsk(job, { askId: a.id, name: name.value.trim(), lead: lead() })), { icon: 'film', block: false }));
+      } else if (landing === 'mark') {
+        const sel = ui.select({ options: [], placeholder: 'Choose a sequence…', onChange: x => { seqPick = x; } });
+        const fill = list => { seqs = list; if (!seqPick) { const g = guessStringOut(list); seqPick = (g && g.id) || seqPick; } sel.setOptions(list.map(q => ({ value: q.id, label: q.name + (US.ctx.sequence && q.id === US.ctx.sequence.id ? '  (open)' : '') })), seqPick); };
+        if (seqs) fill(seqs); else US.host.call('listSequences').then(fill).catch(() => {});
+        wrap.append(h('div.field-hint', 'Range markers over each clip where it’s heard in a sequence you already have – a string-out or your cut – named after its group, in the group’s colour. Marking again replaces them.'),
+          ui.field('Sequence', sel),
+          h('div.row', ui.actionButton('Mark it', () => run('Marking the sequence', job => markAsk(job, { askId: a.id, seqId: sel.get() || seqPick })), { icon: 'target', block: false }),
+            ui.button('Remove Ask markers', { small: true, kind: 'ghost', onClick: () => run('Removing Ask markers', job => removeAskMarkers(job, sel.get() || seqPick)) })));
+      } else if (landing === 'themes') {
+        wrap.append(h('div.field-hint', 'A theme for each group, in its colour – then Story’s bins, sequences, How picky and documents all work on them.'),
+          ui.actionButton('Make a theme of each group', () => { const made = askThemes(a.id); ui.toast({ type: 'ok', title: `${US.plural(made.length, 'theme')} made`, text: made.map(t => t.name).join(', '), action: { label: 'Open Themes', fn: () => US.tools.open('story', { tab: 'themes' }) } }); }, { icon: 'story', block: false }));
+      } else {
+        wrap.append(h('div.field-hint', 'A document with a heading per group and every clip under it, with source timecodes – or the same as text to paste anywhere.'),
+          h('div.row', ui.actionButton('Save as Word', () => run('Saving your answer', async job => { const r = await exportBoard(job, 'docx', { source: 'ask', narrative: a.id, asked: lead() }); openFile(r.file); return r; }), { icon: 'note', block: false }),
+            ui.button('Copy as text', { small: true, onClick: () => { ui.copy(askText(a.id)); ui.toast({ type: 'ok', title: 'Copied', timeout: 2000 }); } })));
+      }
+      wrap.appendChild(ui.toggle({ label: 'Start each clip with the line before it when it’s needed', hint: 'Such as the question being asked.', value: lead(), onChange: x => { US.settings.set('ask.lead', x); draw(); } }));
+      return wrap;
+    }
+    function draw() {
+      US.clear(box);
+      const idx = askIdx(), t = A().totals(a.result.groups, idx, { lead: lead() }), want = A().wantedLength(a.request);
+      if (a.result.answer) box.appendChild(h('div.ask-answer', a.result.answer));
+      if (a.missing) box.appendChild(ui.note(a.missing, 'warn'));
+      if (!a.result.groups.length) { box.appendChild(h('div.field-hint', 'No clips in this answer. Follow up with “show me the clips” if you want some.')); }
+      else {
+        box.appendChild(h('div.field-hint.ask-totals', `${US.plural(a.result.groups.length, 'group')} · ${US.plural(t.clips, 'clip')} · ${US.fmtDur(t.seconds)}${want ? ` (you asked for ${US.fmtDur(want)})` : ''} · from ${a.scope || 'all interviews'}`));
+        a.result.groups.forEach((g, gi) => {
+          const len = g.items.reduce((n, it) => n + A().lengthOf(it, idx, { lead: lead() }), 0);
+          const btn = (icon, title, fn) => h('button.icon-btn', { title, onclick: e => { e.stopPropagation(); fn(); } }, US.icon(icon, 13));
+          box.appendChild(h('div.story-q.ask-group',
+            h('div.story-q-head', swatchButton(g.label, i => { g.label = i; changed(); }, 'Group colour'), h('b.grow', g.name), h('span.field-hint', `${US.plural(g.items.length, 'clip')} · ${US.fmtDur(len)}`),
+              btn('note', 'Rename this group', async () => { const nm = await ui.promptText({ title: 'Group name', value: g.name, ok: 'Rename' }); if (nm && nm.trim()) { g.name = nm.trim().slice(0, 60); changed(); } }),
+              btn('up', 'Move the group up', () => { move(a.result.groups, gi, -1); changed(); }), btn('down', 'Move the group down', () => { move(a.result.groups, gi, 1); changed(); }),
+              btn('close', 'Take this group out', () => { a.result.groups.splice(gi, 1); changed(); })),
+            g.summary ? h('div.field-hint', g.summary) : null,
+            g.items.map((it, i) => clipRow(g, it, i))));
+        });
+        box.appendChild(landingBox());
+      }
+      if (onRefine) {
+        const inp = ui.input({ placeholder: 'Change it – e.g. shorter, leave out Sam, split before and after the move', onEnter: x => { if (x.trim()) onRefine(x.trim()); } });
+        box.appendChild(h('div.row.ask-refine', h('div.grow', inp), ui.button('Change it', { small: true, onClick: () => { if (inp.value.trim()) onRefine(inp.value.trim()); } })));
+      }
+    }
+    draw();
+    return box;
   }
 
   async function readPremiereTranscripts(job, opts = {}) {
@@ -2998,6 +3220,13 @@
     }
   });
   US.actions.register({
+    id: 'story.ask', tool: 'story', title: 'Ask your interviews', changes: false,
+    describe: 'Ask anything about what the interviews say – find, list, compare or summarise, or pull a selection of clips (every story about a person or place, where people disagree, a 45-second opening on a topic, who mentions something and what they say). The AI reads the transcripts and answers in words and groups of clips that the editor checks before anything is built. Use this for any request about the content of the interviews that the other actions don’t cover.',
+    params: { request: { type: 'string', default: '', desc: 'What to look for or ask, in the editor’s own words' } },
+    examples: ['every story about Grandma, in the order it happened', 'where do the interviewees disagree?', 'a 45-second opening about why they came'],
+    run: async (p, job) => { await ready(); needLines(); return askInterviews(job, { request: p.request }); }
+  });
+  US.actions.register({
     id: 'story.moments', tool: 'story', title: 'Find moments: bloopers, funny, off camera, poignant', changes: false,
     describe: 'Finds bloopers (restarts, stumbles, crew chatter, swearing), funny moments (laughter), off-camera voices (a second voice, the interviewer reacting) and poignant moments (emotional words, long pauses) in the interviews.',
     params: { type: { type: 'enum', options: ['all', 'funny', 'blooper', 'off-camera', 'poignant'], default: 'all', desc: 'Which kind to show' }, useAI: { type: 'boolean', default: false, desc: 'Let the AI check each moment (only the text around it is sent)' } },
@@ -3151,6 +3380,7 @@
     narrativePool, makeNarrative, narrativeColumn, narrativeGroups, buildNarrative, makePromo, latestNarrative: id => latestNarrative(id), trimOf,
     readsFor, setReads, readsPlan, rankCandidates,
     findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,
+    askInterviews, askSpans, buildAsk, markAsk, removeAskMarkers, askThemes, askText, askCard: (...a) => askCard(...a), asks: () => (loadState(), state.asks || []),
     findAnswers, buildAnswers, answerSpans, scopeTranscripts: (...a) => scopeTranscripts(...a), contextInfo: () => contextInfo(), contextLine: () => contextLine(),
     /** tests only: use a state object without a project */
     _useState(s) { session = null; clearTimeout(sharedTimer); sharedTimer = null; state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }

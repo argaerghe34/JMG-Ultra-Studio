@@ -119,18 +119,23 @@
   /* ---------- the screen ---------- */
   US.tools.register({
     id: 'assistant', name: 'Assistant', short: 'Ask', icon: 'ask', order: 40,
-    blurb: 'Say what you want in plain English – it shows the plan, you press Run.',
+    blurb: 'Say what you want in plain English – run a tool, or ask anything about your interviews.',
     create() {
       const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'Tell it what you want. It shows a plan first and only acts when you press Run.' });
       const log = h('div.chat');
-      const input = h('textarea.input.chat-input', { rows: 2, placeholder: 'e.g. cut the silences · markers on every beat · find the best shots in Concert · check the cut' });
+      const PLACEHOLDER = { auto: 'e.g. cut the silences · markers on every beat · find the best shots in Concert · check the cut', interviews: 'e.g. every story about Grandma, in order · where do Ruth and Sam disagree? · a 45-second opening about why they came' };
+      // Anything: commands, and questions about the interviews when the AI sees that's what you mean; My interviews: straight to the interviews
+      let mode = US.settings.get('assistant.mode', 'auto');
+      const modeSel = ui.segmented({ options: [{ value: 'auto', label: 'Anything', title: 'Run a tool, or ask about your interviews' }, { value: 'interviews', label: 'My interviews', title: 'Ask anything about what your interviews say – answered with clips you check before anything is built' }], value: mode, onChange: x => { mode = x; US.settings.set('assistant.mode', x); input.placeholder = PLACEHOLDER[x]; greet(); } });
+      modeSel.classList.add('chat-mode');
+      const input = h('textarea.input.chat-input', { rows: 2, placeholder: PLACEHOLDER[mode] || PLACEHOLDER.auto });
       const send = ui.button('Send', { kind: 'primary', icon: 'chevron', onClick: () => submit() });
       input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
-      v.body.append(log, h('div.chat-bar', input, send));
+      v.body.append(modeSel, log, h('div.chat-bar', input, send));
       const history = [];
 
       function bubble(who, ...kids) {
-        const b = h('div.bubble.' + who, kids);
+        const b = h('div.bubble.' + who.replace(/ /g, '.'), kids);
         log.appendChild(b); history.push(b);
         while (history.length > 40) history.shift().remove();
         b.scrollIntoView({ block: 'end', behavior: 'smooth' });
@@ -142,9 +147,19 @@
         for (const a of US.actions.list()) for (const e of (a.examples || []).slice(0, 1)) { if (!per.has(a.tool)) per.set(a.tool, 0); if (per.get(a.tool) < 2) { ex.push(e); per.set(a.tool, per.get(a.tool) + 1); } }
         return ex.slice(0, n);
       }
+      const ASK_EXAMPLES = ['Every story about family, in the order it happened', 'Where do the interviewees disagree?', 'A 45-second opening about why they came', 'Who talks about their parents, and what do they say?', 'The funniest moments, best first'];
+      /** What the AI reads for an ask, and what it costs (the shared transcript). */
+      function readsLine() { try { US.story.loadState(); return US.story.contextLine(); } catch (e) { return ''; } }
       function greet() {
         US.clear(log); history.length = 0;
         const aiOn = US.ai && US.ai.available();
+        if (mode === 'interviews') {
+          const earlier = (US.story && US.story.asks ? (() => { try { return US.story.asks(); } catch (e) { return []; } })() : []).slice(0, 4);
+          bubble('bot', h('div', 'Ask anything about what your interviews say. I answer in words and with clips, grouped – nothing changes in Premiere until you choose how it lands.'), chips(ASK_EXAMPLES),
+            aiOn ? h('div.field-hint', readsLine() || 'Only the text of the transcripts is sent – never footage.') : h('div.field-hint', 'This needs AI: add a Claude or Gemini key in Settings.'),
+            earlier.length ? h('div', h('div.field-hint', 'Earlier:'), h('div.chat-chips', earlier.map(a => h('button.chip', { onclick: () => { bubble('me', a.request); showAsk(a); } }, US.storyAsk.title(a.request))))) : null);
+          return;
+        }
         bubble('bot', h('div', 'Hi! I can run any JMG Ultra Studio tool for you. Try one of these:'), chips(exampleChips()),
           h('div.field-hint', aiOn ? `Anything else goes to ${US.ai.label()} (only your words are sent – never footage).` : 'These work without any AI. Add a Claude or Gemini key in Settings and I’ll understand free-form requests too.'));
       }
@@ -155,6 +170,7 @@
         input.value = '';
         bubble('me', text);
         if (/^(help|what can you do\??|\?)$/i.test(text)) { showAll(); return; }
+        if (mode === 'interviews') { runAsk(text); return; }
         const off = matchOffline(text);
         if (off.steps.length) { showPlan({ reply: 'Here’s what I’ll do:', steps: off.steps }); return; }
         if (off.alternatives.length > 1) {
@@ -167,6 +183,8 @@
           thinking.remove();
           if (!plan) { bubble('bot', h('div', 'I couldn’t reach the AI just now. The built-in commands still work:'), chips(exampleChips(6))); return; }
           if (!plan.steps.length) { bubble('bot', h('div', plan.reply || 'I can’t do that with the tools I have.'), suggest(text).length ? chips(suggest(text).map(x => x.ex)) : null); return; }
+          // a question about the interviews changes nothing: answer it straight away
+          if (plan.steps.length === 1 && plan.steps[0].action === 'story.ask') { runAsk(plan.steps[0].params.request || text); return; }
           showPlan(plan);
           return;
         }
@@ -202,10 +220,20 @@
             const r = await US.actions.run(steps[i].action, steps[i].params);
             if (r === undefined) { status.textContent = `Stopped at step ${i + 1}. Nothing after it ran.`; bubble('bot', h('div', `Step ${i + 1} didn’t finish – see the message above. ${i ? 'The earlier steps are done.' : ''}`)); return; }
             bubble('bot', h('div.done', US.icon('ok', 15), h('span', `${describeStep(steps[i]).title}: ${r.summary || 'done'}`)));
+            if (r.ask) showAsk(r.ask);
           }
           status.textContent = 'All done.';
         });
       }
+
+      /** Ask the interviews (or follow up an earlier answer) and show the answer card. */
+      async function runAsk(text, askId = null) {
+        const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai && US.ai.available() ? US.ai.label() : 'The AI'} is reading your interviews…`)));
+        const r = await US.jobs.run({ title: askId ? 'Changing the answer' : 'Asking your interviews', tool: 'assistant', who: US.jobs.WHO.ai }, job => US.story.askInterviews(job, { request: text, askId }));
+        thinking.remove();
+        if (r && r.ask) showAsk(r.ask);
+      }
+      function showAsk(a) { bubble('bot wide', US.story.askCard(a, { onRefine: t => { bubble('me', t); runAsk(t, a.id); } })); }
 
       greet();
       return { el: v.el, onShow() { if (!history.length) greet(); setTimeout(() => input.focus(), 50); } };

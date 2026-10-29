@@ -15,3 +15,15 @@
 .bubble .done { display: flex; gap: 6px; align-items: flex-start; }
 .bubble .done .icon { color: var(--ok); margin-top: 1px; }
 .spinner.small { width: 14px; height: 14px; margin: 0; border-width: 2px; }
+/* Ask › My interviews: the mode switch and the answer card */
+.chat-mode { margin-bottom: 8px; }
+.bubble.wide { max-width: 100%; align-self: stretch; }
+.ask-card { display: flex; flex-direction: column; gap: 8px; }
+.ask-answer { white-space: pre-wrap; line-height: 1.45; }
+.ask-totals { font-weight: 600; }
+.ask-group .story-q-head .icon-btn { flex: none; opacity: 0.6; }
+.ask-group .story-q-head .icon-btn:hover { opacity: 1; }
+.ask-moves { display: flex; flex-direction: column; flex: none; }
+.ask-moves .icon-btn { height: 16px; }
+.ask-landing { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--bg); }
+.ask-refine { margin-top: 4px; }

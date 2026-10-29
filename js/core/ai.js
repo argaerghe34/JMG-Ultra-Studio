@@ -74,9 +74,10 @@
 
   /** Rough cost before sending: ~3.6 characters per token for English; output allowance grows with effort (thinking). */
   function blocksText(x) { return Array.isArray(x) ? x.map(b => (typeof b === 'string' ? b : b.text || '')).join('\n') : (x && typeof x === 'object' ? x.text || '' : String(x || '')); }
-  function estimate({ system, user, maxTokens = 16000, effort = 'low', expectedOutput, model } = {}) {
+  const turnsText = turns => (turns || []).map(t => String(t.assistant || '') + String(t.user || '')).join('');
+  function estimate({ system, user, turns, maxTokens = 16000, effort = 'low', expectedOutput, model } = {}) {
     const m = model || claudeModel(), p = MODELS[m];
-    const inTok = Math.ceil((blocksText(system).length + blocksText(user).length) / 3.6) + 50;
+    const inTok = Math.ceil((blocksText(system).length + blocksText(user).length + turnsText(turns).length) / 3.6) + 50;
     const cached = [].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []).filter(b => b && b.cache);
     // a block Claude still holds is read at the cache price; one it doesn't is written (5 minutes 1.25×, an hour 2×)
     const now = Date.now(), tok = b => Math.ceil((b.text || '').length / 3.6);
@@ -170,16 +171,18 @@
     // cache: true = 5 minutes (write costs 1.25× input); cache: '1h' = an hour (write 2×) for listings reused across an editing session
     return x.map(b => typeof b === 'string' ? { type: 'text', text: b } : Object.assign({ type: 'text', text: b.text }, b.cache ? { cache_control: b.cache === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' } } : {}));
   }
-  async function claude({ system, user, schema, maxTokens = 16000, effort = 'low', feature }) {
+  /** turns: earlier rounds of the same conversation after the first message, [{assistant, user}] (a follow-up keeps the
+      cached first message, so the transcripts in it are read from the cache). */
+  async function claude({ system, user, turns, schema, maxTokens = 16000, effort = 'low', feature }) {
     const key = US.secrets.get('anthropicKey');
     if (!key) throw new US.UserError('AI_KEY');
     const model = claudeModel(), price = MODELS[model];
-    await checkSpend(estimate({ system, user, maxTokens, effort, model }), feature);
+    await checkSpend(estimate({ system, user, turns, maxTokens, effort, model }), feature);
     const body = {
       model,
       max_tokens: maxTokens,
       system: Array.isArray(system) || (system && typeof system === 'object') ? toContent([].concat(system)) : system,
-      messages: [{ role: 'user', content: toContent(user) }],
+      messages: [{ role: 'user', content: toContent(user) }].concat((turns || []).flatMap(t => [{ role: 'assistant', content: String(t.assistant) }, { role: 'user', content: String(t.user) }])),
       output_config: Object.assign({ effort }, schema ? { format: { type: 'json_schema', schema } } : {})
     };
     const headers = { 'x-api-key': key, 'anthropic-version': '2026-10-21' };
@@ -223,7 +226,7 @@
     return (r.models || []).map(m => m.name.replace(/^models\//, '')).filter(n => /^gemini-[\d.]+-(flash|pro)/.test(n) && !/tts|image|audio|live|embedding|omni|exp/.test(n))
       .sort((a, b) => ver(b) - ver(a) || a.localeCompare(b));
   }
-  async function gemini({ system, user, schema, maxTokens = 16000, fast, feature }) {
+  async function gemini({ system, user, turns, schema, maxTokens = 16000, fast, feature }) {
     system = blocksText(system); user = blocksText(user);
     const key = US.secrets.get('geminiKey');
     if (!key) throw new US.UserError('AI_KEY');
@@ -231,7 +234,7 @@
     const model = fast ? US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT) : US.settings.get('geminiModel', GEMINI_DEFAULT);
     const body = {
       systemInstruction: { parts: [{ text: system + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '') }] },
-      contents: [{ role: 'user', parts: [{ text: user }] }],
+      contents: [{ role: 'user', parts: [{ text: user }] }].concat((turns || []).flatMap(t => [{ role: 'model', parts: [{ text: String(t.assistant) }] }, { role: 'user', parts: [{ text: String(t.user) }] }])),
       generationConfig: Object.assign({ maxOutputTokens: Math.max(maxTokens, fast ? 256 : 2048) }, schema ? { responseMimeType: 'application/json' } : {})
     };
     const ask = (m, ms) => postJSON('generativelanguage.googleapis.com', `/v1beta/models/${encodeURIComponent(m)}:generateContent`, { 'x-goog-api-key': key }, body, ms);
@@ -297,10 +300,10 @@
     },
     /** JSON answer matching a JSON Schema (objects need additionalProperties:false and required for Claude). */
     /** fast: a quick, short request (the Assistant's plans) – uses Gemini's quick model; Claude is quick at low effort. */
-    async json({ system, user, schema, maxTokens, effort, fast, feature }) {
+    async json({ system, user, turns, schema, maxTokens, effort, fast, feature }) {
       const p = provider();
       if (p === 'none') throw new US.UserError('AI_KEY');
-      const r = p === 'claude' ? await claude({ system, user, schema, maxTokens, effort, feature }) : await gemini({ system, user, schema, maxTokens, fast, feature });
+      const r = p === 'claude' ? await claude({ system, user, turns, schema, maxTokens, effort, feature }) : await gemini({ system, user, turns, schema, maxTokens, fast, feature });
       return parseJSON(r.text);
     },
     /** Quick check that a key works. */
