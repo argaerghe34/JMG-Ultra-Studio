@@ -1155,13 +1155,15 @@
   /**
    * The lines a narrative is made from: your selects (themes as chosen by How picky, board cards) plus lines on the topic
    * that aren't selected yet (Find more, also as chosen by How picky). Interviewer lines and lines too long for the
-   * length are left out. -> [{id, rel, strength, heart, from:[…]}] best first
+   * length are left out. only: the lines heard in a timeline – then the story is made from those alone (no themes, no
+   * Find more). -> [{id, rel, strength, heart, from:[…]}] best first
    */
-  async function narrativePool(job, brief, { useAI = false, max = 120, maxLen = Math.max(8, brief.seconds * 0.5), reads = 120 } = {}) {
-    const from = new Map(), scoped = await linesInScope(job), inScope = new Set(scoped.map(l => l.id));
+  async function narrativePool(job, brief, { useAI = false, max = 120, maxLen = Math.max(8, brief.seconds * 0.5), reads = 120, only = null } = {}) {
+    const from = new Map(), scoped = only || await linesInScope(job), inScope = new Set(scoped.map(l => l.id));
     const add = (id, src) => { if (!lineById.has(id) || !inScope.has(id)) return; if (!from.has(id)) from.set(id, []); if (!from.get(id).includes(src)) from.get(id).push(src); };
-    for (const th of state.themes) if (th.name !== 'Other') for (const id of effectiveLines(th)) add(id, th.name);
-    if (BOARD) {
+    if (only) for (const l of only) add(l.id, 'timeline');
+    else for (const th of state.themes) if (th.name !== 'Other') for (const id of effectiveLines(th)) add(id, th.name);
+    if (BOARD && !only) {
       for (const c of state.wall.columns) if (!c.narrative && !c.moments) for (const k of c.cards) if (k.lineId && !k.hidden) add(k.lineId, 'board');
       for (const l of state.wall.loose || []) if (l.card.lineId && !l.card.hidden) add(l.card.lineId, 'board');
     }
@@ -1175,7 +1177,7 @@
       const stems = new Set(brief.topic.toLowerCase().split(/[^a-z0-9']+/).filter(w => w.length > 2).map(w => T.stem(w)));
       const onTopic = new Set(state.themes.filter(th => `${th.name} ${th.query || ''} ${(th.keywords || []).join(' ')}`.toLowerCase().split(/[^a-z0-9']+/).some(w => w.length > 2 && stems.has(T.stem(w)))).map(th => th.name));
       relOf = id => Math.max(rel.get(id) || 0, from.get(id).some(n => onTopic.has(n)) ? 0.6 : 0.1);
-      const more = await findMore(job, brief.topic, { useAI, exclude: new Set(from.keys()), limit: 80, feature: 'Narrative cut' });
+      const more = only ? [] : await findMore(job, brief.topic, { useAI, exclude: new Set(from.keys()), limit: 80, feature: 'Narrative cut' });
       const mrel = new Map(more.map(x => [x.line.id, x.rel]));
       for (const id of pickLines(more.map(x => x.line.id), { relOf: id => mrel.get(id), groupOf: interviewOf, opts: pickyFor(null) })) { add(id, 'find more'); rel.set(id, Math.max(rel.get(id) || 0, mrel.get(id) * 0.9)); }
     }
@@ -1244,14 +1246,27 @@
     ensureColours(); saveNow();
     return col;
   }
-  /** Brief -> narrative on the board. -> {narrative, column, brief, summary} */
-  async function makeNarrative(job, { brief: text, useAI = false }) {
+  /** The transcript lines heard in a sequence, each once, in timeline order. -> {name, lines} */
+  async function timelineLines(job, seqId) {
+    const tl = await timelineTranscript(job, { seqId, tracks: 'auto' }), seen = new Set(), lines = [];
+    for (const e of tl.result.entries.slice().sort((a, b) => a.start - b.start)) if (!seen.has(e.lineId) && lineById.has(e.lineId)) { seen.add(e.lineId); lines.push(lineById.get(e.lineId)); }
+    if (!lines.length) throw new US.UserError('NOTHING_FOUND', { title: `There are no interview lines in “${tl.info.name}”.`, action: tl.result.entries.length ? 'Choose a sequence with your interview clips in it.' : `The clips in this sequence have no transcripts yet – ${READ_FIRST}.` });
+    return { name: tl.info.name, lines };
+  }
+  /**
+   * Brief -> narrative on the board. seqId: make it only from the lines heard in that timeline (a selects sequence or a
+   * rough cut) instead of your themes and other lines on the topic. -> {narrative, column, brief, summary}
+   */
+  async function makeNarrative(job, { brief: text, useAI = false, seqId = '' }) {
     await ready(); loadState();
-    const brief = Object.assign(N().parseBrief(text), { context: String(state.narrativeContext || '') }), L = lookOptions(), ai = !!(useAI && US.ai && US.ai.available()), reads = ai ? readsFor('narrative') : 120;
+    const brief = Object.assign(N().parseBrief(text), { context: String(state.narrativeContext || '') }), L = lookOptions(), ai = !!(useAI && US.ai && US.ai.available());
+    const tl = seqId ? await timelineLines(job, seqId) : null;
+    const reads = ai ? (tl ? Math.min(readsFor('narrative'), tl.lines.length) : readsFor('narrative')) : 120;
     if (ai && US.ai.approveTotal) { const p = readsPlan('narrative', reads); await US.ai.approveTotal(p.usd, `Narrative cut (${US.plural(p.requests, 'request')})`); }
-    job.set({ who: 'computer', msg: brief.topic ? `Gathering lines about “${brief.topic}”` : 'Gathering your selects' });
+    job.set({ who: 'computer', msg: tl ? `Gathering the lines in “${tl.name}”` : brief.topic ? `Gathering lines about “${brief.topic}”` : 'Gathering your selects' });
     // with AI the pool doesn't depend on the length (lines up to 45 s), so another length on the same topic sends the same listing
-    const pool = await narrativePool(job, brief, Object.assign({ useAI: ai && (reads > 150 || US.settings.get('story.moreAI', true)), reads }, ai ? { maxLen: 45 } : {}));
+    const pool = await narrativePool(job, brief, Object.assign({ useAI: ai && (reads > 150 || US.settings.get('story.moreAI', true)), reads, only: tl ? tl.lines : null }, ai ? { maxLen: 45 } : {}));
+    if (!pool.length && tl) throw new US.UserError('NOTHING_FOUND', { title: brief.topic ? `None of the lines in “${tl.name}” are about “${brief.topic}”.` : `None of the lines in “${tl.name}” can be used.`, action: 'Try other words, or choose another timeline – interviewer lines and very long lines are left out.' });
     if (!pool.length) throw new US.UserError('NOTHING_FOUND', brief.topic ? { title: `There are no lines about “${brief.topic}” yet.`, action: 'Try other words, or find themes first.' } : { title: 'There are no selects to make a story from yet.', action: 'Find themes first – or say what the video is about.' });
     const lineOf = id => lineById.get(id);
     const nar = ai
@@ -1260,9 +1275,10 @@
     // the whole shortlist, best first: more alternatives than the AI named can follow from it
     pool.ranked = pool.slice().sort((a, b) => (b.rel * 0.6 + b.strength * 0.4) - (a.rel * 0.6 + a.strength * 0.4)).map(c => c.id);
     const col = narrativeColumn(nar, brief, pool.length, pool);
+    if (tl) { col.narrative.timeline = tl.name; saveNow(); }
     const secs = N().total(nar.beats, L.handles);
     const short = (secs < brief.seconds * 0.9 ? ' – it came out shorter: add more selects or try a broader topic' : '') + (pool.missing && pool.missing.length ? ` · ${SAI().missingNote(pool.missing)}` : '');
-    return { narrative: nar, column: col, brief, summary: `“${nar.title}” – ${US.plural(nar.beats.length, 'line')}, ${US.fmtDur(secs)} (asked for ${fmtSecs(brief.seconds)}${short})${nar.by === 'basic' ? ' · basic version (no AI)' : ''} – ${BOARD ? 'on the board' : 'saved'} as “${col.name}”` };
+    return { narrative: nar, column: col, brief, summary: `“${nar.title}” – ${US.plural(nar.beats.length, 'line')}, ${US.fmtDur(secs)} (asked for ${fmtSecs(brief.seconds)}${short})${nar.by === 'basic' ? ' · basic version (no AI)' : ''} – ${BOARD ? 'on the board' : 'saved'} as “${col.name}”${tl ? ` · from the lines in “${tl.name}”` : ''}` };
   }
   /**
    * A narrative group as build groups: Hook, Build, Payoff (by position, so rearranging on the board counts), each line in
@@ -2889,11 +2905,11 @@
         el.appendChild(nextBar('build'));
       }
       /* narrative from a brief */
-      let narBrief = US.settings.get('story.brief', ''), narAI = US.settings.get('story.narrativeAI', true);
+      let narBrief = US.settings.get('story.brief', ''), narAI = US.settings.get('story.narrativeAI', true), narFrom = US.settings.get('story.narrativeFrom', 'selects'), narSeqs = null;
       function narrativeCard() {
-        const aiOn = US.ai && US.ai.available(), useAI = !!(aiOn && narAI);
+        const aiOn = US.ai && US.ai.available(), useAI = !!(aiOn && narAI), fromTL = narFrom === 'timeline';
         const parsed = h('div.field-hint.story-brief-parsed');
-        const showParsed = x => { const b = N().parseBrief(x); parsed.textContent = x.trim() ? `${fmtSecs(b.seconds)}${b.said ? '' : ' (no length given)'} · ${b.topic ? `about “${b.topic}”` : 'from all your selects'}${b.tone ? ` · ${b.tone}` : ''}` : 'Say how long and what it’s about.'; };
+        const showParsed = x => { const b = N().parseBrief(x); parsed.textContent = x.trim() ? `${fmtSecs(b.seconds)}${b.said ? '' : ' (no length given)'} · ${b.topic ? `about “${b.topic}”` : fromTL ? 'from every line in the timeline' : 'from all your selects'}${b.tone ? ` · ${b.tone}` : ''}` : 'Say how long and what it’s about.'; };
         const input = ui.input({ value: narBrief, placeholder: 'e.g. a 60-second video about how the community looks after each other', onInput: x => { narBrief = x; US.settings.set('story.brief', x); showParsed(x); }, onEnter: () => go() });
         showParsed(narBrief);
         // the client's wishes: emails, briefs, documents pasted in – kept with this project, read with the brief
@@ -2909,11 +2925,28 @@
         } });
         const ctxClear = ui.button('Clear', { small: true, kind: 'ghost', onClick: () => { ctxBox.value = ''; state.narrativeContext = ''; saveNow(); ctxSay(); } });
         ctxSay();
-        const go = () => { if (!narBrief.trim()) { input.focus(); return; } US.actions.run('story.narrative', { brief: narBrief, useAI }).then(r => { if (r) renderBuild(); }); };
+        // where the lines come from: your themes (and other lines on the topic), or a timeline – a selects sequence or a rough cut
+        const from = ui.segmented({ options: [{ value: 'selects', label: BOARD ? 'Your selects' : 'Your themes', title: 'Your themes as chosen by How picky, plus other lines on the topic' }, { value: 'timeline', label: 'A timeline', title: 'Only the interview lines heard in a sequence you choose' }], value: narFrom, onChange: x => { narFrom = x; US.settings.set('story.narrativeFrom', x); renderBuild(); } });
+        let seqBox = null;
+        if (fromTL) {
+          if (!state.narrativeSeq && US.ctx.sequence) state.narrativeSeq = US.ctx.sequence.id;
+          const sel = ui.select({ options: [], placeholder: 'Choose a timeline…', onChange: x => { state.narrativeSeq = x; saveNow(); } });
+          const fill = seqs => { narSeqs = seqs; if (!seqs.some(q => q.id === state.narrativeSeq)) state.narrativeSeq = (US.ctx.sequence && US.ctx.sequence.id) || ''; sel.setOptions(seqs.map(q => ({ value: q.id, label: q.name + (US.ctx.sequence && q.id === US.ctx.sequence.id ? '  (open)' : '') })), state.narrativeSeq || ''); };
+          if (narSeqs) fill(narSeqs);
+          US.host.call('listSequences').then(fill).catch(() => {});
+          seqBox = h('div', ui.field('Timeline', sel), h('div.field-hint', 'Story reads which interview lines are heard in it – a selects sequence, a string-out of your picks or a rough cut – and makes the story only from those, whatever your themes are. It reads the timeline again each time, so changes to it count.'));
+        }
+        const go = () => {
+          if (!narBrief.trim()) { input.focus(); return; }
+          if (fromTL && !state.narrativeSeq) { ui.toast({ type: 'warn', title: 'Choose the timeline first.' }); return; }
+          US.actions.run('story.narrative', { brief: narBrief, useAI, seqId: fromTL ? state.narrativeSeq : '' }).then(r => { if (r) renderBuild(); });
+        };
         const latest = latestNarrative();
         return h('div.card', { dataset: { section: 'narrative' } }, h('div.card-title', 'Narrative from a brief'),
-          h('div.muted', BOARD ? 'Describe the video and Story puts a story together from your interviews – a hook, the build and a payoff – fitted to the length. It uses your selects (themes and the board, as chosen by How picky) and other lines on the topic. It lands on the board as a new group, so you can rearrange it before building.'
+          h('div.muted', fromTL ? `Describe the video and Story puts a story together from the lines in your timeline – a hook, the build and a payoff – fitted to the length.${BOARD ? ' It lands on the board as a new group, so you can rearrange it before building.' : ''}`
+            : BOARD ? 'Describe the video and Story puts a story together from your interviews – a hook, the build and a payoff – fitted to the length. It uses your selects (themes and the board, as chosen by How picky) and other lines on the topic. It lands on the board as a new group, so you can rearrange it before building.'
             : 'Describe the video and Story puts a story together from your interviews – a hook, the build and a payoff – fitted to the length. It uses your themes (as chosen by How picky) and other lines on the topic, from what you chose to work on.'),
+          ui.field('Lines from', from), seqBox,
           input, parsed,
           ui.field('Client notes and context', ctxBox, h('span', ctxInfo)), h('div.row', ctxLoad, ctxClear),
           aiOn ? ui.toggle({ label: `Let ${US.ai.label()} shape the story`, hint: 'It chooses the order, tightens lines by a few words and says what each one does. Only the text of your lines is sent.', value: narAI, onChange: x => { narAI = x; US.settings.set('story.narrativeAI', x); renderBuild(); } }) : null,
@@ -2929,7 +2962,7 @@
         return h('div.story-narrative', { style: { borderLeftColor: labelHex(columnLabel(col)) } },
           h('div.row', h('b.grow', nar.title), ui.pill(nar.by === 'ai' ? 'AI' : 'basic – no AI', nar.by === 'ai' ? 'var(--accent-hi)' : 'var(--text-2)')),
           nar.logline ? h('div.field-hint', nar.logline) : null,
-          h('div.field-hint', `${BOARD ? 'On the board as' : 'Saved as'} “${col.name}” · ${US.plural(cards.length, 'line')} · ${US.fmtDur(total)} (asked for ${fmtSecs(nar.seconds)}${Math.abs(off) > 0.1 ? ` – ${Math.round(Math.abs(off) * 100)}% ${off > 0 ? 'over' : 'under'}` : ''})`),
+          h('div.field-hint', `${BOARD ? 'On the board as' : 'Saved as'} “${col.name}”${nar.timeline ? ` · from the lines in “${nar.timeline}”` : ''} · ${US.plural(cards.length, 'line')} · ${US.fmtDur(total)} (asked for ${fmtSecs(nar.seconds)}${Math.abs(off) > 0.1 ? ` – ${Math.round(Math.abs(off) * 100)}% ${off > 0 ? 'over' : 'under'}` : ''})`),
           h('ol.story-beats', cards.map((k, i) => {
             const l = lineById.get(k.lineId), tr = trimOf(k), act = acts ? (i === 0 ? 'Hook' : i === cards.length - 1 ? 'Payoff' : 'Build') : '';
             return h('li.story-beat', h('div.story-beat-main', h('div.story-beat-purpose', act ? h('b', act) : null, act && k.note ? ' – ' : '', k.note || ''), h('div.story-text', `“${tr ? tr.text : l.text}”`),
@@ -3286,7 +3319,8 @@
   US.actions.register({
     id: 'story.narrative', tool: 'story', title: 'Make a narrative from a brief', changes: false,
     describe: 'Turns a brief like “a 60-second video about how the community looks after each other” into a story told by the interviews – hook, build, payoff – fitted to the length (15 s to 10 min), from your selects and other lines on the topic. It is saved in Story › Build; build it with story.build source "narrative".',
-    params: { brief: { type: 'string', default: '', desc: 'The brief in the user’s words, including the length and topic' }, useAI: { type: 'boolean', default: false, desc: 'Let the AI shape the story (only line text is sent); otherwise the basic version' } },
+    params: { brief: { type: 'string', default: '', desc: 'The brief in the user’s words, including the length and topic' }, useAI: { type: 'boolean', default: false, desc: 'Let the AI shape the story (only line text is sent); otherwise the basic version' },
+      seqId: { type: 'string', default: '', desc: 'Make it only from the lines heard in this sequence (a selects timeline or rough cut) instead of the themes; empty = your themes and other lines on the topic' } },
     examples: ['make a 60 second video about community', 'cut a 2 minute story about faith and family', 'create a 30s promo about the youth club'],
     match(t) {
       if (/\b(beats?|music|songs?|tracks?|bins?|silences?|captions?|subtitles?|transcripts?|safe ?zones?|vertical|social versions?|wall|board|picked|themes?|paper[- ]?edit)\b/i.test(t)) return null; // other tools' jobs
@@ -3299,7 +3333,7 @@
     },
     run: async (p, job) => {
       await ready(); needLines();
-      const r = await makeNarrative(job, { brief: p.brief, useAI: p.useAI });
+      const r = await makeNarrative(job, { brief: p.brief, useAI: p.useAI, seqId: p.seqId || '' });
       openStory('build', { section: 'narrative' });
       return r;
     }

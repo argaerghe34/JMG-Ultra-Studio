@@ -189,3 +189,36 @@ test('the Assistant understands narrative briefs and “build the narrative”',
   assert.notStrictEqual(m('make a 30 second montage of the Selects bin to this track').action, 'story.narrative');
   assert.notStrictEqual(m('lines about volunteering').action, 'story.narrative');
 });
+
+test('from a timeline: the story uses only the lines heard in the chosen sequence – not the themes, not Find more', async () => {
+  const st = fresh(), t = st.transcripts[2], end = Math.min(t.lines[t.lines.length - 1].end, 240);
+  const clip = { name: 'Interview_Miriam_Levy.mov', path: t.path, itemId: 'm', disabled: false, isSequence: false, speed: 1, start: 0, end, in: 0, out: end };
+  const INFO = { id: 'sel1', name: 'Miriam selects', fps: 25, frame: 0.04, video: [{ index: 0, name: 'V1', clips: [clip] }], audio: [{ index: 0, name: 'A1', muted: false, clips: [clip] }], markers: [] };
+  const was = US.host.call, asked = [];
+  US.host.call = async (fn, a) => { asked.push(fn); return fn === 'sequenceInfo' ? JSON.parse(JSON.stringify(INFO)) : fn === 'storySequenceTiming' ? { zero: 0, fps: 25 } : {}; };
+  try {
+    const heard = new Set(t.lines.filter(l => l.start < end && l.end > 0).map(l => l.id));
+    const r = await S.makeNarrative(job, { brief: 'a 60 second video', seqId: 'sel1' });
+    assert.ok(asked.includes('sequenceInfo'), 'the timeline is read');
+    assert.ok(r.narrative.beats.length, 'a story was made');
+    assert.ok(r.narrative.beats.every(b => heard.has(b.lineId)), 'every line is in the timeline');
+    const col = S.latestNarrative();
+    assert.strictEqual(col.narrative.timeline, 'Miriam selects');
+    assert.ok(S.narrativeAlternates(col, Infinity).every(a => heard.has(a.lineId)), 'alternatives come from the timeline too');
+    assert.ok(/from the lines in “Miriam selects”/.test(r.summary), r.summary);
+    // with AI: only the timeline's lines are sent
+    const other = st.transcripts[0].lines.find(l => l.text.length > 30);
+    await withAIStub(async calls => {
+      await S.makeNarrative(job, { brief: 'a 60 second video about family', seqId: 'sel1', useAI: true }).catch(() => {});
+      const sent = JSON.stringify(calls);
+      assert.ok(calls.length, 'the AI was asked');
+      assert.ok(!sent.includes(other.text.slice(0, 30)), 'nothing from interviews outside the timeline');
+    }, { phrases: [], picks: [], groups: [], title: 'T', logline: '', beats: [], alternates: [] });
+    // the action passes the timeline through
+    const a = US.actions.get('story.narrative');
+    assert.ok(a.params.seqId, 'the Assistant can ask for a timeline');
+    // a timeline with no interview clips says so
+    INFO.video[0].clips = []; INFO.audio[0].clips = [];
+    await assert.rejects(S.makeNarrative(job, { brief: 'a 60 second video', seqId: 'sel1' }), e => /no interview lines in “Miriam selects”/.test(e.title || e.message));
+  } finally { US.host.call = was; }
+});

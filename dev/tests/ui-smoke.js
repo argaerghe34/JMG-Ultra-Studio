@@ -111,6 +111,16 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   if (beats !== nr.column.cards.length || !/Hook/.test(tool.el.querySelector('.story-narrative').textContent)) errors.push(`narrative shows ${beats} beats of ${nr.column.cards.length}`);
   if (/board/i.test(tool.el.querySelector('.story-narrative').textContent)) errors.push('the narrative still mentions the board');
   checks.push(`narrative: ${beats} beats (${nr.summary.slice(0, 60)}…)`);
+  // the narrative can come from a timeline: a Lines from switch, and a timeline picker once it's chosen
+  const narCard = () => tool.el.querySelector('[data-section="narrative"]');
+  const tlBtn = Array.from(narCard().querySelectorAll('button')).find(b => b.textContent.trim() === 'A timeline');
+  if (!tlBtn) errors.push('narrative: no “A timeline” choice');
+  else {
+    tlBtn.click(); await new Promise(r => setTimeout(r, 40));
+    if (!/Timeline/.test(narCard().textContent) || !narCard().querySelector('select')) errors.push('narrative: no timeline picker');
+    const back = Array.from(narCard().querySelectorAll('button')).find(b => b.textContent.trim() === 'Your themes');
+    if (back) { back.click(); await new Promise(r => setTimeout(r, 40)); }
+  }
   // Share: paper edits of the themes and the narrative
   tool.onShow({ tab: 'timeline' }); await new Promise(r => setTimeout(r, 20));
   const shareBtns = Array.from(tool.el.querySelectorAll('.story-pane:not(.hidden) .btn')).map(b => b.textContent);
