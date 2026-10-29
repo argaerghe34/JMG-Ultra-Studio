@@ -524,3 +524,15 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   29/29 → **v1.3.4** for both (Premiere 22:32, Resolve 22:40). Test project now has a real adjustment layer (made via
   File › New while the Mac was unlocked). Resolve on the Mac now has the real 1.3.4 install (dev link removed at
   Jacob's request) – for Resolve e2e again: quit Resolve, `dev/resolve/link-dev.sh`, reopen it and the panel.
+- **29 Oct (unreleased, branch `story-questions`, tried in Jacob's Premiere via `dev/try-in-premiere.sh`):** Story ›
+  Find › Questions; Ask › My interviews (answers in words + grouped clips, edited, then built / marked / themes / Word,
+  follow-ups); one shared transcript for every Story AI request (same system text, transcript block cached an hour,
+  one answer format – measured: a different `output_config.format` breaks Claude's cache sharing, a different effort
+  doesn't); narrative client notes and up to all shortlisted alternatives; keep clips in filmed order; Deliver: client
+  notes out, any video track or a new top one, colour drop-down; B-roll and Sound hidden (Settings code shows them);
+  Gemini model named (latest Flash = 3.8); usage per API key; three quick clicks on Stop stop at once; “unpublished”
+  tag. **▶ fixed for camera timecode:** in Premiere 26.5.2 the Source Monitor counts from the clip's first frame, not
+  its media timecode – a QE `scrubTo` in camera timecode is echoed back by `getPosition()` but the playhead stays at
+  frame 0 and plays from there (measured on Jacob's clips starting 19:39:28:20). Story ▶ and Selects' preview now jump
+  from the first frame (camera timecode only as a fallback); verified on his footage (16:48 and 2:00 both play from the
+  line). The test media all start at 00:00:00:00, so the e2e never saw it – a camera-timecode clip in the e2e is due.
