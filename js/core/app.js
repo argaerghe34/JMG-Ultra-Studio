@@ -107,7 +107,7 @@
     els.ctxProject = h('div.ctx-chip', { title: 'Open project' }, US.icon('folder', 13), h('span', '…'));
     els.ctxSeq = h('div.ctx-chip', { title: 'Active sequence' }, US.icon('film', 13), h('span', '…'));
     const header = h('div.header',
-      h('div.brand', h('div.brand-mark', 'JU'), h('div.brand-name', 'JMG Ultra Studio')),
+      h('div.brand', h('div.brand-mark', 'JU'), h('div.brand-name', 'JMG Ultra Studio', h('small', { title: 'Version' }, `v${US.version}`))),
       h('div.ctx', els.ctxProject, els.ctxSeq),
       h('button.icon-btn', { title: 'Activity log', onclick: () => toggleLog() }, US.icon('log', 16)),
       h('button.icon-btn', { title: 'Settings', onclick: () => open('settings') }, US.icon('gear', 16)));
