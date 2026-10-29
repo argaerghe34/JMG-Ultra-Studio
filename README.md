@@ -9,11 +9,11 @@ can be on different versions – the table below always says where each one is.
 
 | | Premiere Pro (Mac + Windows) | DaVinci Resolve Studio (Mac + Windows) |
 |---|---|---|
-| **Latest release** | **1.3.4** | **1.3.4** |
-| **Tested** | Mac: full test suite in Premiere 26.5 (30/30). Windows: 1.3.2 tested on the PC; 1.3.3/1.3.4 to check ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). | Mac: full test suite in Resolve Studio 21.1.2 (29/29). Windows: not yet tested ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). |
-| **In this version** | Song Splitter adjustment layers (numbered, colour-coded); Deliver render ranges from any layer track, one colour only, editable in the panel, refreshing by themselves, with a file-name ending | The same – with coloured range markers in place of adjustment layers |
+| **Latest release** | **1.3.5** | **1.3.5** |
+| **Tested** | Mac: tried in Premiere 26.5.2 on a real project (Questions, Find more, building, ▶ on camera-timecode footage, Deliver), 372 unit tests and the headless screen tests. The full Premiere e2e suite wasn't run again for 1.3.5 (Premiere was in use); 1.3.4 passed 30/30. Windows: to check ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13), [#14](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/14)). | Mac: unit tests against a stand-in Resolve only – 1.3.5 not yet tried in Resolve itself (1.3.4 passed 29/29 in Resolve Studio 21.1.2). Windows: not yet tested ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). |
+| **In this version** | Ask › My interviews; Story › Find › Questions; interviews read once and shared (cheaper AI); narrative client notes and alternative selects; Select all and a named new sequence; keep clips in filmed order; Build all on/off; highlight markers on clips; Deliver render ranges on any track or a new top one, colour drop-down, Client notes removed; ▶ fixed for camera timecode; three-click Stop; AI status and usage by key | The same – Ask's group names as markers, render ranges as range-marker groups (no new track needed) |
 | **Next** | Your next notes | Your next notes |
-| **Paused in both** | Colour, Camera Switch | Colour, Camera Switch |
+| **Paused in both** | Colour, Camera Switch, B-roll, Sound Check | Colour, Camera Switch, B-roll, Sound Check |
 
 **What's different in Resolve** (because of what Resolve lets add-ons do – full list in [`dev/RESOLVE.md`](dev/RESOLVE.md)):
 - Story reads transcript files, or has Resolve transcribe the selected clips (**Transcribe with Resolve**: phrase by phrase, no speaker names). Captions go into the Media Pool for you to drag onto the timeline.

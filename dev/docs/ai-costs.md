@@ -2,6 +2,8 @@
 
 Everything in JMG Ultra Studio works without AI. A key makes Story's themes (yours and the ones it finds, in one pass), Find more, the narrative cut and Moments smarter, and lets the Assistant understand anything. Only text is ever sent – transcript lines and your request, never footage.
 
+**From 1.3.5: read once.** With Claude, Story's AI features and Ask all start from the same copy of the transcripts you're working on, kept by Claude for an hour. The first request of the hour pays to store it (about twice the normal price for that part); every request after reads it at a twentieth. For example 50,000 tokens of transcript on Opus 5.5: about 40¢ the first time, then about 1¢ a request, plus each answer. The table below was measured before 1.3.5, when each feature sent its own selection of lines.
+
 **Measured on your FJL Summer 2026 project** (54 interviews, about 14 hours, 7,237 lines). These are estimates from the exact text Ultra Studio would send; answers are usually shorter than allowed for, so real costs tend to be a little lower.
 
 | What you do | Opus 5.5 (best) | Asked again soon after | Sonnet 5.5 | Haiku 5.5 |

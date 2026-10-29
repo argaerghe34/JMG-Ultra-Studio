@@ -204,6 +204,7 @@
   }
   let tick = null;
   US.bus.on('job', job => {
+    if (!els.status) return;   // no screen yet (start-up, tests)
     clearTimeout(resultTimer);
     els.status.className = 'status running';
     els.statusWho.textContent = US.say(job.who);
@@ -217,8 +218,9 @@
     const left = !job.indeterminate && isFinite(job.eta) && job.frac > 0.03 ? ' · ' + US.fmtEta(job.eta) + ' left' : '';
     els.statusTime.textContent = [pct, US.fmtDur(job.elapsed)].filter(Boolean).join(' · ') + left;
   }
-  US.bus.on('jobstart', job => { if (els.stopLabel) els.stopLabel.textContent = 'Stop'; clearInterval(tick); tick = setInterval(() => { if (US.jobs.current) renderTime(US.jobs.current); }, 500); markRailBusy(job.tool, true); });
+  US.bus.on('jobstart', job => { if (!els.status) return; if (els.stopLabel) els.stopLabel.textContent = 'Stop'; clearInterval(tick); tick = setInterval(() => { if (US.jobs.current) renderTime(US.jobs.current); }, 500); markRailBusy(job.tool, true); });
   US.bus.on('jobend', (job, r) => {
+    if (!els.status) return;
     clearInterval(tick); markRailBusy(job.tool, false);
     els.status.className = 'status ' + (r.ok ? 'ok' : r.cancelled ? '' : 'error');
     els.statusWho.textContent = r.ok ? 'Done' : r.cancelled ? 'Stopped' : 'Didn’t finish';

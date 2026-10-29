@@ -1,3 +1,19 @@
+## What's new in 1.3.5
+
+- **Ask about your interviews.** **Ask › My interviews**: ask anything about what your interviews say – *every story about Grandma, in the order it happened*, *where do Ruth and Sam disagree?*, *a 45-second opening about why they came*. You get a short answer and the clips, grouped and whole. Play, reorder, take out, rename and recolour them, then choose how they land: a **new sequence** (grouped and coloured, with markers or name layers), **range markers** on a sequence you have, **themes**, **Word** or text. Type a change under the answer (*shorter*, *leave out Sam*) and it reworks it. Needs AI.
+- **Interview questions.** **Story › 3 Find › Questions**: paste the questions you asked and the AI finds every full answer to each, labelled by question – from where they start answering to where they move on. **Build the answers** or **Save as Word**.
+- **Your interviews are read once.** With Claude, every Story AI feature – themes, Find more, moments, questions, the narrative, Ask – now starts from the same copy of your transcripts, which Claude keeps for an hour. After the first request each one reads them at a twentieth of the price. The line where the *How much the AI reads* slider was shows when Claude has them, and what a request costs.
+- **Narrative from a brief**: a box for the **client's notes** – paste emails, briefs or documents with what they want, and the story follows them. **Alternative selects**: the lines that didn't make the story (the AI says why), from 5 up to all of them, shown under the narrative and, if you like, added at the end of the sequence after the payoff.
+- **Find**: **Select all / Unselect all** on every list, and **Add to a new sequence…** with a name you type.
+- **Keep clips in the order they were filmed** – a switch on every Story build (themes, bins, the narrative, questions, moments, Ask).
+- **Build**: **All on / All off** for the themes to include. **Highlight selects in a string-out** can put markers on the **timeline, the clips, or both**.
+- **Deliver › Render ranges**: choose **any video track** – or **New track on top for render ranges** – and change a range's colour from a drop-down. **Client notes** is gone from Deliver.
+- **▶ plays from the right place on camera footage.** On clips with their own timecode (for example starting 19:39:28:20), ▶ in Story and the preview in Selects played from the start of the clip; now they play from the line.
+- **Stop**: one click stops after the current step; **three quick clicks stop at once**, AI requests included – no need to close the panel.
+- **AI**: the top bar shows which AI is in use, or **No AI**; features that work best with AI say when they're running their basic version, and **Settings › Without AI** explains what still works. Settings names the **Gemini model** (Google's newest Flash, now 3.8 Flash) and lets you pick one, with what the free tier means. **Usage by API key** in Settings › Cost.
+- The version shows in the top bar. **B-roll** and **Sound Check** are paused for now (their code is kept).
+- **In DaVinci Resolve** all of this comes too, with Resolve's differences: Ask's group names are markers or range markers (no name layers), render ranges stay groups of range markers (no new track needed), and ▶ already played lines in the panel itself.
+
 ## What's new in 1.3.4
 
 - **Song Splitter lays adjustment layers above your edit.** On a sequence, **Adjustment layers above the edit** puts each song on a new **Songs** track as an adjustment layer numbered 1, 2, 3…, with the talk and applause too, colour-coded (songs green, talk blue, applause orange).

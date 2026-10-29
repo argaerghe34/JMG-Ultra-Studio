@@ -138,6 +138,14 @@ test('render ranges in Resolve: added in a group and colour, renamed, moved, rec
   assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId, track: 'Songs' })).ranges.length, 0);
   await assert.rejects(S.run('removeRenderRange', { seqId: S.seqId, track: 'Songs', nodeId: id }), x => x.code === 'NOT_FOUND');
 });
+test('a new place for render ranges in Resolve (Premiere: a new top track): a group name no other group has; nothing is made until a range goes in it', async () => {
+  const S = withTimeline();
+  assert.deepStrictEqual(await S.run('addRangeTrack', { seqId: S.seqId, name: 'Renders' }), { index: -1, name: 'Renders', named: true, log: [] });
+  await S.run('addRenderRange', { seqId: S.seqId, name: 'A', start: 1, end: 2, track: 'Renders' });
+  assert.strictEqual((await S.run('addRangeTrack', { seqId: S.seqId, name: 'Renders' })).name, 'Renders 2', 'Renders is taken');
+  assert.strictEqual(Object.values(S.tl._markers).length, 1, 'no marker made for the new group');
+});
+
 test('queueRangeExport: the render’s own Mark In/Out (last frame inclusive); the timeline’s In/Out untouched', async () => {
   const S = withTimeline();
   S.tl.SetMarkInOut(10, 20);

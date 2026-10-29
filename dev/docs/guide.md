@@ -39,7 +39,8 @@ The same panel runs in **DaVinci Resolve Studio 19.1 or later** (20 recommended)
 ## How it behaves everywhere
 
 - **Never touches your original cut.** Tools that cut or rebuild a sequence make a copy or a new sequence first. New bins go under **JMG Ultra Studio**. Colour is the exception by nature: it adds its own Lumetri effect to the clips you choose, and leaves any grade you made alone.
-- **Always shows what's happening** in the status bar at the top: who's working (Ultra Studio, Premiere, Media Encoder, AI), what it's doing, progress, time left, and a **Stop** button. Click the bar for the full activity log.
+- **Always shows what's happening** in the status bar at the top: who's working (Ultra Studio, Premiere, Media Encoder, AI), what it's doing, progress, time left, and a **Stop** button – one click stops after the current step, three quick clicks stop at once (AI requests too). Click the bar for the full activity log.
+- **Says which AI it's using** – the top bar shows the model, or **No AI**. Without AI everything still works; the features that work best with AI say they're running their basic version, and **Settings › AI › Without AI** explains what's different. Settings also shows usage by API key.
 - **Plain errors.** Every problem says what went wrong and the one thing to do next. Technical details sit behind **Details**.
 - **Nothing is uploaded.** Analysis runs on your computer, using Premiere itself to read every format it can play. AI is optional and only ever sees text.
 - **Remembers analysis.** Analysing a clip once is enough; moving sliders afterwards is instant.

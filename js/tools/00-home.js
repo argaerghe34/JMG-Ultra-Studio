@@ -4,6 +4,7 @@
   const US = window.US, h = US.h, ui = US.ui;
 
   const WHATS_NEW = [
+    'New in 1.3.5 – Ask › My interviews: ask anything about your interviews and get the clips, grouped, to check and then build, mark or save. Story › Find › Questions finds every full answer to your interview questions. Story reads your interviews once an hour and shares them, so AI costs far less after the first request. Narratives take the client’s notes and offer alternative selects; Find has Select all and a named new sequence; keep clips in the order they were filmed. ▶ now plays from the right place on camera footage. Three quick clicks on Stop stop at once. The top bar shows the version and which AI is in use.',
     'New in 1.3.4 – Song Splitter can put each song on a “Songs” track as a numbered, colour-coded adjustment layer (talk and applause too). Deliver › Render ranges renders from any layer track, only one colour if you like, with an ending such as _v2 on every file name – and you can rename, move, recolour and delete ranges right in the list, which follows the Timeline by itself.',
     'New in 1.3.3 – Markers on the clips themselves: Settings › Markers › Clips (or Both), for every tool that marks a sequence. Also new: JMG Ultra Studio for DaVinci Resolve Studio. Colour and Camera Switch are paused for now.',
     'New in 1.3.2 – Render ranges (Deliver): put adjustment layers on a “Renders” track above your edit and name each one. Every range goes to Media Encoder, one after another, with the export preset you choose, and each file is named after its layer. Plus fixes from the first full test on Windows.',
@@ -19,6 +20,7 @@
   ];
   /** In DaVinci Resolve the Premiere history above doesn't apply (some of it works differently there). */
   const WHATS_NEW_RESOLVE = [
+    'New in 1.3.5 – Ask › My interviews: ask anything about your interviews and get the clips, grouped, to check and then build, mark or save. Story › Find › Questions finds every full answer to your interview questions. Story reads your interviews once an hour and shares them, so AI costs far less after the first request. Narratives take the client’s notes and offer alternative selects; Find has Select all and a named new timeline; keep clips in the order they were filmed. Three quick clicks on Stop stop at once.',
     'New in 1.3.4 – Song Splitter can mark each song with a numbered, coloured range marker (talk and applause too). Deliver › Render ranges renders the Songs or your own ranges, only one colour if you like, with an ending such as _v2 on every file name – and you can rename, move, recolour and delete ranges right in the list, which follows the timeline by itself.',
     'New: JMG Ultra Studio in DaVinci Resolve Studio – the same tools and screens as in Premiere, in Resolve’s words (timelines, the Media Pool, the render queue).',
     'Works on a copy, as in Premiere: tools that change a timeline make a new one first, and new bins go in a “JMG Ultra Studio” bin.',

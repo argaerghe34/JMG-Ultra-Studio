@@ -54,6 +54,9 @@ stays, and they get no Resolve layer until they come back.
 | Clip volume / ducking (Sound) | Not settable by script (Resolve 21). Sound measures and says the manual step (Normalize Audio Levels); ducking makes a copy with the speech marked in blue. |
 | Adjustment layers (Story highlights, theme names, Render ranges, Song Splitter layers) | Adjustment clips can't be created by script: highlights and theme names are range markers, timeline clips get the theme colours, render ranges are range markers. Premiere's layer tracks become groups of range markers (customData `us-range-…` = Renders, `us-lyr-<group>~…` = e.g. Songs); a range's colour is its marker colour (Premiere label → `LABEL_MARKER`, and back), read directly – Premiere 26 can't read a timeline clip's colour, so the panel remembers the colours it gave there. |
 | Auto Reframe | `TimelineItem.SmartReframe()` (Studio). |
+| Deliver: “New track on top for render ranges” (1.3.5) | Not offered: Resolve's ranges are groups of range markers, so a new group needs nothing made (`addRangeTrack` only finds a free name). |
+| Story highlights: markers on the clips (1.3.5) | Not offered: Resolve's highlights are range markers already. |
+| Ask › My interviews: group names in the timeline (1.3.5) | Markers or range markers (no name layer). |
 | Premiere transcripts | Resolve's own transcripts can't be read by script, so Story has Resolve make subtitles of each clip on a scratch timeline and reads those (per phrase: no word timings or speaker names). Transcript files work as in Premiere. |
 | Captions (Story) | The SRT is written and imported into the Captions bin; the person drags it to the timeline (placing a subtitle by script crashes Resolve 21.1). |
 | Selects: faces / close-ups | The panel's browser in Resolve has no face detector, so shot sizes don't use faces. |

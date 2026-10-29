@@ -120,6 +120,7 @@
           keyField('anthropicKey', 'Claude API key', 'From console.anthropic.com › API keys. Pay-as-you-go; typical requests cost a fraction of a penny.', 'claude'),
           keyField('geminiKey', 'Google Gemini API key', 'From aistudio.google.com › Get API key. Has a free daily allowance.', 'gemini'),
           ui.field('Gemini model', h('div.row', h('div.grow', gemSel), gemCheck), h('span', gemHint, ' Free tier: Google may use what you send to improve its products, and people there may read it – so not for interviews you’ve promised to keep private. Its daily limits are low (check aistudio.google.com › Rate limits). With billing switched on in Google AI Studio, Google doesn’t use it, and 3.8 Flash costs $0.75 / $3.75 per million tokens in / out until 31 Dec 2026, then $1.50 / $7.50.')),
+          ui.toggle({ label: 'Read the interviews once and share them (Claude)', hint: 'Every Story AI feature and Ask start from the same copy of your transcripts, which Claude keeps for an hour – after the first request each reads them at a twentieth of the price. Off: each feature sends its own selection of lines (the “How much the AI reads” sliders).', value: US.settings.get('ai.shareTranscripts', true) !== false, onChange: x => US.settings.set('ai.shareTranscripts', x) }),
           ui.field('Claude model', modelSel, 'Opus gives the best story judgement. Sonnet costs about half; Haiku a fortieth but is noticeably weaker at story work.'),
           ui.section('Cost', [
             spendBox, keysBox,
