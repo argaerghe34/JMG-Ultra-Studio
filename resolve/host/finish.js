@@ -203,6 +203,15 @@ module.exports = function (R) {
       for (const m of Object.values(R.markers(tl))) { const g = m && groupOf(m.customData); if (g) count.set(g, (count.get(g) || 0) + 1); }
       return { tracks: [...count.entries()].map(([name, n], i) => ({ index: i, name, count: n })) };
     },
+    /** Premiere's “new track on top for render ranges”: in Resolve a group of range markers needs nothing made – just a
+        name no other group has. a: {seqId, name?} → {index, name, named, log} */
+    addRangeTrack(a) {
+      const have = new Set();
+      for (const m of Object.values(R.markers(R.needSeq(a.seqId)))) { const g = m && groupOf(m.customData); if (g) have.add(String(g).toLowerCase()); }
+      const base = String(a.name || RENDERS).trim() || RENDERS;
+      let name = base, k = 2; while (have.has(name.toLowerCase())) name = `${base} ${k++}`;
+      return { index: -1, name, named: true, log: [] };
+    },
     /**
      * Add a render range: a duration marker over start–end, named, in group a.track ("Renders" by default) and the
      * colour of Premiere label a.label (else fuchsia). A marker can't share a frame with another, so a clash moves it

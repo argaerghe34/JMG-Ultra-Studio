@@ -1,5 +1,6 @@
-/* JMG Ultra Studio – Deliver: every export in one go (with live Media Encoder progress),
-   client notes turned into markers, and YouTube chapters from markers. */
+/* JMG Ultra Studio – Deliver: every export in one go (with live Media Encoder progress), render ranges (one file
+   per adjustment layer on a chosen track), and YouTube chapters from markers. Client notes were taken out (29 Oct 2026);
+   parseNotes stays for now. */
 (function () {
   'use strict';
   const US = window.US, h = US.h, ui = US.ui;
@@ -276,33 +277,6 @@
     run: (p, job) => exportRanges(rangeOpts(), job)
   });
   US.actions.register({
-    id: 'deliver.notes', tool: 'deliver', title: 'Turn client notes into markers', changes: true,
-    describe: 'Adds a red marker on the active sequence for every timecoded note in the given text.',
-    params: { text: { type: 'string', default: '', desc: 'The pasted notes, one per line, each starting with a timecode' } },
-    examples: ['turn the client notes into markers', 'add these notes as markers: 0:12 cut the cough, 1:05 swap the music'],
-    match(t) {
-      if (!(/notes?|feedback|comments?/i.test(t) && /marker/i.test(t))) return null;
-      // notes typed into the sentence ("…: 0:12 cut the cough, 1:05 swap the music") are used directly; otherwise open the screen
-      return /\d:\d\d/.test(t) ? { text: t.replace(/^.*?:\s*(?=\d)/, '').replace(/,\s*(?=\d{1,2}:\d)/g, '\n') } : { text: '' };
-    },
-    run: async (p, job) => {
-      const s = US.ctx.sequence; if (!s) throw new US.UserError('NO_SEQUENCE');
-      if (!String(p.text || '').trim()) { US.tools.open('deliver', { tab: 'notes' }); return { summary: 'Paste the notes into Deliver › Client notes' }; }
-      const notes = parseNotes(p.text, s.fps); if (!notes.length) throw new US.UserError('NOTHING_FOUND', { title: 'No timecodes found in those notes.', action: 'Start each note with a time, like “1:05 swap the music”.' });
-      const off = autoOffset(notes, s.duration);
-      return addNoteMarkers(s, notes.map(n => Object.assign({}, n, { t: n.t + off, end: n.end != null ? n.end + off : null })), 1, job);
-    }
-  });
-  async function addNoteMarkers(seq, notes, color, job) {
-    job.set({ who: 'premiere' }).progress(0.3, `Adding ${notes.length} markers`);
-    const inside = notes.filter(n => n.t >= 0 && n.t <= seq.duration + 0.01);
-    const guids = await US.host.call('addSequenceMarkers', { seqId: seq.id, markers: inside.map(n => ({ start: n.t, end: n.end && n.end > n.t ? n.end : null, name: n.text.slice(0, 64), comment: n.text, color })) });
-    const store = US.projectStore(US.ctx.project && US.ctx.project.path);
-    const all = store.get('noteMarkers', {}); all[seq.id] = (all[seq.id] || []).concat(guids); store.set('noteMarkers', all);
-    const skipped = notes.length - inside.length;
-    return { summary: `${US.plural(guids.length, 'note')} added as markers${skipped ? ` (${skipped} outside the sequence skipped)` : ''}` };
-  }
-  US.actions.register({
     id: 'deliver.chapters', tool: 'deliver', title: 'Make YouTube chapters from markers',
     describe: 'Builds a YouTube chapter list (0:00 Intro, 1:23 …) from the active sequence’s named markers.',
     examples: ['youtube chapters', 'make chapters from my markers'],
@@ -320,12 +294,12 @@
   /* ---------- the tool ---------- */
   US.tools.register({
     id: 'deliver', name: 'Deliver', short: 'Deliver', icon: 'deliver', group: 'finish', order: 33,
-    blurb: 'Every export in one go, client notes as markers, YouTube chapters.',
-    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead'],
+    blurb: 'Every export in one go, render ranges, YouTube chapters.',
+    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'addRangeTrack', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead'],
     create() {
-      const v = ui.toolView({ icon: 'deliver', title: 'Deliver', blurb: 'Export everything in one go, turn client notes into markers, and make YouTube chapters.' });
-      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'notes', label: 'Client notes' }, { value: 'chapters', label: 'Chapters' }], value: 'pack', onChange: t => showTab(t) });
-      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), notes: h('div.tool-body'), chapters: h('div.tool-body') };
+      const v = ui.toolView({ icon: 'deliver', title: 'Deliver', blurb: 'Export everything in one go, render the parts you mark, and make YouTube chapters.' });
+      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'chapters', label: 'Chapters' }], value: 'pack', onChange: t => showTab(t) });
+      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), chapters: h('div.tool-body') };
       const seqLine = h('div.field-hint');
 
       /* export pack */
@@ -388,18 +362,31 @@
       /** A time typed as the Timeline shows it (01:00:12:00) or from the sequence start (0:12) → seconds from the start */
       const parseTime = (seq, text, zero) => { const t = US.time.parseTC(String(text || '').trim(), seq.fps || 25); return !isFinite(t) ? NaN : t >= zero ? t - zero : t; };
 
-      const trackSel = ui.select({ options: [{ value: ro.track || 'Renders', label: ro.track || 'Renders' }], value: ro.track || 'Renders', onChange: v => { ro.track = v; ro.colour = ''; saveRo(); showRanges(); } });
+      const trackSel = ui.select({ options: [{ value: ro.track || 'Renders', label: ro.track || 'Renders' }], value: ro.track || 'Renders', onChange: v => { if (v === NEW_TRACK) { newTrack(); return; } ro.track = v; ro.colour = ''; saveRo(); showRanges(); } });
       const colourSel = ui.select({ options: [{ value: '', label: 'All colours' }], value: '', onChange: v => { ro.colour = v; saveRo(); showRanges(); } });
       const newColour = ui.select({ options: [{ value: '', label: 'Its usual colour' }].concat(ui.LABELS.map(c => ({ value: String(c.i), label: c.name }))), value: '' });
       const suffixIn = ui.input({ placeholder: 'e.g. _1 or _v2', value: ro.suffix || '' });
       suffixIn.addEventListener('input', US.debounce(() => { ro.suffix = cleanSuffix(suffixIn.value); saveRo(); showRanges(); }, 300));
       let shownSig = '';
+      const NEW_TRACK = '\u0000new';
       async function fillTracks(seq) {
         let tracks = [];
-        try { tracks = (await US.host.call('rangeTracks', { seqId: seq.id })).tracks || []; } catch (e) { /* older host */ }
-        const opts = tracks.map(t => ({ value: t.name, label: `${t.name} · ${US.plural(t.count, inResolve() ? 'range' : 'layer')}` }));
-        if (!opts.some(o => o.value.toLowerCase() === String(ro.track || 'Renders').toLowerCase())) opts.unshift({ value: ro.track || 'Renders', label: `${ro.track || 'Renders'}${tracks.length ? ' (new track)' : ''}` });
+        try { tracks = (await US.host.call('rangeTracks', { seqId: seq.id, all: !inResolve() })).tracks || []; } catch (e) { /* older host */ }
+        // Premiere: every video track, top first – “V3 · Renders · 4 layers”; Resolve: the groups of range markers
+        const name = t => (inResolve() ? t.name : `V${t.index + 1}${/^video \d+$/i.test(t.name) || !t.name ? '' : ' · ' + t.name}`);
+        const opts = tracks.map(t => ({ value: t.name, label: `${name(t)} · ${t.count ? US.plural(t.count, inResolve() ? 'range' : 'layer') : 'no layers'}` }));
+        if (!opts.some(o => o.value.toLowerCase() === String(ro.track || 'Renders').toLowerCase())) opts.unshift({ value: ro.track || 'Renders', label: `${ro.track || 'Renders'} (made on top when you add a range)` });
+        if (!inResolve()) opts.push({ value: NEW_TRACK, label: '＋ New track on top for render ranges' });
         trackSel.setOptions(opts, ro.track || 'Renders');
+      }
+      async function newTrack() {
+        const s = US.ctx.sequence; if (!s) { ui.showError(new US.UserError('NO_SEQUENCE')); return; }
+        try {
+          const r = await US.host.call('addRangeTrack', { seqId: s.id, name: 'Renders' });
+          ro.track = r.name; ro.colour = ''; saveRo();
+          ui.toast({ type: 'ok', title: `New track “${r.name}” on top (V${r.index + 1})`, text: r.named ? 'Render ranges you add now go on it.' : 'Premiere didn’t let Ultra Studio name it, so it keeps its own name – that’s fine.', timeout: 6000 });
+        } catch (e) { ui.showError(e); }
+        shownSig = ''; await showRanges();
       }
       /** The ranges on screen; quiet: a refresh by the clock, only redrawn when something changed. */
       async function showRanges(quiet) {
@@ -427,6 +414,15 @@
           rangeList.appendChild(h('div.list.ranges-list', found.ranges.slice().sort((x, y) => x.start - y.start).map(r => rangeRow(s, r, inPlan.get(r.start + '|' + r.end), zero))));
         } catch (e) { if (!quiet) ui.showError(e); }
       }
+      /** The colour of one range, as a drop-down (the swatch beside the name shows it). */
+      function colourMenu(r, edit) {
+        const sel = ui.select({ options: ui.LABELS.map(c => ({ value: String(c.i), label: c.name })), value: r.label != null ? String(r.label) : '', placeholder: 'Colour…',
+          onChange: v => { const c = ui.LABELS[Number(v)]; if (c && c.i !== r.label) edit({ label: c.i }, `“${r.name}” is now ${c.name}`); } });
+        sel.title = 'Change its colour';
+        sel.classList.add('range-colour');
+        sel.addEventListener('click', e => e.stopPropagation());
+        return sel;
+      }
       function rangeRow(s, r, p, zero) {
         const btn = (label, title, fn) => h('button.btn.small.ghost', { title, onclick: e => { e.stopPropagation(); fn(); } }, label);
         const colour = r.label != null && ui.LABELS[r.label] ? ui.LABELS[r.label].hex : 'var(--text-3)';
@@ -453,12 +449,7 @@
               if (!(b > a) || a < 0) return ui.toast({ type: 'warn', title: 'Those times don’t make a range.', text: 'Type a start and a later end, like ' + tcOf(s, r.start, zero) + ' – ' + tcOf(s, r.end, zero) + '.' });
               edit({ start: a, end: b }, `“${r.name}” now ${US.fmtDur(a)} – ${US.fmtDur(b)}`);
             }),
-            btn('Colour', 'Change its colour', async () => {
-              const c = await ui.promptText({ title: 'Colour', label: 'One of: ' + ui.LABELS.map(x => x.name).join(', '), value: r.label != null ? labelName(r.label) : '', ok: 'Change' });
-              const hit = c && ui.LABELS.find(x => x.name.toLowerCase() === c.trim().toLowerCase());
-              if (c && !hit) return ui.toast({ type: 'warn', title: 'That isn’t one of the colours.', text: ui.LABELS.map(x => x.name).join(', ') });
-              if (hit && hit.i !== r.label) edit({ label: hit.i }, `“${r.name}” is now ${hit.name}`);
-            }),
+            colourMenu(r, edit),
             btn('Delete', 'Take this range off the timeline', () => act(`Deleted “${r.name}”`, async () => { await US.host.call('removeRenderRange', { seqId: s.id, track: ro.track, nodeId: r.nodeId }); layerColours.forget(s.id, ro.track, r); return { summary: `Deleted “${r.name}”` }; }))));
       }
       const rangeName = ui.input({ placeholder: 'Name, e.g. Teaser 30s' });
@@ -488,7 +479,7 @@
       rangeOpen.classList.add('hidden');
       panes.ranges.append(
         ui.card(h('div.row', h('div.grow.card-title', 'Render ranges'), ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => { shownSig = ''; showRanges(); } })),
-          h('div.grid2', ui.field(inResolve() ? 'Ranges' : 'Track', trackSel, inResolve() ? '' : 'The video track whose adjustment layers are the ranges.'), ui.field('Colour', colourSel, 'Render only the layers of one colour.')),
+          h('div.grid2', ui.field(inResolve() ? 'Ranges' : 'Track', trackSel, inResolve() ? '' : 'The video track whose adjustment layers are the ranges – or a new one on top.'), ui.field('Colour', colourSel, 'Render only the layers of one colour.')),
           rangeTrackLine, rangeList,
           h('div.row', h('div.grow', rangeName), newColour, addRange),
           ui.note('The list follows the Timeline by itself: add, trim, rename or recolour a layer there and it shows here within a few seconds.', 'info')),
@@ -501,39 +492,6 @@
         rangeBtn, rangeOpen);
       // refresh by the clock while Render ranges is on screen (layers added or changed in the Timeline show up)
       setInterval(() => { if (!panes.ranges.classList.contains('hidden') && !v.el.closest('.hidden') && !document.hidden && !US.jobs.current) showRanges(true); }, 3000);
-
-      /* client notes */
-      const notesBox = h('textarea.input', { rows: 9, placeholder: 'Paste notes here, one per line, e.g.\n0:12 lose the cough\n01:05 – swap the music here\n1:20-1:32 tighten this bit\n\nFrame.io CSV exports work too.' });
-      const offsetToggle = ui.toggle({ label: 'Notes use a 01:00:00:00 start (subtract an hour)', value: false });
-      const colour = ui.select({ options: ui.MARKER_COLORS.map(c => ({ value: c.i, label: c.name })), value: 1 });
-      const preview = h('div');
-      let parsed = [];
-      function reparse() {
-        const s = US.ctx.sequence; const fps = s ? s.fps : 25;
-        parsed = parseNotes(notesBox.value, fps);
-        if (parsed.length && autoOffset(parsed, s ? s.duration : 0) && !offsetToggle.dataset.touched) offsetToggle.set(true);
-        const off = offsetToggle.get() ? -3600 : 0;
-        US.clear(preview);
-        if (!notesBox.value.trim()) return;
-        if (!parsed.length) { preview.appendChild(ui.note('No timecodes found yet. Start each note with a time, like “1:05 swap the music”.', 'warn')); return; }
-        preview.appendChild(ui.list(parsed.slice(0, 200).map(n => { const t = n.t + off, bad = s && (t < 0 || t > s.duration + 0.01); return { title: n.text, sub: bad ? 'Outside the sequence – will be skipped' : (n.end != null ? `to ${US.fmtDur(n.end + off)}` : ''), right: US.fmtDur(t), color: bad ? 'var(--text-3)' : ui.MARKER_COLORS[+colour.get()].hex }; })));
-      }
-      notesBox.addEventListener('input', US.debounce(reparse, 200));
-      offsetToggle.addEventListener('change', () => { offsetToggle.dataset.touched = '1'; reparse(); });
-      colour.addEventListener('change', reparse);
-      const notesBtn = ui.actionButton('Add notes as markers', async () => {
-        const s = US.ctx.sequence; if (!s) return ui.showError(new US.UserError('NO_SEQUENCE'));
-        if (!parsed.length) return ui.showError(new US.UserError('NOTHING_FOUND', { title: 'No timecoded notes to add.', action: 'Paste notes that start with a time.' }));
-        const off = offsetToggle.get() ? -3600 : 0;
-        await US.jobs.run({ title: 'Adding client notes as markers', tool: 'deliver' }, job => addNoteMarkers(s, parsed.map(n => Object.assign({}, n, { t: n.t + off, end: n.end != null ? n.end + off : null })), +colour.get(), job));
-      });
-      const undoNotes = ui.button('Remove note markers', { kind: 'ghost', small: true, onClick: async () => {
-        const s = US.ctx.sequence; if (!s) return;
-        const store = US.projectStore(US.ctx.project && US.ctx.project.path); const all = store.get('noteMarkers', {});
-        if (!(all[s.id] || []).length) return ui.toast({ type: 'info', title: 'No note markers to remove on this sequence', timeout: 2500 });
-        try { const n = await US.host.call('removeSequenceMarkers', { seqId: s.id, guids: all[s.id] }); all[s.id] = []; store.set('noteMarkers', all); ui.toast({ type: 'ok', title: `Removed ${US.plural(n, 'marker')}` }); } catch (e) { ui.showError(e); }
-      } });
-      panes.notes.append(ui.card(notesBox, h('div.grid2', offsetToggle, ui.field('Marker colour', colour))), preview, notesBtn, h('div.row', undoNotes));
 
       /* chapters */
       const which = ui.select({ options: [{ value: 'named', label: 'Markers that have a name' }, { value: 'all', label: 'All markers' }].concat(ui.MARKER_COLORS.map(c => ({ value: String(c.i), label: c.name + ' markers' }))), value: 'named', onChange: () => buildChapters() });
@@ -554,14 +512,14 @@
         ui.button('Copy', { kind: 'primary', small: true, onClick: () => { ui.copy(chapterText.value); ui.toast({ type: 'ok', title: 'Chapters copied – paste them into the YouTube description', timeout: 2500 }); } }),
         ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: buildChapters }))), chapterNotes);
 
-      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'notes') reparse(); if (t === 'ranges') { fillPresets(); showRanges(); } }
+      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'ranges') { fillPresets(); showRanges(); } }
       // another sequence opened while Render ranges is showing: list its ranges
       let shownSeq = null;
       const refreshRanges = US.debounce(() => { if (!panes.ranges.classList.contains('hidden')) showRanges(); }, 400);
       US.bus.on('context', () => { const id = US.ctx.sequence && US.ctx.sequence.id; if (id !== shownSeq) { shownSeq = id; refreshRanges(); } });
       function renderCtx() { seqLine.textContent = US.ctx.sequence ? `Sequence: ${US.ctx.sequence.name} (${US.ctx.sequence.width}×${US.ctx.sequence.height}, ${US.fmtDur(US.ctx.sequence.duration)})` : 'Open a sequence in the Timeline first.'; }
       US.bus.on('context', renderCtx);
-      v.body.append(seqLine, tabs, panes.pack, panes.ranges, panes.notes, panes.chapters);
+      v.body.append(seqLine, tabs, panes.pack, panes.ranges, panes.chapters);
       showTab('pack');
       return { el: v.el, onShow(opt) { renderCtx(); if (opt && opt.tab) showTab(opt.tab); } };
     }

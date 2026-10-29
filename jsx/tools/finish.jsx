@@ -133,15 +133,28 @@
     /** A timeline clip's own colour label (0–15), or null when this Premiere can't say. */
     function labelOf(ti) { try { if (typeof ti.getColorLabel === 'function') { var l = Number(ti.getColorLabel()); return isFinite(l) ? l : null; } } catch (e) { } return null; }
     function rangeOf(ti) { return { name: ti.name, start: ti.start.seconds, end: ti.end.seconds, disabled: !!ti.disabled, nodeId: ti.nodeId, label: labelOf(ti) }; }
-    /** a: {seqId} -> {tracks:[{index, name, count}]} – every video track holding adjustment layers (or our range clips), top first */
+    /** a: {seqId, all?} -> {tracks:[{index, name, count}]} – every video track holding adjustment layers (or our range
+        clips), top first; with all, every video track (count 0 for the ones without) */
     fn.rangeTracks = function (a) {
         var seq = U.needSeq(a.seqId), out = [];
         for (var t = seq.videoTracks.numTracks - 1; t >= 0; t--) {
             var n = rangeClips(seq.videoTracks[t]).length, name = '';
             try { name = String(seq.videoTracks[t].name); } catch (e) { }
-            if (n) out.push({ index: t, name: name, count: n });
+            if (n || a.all) out.push({ index: t, name: name, count: n });
         }
         return { tracks: out };
+    };
+    /** A new, empty video track on top of all the others for render ranges, named a.name (or “Renders 2”… if taken).
+        a: {seqId, name?} -> {index, name, named, log} – name is what the track is really called */
+    fn.addRangeTrack = function (a) {
+        var seq = U.needSeq(a.seqId), P = U.labelParts, log = [], base = trim(a.name || RANGE_TRACK), want = base, k = 2;
+        while (rangeTrack(seq, want) >= 0) want = base + ' ' + (k++);
+        var t = seq.videoTracks.numTracks;
+        P.ensureVideoTracks(seq, t + 1);
+        if (seq.videoTracks.numTracks <= t) throw U.err('HOST_SCRIPT', 'Could not add a video track', 'Premiere didn’t add a track.', 'Add a video track in the Timeline (right-click a track › Add Track), then choose it here.');
+        try { U.openAndQE(seq).getVideoTrackAt(t).setName(want); } catch (e) { log.push('track name: ' + e); }
+        var name = ''; try { name = String(seq.videoTracks[t].name); } catch (e) { }
+        return { index: t, name: name, named: trim(name).toLowerCase() === want.toLowerCase(), log: log };
     };
     /** a: {seqId, track?} -> {track, trackName, ranges:[{name, start, end, disabled, nodeId, label}], colours} */
     fn.renderRanges = function (a) {
