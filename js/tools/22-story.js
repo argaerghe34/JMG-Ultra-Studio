@@ -2422,7 +2422,7 @@
                 th.custom ? { label: 'Look again (new transcripts)', onClick: () => US.jobs.run({ title: `Looking again for “${th.name}”`, tool: 'story' }, async job => { const k = await refreshCustomTheme(job, th, { useAI: th.by === 'ai' }); render(); return { summary: k ? `${US.plural(k, 'new line')} added` : 'no new lines' }; }) } : null,
                 null,
                 { label: 'Delete theme', danger: true, onClick: async () => { if (await ui.confirm({ title: `Delete “${th.name}”?`, text: th.custom && !th.picked ? 'The lines stay in Find. It’s also taken off “Your themes”, so Find themes won’t look for it again.' : 'The lines stay in Find.', ok: 'Delete' })) { state.themes = state.themes.filter(x => x !== th); if (th.custom) state.ownThemes = ownThemeNames().filter(x => SAI().normName(x) !== SAI().normName(th.query || th.name)); saveNow(); render(); } } }].filter((x, i, arr) => x !== null || (i > 0 && arr[i - 1] !== null))))),
-            isOpen ? null : lines.slice(0, 2).map(l => h('div.story-quote', `“${l.text}”`, h('span.story-meta', ' – ' + whoSaid(l)))),
+            isOpen ? null : lines.slice(0, 2).map(l => h('div.story-quote.with-play', h('div.grow', `“${l.text}”`, h('span.story-meta', ' – ' + whoSaid(l))), playButton(l))),
             lines.length ? null : h('div.field-hint', all.length ? 'No lines at this setting – try a less picky one.' : 'No lines yet – press “Find more” to look for some.'),
             h('div.row',
               lines.length > 2 || isOpen ? ui.button(isOpen ? 'Show less' : `Show all ${lines.length}`, { small: true, kind: 'ghost', onClick: () => { isOpen ? openThemes.delete(th.id) : openThemes.add(th.id); render(); } }) : null,

@@ -200,3 +200,4 @@
 .story-alt { display: flex; gap: 8px; align-items: flex-start; }
 .story-alt.dim { opacity: 0.5; }
 .story-context-input { width: 100%; min-height: 90px; resize: vertical; font: inherit; line-height: 1.4; }
+.story-quote.with-play { display: flex; gap: 6px; align-items: flex-start; } .story-quote.with-play .icon-btn { flex: none; margin-top: -2px; }
