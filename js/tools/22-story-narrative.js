@@ -104,14 +104,19 @@
     const src = c => (c.from && c.from.length ? 'From ' + c.from.map(f => (f === 'board' ? 'the board' : f === 'find more' ? 'Find more' : `“${f}”`)).join(' + ') : 'On the topic');
     let beats = [mk(hook, 'Opens strong and short')].concat(middle.map(c => mk(c, src(c))), payoff ? [mk(payoff, 'The most heartfelt line, to end on')] : []);
     beats = fit(beats, target, { handles, lineOf });
-    return { title: title || 'Narrative', logline: '', beats, by: 'basic' };
+    const inStory = new Set(beats.map(b => b.lineId));
+    const alternates = byScore.filter(c => !inStory.has(c.id)).slice(0, ALTERNATES).map(c => ({ lineId: c.id, why: c.heart >= 0.3 ? 'A heartfelt line on the topic' : c.strength >= 0.7 ? 'A strong line on the topic' : 'On the topic' }));
+    return { title: title || 'Narrative', logline: '', beats, alternates, by: 'basic' };
   }
 
+  // the strongest lines that didn't make the story, offered at the end of the sequence for the editor to swap in
+  const ALTERNATES = 12;
   const AI_SCHEMA = {
-    type: 'object', additionalProperties: false, required: ['title', 'logline', 'beats'],
+    type: 'object', additionalProperties: false, required: ['title', 'logline', 'beats', 'alternates'],
     properties: {
       title: { type: 'string' }, logline: { type: 'string' },
-      beats: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['lineId', 'purpose', 'dropStartWords', 'dropEndWords'], properties: { lineId: { type: 'string' }, purpose: { type: 'string' }, dropStartWords: { type: 'integer' }, dropEndWords: { type: 'integer' } } } }
+      beats: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['lineId', 'purpose', 'dropStartWords', 'dropEndWords'], properties: { lineId: { type: 'string' }, purpose: { type: 'string' }, dropStartWords: { type: 'integer' }, dropEndWords: { type: 'integer' } } } },
+      alternates: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['lineId', 'why'], properties: { lineId: { type: 'string' }, why: { type: 'string' } } } }
     }
   };
   /**
@@ -123,10 +128,19 @@
     const rows = orderOf ? pool.slice().sort((a, b) => orderOf(a.id) - orderOf(b.id)) : pool;
     const listing = 'Interview lines (id<TAB>speaker<TAB>interview<TAB>length<TAB>★ = strong<TAB>text):\n' + rows.map(c => { const l = lineOf(c.id); return `${c.id}\t${speakerName(l.speaker) || '-'}\t${interviewName(c.id).slice(0, 40)}\t${(l.end - l.start).toFixed(1)}s\t${c.strength >= 0.7 ? '★' : ''}\t${l.text.replace(/\s+/g, ' ').slice(0, 400)}`; }).join('\n');
     return {
-      system: 'You are a documentary editor. Build a short narrative from interview lines: open with a hook, build the story, and end with a payoff. Only use lines from the list, each at most once, in the order they should play. You may drop whole words at the start or end of a line to tighten it (dropStartWords / dropEndWords), but keep each line a complete thought. Give each beat a one-line purpose (what it does in the story, without the words hook, build or payoff). Match the requested length within ±10%. Use British English.',
-      user: T().aiUser(listing, `Brief: ${brief.topic || 'the interviews'}${brief.tone ? ` (tone: ${brief.tone})` : ''}\nLength: ${brief.seconds} seconds, counting about ${(2 * handles).toFixed(1)} s of handles on each line.\nUse only the lines above.`, '1h'),
+      system: `You are a documentary editor. Build a short narrative from interview lines: open with a hook, build the story, and end with a payoff. Only use lines from the list, each at most once, in the order they should play. You may drop whole words at the start or end of a line to tighten it (dropStartWords / dropEndWords), but keep each line a complete thought. Give each beat a one-line purpose (what it does in the story, without the words hook, build or payoff). Match the requested length within ±10%. Then, as alternates, list up to ${ALTERNATES} lines you didn’t use that could replace a beat or take the story another way, best first, each with a few words on why (and which beat it could replace, if any). Use British English.`,
+      user: T().aiUser(listing, `Brief: ${brief.topic || 'the interviews'}${brief.tone ? ` (tone: ${brief.tone})` : ''}\nLength: ${brief.seconds} seconds, counting about ${(2 * handles).toFixed(1)} s of handles on each line.\nUse only the lines above.${contextNote(brief.context)}`, '1h'),
       schema: AI_SCHEMA, maxTokens: 8000, effort: 'medium', feature: 'Narrative cut'
     };
+  }
+  // the client's emails, documents and wishes pasted with the brief: after the cached listing, so it never stops the sharing
+  const CONTEXT_MAX = 60000;
+  /** The pasted context as it goes to the AI (trimmed to CONTEXT_MAX characters). */
+  function contextNote(text) {
+    const t = String(text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+    if (!t) return '';
+    return '\n\nThe client’s notes and wishes, pasted by the editor (emails, documents). Follow them where they apply – who it’s for, what to include, avoid or emphasise, the messages and the tone – but only use what the interviews actually say.\n' +
+      `--- CLIENT NOTES ---\n${t.slice(0, CONTEXT_MAX)}${t.length > CONTEXT_MAX ? '\n[…the rest was left out]' : ''}\n--- END OF CLIENT NOTES ---`;
   }
   /** Ask the AI for the narrative, then check it and fit it to the duration. */
   async function withAI(pool, brief, opts = {}) {
@@ -149,8 +163,10 @@
       beats.push(Object.assign({ lineId: id, purpose: String(b.purpose || '').slice(0, 160), strength: known.get(id).strength }, trimmed(l, ds, de)));
     }
     if (!beats.length) throw new US.UserError('AI_FAILED', { title: 'The AI didn’t come back with a usable story.', action: 'Try again, or use the basic version (no AI).' });
-    return { title: String((r && r.title) || 'Narrative').slice(0, 80), logline: String((r && r.logline) || '').slice(0, 240), beats: fit(beats, target, { handles, lineOf }), by: 'ai' };
+    const fitted = fit(beats, target, { handles, lineOf }), inStory = new Set(fitted.map(b => b.lineId)), alternates = [];
+    for (const x of (r && r.alternates) || []) { const id = String(x.lineId); if (known.has(id) && !inStory.has(id) && !alternates.some(a => a.lineId === id)) alternates.push({ lineId: id, why: String(x.why || '').slice(0, 160) }); }
+    return { title: String((r && r.title) || 'Narrative').slice(0, 80), logline: String((r && r.logline) || '').slice(0, 240), beats: fitted, alternates: alternates.slice(0, ALTERNATES), by: 'ai' };
   }
 
-  US.storyNarrative = { parseBrief, trimmed, fit, basic, aiRequest, withAI, checkAI, AI_SCHEMA, total };
+  US.storyNarrative = { parseBrief, trimmed, fit, basic, aiRequest, withAI, checkAI, AI_SCHEMA, total, contextNote, CONTEXT_MAX, ALTERNATES };
 })();

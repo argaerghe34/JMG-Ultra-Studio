@@ -154,8 +154,13 @@ test('makeNarrative puts it on the board as “Narrative · 60 s · topic”; it
   assert.strictEqual(S.latestNarrative().name, 'Narrative · 60 s · family (2)');
   // trim one card, then build groups
   col.cards[1].trim = { dropStart: 1, dropEnd: 0 };
-  const groups = S.narrativeGroups(col);
+  const groups = S.narrativeGroups(col, { alternates: false });
   assert.deepStrictEqual(groups.map(g => g.name), ['Hook', 'Build', 'Payoff']);
+  const withAlts = S.narrativeGroups(col);
+  if (S.narrativeAlternates(col).length) {
+    assert.strictEqual(withAlts[withAlts.length - 1].name, 'Alternative selects', 'other selects after the payoff (on by default)');
+    assert.ok(withAlts[withAlts.length - 1].lineIds.every(id => !col.cards.some(k => k.lineId === id)), 'none of them already in the story');
+  }
   assert.deepStrictEqual(groups.flatMap(g => g.lineIds), col.cards.map(k => k.lineId));
   const tr = S.trimOf(col.cards[1]);
   const plan = S.planBuild(groups, { handles: 0.3, colour: true, itemFor: () => 'item', durOf: () => 1e9 });

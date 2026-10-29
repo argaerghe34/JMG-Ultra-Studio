@@ -68,3 +68,26 @@ test('asking and following up: the same cached opening, the earlier answer and t
   assert.strictEqual(themes.length, 1);
   assert.deepStrictEqual(themes[0].lineIds, ['a2', 'a3']);
 });
+
+test('builds: “keep clips in the order they were filmed” sorts each group by interview and time; otherwise the given order', () => {
+  S._useState({ transcripts: [JSON.parse(JSON.stringify(RUTH)), JSON.parse(JSON.stringify(SAM))] });
+  const groups = [{ name: 'G', label: 1, lineIds: ['b2', 'a4', 'a2', 'b1'] }], order = id => ['a1', 'a2', 'a3', 'a4', 'a5', 'b1', 'b2'].indexOf(id);
+  const as = o => S.planBuild(groups, Object.assign({ handles: 0, itemFor: () => 'item' }, o)).clips.map(c => c.lineId);
+  assert.deepStrictEqual(as({}), ['b2', 'a4', 'a2', 'b1']);
+  assert.deepStrictEqual(as({ inOrder: true, orderOf: order }), ['a2', 'a4', 'b1', 'b2']);
+});
+
+test('narrative: the client’s notes go after the cached listing; alternatives come back unused, known and unique', () => {
+  const N = US.storyNarrative, lineOf = id => [...RUTH.lines, ...SAM.lines].find(l => l.id === id);
+  const pool = ['a2', 'a3', 'a4', 'b1', 'b2'].map(id => ({ id, rel: 1, strength: 0.6, heart: 0 }));
+  const req = N.aiRequest(pool, { topic: 'grandmothers', seconds: 30, tone: '', context: 'From: client\nPlease keep it upbeat and mention Zanzibar.' }, { lineOf });
+  assert.ok(!/Zanzibar/.test(req.user[0].text), 'not in the cached listing');
+  assert.ok(/CLIENT NOTES ---\nFrom: client\nPlease keep it upbeat and mention Zanzibar\.\n--- END/.test(req.user[1]), 'after it, marked as the client’s notes');
+  assert.strictEqual(N.contextNote(''), '');
+  assert.ok(/the rest was left out/.test(N.contextNote('x'.repeat(N.CONTEXT_MAX + 10))));
+  const nar = N.checkAI({ title: 'T', logline: '', beats: [{ lineId: 'a2', purpose: 'p', dropStartWords: 0, dropEndWords: 0 }, { lineId: 'b1', purpose: 'p', dropStartWords: 0, dropEndWords: 0 }],
+    alternates: [{ lineId: 'a2', why: 'already used' }, { lineId: 'b2', why: 'four languages' }, { lineId: 'b2', why: 'twice' }, { lineId: 'zz', why: 'unknown' }] }, pool, 30, { lineOf });
+  assert.deepStrictEqual(nar.alternates, [{ lineId: 'b2', why: 'four languages' }]);
+  const basic = N.basic(pool, 12, { lineOf });
+  assert.ok(basic.alternates.length && basic.alternates.every(a => !basic.beats.some(b => b.lineId === a.lineId)), 'the basic version offers the next best lines');
+});

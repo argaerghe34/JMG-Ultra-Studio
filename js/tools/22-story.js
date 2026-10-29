@@ -618,7 +618,7 @@
    * -> {requests, usd, free, name, secs, lines, all, total}
    */
   function readsPlan(feature, n) {
-    const key = [feature, n, linesStamp, US.ai && US.ai.label ? US.ai.label() : '', feature === 'themes' ? ownThemeNames().join(';') : ''].join('|');
+    const key = [feature, n, linesStamp, US.ai && US.ai.label ? US.ai.label() : '', feature === 'themes' ? ownThemeNames().join(';') : '', feature === 'narrative' ? String((state && state.narrativeContext) || '').length : '', ctxOn()].join('|');
     if (planCache.has(key)) return planCache.get(key);
     const all = scopeLines();
     let reqs = [], lines = 0;
@@ -630,11 +630,11 @@
       reqs = [expandRequest('example', own ? 'theme' : 'topic', '')].concat(SAI().pickRequests(c, { all, system: own ? OWN_PICK_SYSTEM : FIND_PICK_SYSTEM, task: () => 'Topic: an example topic\nPick up to 120 of the lines above.', feature: '' }).map(b => b.req));
       lines = c.length;
     } else {
-      const brief = { topic: 'an example topic', seconds: 60, tone: '' }, L = lookOptions();
+      const brief = { topic: 'an example topic', seconds: 60, tone: '', context: String((state && state.narrativeContext) || '') }, L = lookOptions();
       const asPool = ls => ls.map(l => ({ id: l.id, strength: T.indexLine(l).q }));
       const narr = ls => N().aiRequest(asPool(ls), brief, { handles: L.handles, lineOf: id => lineById.get(id), speakerName, interviewName: interviewLabel });
       const c = n <= 150 ? strongest(200) : strongest(n);
-      reqs = [expandRequest('example', 'topic', '')].concat(SAI().pickRequests(c, { all, system: n <= 150 ? FIND_PICK_SYSTEM : SHORTLIST_SYSTEM, task: () => 'Brief: an example topic\nPick up to 60 of the lines above.', feature: '' }).map(b => b.req), [narr(strongest(Math.min(n, 120)))]);
+      reqs = [expandRequest('example', 'topic', '')].concat(SAI().pickRequests(c, { all, system: n <= 150 ? FIND_PICK_SYSTEM : SHORTLIST_SYSTEM, task: () => 'Brief: an example topic\nPick up to 60 of the lines above.' + N().contextNote(brief.context), feature: '' }).map(b => b.req), [narr(strongest(Math.min(n, 120)))]);
       lines = n <= 150 ? Math.min(n, all.length) : c.length;
     }
     const p = Object.assign(SAI().cost(reqs), { lines, all: n === Infinity || n >= all.length, total: all.length });
@@ -682,6 +682,7 @@
       colour: US.settings.get('story.colourThemes', true),
       strong: { highlight: US.settings.get('story.strongHighlight', false), label: strongLabel(), first: US.settings.get('story.strongFirst', false) },
       themeNames: names, // 'marker' | 'layer' | 'both' | 'none'
+      inOrder: !!US.settings.get('story.keepOrder', false), // clips in the order they were filmed (within each group)
       method: US.settings.get('story.colourMethod', 'relabel') // 'relabel' (verified) | 'subclips'
     };
   }
@@ -691,11 +692,12 @@
    * A strongest line takes the highlight colour (when on); otherwise its own colour (labels) or its theme's colour (when on).
    * A trimmed line (a narrative tightened by a few words) uses its trimmed times.
    */
-  function planBuild(groups, { handles = 0.3, colour = true, strong = {}, itemFor, durOf = () => Infinity } = {}) {
+  function planBuild(groups, { handles = 0.3, colour = true, strong = {}, itemFor, durOf = () => Infinity, inOrder = false, orderOf = null } = {}) {
     const clips = []; let skipped = 0;
     groups.forEach((g, gi) => {
       let ids = g.lineIds.filter(id => lineById.has(id));
-      if (strong.first) ids = strongestFirst(ids, g.pinned || new Set());
+      if (inOrder && orderOf) ids = ids.slice().sort((a, b) => orderOf(a) - orderOf(b));
+      else if (strong.first) ids = strongestFirst(ids, g.pinned || new Set());
       ids.forEach((id, k) => {
         const l = lineById.get(id), itemId = itemFor(id);
         if (!itemId) { skipped++; return; }
@@ -731,7 +733,7 @@
     if (!ts.some(t => items.has(t.key))) throw new US.UserError('NOT_FOUND', { title: 'None of these interviews are in the project.', action: 'Link each transcript to its clip in Story › 1 Interviews › Interviews and speakers, then try again.', detail: ts.map(t => t.name).join(', ') });
     const infos = await US.host.call('itemsInfo', { ids: Array.from(new Set(Array.from(items.values()))) });
     const durById = new Map(infos.filter(Boolean).map(i => [i.id, i.duration]));
-    const plan = planBuild(groups, { handles: look.handles, colour: look.colour, strong: look.strong, itemFor: id => items.get(clipOfLine.get(id).key), durOf: id => durById.get(id) });
+    const plan = planBuild(groups, { handles: look.handles, colour: look.colour, strong: look.strong, itemFor: id => items.get(clipOfLine.get(id).key), durOf: id => durById.get(id), inOrder: !!look.inOrder, orderOf: projectOrder() });
     if (!plan.clips.length) throw new US.UserError('NOT_FOUND', { title: 'None of these lines’ interviews are in the project.', action: 'Link each transcript to its clip in Story › 1 Interviews › Interviews and speakers, then try again.' });
     const seq = await US.host.call('newSequence', { name, binPath: binBase(), likeId: plan.clips[0].id });
     job.log(`Made sequence “${seq.name}”`);
@@ -1059,7 +1061,7 @@
     let n = 0; const stage = () => { job.range(n / total, (n + 1) / total); n++; };
     const done = [];
     stage();
-    let seq = (await buildNarrative(job, col)).seq;
+    let seq = (await buildNarrative(job, col, { alternates: false })).seq;   // a promo is the story only
     done.push(`“${seq.name}”`);
     if (o.broll) {
       stage();
@@ -1115,7 +1117,7 @@
    * Put every selected line on top of a string-out, in its theme's colour, on a track called “Selects”; optionally markers.
    * Running again replaces the previous highlights. -> {tl, sel, sections, result, summary}
    */
-  async function highlightStringOut(job, { seqId, use = {}, markers = false }) {
+  async function highlightStringOut(job, { seqId, use = {}, markers = false, where }) {
     await ready(); loadState();
     const tl = await timelineTranscript(job, { seqId, tracks: 'auto' });
     const sel = selectionMap(use);
@@ -1128,7 +1130,7 @@
     const r = await US.host.call('storyHighlights', { seqId, trackName: 'Selects', trackIndex: prev.track, binPath: binBase(), create: US.settings.get('story.makeLabelClips', true), sections: sections.map(x => ({ name: x.name, start: x.start, end: x.end, label: x.label })) });
     if (prev.markerGuids && prev.markerGuids.length) { try { await US.host.call('removeSequenceMarkers', { seqId, guids: prev.markerGuids }); } catch (e) { /* already gone */ } }
     let guids = [];
-    if (markers && !RES) guids = await US.host.call('addSequenceMarkers', { seqId, markers: sections.map(x => ({ start: x.start, end: x.end, name: x.name, color: x.label != null ? LABEL_TO_MARKER[x.label] : 2 })) });
+    if (markers && !RES) guids = await US.host.call('addSequenceMarkers', Object.assign({ seqId, markers: sections.map(x => ({ start: x.start, end: x.end, name: x.name, color: x.label != null ? LABEL_TO_MARKER[x.label] : 2 })) }, where ? { where } : {}));
     state.highlights[seqId] = { track: r.track, markerGuids: guids || [], at: Date.now(), count: r.placed };
     saveNow();
     if (r.kind === 'transparent') US.ui.toast({ type: 'info', title: 'Highlighted – one thing to know', text: 'No adjustment layer in this project – used invisible label clips instead. Add one with File › New › Adjustment Layer and Ultra Studio will use it.', timeout: 15000 });
@@ -1197,7 +1199,7 @@
     if (ctxOn()) {
       const ok = new Set(usable.map(l => l.id));
       const batches = SAI().contextPicks(scopeTranscripts(lines), { system: SHORTLIST_SYSTEM, feature: 'Narrative cut', allow: l => ok.has(l.id),
-        task: () => `Brief: ${brief.topic || 'the interviews'}${brief.tone ? ` (tone: ${brief.tone})` : ''}\nPick up to 60 lines that could work in it, best first – each no longer than ${Math.round(maxLen)} seconds, and not the interviewer.` });
+        task: () => `Brief: ${brief.topic || 'the interviews'}${brief.tone ? ` (tone: ${brief.tone})` : ''}\nPick up to 60 lines that could work in it, best first – each no longer than ${Math.round(maxLen)} seconds, and not the interviewer.${N().contextNote(brief.context)}` });
       job && job.set({ who: 'ai', msg: `${US.ai.label()} is reading the interviews for the story` });
       const r = await SAI().runPicks(batches, { limit: max, job, nameOf: nameOfLine, label: 'shortlisting lines' });
       const pool = r.picks.map(p => { const q = T.quality(p.line); return { id: p.line.id, rel: p.rel, strength: q.score, heart: MO().heart(p.line.text), from: from.get(p.line.id) || [] }; });
@@ -1215,7 +1217,7 @@
     const ranked = usable.map(l => ({ l, k: key(l) })).sort((a, b) => b.k - a.k).map(x => x.l);
     const cands = reads === Infinity ? ranked : ranked.slice(0, reads);
     const batches = SAI().pickRequests(cands, { all: allLines(), system: SHORTLIST_SYSTEM, feature: 'Narrative cut',
-      task: (k, n) => `Brief: ${brief.topic || 'the interviews'}${brief.tone ? ` (tone: ${brief.tone})` : ''}\nPick up to 60 of the lines above that could work in it, best first.${partOf(k, n)}` });
+      task: (k, n) => `Brief: ${brief.topic || 'the interviews'}${brief.tone ? ` (tone: ${brief.tone})` : ''}\nPick up to 60 of the lines above that could work in it, best first.${partOf(k, n)}${N().contextNote(brief.context)}` });
     job && job.set({ who: 'ai', msg: `${US.ai.label()} is reading ${US.plural(cands.length, 'line')} for the story` });
     const r = await SAI().runPicks(batches, { limit: max, job, nameOf: nameOfLine, label: 'shortlisting lines' });
     const pool = r.picks.map(p => { const q = T.quality(p.line); return { id: p.line.id, rel: p.rel, strength: q.score, heart: MO().heart(p.line.text), from: from.get(p.line.id) || [] }; });
@@ -1236,7 +1238,7 @@
     const base = `Narrative · ${fmtSecs(brief.seconds)} · ${brief.topic || nar.title}`;
     let name = base; for (let n = 2; state.wall.columns.some(c => c.name === name); n++) name = `${base} (${n})`;
     const col = { id: US.uid('c'), name, cards: nar.beats.map(b => Object.assign({ lineId: b.lineId, note: b.purpose }, b.dropStart || b.dropEnd ? { trim: { dropStart: b.dropStart, dropEnd: b.dropEnd } } : {})),
-      narrative: { title: nar.title, logline: nar.logline, by: nar.by, seconds: brief.seconds, topic: brief.topic, tone: brief.tone, pool: poolN, at: Date.now() } };
+      narrative: { title: nar.title, logline: nar.logline, by: nar.by, seconds: brief.seconds, topic: brief.topic, tone: brief.tone, pool: poolN, at: Date.now(), alternates: (nar.alternates || []).filter(a => lineById.has(a.lineId)), context: !!brief.context } };
     B().ensure(state.wall);
     state.wall.columns.push(col);
     ensureColours(); saveNow();
@@ -1245,7 +1247,7 @@
   /** Brief -> narrative on the board. -> {narrative, column, brief, summary} */
   async function makeNarrative(job, { brief: text, useAI = false }) {
     await ready(); loadState();
-    const brief = N().parseBrief(text), L = lookOptions(), ai = !!(useAI && US.ai && US.ai.available()), reads = ai ? readsFor('narrative') : 120;
+    const brief = Object.assign(N().parseBrief(text), { context: String(state.narrativeContext || '') }), L = lookOptions(), ai = !!(useAI && US.ai && US.ai.available()), reads = ai ? readsFor('narrative') : 120;
     if (ai && US.ai.approveTotal) { const p = readsPlan('narrative', reads); await US.ai.approveTotal(p.usd, `Narrative cut (${US.plural(p.requests, 'request')})`); }
     job.set({ who: 'computer', msg: brief.topic ? `Gathering lines about “${brief.topic}”` : 'Gathering your selects' });
     // with AI the pool doesn't depend on the length (lines up to 45 s), so another length on the same topic sends the same listing
@@ -1264,20 +1266,31 @@
    * A narrative group as build groups: Hook, Build, Payoff (by position, so rearranging on the board counts), each line in
    * the colour of the theme it came from, trimmed lines at their trimmed times.
    */
-  function narrativeGroups(col) {
+  const ALT_LABEL = 12; // Tan: alternatives stand apart from the story's colours
+  /** The narrative's alternatives still worth offering (not in the story now), at most n. */
+  function narrativeAlternates(col, n = US.settings.get('story.narrativeAltCount', 8)) {
+    const inStory = new Set(col.cards.filter(k => k.lineId).map(k => k.lineId));
+    return ((col.narrative && col.narrative.alternates) || []).filter(a => lineById.has(a.lineId) && !inStory.has(a.lineId)).slice(0, n);
+  }
+  function narrativeGroups(col, { alternates = US.settings.get('story.narrativeAlts', true) } = {}) {
     const g = wallGroups([col])[0]; if (!g || !g.lineIds.length) return [];
     const sel = selectionMap({ themes: true, board: false, builds: false }), labels = {};
     for (const id of g.lineIds) { const x = sel.get(id); labels[id] = x ? x.label : g.label; }
     const ids = g.lineIds;
     const parts = ids.length >= 3 ? [['Hook', ids.slice(0, 1)], ['Build', ids.slice(1, -1)], ['Payoff', ids.slice(-1)]] : [[col.name, ids]];
-    return parts.map(([name, lineIds], i) => ({ name, label: g.label, lineIds, labels, trims: g.trims, pinned: new Set(),
+    const groups = parts.map(([name, lineIds], i) => ({ name, label: g.label, lineIds, labels, trims: g.trims, pinned: new Set(),
       ideas: g.ideas.filter(x => (x.before ? lineIds.includes(x.before) : i === parts.length - 1)) }));
+    // after the payoff: other selects the editor could swap in, each with a marker saying why
+    const alts = alternates ? narrativeAlternates(col) : [];
+    if (alts.length) groups.push({ name: 'Alternative selects', label: ALT_LABEL, lineIds: alts.map(a => a.lineId), labels: {}, trims: {}, pinned: new Set(), ideas: [],
+      lineMarks: Object.fromEntries(alts.map(a => [a.lineId, { name: `Alternative${a.why ? ': ' + a.why : ''}`.slice(0, 64), comment: a.why || '' }])) });
+    return groups;
   }
-  async function buildNarrative(job, col, { name } = {}) {
+  async function buildNarrative(job, col, { name, alternates } = {}) {
     if (!col) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no narrative yet.', action: 'Make one on Story › Build › Narrative first.' });
     const look = lookOptions();
     look.strong = Object.assign({}, look.strong, { first: false }); // keep the story's order
-    return buildSequence(job, { name: name || `Story – ${col.narrative.title}`, groups: narrativeGroups(col), look });
+    return buildSequence(job, { name: name || `Story – ${col.narrative.title}`, groups: narrativeGroups(col, alternates == null ? {} : { alternates }), look });
   }
 
   /* ================= moments (S5) ================= */
@@ -1617,6 +1630,10 @@
     return out.join('\n');
   }
 
+  /** The switch for every Story build: clips in the order they were filmed, within each group. */
+  function orderToggle(onChange) {
+    return ui.toggle({ label: 'Keep clips in the order they were filmed', hint: 'Within each group: interview by interview, in time order – instead of best first or story order.', value: !!US.settings.get('story.keepOrder', false), onChange: x => { US.settings.set('story.keepOrder', x); if (onChange) onChange(x); } });
+  }
   /** Play a line in the Source Monitor (Resolve: here), from a moment before it. */
   async function cueLine(l, at = l.start) {
     const t = clipOfLine.get(l.id);
@@ -1663,6 +1680,7 @@
         wrap.append(h('div.field-hint', 'Each group in turn, in the order shown, every clip whole – in the group’s colour, with a marker saying what each clip is. Your clips are never changed.'),
           ui.field('Sequence name', name),
           ui.toggle({ label: 'Colour each group', value: L.colour, onChange: x => US.settings.set('story.colourThemes', x) }),
+          orderToggle(),
           ui.field('Group names in the timeline', ui.segmented({ options: RES ? [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Range markers' }, { value: 'none', label: 'Off' }] : [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Name layer' }, { value: 'both', label: 'Both' }, { value: 'none', label: 'Off' }], value: L.themeNames === 'both' && RES ? 'layer' : L.themeNames, onChange: x => US.settings.set('story.themeNames', x) }),
             RES ? 'Markers sit at the start of each group; range markers span it.' : 'Name layer: an adjustment layer above each group, named after it, in its colour.'),
           ui.actionButton('Build the sequence', () => run('Building your answer', job => buildAsk(job, { askId: a.id, name: name.value.trim(), lead: lead() })), { icon: 'film', block: false }));
@@ -2128,7 +2146,8 @@
           h('div.row', h('span.field-hint.grow', `${US.plural(total, 'answer')} to ${US.plural(saved.results.length, 'question')}${saved.missing ? ' · ' + saved.missing : ''}`),
             ui.button('Save as Word', { small: true, icon: 'note', title: 'A document with a heading per question and every answer under it, with source timecodes', onClick: () => US.jobs.run({ title: 'Saving the answers', tool: 'story' }, async job => { const r = await exportBoard(job, 'docx', { source: 'questions', asked: qAsked }); openFile(r.file); return r; }) }),
             ui.button('Build the answers', { small: true, kind: 'primary', icon: 'film', title: 'A new sequence: each question’s answers together, best first, in the question’s colour, with a marker on each answer', onClick: () => US.jobs.run({ title: 'Building the answers', tool: 'story' }, job => buildAnswers(job, { asked: qAsked })) })),
-          ui.toggle({ label: 'Start each answer with the question being asked', hint: 'When the interviewer is heard asking it.', value: qAsked, onChange: x => { qAsked = x; US.settings.set('story.qAsked', x); render(); } })));
+          ui.toggle({ label: 'Start each answer with the question being asked', hint: 'When the interviewer is heard asking it.', value: qAsked, onChange: x => { qAsked = x; US.settings.set('story.qAsked', x); render(); } }),
+          orderToggle()));
         for (const r of saved.results) {
           const sec = h('div.story-q');
           const len = r.answers.reduce((k, a) => { const ls = Q().linesOf(a, idx, { asked: qAsked }); return k + (ls.length ? ls[ls.length - 1].end - ls[0].start : 0); }, 0);
@@ -2191,6 +2210,7 @@
             ui.button('Build these moments', { small: true, kind: 'primary', icon: 'film', title: 'A new sequence, grouped by type, each type in its own colour and every clip labelled', onClick: () => US.jobs.run({ title: 'Building the moments', tool: 'story' }, job => buildMoments(job, shown, { colour: momColours, labels: momLabels, name: `Story – moments${momentType === 'all' ? '' : ' – ' + M.TYPES[momentType].plural.toLowerCase()}` })) })),
           h('div.row', ui.toggle({ label: 'Colour by type', hint: 'Bloopers Rose, Funny Mango, Off camera Teal, Poignant Purple', value: momColours, onChange: x => { momColours = x; US.settings.set('story.momentColours', x); } }),
             ui.toggle({ label: 'Label each moment', hint: 'A marker on every clip: “Funny – laughter”', value: momLabels, onChange: x => { momLabels = x; US.settings.set('story.momentLabels', x); } })),
+          orderToggle(),
           h('div.row', h('div.grow', seqSel),
             ui.button('Mark on string-out', { small: true, icon: 'target', title: 'Range markers coloured by type – Bloopers red, Funny orange, Off camera cyan, Poignant purple', onClick: () => US.jobs.run({ title: 'Marking moments on the string-out', tool: 'story' }, async job => { const r = await markMoments(job, { seqId: momSeq, list: shown }); render(); return r; }) }),
             marked ? ui.button('Remove markers', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Removing moment markers', tool: 'story' }, async job => { const r = await removeMomentMarkers(job, momSeq); render(); return r; }) }) : null)));
@@ -2260,8 +2280,9 @@
           !tgt && !tcol ? ui.button('New theme from these', { small: true, onClick: async () => { const nm = await ui.promptText({ title: 'New theme', label: 'Name', value: US.cap((moreMode && moreTopic) || lastQuery || 'New theme') }); if (!nm) return; const th = newThemeFrom(nm.trim(), ids); done(ids.length, th.name); } }) : null,
           BOARD ? ui.button('Add to board', { small: true, onClick: () => { addToWall(ids, 'Picked lines'); ui.toast({ type: 'ok', title: `${US.plural(n, 'line')} added to the board`, action: { label: 'Open board', fn: () => show('wall') } }); } }) : null,
           ui.button('Add to a new sequence…', { small: true, kind: tgt || tcol ? 'secondary' : 'primary', icon: 'film', title: 'A new sequence of the ticked lines – you name it', onClick: async () => {
-            const nm = await ui.promptText({ title: `New sequence of ${US.plural(n, 'line')}`, label: 'Name', value: `Story – ${US.cap((questionsMode ? '' : moreMode ? moreTopic : momentsMode ? 'moments' : lastQuery) || 'picked lines')}`, ok: 'Build it' });
-            if (nm && nm.trim()) US.actions.run('story.build', { source: 'picked', name: nm.trim() });
+            const nameIn = ui.input({ value: `Story – ${US.cap((questionsMode ? '' : moreMode ? moreTopic : momentsMode ? 'moments' : lastQuery) || 'picked lines')}` });
+            const ok = await ui.modal({ title: `New sequence of ${US.plural(n, 'line')}`, body: h('div', ui.field('Name', nameIn), orderToggle(), h('div.field-hint', 'Off: in the order you ticked them.')), buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: 'Build it', value: true, kind: 'primary' }] });
+            if (ok && nameIn.value.trim()) US.actions.run('story.build', { source: 'picked', name: nameIn.value.trim() });
           } }),
           ui.button('Clear', { small: true, kind: 'ghost', onClick: () => { state.picked = []; save(); render(); } }));
       }
@@ -2319,6 +2340,7 @@
           ui.toggle({ label: 'Colour each theme', hint: RES ? 'Every theme’s clips get its clip colour, so you can tell them apart in the timeline.' : 'Every theme’s clips get its colour label, so you can tell them apart in the timeline.', value: L.colour, onChange: x => US.settings.set('story.colourThemes', x) }),
           h('div.row.story-strong-row', ui.toggle({ label: 'Highlight the strongest lines', hint: `In ${labelName(L.strong.label)} with a ★ – overrides the theme colour.`, value: L.strong.highlight, onChange: x => US.settings.set('story.strongHighlight', x) }), strongSw),
           ui.toggle({ label: 'Strongest lines first in each theme', hint: 'Pinned cards still come first.', value: L.strong.first, onChange: x => US.settings.set('story.strongFirst', x) }),
+          orderToggle(),
           withNames && RES ? ui.field('Theme names in the timeline', ui.segmented({ options: [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Range markers', title: 'A marker the length of each theme, named after it, in its colour' }, { value: 'none', label: 'Off' }], value: L.themeNames === 'both' ? 'layer' : L.themeNames, onChange: x => US.settings.set('story.themeNames', x) }), 'Markers sit at the start of each theme; range markers span it.')
             : withNames ? ui.field('Theme names in the timeline', ui.segmented({ options: [{ value: 'marker', label: 'Markers' }, { value: 'layer', label: 'Name layer', title: 'A clip named after the theme on the track above, spanning the theme' }, { value: 'both', label: 'Both' }, { value: 'none', label: 'Off' }], value: L.themeNames, onChange: x => US.settings.set('story.themeNames', x) }), 'Name layer uses an adjustment layer from your project if there is one (File › New › Adjustment Layer).') : null
         ];
@@ -2791,7 +2813,7 @@
       }
 
       /* ---------- Build ---------- */
-      let hl = null, hlSeq = '', hlUse = Object.assign({ themes: true, board: true, builds: true }, US.settings.get('story.hlUse', {})), hlMarkers = US.settings.get('story.hlMarkers', false);
+      let hl = null, hlSeq = '', hlUse = Object.assign({ themes: true, board: true, builds: true }, US.settings.get('story.hlUse', {})), hlMarkers = US.settings.get('story.hlMarkersWhere', US.settings.get('story.hlMarkers', false) ? 'sequence' : 'off');
       function renderBuild() {
         const el = US.clear(panes.build);
         if (!state.transcripts.length) { el.appendChild(needTranscripts()); return; }
@@ -2804,7 +2826,9 @@
         const secs = groups.reduce((n, g) => n + g.lineIds.reduce((m, id) => { const l = (g.trims && g.trims[id]) || lineById.get(id); return m + (l ? l.end - l.start + 2 * L.handles : 0); }, 0), 0);
         const nameIn = ui.input({ value: US.settings.get('story.seqName', 'Story – rough cut'), onInput: x => US.settings.set('story.seqName', x) });
         const named = state.themes.filter(t => t.name !== 'Other'), off = new Set(state.buildOff || []);
-        const which = BOARD || !named.length ? null : ui.section('Themes to include', [h('div.field-hint', 'In the order of the Themes list (⋯ › Move up / down there). The lines are the ones How picky keeps.'),
+        const setAll = on => { state.buildOff = on ? [] : named.map(t => t.id); saveNow(); renderBuild(); };
+        const which = BOARD || !named.length ? null : ui.section('Themes to include', [h('div.row', h('span.field-hint.grow', 'In the order of the Themes list (⋯ › Move up / down there). The lines are the ones How picky keeps.'),
+            ui.button('All on', { small: true, kind: 'ghost', title: 'Include every theme', onClick: () => setAll(true) }), ui.button('All off', { small: true, kind: 'ghost', title: 'Leave every theme out – then switch on the ones you want', onClick: () => setAll(false) })),
           ...named.map(t => ui.toggle({ label: `${t.name} · ${US.plural(effectiveLines(t).length, 'line')}`, value: !off.has(t.id), onChange: x => { off[x ? 'delete' : 'add'](t.id); state.buildOff = Array.from(off); saveNow(); renderBuild(); } }))], { open: named.length <= 12, hint: off.size ? `${off.size} left out` : 'all of them' });
         el.appendChild(h('div.card', { dataset: { section: 'build' } }, h('div.card-title', BOARD ? 'Build a sequence from the board' : 'Build a sequence from your themes', h('span.right', `${US.plural(groups.length, BOARD ? 'group' : 'theme')} · ${US.plural(count, 'line')} · about ${US.fmtDur(secs)}`)),
           !BOARD && !named.length ? ui.note('Find themes first (step 2) – or tick lines in Find and press “Build sequence”.', 'info') : null,
@@ -2827,7 +2851,7 @@
         US.host.call('listSequences').then(seqs => { if (!hlSeq) { const g = guessStringOut(seqs); hlSeq = (g && g.id) || (US.ctx.sequence && US.ctx.sequence.id) || ''; } seqSel.setOptions(seqs.map(q => ({ value: q.id, label: q.name })), hlSeq); }).catch(() => {});
         const had = hlSeq && state.highlights && state.highlights[hlSeq];
         const run = async markersToo => {
-          const r = await US.jobs.run({ title: 'Highlighting selects on the string-out', tool: 'story' }, job => highlightStringOut(job, { seqId: hlSeq, use: hlUse, markers: markersToo }));
+          const r = await US.jobs.run({ title: 'Highlighting selects on the string-out', tool: 'story' }, job => highlightStringOut(job, { seqId: hlSeq, use: hlUse, markers: markersToo !== 'off' && !!markersToo, where: markersToo === true ? undefined : markersToo }));
           if (r) { hl = r; renderBuild(); }
         };
         el.appendChild(h('div.card', { dataset: { section: 'highlights' } }, h('div.card-title', 'Highlight selects in a string-out'),
@@ -2838,7 +2862,8 @@
             ui.toggle({ label: 'Lines in themes', hint: 'As chosen by How picky', value: hlUse.themes, onChange: x => { hlUse.themes = x; US.settings.set('story.hlUse', hlUse); } }),
             ui.toggle({ label: BOARD ? 'Cards on the board' : 'Lines in your narratives', value: hlUse.board, onChange: x => { hlUse.board = x; US.settings.set('story.hlUse', hlUse); } }),
             ui.toggle({ label: 'Lines in sequences Story built', value: hlUse.builds, onChange: x => { hlUse.builds = x; US.settings.set('story.hlUse', hlUse); } }),
-            RES ? null : ui.toggle({ label: 'Also add range markers', hint: 'For the Markers panel', value: hlMarkers, onChange: x => { hlMarkers = x; US.settings.set('story.hlMarkers', x); } })),
+            RES ? null : ui.field('Markers too', ui.segmented({ options: [{ value: 'off', label: 'Off' }, { value: 'sequence', label: 'Timeline' }, { value: 'clips', label: 'Clips' }, { value: 'both', label: 'Both' }], value: hlMarkers, onChange: x => { hlMarkers = x; US.settings.set('story.hlMarkersWhere', x); } }),
+              'A range marker per selected line, named after its themes, in its colour. Clips: on the clips themselves, so they show in the Source Monitor and wherever the clip is used.')),
           h('div.row', ui.actionButton(had ? 'Highlight again' : 'Highlight selects', () => run(hlMarkers), { icon: 'spark', block: false }),
             ui.button('Show what’s missed', { icon: 'target', title: 'Coverage per interview, without changing the sequence', onClick: () => US.jobs.run({ title: 'Checking coverage', tool: 'story' }, async job => { const tl = await timelineTranscript(job, { seqId: hlSeq, tracks: 'auto' }); hl = { tl, sel: selectionMap(hlUse) }; renderBuild(); return { summary: 'coverage ready' }; }) }),
             had ? ui.button('Remove highlights', { kind: 'ghost', onClick: () => US.jobs.run({ title: 'Removing highlights', tool: 'story' }, async job => { const r = await removeHighlights(job, hlSeq); hl = null; renderBuild(); return r; }) }) : null),
@@ -2853,12 +2878,26 @@
         const showParsed = x => { const b = N().parseBrief(x); parsed.textContent = x.trim() ? `${fmtSecs(b.seconds)}${b.said ? '' : ' (no length given)'} · ${b.topic ? `about “${b.topic}”` : 'from all your selects'}${b.tone ? ` · ${b.tone}` : ''}` : 'Say how long and what it’s about.'; };
         const input = ui.input({ value: narBrief, placeholder: 'e.g. a 60-second video about how the community looks after each other', onInput: x => { narBrief = x; US.settings.set('story.brief', x); showParsed(x); }, onEnter: () => go() });
         showParsed(narBrief);
+        // the client's wishes: emails, briefs, documents pasted in – kept with this project, read with the brief
+        const ctxInfo = h('span.field-hint');
+        const ctxSay = () => { const t = String(state.narrativeContext || '').trim(), words = t ? t.split(/\s+/).length : 0; ctxInfo.textContent = !words ? (useAI ? 'Optional.' : 'Used when the AI shapes the story.') : `${words.toLocaleString('en-GB')} words${t.length > N().CONTEXT_MAX ? ` – only the first ${N().CONTEXT_MAX.toLocaleString('en-GB')} characters are read` : ''}${useAI ? ` · sent as text to ${US.ai.label()} with the brief` : ' · used when the AI shapes the story'}`; };
+        const ctxBox = h('textarea.input.story-context-input', { rows: 6, placeholder: 'Optional: paste the client’s emails, brief or documents – who it’s for, what they want said, what to include or avoid, the tone. Story reads it with the brief.',
+          oninput: () => { state.narrativeContext = ctxBox.value; save(); ctxSay(); } }, state.narrativeContext || '');
+        const ctxLoad = ui.button('Load a text file…', { small: true, kind: 'ghost', icon: 'folder', title: 'A .txt, .md or .eml file – for Word or PDF, copy the text and paste it in', onClick: () => {
+          const f = US.app.pickFiles({ multi: true, title: 'Choose the client’s notes', ext: ['txt', 'md', 'eml', 'text'] });
+          if (!f.length) return;
+          const add = f.map(x => { try { return require('fs').readFileSync(US.normPath(x), 'utf8'); } catch (e) { return ''; } }).filter(Boolean).join('\n\n');
+          ctxBox.value = (ctxBox.value.trim() ? ctxBox.value.trim() + '\n\n' : '') + add; state.narrativeContext = ctxBox.value; saveNow(); ctxSay();
+        } });
+        const ctxClear = ui.button('Clear', { small: true, kind: 'ghost', onClick: () => { ctxBox.value = ''; state.narrativeContext = ''; saveNow(); ctxSay(); } });
+        ctxSay();
         const go = () => { if (!narBrief.trim()) { input.focus(); return; } US.actions.run('story.narrative', { brief: narBrief, useAI }).then(r => { if (r) renderBuild(); }); };
         const latest = latestNarrative();
         return h('div.card', { dataset: { section: 'narrative' } }, h('div.card-title', 'Narrative from a brief'),
           h('div.muted', BOARD ? 'Describe the video and Story puts a story together from your interviews – a hook, the build and a payoff – fitted to the length. It uses your selects (themes and the board, as chosen by How picky) and other lines on the topic. It lands on the board as a new group, so you can rearrange it before building.'
             : 'Describe the video and Story puts a story together from your interviews – a hook, the build and a payoff – fitted to the length. It uses your themes (as chosen by How picky) and other lines on the topic, from what you chose to work on.'),
           input, parsed,
+          ui.field('Client notes and context', ctxBox, h('span', ctxInfo)), h('div.row', ctxLoad, ctxClear),
           aiOn ? ui.toggle({ label: `Let ${US.ai.label()} shape the story`, hint: 'It chooses the order, tightens lines by a few words and says what each one does. Only the text of your lines is sent.', value: narAI, onChange: x => { narAI = x; US.settings.set('story.narrativeAI', x); renderBuild(); } }) : null,
           useAI ? readsControl('narrative') : h('div.field-hint', h('b', 'Basic version (no AI): '), 'a short strong line first, then the most relevant lines (mixing voices) and the most heartfelt line last, fitted to the length.'),
           ui.actionButton(latest ? 'Make another narrative' : 'Make the narrative', go, { icon: 'spark' }),
@@ -2879,9 +2918,23 @@
               h('div.story-meta', `${whoSaid(l)} · ${((tr || l).end - (tr || l).start).toFixed(1)} s${tr ? ' · trimmed' : ''}`)), playButton(l, (tr || l).start));
           })),
           h('div.field-hint', BOARD ? 'Colours, theme names and the strongest-line highlight follow “In the timeline” above. Hook, Build and Payoff go by position, so rearranging the group on the board changes them.' : 'Colours, theme names and the strongest-line highlight follow “In the timeline” above.'),
+          altsBox(col),
+          orderToggle(),
           h('div.row', BOARD ? ui.button('Rearrange on the board', { icon: 'story', onClick: () => show('wall') }) : null, ui.actionButton('Build this narrative', () => US.actions.run('story.build', { source: 'narrative', narrative: col.id }), { icon: 'film', block: false }),
             ui.button('Paper edit', { title: 'This narrative as a Word document with source timecodes (format as chosen in 5 Share)', onClick: () => US.jobs.run({ title: 'Saving the paper edit', tool: 'story' }, async job => { const x = await exportBoard(job, logFormat, { source: 'narrative', narrative: col.id }); ui.toast({ type: 'ok', title: 'Paper edit saved', text: US.basename(x.file), action: { label: 'Open', fn: () => openFile(x.file) } }); return x; }) })),
           promoBox(col));
+      }
+      /** Lines that didn't make the story, offered after the payoff – shown here, and built at the end of the sequence if wanted. */
+      function altsBox(col) {
+        const all = ((col.narrative && col.narrative.alternates) || []).filter(a => lineById.has(a.lineId));
+        if (!all.length) return null;
+        const on = US.settings.get('story.narrativeAlts', true), n = US.settings.get('story.narrativeAltCount', 8), shown = narrativeAlternates(col, N().ALTERNATES);
+        const count = ui.select({ options: [3, 5, 8, 12].map(x => ({ value: String(x), label: `${x}` })), value: String(n), onChange: x => { US.settings.set('story.narrativeAltCount', +x); renderBuild(); } });
+        return ui.section(`Alternative selects (${shown.length})`, [
+          h('div.field-hint', 'Strong lines that didn’t make the story – to swap in, or to take it another way. They can go at the end of the sequence, after the payoff, each with a marker saying why.'),
+          h('div.row', ui.toggle({ label: 'Add them at the end of the sequence', value: on, onChange: x => { US.settings.set('story.narrativeAlts', x); renderBuild(); } }), on ? h('div.row', h('span.field-hint', 'How many'), count) : null),
+          h('ol.story-alts', shown.map((a, i) => { const l = lineById.get(a.lineId); return h('li.story-alt' + (on && i < n ? '' : '.dim'), h('div.story-beat-main', a.why ? h('div.story-beat-purpose', a.why) : null, h('div.story-text', `“${l.text}”`), h('div.story-meta', `${whoSaid(l)} · ${(l.end - l.start).toFixed(1)} s`)), playButton(l)); }))
+        ], { open: false });
       }
       /** "Make it a promo": the same build, then B-roll, captions and a vertical version. */
       function promoBox(col) {
@@ -3391,7 +3444,7 @@
     themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,
     timelineTranscript, exportTimeline, exportBoard, interviewLog, summarise, openFile, summaryPlan, summarySig, namesFor, refreshCustomTheme: (...a) => refreshCustomTheme(...a),
     PICKY_LEVELS, pickyFor, passLevel, pickLines, effectiveLines, describePicky, relevanceOf, findMore, selectedIds, newThemeFrom, usedInSequence,
-    selectionMap, highlightStringOut, removeHighlights, guessStringOut,
+    selectionMap, highlightStringOut, removeHighlights, guessStringOut, narrativeAlternates: (...a) => narrativeAlternates(...a),
     narrativePool, makeNarrative, narrativeColumn, narrativeGroups, buildNarrative, makePromo, latestNarrative: id => latestNarrative(id), trimOf,
     readsFor, setReads, readsPlan, rankCandidates,
     findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,

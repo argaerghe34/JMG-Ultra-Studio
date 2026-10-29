@@ -195,3 +195,8 @@
 .story-q-text.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .story-q-asked { color: var(--text-2); font-style: italic; }
 .story-select-row { align-items: center; margin-bottom: 4px; }
+/* Narrative: alternative selects and the client's notes */
+.story-alts { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.story-alt { display: flex; gap: 8px; align-items: flex-start; }
+.story-alt.dim { opacity: 0.5; }
+.story-context-input { width: 100%; min-height: 90px; resize: vertical; font: inherit; line-height: 1.4; }
