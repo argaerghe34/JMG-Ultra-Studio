@@ -12,9 +12,12 @@
     { id: 'themes', label: 'Find themes', hint: 'Story · themes you added yourself are kept' },
     { id: 'moments', label: 'Find moments', hint: 'Story · bloopers, funny, off camera, poignant' },
     { id: 'log', label: 'Write the interview log', hint: 'Story · a Word document: each interview’s themes, strongest lines and moments (with AI, a short summary too)' },
+    { id: 'beats', label: 'Make the beat map', hint: 'Story · every passage scored on what you chose in Build › Beat map' },
+    { id: 'clips', label: 'Find clips for social', hint: 'Story · from the interviews, as set in Build › Clips for social' },
+    { id: 'recipe', label: 'Then run a recipe', hint: 'One of your recipes (Ask › Recipes) – edit steps are left for the morning, as they need checking' },
     { id: 'selects', label: 'Analyse all the footage for Selects', hint: resolve ? 'Resolve makes small copies of clips the panel can’t read; afterwards Selects grades any bin instantly' : 'Makes Media Encoder copies of clips the panel can’t read; afterwards Selects grades any bin instantly' }
   ];
-  const settings = () => { const o = Object.assign({ steps: ['transcripts', 'themes', 'moments', 'log', 'selects'], useAI: false, limit: 2, footage: 'any' }, US.settings.get('overnight', {})); if (!o.anyFirst) Object.assign(o, { footage: 'any', anyFirst: true }); return o; };
+  const settings = () => { const o = Object.assign({ steps: ['transcripts', 'themes', 'moments', 'log', 'selects'], useAI: false, limit: 2, footage: 'any', recipe: '' }, US.settings.get('overnight', {})); if (!o.anyFirst) Object.assign(o, { footage: 'any', anyFirst: true }); return o; };
 
   /** Video clips worth analysing: everything except Ultra Studio's own bins, subclips, stills and offline media. */
   function footageOf(items) {
@@ -40,6 +43,18 @@
       return r && r.summary ? r : { summary: 'Moments found' };
     },
     async log(job, o) { return US.story.interviewLog(job, { summaries: !!(o.useAI && US.ai && US.ai.available()), format: 'docx' }); },
+    async beats(job, o) { return US.story.scoreBeats(job, { crit: US.settings.get('story.heatCrit', ['emotion', 'humour', 'information']), useAI: !!(o.useAI && US.ai && US.ai.available()) }); },
+    async clips(job, o) {
+      const c = Object.assign({ length: 'standard', count: 8, brief: '' }, US.settings.get('story.clips', {})), L = { short: [15, 30], standard: [30, 60], long: [60, 90] }[c.length] || [30, 60];
+      return US.story.findClips(job, { source: 'interviews', count: c.count, min: L[0], max: L[1], brief: c.brief, useAI: !!(o.useAI && US.ai && US.ai.available()) });
+    },
+    async recipe(job, o) {
+      const r = US.recipes && US.recipes.list().find(x => x.id === o.recipe);
+      if (!r) throw new US.UserError('NOTHING_FOUND', { title: 'No recipe chosen.', action: 'Choose one in Overnight prep on Home.' });
+      const out = await US.recipes.run(r, { job });
+      if (out.stoppedAt >= 0) return { summary: `“${r.name}”: ${out.done} of ${out.of} steps done – step ${out.stoppedAt + 1} is an edit, left for you to check (Ask › Recipes)` };
+      return { summary: `“${r.name}”: all ${US.plural(out.of, 'step')} done` };
+    },
     async selects(job, o) {
       const items = await allFootage(job);
       if (!items.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no video footage in this project yet.' });
@@ -139,12 +154,14 @@
     const limitF = ui.field('AI limit for the night', limit, 'Asked once when you press Start; nothing asks later.');
     const useAI = aiOn ? ui.toggle({ label: `Use ${US.ai.label()} for themes, moments and interview summaries`, value: o.useAI, hint: 'Sharper themes and checked moments. Off: Ultra Studio’s own grouping, free.', onChange: x => { o.useAI = x; save(); limitF.classList.toggle('hidden', !x || US.ai.provider() !== 'claude'); } }) : null;
     limitF.classList.toggle('hidden', !(aiOn && o.useAI && US.ai.provider() === 'claude'));
+    const recipes = US.recipes ? US.recipes.list() : [];
+    const recipeSel = ui.select({ options: [{ value: '', label: 'Choose a recipe…' }].concat(recipes.map(r => ({ value: r.id, label: r.name }))), value: o.recipe || '', onChange: x => { o.recipe = x; save(); } });
     return ui.section('Overnight prep – get this project ready while you’re away', [
-      h('div.field-hint', 'Runs the long jobs one after another, keeps the computer awake, and leaves a report here. Your edit isn’t changed. Leave Premiere open with this project.'),
-      ...toggles, ui.field('Kind of footage (for Selects)', footage), useAI, limitF,
+      h('div.field-hint', 'Runs the long jobs one after another, keeps the computer awake, and leaves a report here. Your edit isn’t changed (a recipe makes new sequences, never changes yours). Leave Premiere open with this project.'),
+      ...toggles, ui.field('Recipe to run', recipeSel, 'For example “Podcast episode” on the open sequence.'), ui.field('Kind of footage (for Selects)', footage), useAI, limitF,
       ui.actionButton('Start overnight prep', () => US.jobs.run({ title: 'Overnight prep', tool: 'home' }, job => run(job, settings())), { icon: 'check' })
     ], { open: false });
   }
 
-  US.overnight = { STEPS, run, footageOf, reportCard, setupCard, settings };
+  US.overnight = { STEPS, RUNNERS, run, footageOf, reportCard, setupCard, settings };
 })();

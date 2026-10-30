@@ -47,7 +47,7 @@ The same panel runs in **DaVinci Resolve Studio 19.1 or later** (20 recommended)
 
 ## Overnight prep
 
-On **Home**, open **Overnight prep – get this project ready while you're away**. Tick what to do – **Read Premiere's transcripts**, **Find themes**, **Find moments**, **Write the interview log** (with AI, a short summary of each interview), **Analyse all the footage for Selects** (any footage, unless you choose a kind) – and press **Start overnight prep**. It runs them one after another, keeps the computer awake, and in the morning Home shows a report: what was done, how long it took, and anything that needs you. Your edit isn't changed; leave Premiere open with the project.
+On **Home**, open **Overnight prep – get this project ready while you're away**. Tick what to do – **Read Premiere's transcripts**, **Find themes**, **Find moments**, **Write the interview log** (with AI, a short summary of each interview), **Make the beat map**, **Find clips for social**, **Then run a recipe** (choose one – e.g. *Podcast episode*; edit steps wait for you in the morning), **Analyse all the footage for Selects** (any footage, unless you choose a kind) – and press **Start overnight prep**. It runs them one after another, keeps the computer awake, and in the morning Home shows a report: what was done, how long it took, and anything that needs you. Your edit isn't changed; leave Premiere open with the project.
 
 With an AI key you can let it use the AI for themes, moments and the interview summaries. With Claude you choose a limit for the night (for example *Up to $2.00*) when you press Start; nothing asks later, and any AI step that wouldn't fit is skipped and listed in the report.
 

@@ -1,3 +1,7 @@
+## What's new in 1.3.16
+
+- **Overnight prep does more** (Home): besides transcripts, themes, moments, the interview log and Selects, it can now **make the beat map**, **find clips for social**, and **then run a recipe** – for example *Podcast episode* on the open sequence – all within the AI limit agreed when you press Start. Edit steps in a recipe are left for the morning, because they need checking; the report says so.
+
 ## What's new in 1.3.15
 
 - **AI on this computer** (Settings › AI): choose **On this computer** and Ultra Studio uses a model running locally – Ollama or LM Studio – so not even text leaves. **Find models** lists what's installed; **Test** checks it answers. It only ever talks to this computer (an address elsewhere is refused). Small local models are fast but clearly weaker at story work, so themes, narratives and edits come out simpler – try an 8B model or larger.

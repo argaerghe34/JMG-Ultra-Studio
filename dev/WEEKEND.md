@@ -604,3 +604,5 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   - **1.3.15** AI on this computer: provider 'local' (OpenAI-style /v1/chat/completions on localhost only – Ollama,
     LM Studio; json_schema with Ollama's `format: json` fallback; `<think>` stripped; logged; never billed), model list,
     test; per-project "nothing leaves this computer" (`ai.offlineProjects`) forces local or no AI. Top-bar chip says so.
+  - **1.3.16** Overnight prep (the report's "Night Shift"): new steps – beat map, clips for social, and a chosen recipe run
+    inside the night's job (unattended AI budget applies); edit steps stop the recipe and are reported for the morning.
