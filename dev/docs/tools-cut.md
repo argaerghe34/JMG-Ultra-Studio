@@ -21,6 +21,8 @@ Or fine-tune **silence level** (**Auto level** sets it from the room noise), **s
 
 **Make a cut copy** duplicates the sequence and ripple-cuts every pause across all tracks, so picture and sound stay in sync. The original is never touched. Or use **Add markers instead** to decide by hand. Locked tracks are flagged first, because cutting around them would knock them out of sync.
 
+**Fillers and false starts** – below the pauses: **Find fillers and false starts** reads the words in Story's transcripts of the clips in the sequence and lists every *um*, *uh*, *er*, doubled small word (*the the*) and restarted sentence, each with the words around it. Untick any you want to keep (filter by kind, **Tick all** / **Untick all**), press ▶ to hear one, then **Make a cut copy** – with **Cut the pauses too** when you've found them, both go in one copy. Soft fillers (*, you know,*) are off unless you switch them on. Cuts are exact with Premiere's word timings; in Resolve (times per phrase) they're estimated and left unticked.
+
 ### Beat Cut – cut to the music
 
 Premiere has no beat detection; this adds it. Select a music clip and press **Find the beat**. It shows the tempo; if it's double or half what you hear, use **Double speed** / **Half speed**.

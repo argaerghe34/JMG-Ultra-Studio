@@ -579,3 +579,6 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     run in the Assistant or as `recipes.run` inside one job); Deliver › Episode text (33-deliver-text.js: titles,
     description, show notes, YouTube-valid chapters, quotes verified against the transcript, social posts; basic version
     without AI; save as .md, chapters as markers).
+  - **1.3.10** Fillers and false starts (20-silence-words.js: fillers, doubled small words, restarts within 8 words and
+    one speaker, soft fillers between commas when asked; ticked only with exact word timings) in Silence Cut, cut with or
+    without the pauses in one copy (`cutCopy` words/pauses). `ui.reviewList` – the shared list of proposed changes.

@@ -303,3 +303,9 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 /* Deliver › Episode text */
 .ep-box { margin: 10px 0; }
 .ep-box textarea { width: 100%; font-size: 12px; }
+
+/* the shared review list (fillers, retakes, camera switches) */
+.review-head { gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.review-rows { max-height: 360px; overflow: auto; }
+.review-row { gap: 8px; align-items: center; }
+.review-row input[type=checkbox] { flex: none; }

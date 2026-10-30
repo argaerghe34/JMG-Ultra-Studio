@@ -1,3 +1,8 @@
+## What's new in 1.3.10
+
+- **Fillers and false starts** (Silence Cut): found from the words in Story's transcripts of the clips in the sequence – *um*, *uh*, *er*, doubled small words (*I I went*), restarted sentences (*we went to the – we went to the shop*), and, if you ask, soft fillers between commas (*, you know,*). Each one is listed with the words around it: untick any you want to keep, press ▶ to hear it in the Timeline, then **Make a cut copy** – with the pauses too if you found them, in one copy. With Premiere's word timings the cuts are exact; otherwise they're estimated and left unticked for you to check. Ask: *cut the ums and the false starts*.
+- **The review list**: one list for every automatic change – tick, untick, filter by kind, tick or untick all, and go to each – so nothing is cut that you haven't seen. Take Sets and the podcast switcher use it too.
+
 ## What's new in 1.3.9
 
 - **Length** (Story › 4 Build): type a length like *3:00* and the cut is fitted to it (±10%): the weakest lines are left out, from the longest themes first, until it fits – pinned lines and each theme's best line stay. It never makes lines up: if there aren't enough, it says so. The Assistant understands *build a 3 minute cut from the themes*.

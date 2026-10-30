@@ -321,6 +321,38 @@
     { i: 8, name: 'Purple', hex: '#8f53c9' }, { i: 9, name: 'Blue', hex: '#3a5fd6' }, { i: 10, name: 'Teal', hex: '#18898f' }, { i: 11, name: 'Magenta', hex: '#c33ea8' },
     { i: 12, name: 'Tan', hex: '#c9a87f' }, { i: 13, name: 'Green', hex: '#3e9e39' }, { i: 14, name: 'Brown', hex: '#8a5a32' }, { i: 15, name: 'Yellow', hex: '#e2d33a' }
   ];
+  /**
+   * The review list every automatic edit shares (fillers, retakes, camera switches): one row per change, ticked or not,
+   * with what it is, where, and a button to go there – so nothing is cut that the editor hasn't seen.
+   * items: [{id, kind, start, end, title, sub, on}]; kinds: {kind: label}. -> element with .refresh() and .items
+   */
+  ui.reviewList = function ({ items, kinds = {}, onJump, onChange, limit = 400, fmt = s => US.fmtDur(s) }) {
+    const wrap = h('div.review-list'), head = h('div.row.review-head'), body = h('div.list.review-rows');
+    let only = '';
+    const counts = () => { const on = items.filter(x => x.on); return `${on.length} of ${items.length} ticked · ${US.fmtDur(on.reduce((n, x) => n + Math.max(0, x.end - x.start), 0), true)}`; };
+    const set = (pred, v) => { for (const x of items) if (pred(x)) x.on = v; draw(); onChange && onChange(items); };
+    function draw() {
+      US.clear(head); US.clear(body);
+      const types = Array.from(new Set(items.map(x => x.kind))).filter(Boolean);
+      head.append(h('span.grow.field-hint', counts()),
+        types.length > 1 ? ui.select({ options: [{ value: '', label: 'All kinds' }].concat(types.map(t => ({ value: t, label: `${kinds[t] || t} (${items.filter(x => x.kind === t).length})` }))), value: only, onChange: v => { only = v; draw(); } }) : null,
+        ui.button('Tick all', { small: true, kind: 'ghost', onClick: () => set(x => !only || x.kind === only, true) }),
+        ui.button('Untick all', { small: true, kind: 'ghost', onClick: () => set(x => !only || x.kind === only, false) }));
+      const shown = items.filter(x => !only || x.kind === only);
+      for (const x of shown.slice(0, limit)) {
+        const box = h('input', { type: 'checkbox', checked: !!x.on, onchange: e => { x.on = e.target.checked; head.querySelector('.field-hint').textContent = counts(); onChange && onChange(items); } });
+        body.appendChild(h('div.list-row.review-row' + (x.on ? '' : '.muted'),
+          box, h('div.list-main', h('div.list-title', x.title || kinds[x.kind] || x.kind), x.sub ? h('div.list-sub', x.sub) : null),
+          h('span.list-right', fmt(x.start)),
+          onJump ? h('button.btn.small.ghost', { title: 'Go there', onclick: () => onJump(x) }, '▶') : null));
+      }
+      if (shown.length > limit) body.appendChild(h('div.field-hint', `…and ${shown.length - limit} more (all ticked as shown in the count).`));
+      if (!items.length) body.appendChild(h('div.field-hint', 'Nothing found.'));
+    }
+    wrap.append(head, body); wrap.refresh = draw; wrap.items = items; draw();
+    return wrap;
+  };
+
   ui.MARKER_COLORS = [
     { i: 0, name: 'Green', hex: '#3fbf4a' }, { i: 1, name: 'Red', hex: '#e2483f' }, { i: 2, name: 'Purple', hex: '#a35bd6' }, { i: 3, name: 'Orange', hex: '#f08a24' },
     { i: 4, name: 'Yellow', hex: '#e9d33a' }, { i: 5, name: 'White', hex: '#e6e6e6' }, { i: 6, name: 'Blue', hex: '#3d7ff0' }, { i: 7, name: 'Cyan', hex: '#2fc6d6' }

@@ -28,15 +28,23 @@
     return US.dsp.findPauses(an.env, { threshold: s.threshold == null ? an.stats.auto : s.threshold, minPause: s.minPause, padding: s.padding, duration: an.duration });
   }
 
-  /** Clone the sequence and ripple-cut the pauses out of the copy. */
-  async function cutCopy(an, s, job) {
+  /** Just what cutting needs, when only words are cut (no sound analysed): {target, locked, duration} */
+  async function prepare(target) { return { target, locked: await US.host.call('lockedTracksWithClips', { seqId: target.id }), duration: target.duration, words: true }; }
+  /**
+   * Clone the sequence and ripple-cut out of the copy: the pauses (when the sound was analysed and pauses is on) and the
+   * ticked fillers and false starts (words: review-list items). Overlaps are joined.
+   */
+  async function cutCopy(an, s, job, { words = [], pauses = true } = {}) {
     if (an.locked.length) throw new US.UserError('BAD_INPUT', { title: `Some tracks are locked (${an.locked.join(', ')}).`, action: 'Unlock them in the Timeline (padlock icons), then try again – otherwise the cuts would knock them out of sync.' });
-    const r = pausesFor(an, s);
-    if (!r.cuts.length) throw new US.UserError('NOTHING_FOUND', { title: 'No pauses long enough to cut.', action: 'Lower “Shortest pause to cut” or raise the silence level.' });
+    const r = pauses && an.env ? pausesFor(an, s) : { cuts: [], removed: 0 };
+    const merged = US.speechCleanup.ranges(words, r.cuts), nWords = words.filter(x => x.on).length;
+    if (!merged.length) throw new US.UserError('NOTHING_FOUND', { title: nWords || !pauses ? 'Nothing is ticked to cut.' : 'No pauses long enough to cut.', action: pauses && an.env ? 'Lower “Shortest pause to cut” or raise the silence level.' : 'Tick some fillers or false starts in the list.' });
+    const what = [r.cuts.length ? 'pauses' : '', nWords ? 'fillers' : ''].filter(Boolean).join(' and ');
     job.set({ who: 'premiere', msg: 'Making a copy of the sequence' });
-    const copy = await US.host.call('cloneSequence', { seqId: an.target.id, name: `${an.target.name} – pauses cut`, binPath: 'JMG Ultra Studio/Silence Cut' });
+    const copy = await US.host.call('cloneSequence', { seqId: an.target.id, name: `${an.target.name} – ${what} cut`, binPath: 'JMG Ultra Studio/Silence Cut' });
     // times count from the start of the sequence (Premiere ignores a 01:00:00:00 start timecode here – checked)
-    const ranges = r.cuts.map(c => [c.start, c.end]).sort((a, b) => b[0] - a[0]);
+    const ranges = merged.slice().sort((a, b) => b[0] - a[0]);
+    r.removed = merged.reduce((n, x) => n + x[1] - x[0], 0);
     const parts = kit.chunk(ranges, 20);
     let removed = 0, done = 0, dur = an.duration;
     for (const part of parts) {
@@ -49,7 +57,8 @@
     const fps = an.target.fps || 25, want = r.removed, slack = (2 / fps) * ranges.length + 0.05;
     if (Math.abs(removed - want) > slack) US.log('error', `Silence Cut: removed ${removed.toFixed(3)} s, expected ${want.toFixed(3)} s`, `${ranges.length} cuts, fps ${fps}`, 'silence');
     await US.host.call('openSequence', { seqId: copy.id });
-    return { summary: `Cut ${US.plural(ranges.length, 'pause')} (${US.fmtDur(removed, true)}) – “${copy.name}” is ${US.fmtDur(dur)} long. The original is unchanged.`, copy, removed, cuts: ranges.length, duration: dur };
+    const said = [r.cuts.length ? US.plural(r.cuts.length, 'pause') : '', nWords ? `${nWords} filler${nWords === 1 ? '' : 's'} and false start${nWords === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+    return { summary: `Cut ${said} (${US.fmtDur(removed, true)}) – “${copy.name}” is ${US.fmtDur(dur)} long. The original is unchanged.`, copy, removed, cuts: ranges.length, duration: dur };
   }
 
   async function addMarkers(an, s, job) {
@@ -65,27 +74,42 @@
     describe: 'Finds pauses in the active sequence’s sound and removes them from a copy of the sequence (the original is untouched).',
     params: {
       minPause: { type: 'number', default: 0.5, desc: 'Shortest pause to cut, in seconds' },
-      padding: { type: 'number', default: 0.15, desc: 'Seconds of room to keep either side of speech' }
+      padding: { type: 'number', default: 0.15, desc: 'Seconds of room to keep either side of speech' },
+      fillers: { type: 'boolean', default: false, desc: 'Also cut “um”, “uh”, “er” and false starts (“I – I went”, restarted sentences), from Story’s transcripts' },
+      pauses: { type: 'boolean', default: true, desc: 'Cut the pauses (false: only the fillers and false starts)' }
     },
     examples: ['cut the silences', 'remove pauses longer than 1 second', 'tighten this interview'],
     match(text) {
       const t = text.toLowerCase();
       const about = /(silen|pause|gaps?\b|dead air|quiet bits|breaths?)/.test(t) && /(cut|remove|delete|trim|tighten|kill|get rid|lose|strip)/.test(t);
       const tighten = /tighten (up )?(this|the|my)?\s*(interview|edit|cut|talk|podcast|sequence)/.test(t);
-      if (!about && !tighten) return null;
+      const words = /\b(ums?|uhs?|ers?|fillers?|false starts?|stumbles?)\b/.test(t) && /(cut|remove|delete|trim|kill|get rid|lose|strip|clean)/.test(t);
+      if (!about && !tighten && !words) return null;
       const p = {};
       const m = /(longer|more) than (\d+(?:\.\d+)?)\s*(ms|milliseconds?|s\b|secs?|seconds?)/.exec(t);
       if (m) p.minPause = /ms|milli/.test(m[3]) ? +m[2] / 1000 : +m[2];
       if (/very tight|really tight|aggressive/.test(t)) Object.assign(p, { minPause: PRESETS.verytight.minPause, padding: PRESETS.verytight.padding });
+      if (/\b(ums?|uhs?|ers?|fillers?|false starts?|stumbles?|repeats?)\b/.test(t)) { p.fillers = true; if (!about) p.pauses = false; }
       return p;
     },
     async run(params, job) {
       const target = await kit.activeSequenceTarget();
-      const an = await analyse(target, job.range(0, 0.4));
+      const an = params.pauses !== false ? await analyse(target, job.range(0, 0.4)) : await prepare(target);
+      const words = params.fillers ? await findWords(target, job, {}) : [];
       job.range(0.4, 1);
-      return cutCopy(an, { minPause: params.minPause, padding: params.padding, threshold: null }, job);
+      return cutCopy(an, { minPause: params.minPause, padding: params.padding, threshold: null }, job, { words, pauses: params.pauses !== false });
     }
   });
+
+  /** Fillers and false starts heard in a sequence (Story's transcripts of its clips). -> review items */
+  async function findWords(target, job, opts) {
+    if (!US.story || !US.story.timelineTranscript) throw new US.UserError('NOTHING_FOUND', { title: 'Fillers come from Story’s transcripts.' });
+    job && job.set({ who: 'premiere', msg: 'Reading the words in the sequence' });
+    const tl = await US.story.timelineTranscript(job, { seqId: target.id });
+    if (!tl.result.entries.length) throw new US.UserError('NOTHING_FOUND', { title: `No transcribed speech is heard in “${target.name}”.`, action: 'Transcribe the clips in Story › 1 Interviews first – fillers are found from the words.' });
+    const names = US.story.namesFor ? US.story.namesFor(tl) : new Map();
+    return US.speechCleanup.find(tl.result.entries, opts).map(x => Object.assign(x, { title: `${US.speechCleanup.KIND[x.kind]}: “${x.text}”`, sub: `${x.context}${x.exact ? '' : ' · timing estimated (no word timings) – check before cutting'}`, speaker: names.get && x.speaker ? names.get(x.speaker) : '' }));
+  }
 
   US.tools.register({
     id: 'silence', name: 'Silence Cut', short: 'Silence', icon: 'silence', group: 'cut', order: 20,
@@ -113,7 +137,33 @@
       }), { icon: 'silence' });
 
       const results = h('div');
-      v.body.append(ui.card(picker.el, findBtn), results);
+      /* fillers and false starts, from the words */
+      const wo = Object.assign({ fillers: true, soft: false, falseStarts: true, withPauses: true }, US.settings.get('silence.words', {}));
+      const saveWo = () => US.settings.set('silence.words', wo);
+      let words = [], wordsFor = null;
+      const wordsOut = h('div');
+      const findWordsBtn = ui.actionButton('Find fillers and false starts', () => US.jobs.run({ title: 'Finding fillers and false starts', tool: 'silence' }, async job => {
+        const target = await kit.resolveTarget(picker, job);
+        words = await findWords(target, job, wo); wordsFor = target;
+        drawWords();
+        return { summary: `${US.plural(words.length, 'filler or false start', 'fillers and false starts')} in “${target.name}”` };
+      }), { icon: 'silence' });
+      function drawWords() {
+        US.clear(wordsOut);
+        if (!wordsFor) return;
+        const list = ui.reviewList({ items: words, kinds: US.speechCleanup.KIND, onJump: x => kit.goTo(wordsFor, Math.max(0, x.start - 1.5)) });
+        const cutWords = ui.actionButton(an && wo.withPauses ? 'Make a cut copy (fillers and pauses)' : 'Make a cut copy', () => US.jobs.run({ title: 'Cutting', tool: 'silence' }, async job => cutCopy(an && an.target.id === wordsFor.id && wo.withPauses ? an : await prepare(wordsFor), settings, job, { words, pauses: !!(an && an.target.id === wordsFor.id && wo.withPauses) })), { icon: 'silence' });
+        wordsOut.append(list,
+          an && an.target.id === wordsFor.id ? ui.toggle({ label: 'Cut the pauses too', hint: 'The pauses found above and the ticked words, in one copy.', value: wo.withPauses, onChange: x => { wo.withPauses = x; saveWo(); drawWords(); } }) : h('div.field-hint', 'Press “Find the pauses” above too, to cut both in one copy.'),
+          cutWords);
+      }
+      const wordsCard = ui.card(h('div.card-title', 'Fillers and false starts'),
+        h('div.muted', 'Found from the words in Story’s transcripts of the clips in the sequence – “um”, “uh”, “er”, doubled small words (“I I went”) and restarted sentences (“we went to the – we went to the shop”). Each one is listed: untick any you want to keep, then make a cut copy. With Premiere’s word timings the cuts are exact; otherwise they’re estimated and left unticked.'),
+        ui.toggle({ label: 'Fillers: um, uh, er…', value: wo.fillers, onChange: x => { wo.fillers = x; saveWo(); } }),
+        ui.toggle({ label: 'Soft fillers between commas: “, you know,” “, like,” “, I mean,”', hint: 'Off by default – they’re often meant.', value: wo.soft, onChange: x => { wo.soft = x; saveWo(); } }),
+        ui.toggle({ label: 'False starts and repeated words', value: wo.falseStarts, onChange: x => { wo.falseStarts = x; saveWo(); } }),
+        findWordsBtn, wordsOut);
+      v.body.append(ui.card(picker.el, findBtn), results, wordsCard);
 
       const tl = ui.timeline({ height: 70, onSeek: t => an && kit.goTo(an.target, t) });
       const statsBox = h('div');
@@ -163,11 +213,12 @@
         thrS.set(Math.round(settings.threshold == null ? an.stats.auto : settings.threshold));
         results.appendChild(resultsCard);
         update();
+        drawWords();   // the fillers card can now offer “cut the pauses too”
       }
       render();
       return { el: v.el, onShow() { picker.refresh(); } };
     }
   });
 
-  US.silenceCut = { PRESETS, analyse, pausesFor, cutCopy, addMarkers };
+  US.silenceCut = { PRESETS, analyse, pausesFor, cutCopy, addMarkers, findWords, prepare };
 })();
