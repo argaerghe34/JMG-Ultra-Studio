@@ -312,3 +312,22 @@ test('an adjustment layer or a generated clip (no media file) isn’t footage', 
   assert.strictEqual(info[0].kind, 'adjustment');
   assert.notStrictEqual(info[1].kind, 'adjustment');
 });
+
+test('render ranges from text layers: named by the words they show (Source Text JSON, or “Text (…)”), not “Graphic”', () => {
+  const P = makePremiere({ adjustment: true }), T = s => ({ seconds: s, ticks: String(Math.round(s * TICKS)) });
+  P.call('addRenderRange', { seqId: 's1', name: 'Hook', start: 0, end: 5 });   // makes the Renders track (V4)
+  const coll = arr => new Proxy({ numItems: arr.length }, { get: (o, p) => (p in o ? o[p] : arr[+p]) });
+  const prop = (displayName, v) => ({ displayName, getValue: () => v });
+  const text = (name, start, end, comps) => ({ name, start: T(start), end: T(end), _end: end, nodeId: 'tx' + start, projectItem: null, disabled: false, isMGT: () => false, getMGTComponent: () => null,
+    components: coll(comps.map(([dn, mn, props]) => ({ displayName: dn, matchName: mn, properties: coll(props) }))) });
+  P.seq._v[3]._clips.push(
+    text('Graphic', 10, 20, [['Motion', 'AE.ADBE Motion', [prop('Position', '0,0')]], ['Text', 'AE.ADBE Text', [prop('Source Text', '\u0000\u0001\u0002{"textEditValue":"Teaser\\n30s","fontEditValue":["Arial"]}')]]]),
+    text('Graphic', 30, 40, [['Text (Chorus 2)', 'AE.ADBE Text', [prop('Source Text', 'binary-blob')]]]),
+    text('My own name', 50, 60, [['Text', 'AE.ADBE Text', [prop('Source Text', '{"textEditValue":"ignored"}')]]]),
+    text('Graphic', 70, 80, [['Text', 'AE.ADBE Text', [prop('Source Text', '???')]]]));
+  const r = P.call('renderRanges', { seqId: 's1', kinds: 'text' });
+  assert.deepStrictEqual(r.ranges.map(x => [x.name, x.kind]), [['Teaser 30s', 'text'], ['Chorus 2', 'text'], ['My own name', 'text'], ['Graphic', 'text']]);
+  assert.ok(!r.ranges[0].probe && /Source Text=\?\?\?/.test(r.ranges[3].probe), 'unreadable words: what the layer is made of comes back for the log');
+  assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1' }).ranges.map(x => x.name), ['Hook'], 'adjustment layers only, as before');
+  assert.strictEqual(P.call('renderRanges', { seqId: 's1', kinds: 'both' }).ranges.length, 5);
+});

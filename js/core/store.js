@@ -69,8 +69,11 @@
   US.settings = {
     get(key, def) { return key in settings ? settings[key] : def; },
     set(key, val) { settings[key] = val; saveSettings(); US.bus.emit('settings', key, val); },
-    all() { return settings; }
+    all() { return settings; },
+    /** Write now rather than in a moment (before the panel reloads or closes). */
+    flush() { try { writeJSON(settingsFile, settings); } catch (e) { console.error(e); } }
   };
+  window.addEventListener('beforeunload', () => US.settings.flush());
 
   /* ---------- analysis cache (per media file, per kind) ---------- */
   US.cache = {

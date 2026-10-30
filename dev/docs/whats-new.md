@@ -6,6 +6,8 @@ A small update to 1.3.7.
 - **MC Selects** shows a still of each camera (the file's own preview from Finder or Explorer – nothing is rendered), the **camera model** when the file says (Sony, Canon, Panasonic Lumix, Fujifilm, Nikon, GoPro, DJI, iPhone…), and the **total running time** of the cameras you keep.
 - **Subclip Maker** can make subclips of **every clip on the timeline** (the part used), and put them in **a new bin you name or a bin you choose**. **Add handles** (off by default) adds a few seconds each side.
 - **Deliver › Render ranges** can use **text layers** as well as adjustment layers – they show their name in the Timeline. The text is kept out of the renders. In Resolve: Text and Text+ titles.
+- **Reload** (↻ in the top bar) loads Ultra Studio again – a new version or test copy takes effect without closing and reopening the panel. Your settings and Story work are saved first.
+- Text layers used as render ranges are named by the words they show, not “Graphic” (a name you give the clip yourself wins).
 - **Selects, Subclip Maker and MC Selects** have their own section in the tool bar, **Selects & clips**, under Story.
 
 ## What's new in 1.3.7

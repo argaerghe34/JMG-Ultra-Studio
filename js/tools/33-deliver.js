@@ -92,7 +92,7 @@
 
   /* ---------- render ranges: adjustment layers on a “Renders” track above the edit, one file each ---------- */
   // names Premiere (or we) give a layer before you name it yourself, in Premiere's main languages
-  const PLAIN_NAMES = /^(adjustment layer|einstellungsebene|calque d'effets|capa de ajuste|livello di regolazione|camada de ajuste|調整レイヤー|ultra studio render range|transparent video)?( \d+)?$/i;
+  const PLAIN_NAMES = /^(graphic|grafik|graphique|gráfico|basic title|adjustment layer|einstellungsebene|calque d'effets|capa de ajuste|livello di regolazione|camada de ajuste|調整レイヤー|ultra studio render range|transparent video)?( \d+)?$/i;
   /**
    * The colours of layers Ultra Studio laid. Premiere 26 doesn't tell add-ons a timeline clip's colour (TrackItem has
    * no colour, measured in 26.5.2), so the colour each layer got – from Song Splitter, “Add a render range” or a
@@ -381,6 +381,7 @@
       const suffixIn = ui.input({ placeholder: 'e.g. _1 or _v2', value: ro.suffix || '' });
       suffixIn.addEventListener('input', US.debounce(() => { ro.suffix = cleanSuffix(suffixIn.value); saveRo(); showRanges(); }, 300));
       let shownSig = '';
+      const probed = new Set();
       const NEW_TRACK = '\u0000new';
       async function fillTracks(seq) {
         let tracks = [];
@@ -408,6 +409,8 @@
         try {
           const found = await US.host.call('renderRanges', { seqId: s.id, track: ro.track || undefined, kinds: ro.kinds });
           found.ranges = layerColours.apply(s.id, ro.track, found.ranges);
+          // a text layer whose words couldn't be read: say once what it's made of (activity log), then drop the detail
+          for (const r of found.ranges) if (r.probe) { if (!probed.has(r.nodeId)) { probed.add(r.nodeId); US.log('warn', `Couldn’t read the words of the text layer “${r.name}”`, r.probe, 'deliver'); } delete r.probe; }
           const sig = JSON.stringify([s.id, ro, found]);
           if (quiet && sig === shownSig) return;
           shownSig = sig;

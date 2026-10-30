@@ -132,26 +132,48 @@
         }
         return out;
     }
-    /** The words a text layer shows (its first text box), or ''. */
-    function textOf(ti) {
-        try {
-            var mgt = ti.getMGTComponent(); if (!mgt) return '';
-            for (var i = 0; i < mgt.properties.numItems; i++) {
-                var v = mgt.properties[i].getValue();
-                if (typeof v === 'string' && v.indexOf('textEditValue') >= 0) { var o = JSON.parse(v); return trim(o.textEditValue || ''); }
-            }
-        } catch (e) { }
+    /** The words in a Source Text value: Premiere gives JSON with "textEditValue" (sometimes after a few binary
+        bytes), or older versions a blob with the text inside. -> '' when there's none */
+    function wordsIn(v) {
+        if (typeof v !== 'string' || !v) return '';
+        var i = v.indexOf('{');
+        if (i >= 0) { try { var o = JSON.parse(v.slice(i)); if (o && o.textEditValue != null) return trim(o.textEditValue); } catch (e) { } }
+        var m = /"textEditValue"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(v);
+        if (m) { try { return trim(JSON.parse('"' + m[1] + '"')); } catch (e2) { return trim(m[1]); } }
         return '';
+    }
+    /**
+     * The words a text layer shows (its first text box), or ''. Templates (.mogrt) keep them in the MGT component;
+     * text made with the Type tool in its Text component's Source Text; failing both, Effect Controls names that
+     * component "Text (the words)".
+     */
+    function textOf(ti) {
+        var w = '';
+        try {
+            var mgt = ti.getMGTComponent();
+            if (mgt) for (var i = 0; i < mgt.properties.numItems && !w; i++) w = wordsIn(mgt.properties[i].getValue());
+        } catch (e) { }
+        try {
+            for (var k = 0; k < ti.components.numItems && !w; k++) {
+                var c = ti.components[k], dn = String(c.displayName || ''), mn = String(c.matchName || '');
+                if (!/Text|Graphic|Capsule/i.test(dn + ' ' + mn)) continue;
+                for (var j = 0; j < c.properties.numItems && !w; j++) { try { w = wordsIn(c.properties[j].getValue()); } catch (e3) { } }
+                if (!w) { var nm = /^\s*Text\s*\((.+)\)\s*$/.exec(dn); if (nm) w = trim(nm[1]); }
+            }
+        } catch (e4) { }
+        return w.replace(/[\r\n\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ');
     }
     /** Put words in a text layer's first text box. -> true if it took */
     function setText(ti, words) {
-        try {
-            var mgt = ti.getMGTComponent(); if (!mgt) return false;
-            for (var i = 0; i < mgt.properties.numItems; i++) {
-                var p = mgt.properties[i], v = p.getValue();
-                if (typeof v === 'string' && v.indexOf('textEditValue') >= 0) { var o = JSON.parse(v); o.textEditValue = words; p.setValue(JSON.stringify(o), true); return true; }
-            }
-        } catch (e) { }
+        function put(p) {
+            var v = p.getValue();
+            if (typeof v !== 'string' || v.indexOf('textEditValue') < 0) return false;
+            var i = v.indexOf('{'), o = JSON.parse(v.slice(i)); o.textEditValue = words;
+            p.setValue(v.slice(0, i) + JSON.stringify(o), true);
+            return true;
+        }
+        try { var mgt = ti.getMGTComponent(); if (mgt) for (var i = 0; i < mgt.properties.numItems; i++) if (put(mgt.properties[i])) return true; } catch (e) { }
+        try { for (var k = 0; k < ti.components.numItems; k++) for (var j = 0; j < ti.components[k].properties.numItems; j++) { try { if (put(ti.components[k].properties[j])) return true; } catch (e2) { } } } catch (e3) { }
         return false;
     }
     var trim = function (x) { return String(x).replace(/^\s+|\s+$/g, ''); };
@@ -169,13 +191,28 @@
     }
     /** A timeline clip's own colour label (0–15), or null when this Premiere can't say. */
     function labelOf(ti) { try { if (typeof ti.getColorLabel === 'function') { var l = Number(ti.getColorLabel()); return isFinite(l) ? l : null; } } catch (e) { } return null; }
+    /** Its components and properties with the start of each value – so a Premiere that keeps the words elsewhere can be seen. */
+    function probeText(ti) {
+        var out = [];
+        try {
+            for (var k = 0; k < ti.components.numItems; k++) {
+                var c = ti.components[k], ps = [];
+                for (var j = 0; j < c.properties.numItems; j++) { var v = ''; try { v = String(c.properties[j].getValue()).slice(0, 80); } catch (e) { v = '?'; } ps.push(c.properties[j].displayName + '=' + v); }
+                out.push(c.displayName + ' [' + c.matchName + ']: ' + ps.join('; '));
+            }
+        } catch (e2) { out.push('components: ' + e2); }
+        return out.join('\n').slice(0, 3000);
+    }
     // a text layer with a template's own name ("Graphic", "Basic Title") is named by the words it shows
     var PLAIN_TEXT_NAME = /^(graphic|grafik|graphique|gráfico|grafica|basic title|text|texte)( \d+)?$/i;
     function rangeOf(ti) {
         var pi = null; try { pi = ti.projectItem; } catch (e) { }
         var text = !isRangeItem(pi) && isTextClip(ti), name = String(ti.name || '');
+        // a text layer is named by the words it shows, unless you gave the clip a name of your own
         if (text && (!trim(name) || PLAIN_TEXT_NAME.test(trim(name)))) name = textOf(ti) || name;
-        return { name: name, start: ti.start.seconds, end: ti.end.seconds, disabled: !!ti.disabled, nodeId: ti.nodeId, label: labelOf(ti), kind: text ? 'text' : 'adjustment' };
+        var r = { name: name, start: ti.start.seconds, end: ti.end.seconds, disabled: !!ti.disabled, nodeId: ti.nodeId, label: labelOf(ti), kind: text ? 'text' : 'adjustment' };
+        if (text && PLAIN_TEXT_NAME.test(trim(name))) r.probe = probeText(ti);   // words not found: what the layer is made of, for the log
+        return r;
     }
     /** a: {seqId, all?, kinds?} -> {tracks:[{index, name, count}]} – every video track holding adjustment layers (or our
         range clips, or text layers – as a.kinds says), top first; with all, every video track (count 0 for the ones without) */

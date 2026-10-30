@@ -104,6 +104,19 @@
 
   /* ---------- shell ---------- */
   let els = {};
+  /**
+   * Load the panel again from disk – its code, and Premiere's scripts (sent again at start-up) – so an update or a test
+   * copy takes effect without closing and reopening the panel. Your settings and Story work are saved first; a job
+   * that's running is asked about, as reloading stops it.
+   */
+  async function reloadPanel() {
+    if (US.jobs.current && !(await US.ui.confirm({ title: 'Reload while this is running?', text: `“${US.jobs.current.title}” will stop. Anything it already made in ${US.app.is('resolve') ? 'Resolve' : 'Premiere'} stays.`, ok: 'Stop and reload', danger: true }))) return;
+    if (US.jobs.current) { try { US.jobs.cancel(); US.jobs.cancel(); US.jobs.cancel(); } catch (e) { /* stopping anyway */ } }
+    US.log('info', 'Reloading JMG Ultra Studio', '', 'app');
+    US.settings.flush();
+    setTimeout(() => location.reload(), 150);   // the log line and saves get out first; Story saves on the way out
+  }
+
   /** The top bar's AI chip: the model in use, or “No AI” (features then run their basic versions). */
   function drawAIChip() {
     const c = els.aiChip; if (!c) return;
@@ -123,6 +136,7 @@
         US.build ? h('span.unpublished-tag', { title: `Not a released version – ${US.build.dev ? 'running straight from the source folder' : `a test copy${US.build.at ? ' from ' + new Date(US.build.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}${US.build.from ? ` (${US.build.from})` : ''}`}. Install a release to go back.` }, 'unpublished') : null)),
       h('div.ctx', els.ctxProject, els.ctxSeq),
       els.aiChip = h('button.ai-chip', { onclick: () => open('settings', { section: 'ai' }) }),
+      h('button.icon-btn', { title: 'Reload Ultra Studio – picks up a new version or test copy without closing the panel', onclick: () => reloadPanel() }, US.icon('refresh', 16)),
       h('button.icon-btn', { title: 'Activity log', onclick: () => toggleLog() }, US.icon('log', 16)),
       h('button.icon-btn', { title: 'Settings', onclick: () => open('settings') }, US.icon('gear', 16)));
 
