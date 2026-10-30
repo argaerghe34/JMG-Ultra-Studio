@@ -9,6 +9,16 @@ Point it at the **sound-desk recording** (a clip or WAV) or your **multicam sequ
 - **Copy** or **Save** the setlist with timecodes (text and spreadsheet).
 - **Remove my markers** takes away only the markers it added.
 
+### Podcast – cut between the cameras by who is speaking
+For a synced video podcast: the cameras stacked on video tracks, each person's mic on its own audio track. Press **Read the tracks**, name each mic after its person (leave a track empty if it isn't a mic) and say what each camera shows – one person, or **Wide / everyone**. **Save as a preset** to reuse the setup on every episode.
+
+- **Listen to the mics**: each mic is rendered on its own (the others muted for a moment, then put back) and measured on this computer against its own quiet and talking levels – so a voice that bleeds into another mic doesn't steal the shot, and two people talking at once count as crosstalk. Nothing leaves the computer.
+- **How it cuts**: **Long-form**, **Standard** or **Promo**, or set the **Shortest shot** (a quick reply doesn't flash a cut) and **Longest shot** (then a reaction shot of someone listening, or the wide) yourself. **Cut after the voice starts** a few frames late, as an editor would; **ignore replies** like *yeah* and *mm-hm*; **wide** when people talk over each other, on long silences, and at the start and the end; cutaways land on sentence ends when Story has transcripts. **Shuffle the variety** picks differently (and repeatably) when there's more than one choice.
+- Changing a rule redraws the edit at once: a coloured strip of the shots, how much each camera is used, and **every switch** in a list – untick one to stay on the shot before, ▶ to see it.
+- **Make the switched copy**: a copy of the sequence with every camera still stacked, cut at each switch and only the active one switched on. To change a shot later, switch a piece on (or the one above it off). The original isn't changed.
+- In DaVinci Resolve the same, except that Resolve can't cut clips by script, so each camera track is laid again in pieces from the same source times. Resolve Studio's own SmartSwitch is another option there.
+- The **Podcast episode** recipe (Ask › Recipes) switches the cameras, cuts the fillers and false starts from the switched copy, and writes the episode text.
+
 ### Silence Cut – tighten interviews
 
 Pick a sequence (the active one by default) and press **Find the pauses**. The pauses show on a strip under the waveform. Then choose a preset:

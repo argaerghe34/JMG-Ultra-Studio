@@ -650,8 +650,14 @@ var UStudio = (function () {
             seq = temp;
         }
         var f = new File(a.out); if (f.exists) f.remove();
-        var res = '';
+        var res = '', was = null;
+        // soloAudio: only that audio track is heard (the others muted for the render, then put back) – one mic at a time
+        if (a.seqId && a.soloAudio != null) {
+            was = [];
+            for (var t = 0; t < seq.audioTracks.numTracks; t++) { var m = false; try { m = seq.audioTracks[t].isMuted(); } catch (e) { } was.push(m); seq.audioTracks[t].setMute(t === a.soloAudio ? 0 : 1); }
+        }
         try { res = seq.exportAsMediaDirect(a.out, preset, 0); } catch (e) { res = 'threw: ' + e; } // Premiere can throw even when the file was written
+        if (was) for (var k = 0; k < was.length; k++) { try { seq.audioTracks[k].setMute(was[k] ? 1 : 0); } catch (e) { } }
         var ok = new File(a.out).exists && new File(a.out).length > 44;
         if (temp) { try { project().deleteSequence(temp); } catch (e) { } try { if (tempBin.children.numItems === 0) tempBin.deleteBin(); } catch (e) { } }
         if (active) { try { project().openSequence(active.sequenceID); } catch (e) { } }

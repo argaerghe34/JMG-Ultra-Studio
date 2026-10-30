@@ -1,3 +1,8 @@
+## What's new in 1.3.12
+
+- **Podcast** (Cut faster): cuts between the cameras of a video podcast by who is speaking. Say whose mic is whose and what each camera shows (save it as a preset per show); each mic is heard on its own, on this computer, against its own levels, so bleed doesn't steal the shot. Editor's rules: shortest and longest shot (Long-form, Standard, Promo), a cut a few frames after the voice starts, *mm-hm*s ignored, the wide on crosstalk, long silences and at the ends, reaction shots in long answers, cutaways on sentence ends. Every switch is listed – untick one to keep the shot before. The copy keeps every camera, cut and switched on or off, so it stays re-switchable. Works in Resolve too (each camera laid again in pieces). Ask: *switch the podcast cameras*.
+- **Podcast episode** recipe: switch the cameras → cut the fillers and false starts → write the episode text, in one go.
+
 ## What's new in 1.3.11
 
 - **Take Sets** (Selects & clips): the retakes in a sequence – pieces to camera, interview do-overs, podcast reads – grouped by what they try to say, even reworded or minutes apart, with the last complete take chosen. Pick another or keep them all, check what will be cut, and get a copy of the sequence with only the chosen takes: every track cut together, a marker on each kept take, and never words from two takes stitched together. Paste the script to judge takes against it. Without AI it groups retakes that share most of their words. Ask: *keep the best takes*.

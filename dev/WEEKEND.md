@@ -586,3 +586,10 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     script) into sets of contiguous same-speaker takes, tidied (no line twice, ≥2 takes); basic word-overlap grouping
     without AI; last complete take chosen; unchosen takes (and the pause after) cut from a copy via extractRanges, kept
     takes marked. Review list of cuts. `takes.cut` action.
+  - **1.3.12** Podcast (28-podcast.js, Cut faster): mic → speaker and camera → shows mapping (presets per show, setup
+    per sequence); each mic rendered solo (`renderAudio` soloAudio, both hosts) → 20 ms dB; speaker per frame by level
+    normalised to each mic's own floor/speech (bleed loses), crosstalk margin; rule engine (min/max hold, delay frames,
+    backchannel, wide on crosstalk/silence/ends, reactions alternate with wides, seeded variety, snap cutaways to
+    sentence ends); switches in the review list; `podSwitch` – Premiere razors each camera track and disables inactive
+    pieces (jsx/tools/podcast.jsx), Resolve lays each camera again in pieces (resolve/host/podcast.js). Starter recipe
+    "Podcast episode". The owner's open question (Podcast tool vs MC Selects mode) – built as its own tool in Cut faster.

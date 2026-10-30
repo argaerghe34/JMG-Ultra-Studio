@@ -422,10 +422,12 @@ module.exports = function (R) {
       if (!a.out) throw R.err('BAD_INPUT', 'renderAudio: no out path');
       fs.mkdirSync(path.dirname(a.out), { recursive: true });
       try { fs.unlinkSync(a.out); } catch (e) { /* not there */ }
-      let scratchTl = null, job = null;
+      let scratchTl = null, job = null, soloWas = null;
       return E.withRestore(async () => {
         try {
           const target = tl || (scratchTl = E.scratchTimeline(item, { mediaType: 2 }));
+          // soloAudio: only that audio track is heard (the others switched off for the render, then back)
+          if (tl && a.soloAudio != null) { soloWas = []; for (let t = 1, n = tl.GetTrackCount('audio'); t <= n; t++) { soloWas.push(tl.GetIsTrackEnabled('audio', t)); tl.SetTrackEnable('audio', t, t - 1 === a.soloAudio); } }
           job = E.addJob(target, a.out, preset);
           const st = await E.renderAndWait(job.id);
           const file = R.exists(a.out) ? a.out : st.file || job.file;
@@ -434,6 +436,7 @@ module.exports = function (R) {
           const p = R.exists(a.out) ? a.out : file, h = wavHeader(p) || {};
           return { path: p, size: fs.statSync(p).size, rate: h.rate || job.rate || 0, channels: h.channels || 0, resampled: !!(h.rate && h.rate !== 16000) };
         } finally {
+          if (soloWas) soloWas.forEach((on, i) => { try { tl.SetTrackEnable('audio', i + 1, on); } catch (e) { /* leave it */ } });
           if (job) { E.pending.delete(job.id); try { P().DeleteRenderJob(job.id); } catch (e) { /* gone */ } }
           if (scratchTl) E.dropScratch(scratchTl);
         }

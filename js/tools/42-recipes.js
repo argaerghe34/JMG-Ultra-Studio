@@ -10,6 +10,7 @@
   const STARTERS = [
     { id: 'starter-interviews', name: 'Get interviews ready', starter: true, steps: [{ action: 'story.read', params: {} }, { action: 'story.themes', params: {} }, { action: 'story.moments', params: {} }, { action: 'story.interviewLog', params: {} }] },
     { id: 'starter-stringout', name: 'Themes into a string-out', starter: true, steps: [{ action: 'story.themes', params: {} }, { action: 'story.build', params: { source: 'themes' } }] },
+    { id: 'starter-podcast', name: 'Podcast episode', starter: true, steps: [{ action: 'podcast.switch', params: {} }, { action: 'silence.cut', params: { fillers: true, pauses: false } }, { action: 'deliver.text', params: {} }] },
     { id: 'starter-deliver', name: 'Check and deliver', starter: true, steps: [{ action: 'check.run', params: {} }, { action: 'safezones.hide', params: {} }, { action: 'deliver.pack', params: {} }] }
   ];
   const mine = () => { const r = US.settings.get('recipes', []); return Array.isArray(r) ? r : []; };

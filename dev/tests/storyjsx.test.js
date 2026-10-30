@@ -85,7 +85,7 @@ function makePremiere({ clipColours = false, adjustment = false, qeMethods = ['n
   const ctx = { app: { project, enableQE() {}, path: '/Applications/Premiere/', encoder }, qe: { project: qeProject }, Time, $: { os: 'Macintosh' }, File: function () { return { exists: false }; }, JSON };
   vm.createContext(ctx);
   // alphabetical, as Premiere loads them: finish.jsx comes first and only reaches story.jsx's label-clip helpers when called
-  for (const f of ['jsx/host.jsx', 'jsx/tools/edit.jsx', 'jsx/tools/finish.jsx', 'jsx/tools/story.jsx']) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
+  for (const f of ['jsx/host.jsx', 'jsx/tools/edit.jsx', 'jsx/tools/finish.jsx', 'jsx/tools/podcast.jsx', 'jsx/tools/story.jsx']) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
   const call = (fn, args) => { const r = JSON.parse(ctx.UStudio.run(fn, JSON.stringify(args))); if (!r.ok) { const e = new Error(r.error.detail); e.code = r.error.code; e.title = r.error.title; throw e; } return r.data; };
   return { call, seq, root, interview, logs, encoded, findAll: name => { const out = []; ctx.UStudio.walk(root, c => { if (c.name === name) out.push(c); }); return out; } };
 }
@@ -358,4 +358,15 @@ test('Ask › Edit in Premiere: clips found by track and start; switch off, colo
   assert.strictEqual(del.done, 2);
   assert.deepStrictEqual(P.seq._v[0]._clips.map(c => c.start.seconds), [4]);
   assert.ok(/Unknown edit/.test(P.call('editApply', { seqId: 's1', op: 'nonsense', params: {}, targets: [at(4)] }).skipped[0].why));
+});
+
+test('Podcast in Premiere: every camera piece switched on only where its camera is the shot; cuts attempted per track', () => {
+  const P = makePremiere();
+  // two cameras stacked, already in pieces at 0–4–7–9 (as after the cuts)
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 4 }, { id: P.interview.nodeId, in: 10, out: 13 }, { id: P.interview.nodeId, in: 20, out: 22 }] });
+  P.seq._v[1]._clips.push(...P.seq._v[0]._clips.map(c => Object.assign({}, c, { start: c.start, _end: c._end, end: c.end, disabled: false })));
+  const r = P.call('podSwitch', { seqId: 's1', cameras: [0, 1], segments: [{ start: 0, end: 4, camera: 0 }, { start: 4, end: 7, camera: 1 }, { start: 7, end: 9, camera: 0 }] });
+  assert.deepStrictEqual(P.seq._v[0]._clips.map(c => !c.disabled), [true, false, true]);
+  assert.deepStrictEqual(P.seq._v[1]._clips.map(c => !c.disabled), [false, true, false]);
+  assert.deepStrictEqual([r.on, r.off], [3, 3]);
 });
