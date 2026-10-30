@@ -154,6 +154,97 @@
     const job = US.jobs.current; approvedJobs.set(job ? job.id : 'none', Math.max(usd, 1e-9));
   }
 
+  /* ---------- what was sent: a local, per-project record of the exact text each request carried ---------- */
+  // ai-sent/<project>.jsonl holds one line per request (and one when it ends); the text itself is kept once per block in
+  // ai-sent/blocks/<hash>.txt, so the shared transcript sent fifty times is stored once. Nothing here leaves the computer.
+  const sentDir = () => US.fsx.ensureDir(path.join(US.fsx.dataDir, 'ai-sent'));
+  const blockDir = () => US.fsx.ensureDir(path.join(sentDir(), 'blocks'));
+  const KEEP = { entries: 500, days: 90 };
+  const projectOf = () => { const p = US.ctx && US.ctx.project; return p ? { key: US.fsx.hash(p.path || p.name), name: p.name || 'Project' } : { key: 'no-project', name: 'No project open' }; };
+  /** The request as the provider receives it, in order: [{role, text, cached}] */
+  function partsOf({ system, user, turns, schema }) {
+    const out = [], add = (role, x) => { for (const b of [].concat(x || [])) { const text = typeof b === 'string' ? b : (b && b.text) || ''; if (text) out.push({ role, text, cached: !!(b && b.cache) }); } };
+    add('system', system); add('user', user);
+    for (const t of turns || []) { add('assistant', String(t.assistant || '')); add('user', String(t.user || '')); }
+    if (schema) out.push({ role: 'format', text: 'Answer format (JSON schema): ' + JSON.stringify(schema), cached: false });
+    return out;
+  }
+  const sentLog = {
+    on: () => US.settings.get('ai.sentLog', true) !== false,
+    /** Record a request about to be sent. -> entry (or null when the log is off) */
+    begin({ provider, model, feature, req, est }) {
+      if (!sentLog.on()) return null;
+      const pr = projectOf(), parts = partsOf(req), id = US.uid('s');
+      try {
+        for (const p of parts) { p.block = US.fsx.hash(p.text); const f = path.join(blockDir(), p.block + '.txt'); if (!fs.existsSync(f)) fs.writeFileSync(f, p.text); }
+        const e = { id, at: Date.now(), project: pr.name, feature: feature || '', provider, model, chars: parts.reduce((n, p) => n + p.text.length, 0), parts: parts.map(p => ({ role: p.role, block: p.block, chars: p.text.length, cached: p.cached })), estTokens: est ? est.inputTokens : 0, estUsd: est ? est.usd : 0 };
+        fs.appendFileSync(path.join(sentDir(), pr.key + '.jsonl'), JSON.stringify(e) + '\n');
+        return { id, key: pr.key };
+      } catch (err) { console.error('sent log', err); return null; }
+    },
+    /** Note how it ended: tokens and cost, or the error. */
+    end(h, out) { if (!h) return; try { fs.appendFileSync(path.join(sentDir(), h.key + '.jsonl'), JSON.stringify(Object.assign({ id: h.id, end: Date.now() }, out)) + '\n'); } catch (e) { /* the log is a convenience */ } },
+    /** Projects with a log, newest first: [{key, name, count, last}] */
+    projects() {
+      let files = []; try { files = fs.readdirSync(sentDir()).filter(f => f.endsWith('.jsonl')); } catch (e) { return []; }
+      return files.map(f => { const list = sentLog.list(f.replace(/\.jsonl$/, '')); return { key: f.replace(/\.jsonl$/, ''), name: list[0] ? list[0].project : f, count: list.length, last: list[0] ? list[0].at : 0 }; }).filter(p => p.count).sort((a, b) => b.last - a.last);
+    },
+    /** One project's requests, newest first, each with how it ended merged in. */
+    list(key = projectOf().key) {
+      let raw = ''; try { raw = fs.readFileSync(path.join(sentDir(), key + '.jsonl'), 'utf8'); } catch (e) { return []; }
+      const byId = new Map(), order = [];
+      for (const line of raw.split('\n')) { if (!line.trim()) continue; let o; try { o = JSON.parse(line); } catch (e) { continue; } if (o.end) { if (byId.has(o.id)) Object.assign(byId.get(o.id), o); } else { byId.set(o.id, o); order.push(o); } }
+      return order.reverse();
+    },
+    /** The full text of a request, as sent, with a heading for each part. */
+    text(e) {
+      return (e.parts || []).map(p => { let t = ''; try { t = fs.readFileSync(path.join(blockDir(), p.block + '.txt'), 'utf8'); } catch (err) { t = '(no longer kept)'; } return `===== ${p.role.toUpperCase()}${p.cached ? ' (cached – Claude reads it again at a lower price)' : ''} · ${p.chars.toLocaleString('en-GB')} characters =====\n${t}`; }).join('\n\n');
+    },
+    /** Keep the last KEEP.entries and KEEP.days per project, and only the blocks still referred to. */
+    prune() {
+      try {
+        const cut = Date.now() - KEEP.days * 86400e3, used = new Set();
+        for (const f of fs.readdirSync(sentDir()).filter(x => x.endsWith('.jsonl'))) {
+          const key = f.replace(/\.jsonl$/, ''), keep = sentLog.list(key).filter(e => e.at >= cut).slice(0, KEEP.entries);
+          keep.forEach(e => (e.parts || []).forEach(p => used.add(p.block)));
+          if (!keep.length) { fs.unlinkSync(path.join(sentDir(), f)); continue; }
+          fs.writeFileSync(path.join(sentDir(), f), keep.slice().reverse().map(e => JSON.stringify(e)).join('\n') + '\n');
+        }
+        for (const b of fs.readdirSync(blockDir())) if (!used.has(b.replace(/\.txt$/, ''))) fs.unlinkSync(path.join(blockDir(), b));
+      } catch (e) { /* tidy next time */ }
+    },
+    /** Forget one project's log (or every project's). */
+    clear(key) {
+      try { if (key) fs.unlinkSync(path.join(sentDir(), key + '.jsonl')); else for (const f of fs.readdirSync(sentDir()).filter(x => x.endsWith('.jsonl'))) fs.unlinkSync(path.join(sentDir(), f)); } catch (e) { /* already gone */ }
+      sentLog.prune();
+    },
+    dir: () => sentDir(),
+    project: projectOf
+  };
+  setTimeout(() => sentLog.prune(), 20000);   // tidy once a session, after start-up
+
+  /**
+   * “Show me before sending”: the exact text and its cost, before each request (Send, Send the rest of this job, Cancel).
+   * Only when the editor asked for it (Settings › What was sent to AI); otherwise the cost question above applies.
+   */
+  const previewedJobs = new Set();
+  async function preview({ provider, name, feature, req, est }) {
+    if (US.settings.get('ai.preview', 'cost') !== 'always' || !US.ui || !US.ui.modal) return false;
+    const job = US.jobs.current, key = job ? job.id : 'none';
+    if (unattended.has(key)) return false;   // overnight runs have a budget instead, and nobody to ask
+    if (previewedJobs.has(key)) return true;
+    const parts = partsOf(req), chars = parts.reduce((n, p) => n + p.text.length, 0), h = US.h;
+    const cost = provider === 'gemini' ? 'no charge within Google’s free allowance' : `about ${fmtUSD(est.usd)}${est.cachedTokens ? ` (${est.cachedTokens.toLocaleString('en-GB')} tokens read from Claude’s cache)` : ''}`;
+    const shown = parts.map(p => `===== ${p.role.toUpperCase()}${p.cached ? ' (cached)' : ''} =====\n${p.text.length > 120000 ? p.text.slice(0, 120000) + `\n…and ${(p.text.length - 120000).toLocaleString('en-GB')} more characters` : p.text}`).join('\n\n');
+    const v = await US.ui.modal({ title: `Send this to ${name}?`, wide: true,
+      body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. Only this text is sent; no footage, frames or audio.`),
+        h('textarea.input.mono.ai-preview', { readOnly: true, rows: 14 }, shown)),
+      buttons: [{ label: 'Cancel', value: 'no', kind: 'ghost' }, { label: 'Send the rest of this job too', value: 'all' }, { label: 'Send', value: 'one', kind: 'primary' }] });
+    if (v !== 'one' && v !== 'all') throw new US.UserError('CANCELLED', { title: 'AI request cancelled.', action: 'Nothing was sent.' });
+    if (v === 'all') previewedJobs.add(key);
+    return true;
+  }
+
   // requests in flight, so three quick clicks on Stop can cut them off (a request already answered is still billed by the provider)
   const live = new Set();
   US.bus.on('hard-stop', () => { for (const req of live) req.destroy(new US.UserError('CANCELLED')); live.clear(); });
@@ -208,8 +299,9 @@
   async function claude({ system, user, turns, schema, maxTokens = 16000, effort = 'low', feature }) {
     const key = US.secrets.get('anthropicKey');
     if (!key) throw new US.UserError('AI_KEY');
-    const model = claudeModel(), price = MODELS[model];
-    await checkSpend(estimate({ system, user, turns, maxTokens, effort, model }), feature);
+    const model = claudeModel(), price = MODELS[model], est = estimate({ system, user, turns, maxTokens, effort, model });
+    if (!(await preview({ provider: 'claude', name: price.name, feature, req: { system, user, turns, schema }, est }))) await checkSpend(est, feature);
+    else { const cap = +US.settings.get('aiMonthlyCap', 0), spent = thisMonth().cost; if (cap > 0 && spent + est.usd > cap) await checkSpend(est, feature); }
     const body = {
       model,
       max_tokens: maxTokens,
@@ -220,13 +312,14 @@
     const headers = { 'x-api-key': key, 'anthropic-version': '2026-10-21' };
     if (price.fallbacks) { body.fallbacks = 'default'; headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; }
     let r;
-    const startedAt = Date.now();
+    const startedAt = Date.now(), logged = sentLog.begin({ provider: 'claude', model, feature, req: { system, user, turns, schema }, est });
     try { r = await postJSON('api.anthropic.com', '/v1/messages', headers, body, 300000); }
-    catch (e) { throw networkError('Claude', e); }
-    if (r.status !== 200 || !r.json) throw httpError('Claude', r);
+    catch (e) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw networkError('Claude', e); }
+    if (r.status !== 200 || !r.json) { sentLog.end(logged, { ok: false, error: 'HTTP ' + r.status }); throw httpError('Claude', r); }
     const msg = r.json;
     const usedModel = msg.model && MODELS[msg.model] ? msg.model : model;
     if (msg.usage) record(usedModel, msg.usage, feature, costOf(usedModel, msg.usage), key);
+    sentLog.end(logged, { ok: true, model: usedModel, usd: msg.usage ? costOf(usedModel, msg.usage) : 0, tokensIn: msg.usage ? msg.usage.input_tokens + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0) : 0, cacheRead: msg.usage ? msg.usage.cache_read_input_tokens || 0 : 0, tokensOut: msg.usage ? msg.usage.output_tokens : 0 });
     if (msg.usage && (msg.usage.cache_read_input_tokens || msg.usage.cache_creation_input_tokens)) noteWarm([].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []), usedModel, startedAt);
     if (msg.stop_reason === 'refusal') throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(msg.stop_details || {}) });
     if (msg.stop_reason === 'max_tokens') throw new US.UserError('AI_FAILED', { title: 'The AI’s answer was too long and got cut off.', action: 'Try a smaller request (fewer clips or interviews at once).', detail: 'stop_reason max_tokens' });
@@ -259,6 +352,7 @@
       .sort((a, b) => ver(b) - ver(a) || a.localeCompare(b));
   }
   async function gemini({ system, user, turns, schema, maxTokens = 16000, fast, feature }) {
+    const asked = { system, user, turns, schema };
     system = blocksText(system); user = blocksText(user);
     const key = US.secrets.get('geminiKey');
     if (!key) throw new US.UserError('AI_KEY');
@@ -270,16 +364,20 @@
       generationConfig: Object.assign({ maxOutputTokens: Math.max(maxTokens, fast ? 256 : 2048) }, schema ? { responseMimeType: 'application/json' } : {})
     };
     const ask = (m, ms) => postJSON('generativelanguage.googleapis.com', `/v1beta/models/${encodeURIComponent(m)}:generateContent`, { 'x-goog-api-key': key }, body, ms);
+    const gEst = { usd: 0, inputTokens: Math.ceil((system.length + user.length + turnsText(turns).length) / 3.6) };
+    await preview({ provider: 'gemini', name: geminiName(model), feature, req: asked, est: gEst });
+    const logged = sentLog.begin({ provider: 'gemini', model, feature, req: asked, est: gEst });
     let r, used = model;
-    try { r = await ask(model, fast ? 60000 : 180000); } catch (e) { if (fast) throw networkError('Gemini', e); r = { status: 0, error: e }; }
+    try { r = await ask(model, fast ? 60000 : 180000); } catch (e) { if (fast) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw networkError('Gemini', e); } r = { status: 0, error: e }; }
     // the thinking model is often overloaded (503 "high demand", rate limits, or no answer for minutes):
     // then the quick model answers this request instead of failing or keeping the editor waiting
     if (!fast && (r.status === 0 || r.status === 429 || r.status >= 500)) {
       const lite = US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT);
       US.log('info', `Gemini ${model} was busy (${r.status || 'no answer'}), so ${lite} answered instead`, '', 'ai');
-      try { r = await ask(lite, 120000); used = lite; } catch (e) { throw networkError('Gemini', e); }
+      try { r = await ask(lite, 120000); used = lite; } catch (e) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw networkError('Gemini', e); }
     }
-    if (r.status !== 200 || !r.json) throw httpError('Gemini', r);
+    if (r.status !== 200 || !r.json) { sentLog.end(logged, { ok: false, error: 'HTTP ' + r.status }); throw httpError('Gemini', r); }
+    { const u = r.json.usageMetadata || {}; sentLog.end(logged, { ok: true, model: r.json.modelVersion || used, usd: 0, tokensIn: u.promptTokenCount || 0, tokensOut: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) }); }
     // the “-latest” names follow Google's newest model: remember which one answered, so Settings can say
     if (r.json.modelVersion) noteGemini(used, r.json.modelVersion);
     if (r.json.usageMetadata) record(r.json.modelVersion || used, r.json.usageMetadata, feature, 0, key); // within Google's free allowance
@@ -311,6 +409,8 @@
 
   US.ai = {
     CLAUDE_MODEL, MODELS, claudeModel, estimate, costOf, fmtUSD, warmUntil,
+    /** The local record of what was sent (Settings › What was sent to AI). */
+    sent: sentLog,
     /**
      * Usage per API key, newest first: [{id, provider, name, last4, added, first, last, calls, cost, tokensIn, tokensOut,
      * thisMonth, current}], and what was used before keys were tracked: {since, claude:{calls, cost}, gemini:{calls, cost}}.

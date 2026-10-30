@@ -123,7 +123,7 @@
     const on = !!(US.ai && US.ai.available()), name = on ? US.ai.label().replace(/^Claude /, '') : '';
     c.textContent = on ? `AI · ${name}` : 'No AI';
     c.classList.toggle('off', !on);
-    c.title = on ? `AI requests go to ${US.ai.label()} (text only – never footage). Click for Settings.` : 'No AI is connected: Story’s AI features run their basic versions, and Ask › My interviews needs AI. Click to see what’s different, or to add a key.';
+    c.title = on ? `AI requests go to ${US.ai.label()} (text only – never footage). Click for Settings – “What was sent to AI” shows every request’s exact text.` : 'No AI is connected: Story’s AI features run their basic versions, and Ask › My interviews needs AI. Click to see what’s different, or to add a key.';
   }
   US.bus.on('secrets', drawAIChip);
   US.bus.on('settings', k => { if (/^(aiProvider|claudeModel|geminiModel)$/.test(k)) drawAIChip(); });

@@ -564,3 +564,8 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   and resolve/host/edit.js, js/tools/41-edit.js (scopes, outline, clip queries, plan, run on a copy, read back and the
   AI checks). Clips are addressed by track + start so plans work on the copy. 393 tests pass; nothing tried in Premiere
   or Resolve yet. → **v1.3.8**.
+- **31 Oct–2 Nov (Mac, unattended weekend; local commits only, nothing pushed):** building the AI editing tools proposal
+  (`reports/AI editing tools feature proposal.md` in the session folder) in its version order.
+  - **1.3.8.1** What was sent to AI: `US.ai.sent` keeps each request's exact text per project in `ai-sent/` (blocks
+    de-duplicated by hash, 500 requests / 90 days), with how it ended; Settings card to read, copy, save or clear;
+    optional preview before every request (Send / Send the rest of this job / Cancel – nothing sent).

@@ -206,6 +206,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     for (const want of ['Without AI – what still works', 'Never use AI', 'Needs AI', 'By API key', 'About']) if (!txt.includes(want)) errors.push('Settings: no “' + want + '”');
     if (set.el.querySelector('[data-section="without-ai"] .section.closed')) errors.push('Settings: Without AI didn’t open when asked');
     if (!set.el.querySelector('.settings-code input')) errors.push('Settings: no code box');
+    if (!set.el.querySelector('[data-section="sent"]') || !/What was sent to AI/.test(set.el.textContent)) errors.push('Settings: no “What was sent to AI”');
     set.el.remove();
   }
   // the Ask tab in My interviews mode: the welcome, examples and earlier asks

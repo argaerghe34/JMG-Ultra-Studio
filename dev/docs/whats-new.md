@@ -1,3 +1,10 @@
+## What's new in 1.3.8.1
+
+A small update to 1.3.8.
+
+- **What was sent to AI** (Settings): every AI request's exact text is kept on this computer, per project, for 90 days – click one to read it, copy it or save it as a text file for a client. Large parts sent again and again (the shared transcript) are stored once. Switch the log off if you'd rather not keep it.
+- **Show me before sending**: set it to **Always** and each AI request opens first with the text and its cost – **Send**, **Send the rest of this job** (for features that send several requests) or **Cancel**, which sends nothing. Otherwise Ultra Studio asks only when a request costs more than your limit, as before.
+
 ## What's new in 1.3.8
 
 - **Ask › Edit**: say what to change in your sequence or project and the AI plans it – dissolves on every cut, a punch-in on each answer, dip to black where the speaker changes, lower thirds with each speaker's name, audio fades, effects, speed, labels, markers, cuts, deleting, renaming, moving clips to bins. Choose **where** it acts: the sequence, its selected clips, the transcript lines heard in it, a bin or the whole project. You check the plan first; sequence edits run on a copy; then it reads the result back, checks it against what you asked and offers what's still missing.

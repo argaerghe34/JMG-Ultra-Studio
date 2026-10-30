@@ -295,3 +295,7 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 .mc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mc-thumb.none::after { content: 'No preview'; font-size: 10px; color: var(--text-3); }
 .mc-total { margin-top: 8px; font-weight: 600; }
+
+/* What was sent to AI: the exact text, in the preview before sending and in Settings */
+.ai-preview { width: 100%; font-size: 11px; line-height: 1.35; white-space: pre; overflow: auto; max-height: 50vh; }
+.sent-list .list-right { font-variant-numeric: tabular-nums; color: var(--text-2); }

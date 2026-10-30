@@ -1,7 +1,7 @@
 /* JMG Ultra Studio – Settings (opened from the gear in the header). */
 (function () {
   'use strict';
-  const US = window.US, h = US.h, ui = US.ui;
+  const US = window.US, h = US.h, ui = US.ui, path = require('path');
 
   const HIDDEN_NAMES = 'Colour, Cameras, B-roll and Sound Check';
   // five taps on About: one of these (written for Ultra Studio, never fetched from anywhere)
@@ -127,6 +127,7 @@
             h('div.grid2', ui.field('Ask before a request costing', askSel), ui.field('Monthly limit (US$)', capInput, 'Ultra Studio stops before going over it. Also set a limit at console.anthropic.com.')),
             h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
           ], { open: true })),
+        sentCard(),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
         ui.card(h('div.card-title', 'Markers'),
           ui.field('Markers go on', ui.segmented({ options: [{ value: 'sequence', label: 'Timeline' }, { value: 'clips', label: 'Clips' }, { value: 'both', label: 'Both' }], value: US.settings.get('markers.where', 'sequence'), onChange: x => US.settings.set('markers.where', x) }),
@@ -169,6 +170,54 @@
           reopen();
         } });
         return h('div.settings-code', input, shown ? ui.button('Hide them again', { small: true, kind: 'ghost', onClick: () => { US.settings.set('showHidden', false); ui.toast({ type: 'ok', title: 'Hidden again – reopening the panel…' }); reopen(); } }) : null);
+      }
+
+      /* what was sent to AI: the exact text of every request, kept on this computer per project */
+      function sentCard() {
+        const S = US.ai.sent, list = h('div'), projSel = ui.select({ options: [], onChange: () => draw() });
+        const when = t => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const kChars = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? Math.round(n / 1000) + 'k' : String(n));
+        function fillProjects() {
+          const here = S.project(), ps = S.projects();
+          if (!ps.some(p => p.key === here.key)) ps.unshift({ key: here.key, name: here.name, count: 0 });
+          projSel.setOptions(ps.map(p => ({ value: p.key, label: `${p.name}${p.key === here.key ? ' (open now)' : ''} – ${US.plural(p.count, 'request')}` })), projSel.get() && ps.some(p => p.key === projSel.get()) ? projSel.get() : here.key);
+        }
+        async function show(e) {
+          const text = S.text(e);
+          const v = await ui.modal({ title: `${e.feature || 'AI request'} · ${when(e.at)}`, wide: true,
+            body: h('div', h('div.field-hint', `${e.provider === 'gemini' ? 'Gemini' : 'Claude'} ${e.model || ''} · ${kChars(e.chars)} characters${e.tokensIn ? ` · ${e.tokensIn.toLocaleString('en-GB')} tokens in${e.cacheRead ? ` (${e.cacheRead.toLocaleString('en-GB')} from the cache)` : ''}, ${(e.tokensOut || 0).toLocaleString('en-GB')} out` : ''}${e.usd ? ` · $${e.usd.toFixed(3)}` : e.provider === 'gemini' ? ' · no charge' : ''}${e.ok === false ? ` · failed: ${e.error}` : ''}. This is exactly the text that went to the provider – nothing else was sent.`),
+              h('textarea.input.mono.ai-preview', { readOnly: true, rows: 18 }, text)),
+            buttons: [{ label: 'Save as a text file', value: 'save' }, { label: 'Copy', value: 'copy' }, { label: 'Close', value: 'close', kind: 'primary' }] });
+          if (v === 'copy') { ui.copy(text); ui.toast({ type: 'ok', title: 'Copied', timeout: 1500 }); }
+          if (v === 'save') {
+            const f = path.join(US.fsx.ensureDir(path.join(US.fsx.exportsDir(), 'Sent to AI')), `${(e.project || 'Project').replace(/[\\/:*?"<>|]+/g, '-')} – ${(e.feature || 'request').replace(/[\\/:*?"<>|]+/g, '-')} – ${new Date(e.at).toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`);
+            require('fs').writeFileSync(f, text); ui.toast({ type: 'ok', title: 'Saved', text: path.basename(f), action: { label: 'Show', fn: () => openFolder(path.dirname(f)) } });
+          }
+        }
+        function draw() {
+          US.clear(list);
+          const items = S.list(projSel.get() || S.project().key);
+          if (!items.length) { list.appendChild(h('div.field-hint', S.on() ? 'Nothing sent from this project yet.' : 'The log is off.')); return; }
+          const total = items.reduce((n, e) => n + (e.usd || 0), 0), chars = items.reduce((n, e) => n + e.chars, 0);
+          list.append(h('div.field-hint', `${US.plural(items.length, 'request')} · ${kChars(chars)} characters of text${total ? ` · $${total.toFixed(2)}` : ''}. Click one to read exactly what was sent.`),
+            h('div.list.sent-list', items.slice(0, 60).map(e => h('div.list-row.clickable', { onclick: () => show(e) },
+              h('span.swatch', { style: { background: e.ok === false ? 'var(--err)' : e.ok ? 'var(--ok)' : 'var(--text-3)' }, title: e.ok === false ? 'Failed' : e.ok ? 'Answered' : 'No answer recorded' }),
+              h('div.list-main', h('div.list-title', e.feature || 'AI request'), h('div.list-sub', `${when(e.at)} · ${e.provider === 'gemini' ? 'Gemini' : 'Claude'} · ${kChars(e.chars)} characters${e.parts && e.parts.some(p => p.cached) ? ' (part cached)' : ''}`)),
+              h('span.list-right', e.usd ? `$${e.usd.toFixed(3)}` : e.provider === 'gemini' ? 'free' : e.estUsd ? `~$${e.estUsd.toFixed(3)}` : '')))),
+            items.length > 60 ? h('div.field-hint', `…and ${items.length - 60} older ones (kept for ${90} days).`) : null);
+        }
+        const keepToggle = ui.toggle({ label: 'Keep a copy of everything sent to AI', hint: 'On this computer only, per project, for 90 days. Large parts sent again and again (the shared transcript) are kept once.', value: S.on(), onChange: x => { US.settings.set('ai.sentLog', x); draw(); } });
+        const previewSeg = ui.segmented({ options: [{ value: 'cost', label: 'Only when it costs more than the limit above' }, { value: 'always', label: 'Always show me first' }], value: US.settings.get('ai.preview', 'cost'), onChange: x => US.settings.set('ai.preview', x) });
+        const clearBtn = ui.button('Clear this project’s log', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: 'Clear the log for this project?', text: 'The record of what was sent is deleted from this computer. Nothing changes at Claude or Google.', ok: 'Clear', danger: true })) { S.clear(projSel.get()); fillProjects(); draw(); } } });
+        const card = ui.card(h('div.card-title', 'What was sent to AI'),
+          h('div.muted', 'Every AI request carries text only – transcript lines, names, your request – never footage, frames or audio. Here is exactly what went, request by request, so you (or a client) can check.'),
+          keepToggle, ui.field('Show the text and cost before sending', previewSeg, '“Always”: each request opens with the text and its cost first – Send, Send the rest of this job, or Cancel.'),
+          ui.field('Project', projSel), list,
+          h('div.row', ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => { fillProjects(); draw(); } }), clearBtn, ui.button('Open the folder', { small: true, kind: 'ghost', icon: 'folder', onClick: () => openFolder(S.dir()) })));
+        card.dataset.section = 'sent';
+        fillProjects(); draw();
+        US.bus.on('ai-usage', US.debounce(() => { fillProjects(); draw(); }, 500));
+        return card;
       }
 
       /* what works without AI – the notes on AI features link here */
