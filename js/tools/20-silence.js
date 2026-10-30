@@ -75,7 +75,8 @@
     params: {
       minPause: { type: 'number', default: 0.5, desc: 'Shortest pause to cut, in seconds' },
       padding: { type: 'number', default: 0.15, desc: 'Seconds of room to keep either side of speech' },
-      fillers: { type: 'boolean', default: false, desc: 'Also cut “um”, “uh”, “er” and false starts (“I – I went”, restarted sentences), from Story’s transcripts' },
+      fillers: { type: 'boolean', default: false, desc: 'Also cut “um”, “uh”, “er”, from Story’s transcripts' },
+      falseStarts: { type: 'boolean', default: false, desc: 'Also cut false starts (“I – I went”, restarted sentences) – only when asked for' },
       pauses: { type: 'boolean', default: true, desc: 'Cut the pauses (false: only the fillers and false starts)' }
     },
     examples: ['cut the silences', 'remove pauses longer than 1 second', 'tighten this interview'],
@@ -89,13 +90,14 @@
       const m = /(longer|more) than (\d+(?:\.\d+)?)\s*(ms|milliseconds?|s\b|secs?|seconds?)/.exec(t);
       if (m) p.minPause = /ms|milli/.test(m[3]) ? +m[2] / 1000 : +m[2];
       if (/very tight|really tight|aggressive/.test(t)) Object.assign(p, { minPause: PRESETS.verytight.minPause, padding: PRESETS.verytight.padding });
-      if (/\b(ums?|uhs?|ers?|fillers?|false starts?|stumbles?|repeats?)\b/.test(t)) { p.fillers = true; if (!about) p.pauses = false; if (words) p._score = 3; }   // “cut the ums” is a cut, not a search for moments (which scores 2.7)
+      if (/\b(ums?|uhs?|ers?|fillers?|false starts?|stumbles?|repeats?)\b/.test(t)) { p.fillers = true; if (!about) p.pauses = false; if (words) p._score = 3; }
+      if (/\b(false starts?|stumbles?|repeats?|restarts?)\b/.test(t)) p.falseStarts = true;   // “cut the ums” is a cut, not a search for moments (which scores 2.7)
       return p;
     },
     async run(params, job) {
       const target = await kit.activeSequenceTarget();
       const an = params.pauses !== false ? await analyse(target, job.range(0, 0.4)) : await prepare(target);
-      const words = params.fillers ? await findWords(target, job, {}) : [];
+      const words = params.fillers || params.falseStarts ? await findWords(target, job, { fillers: !!params.fillers, falseStarts: !!params.falseStarts }) : [];
       job.range(0.4, 1);
       return cutCopy(an, { minPause: params.minPause, padding: params.padding, threshold: null }, job, { words, pauses: params.pauses !== false });
     }

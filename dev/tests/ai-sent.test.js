@@ -60,3 +60,13 @@ test('a real request is logged with its text; “Always show me first” asks be
     if (wasKey) US.secrets.set('anthropicKey', wasKey); else US.secrets.set('anthropicKey', '');
   }
 });
+
+test('tidying keeps the log: requests and how they ended survive a prune, and the text stays readable', () => {
+  US.ctx = { project: { name: 'Keep', path: '/p/keep.prproj' } }; S.clear();
+  const h = S.begin({ provider: 'claude', model: 'm', feature: 'Themes', req: { user: 'Some transcript text' }, est: { usd: 0.01 } });
+  S.end(h, { ok: true, usd: 0.02 });
+  S.prune(); S.prune();
+  const l = S.list();
+  assert.deepStrictEqual(l.map(e => [e.feature, e.ok, e.usd]), [['Themes', true, 0.02]]);
+  assert.ok(S.text(l[0]).includes('Some transcript text'), 'its text block is still there');
+});

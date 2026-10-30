@@ -189,7 +189,7 @@
       shown = await US.host.call('rangeTrackOutput', { seqId, track: o.track || 'Renders', on: false });
     }
     // Resolve renders from the timeline when Render All is pressed, so with queue-only the titles stay off until then
-    const putBack = () => (shown && shown.was === 1 && !(inResolve() && o.queueOnly) ? US.host.call('rangeTrackOutput', { seqId, track: o.track || 'Renders', on: true }).catch(e => US.log('warn', 'The text track couldn’t be switched back on', String(e && e.message || e), 'deliver')) : null);
+    const putBack = () => (shown && shown.was === 1 && !(inResolve() && o.queueOnly) ? US.host.call('rangeTrackOutput', Object.assign({ seqId, track: o.track || 'Renders', on: true }, shown.states ? { states: shown.states } : {})).catch(e => US.log('warn', 'The text track couldn’t be switched back on', String(e && e.message || e), 'deliver')) : null);
     const tasks = plan.map(p => ({ seqId, out: p.out, preset, name: p.name, range: { start: p.start, end: p.end }, overwrite: !!o.replace }));
     try { await US.encoder.run(tasks, job, { label: 'Rendering', from: 0.05, to: 1, queueOnly: !!o.queueOnly }); } finally { await putBack(); }
     if (shown && shown.was === 1 && inResolve() && o.queueOnly) ui.toast({ type: 'info', title: `The “${o.track || 'Renders'}” titles are switched off`, text: 'So they don’t show in the renders waiting in the Render Queue. Switch the track on again after Render All.', timeout: 15000 });

@@ -48,10 +48,10 @@ test('“keep the best takes”: unchosen takes cut from a copy (last first), a 
     const done = await US.actions.get('takes.cut').run({ script: '' }, job);
     assert.strictEqual(calls.find(c => c[0] === 'cloneSequence')[1].name, 'Bakery – best takes');
     const ex = calls.filter(c => c[0] === 'extractRanges').flatMap(c => c[1].ranges);
-    assert.deepStrictEqual(ex.map(r => r[0]), [9.95, 4.95, 0], 'L3, L2 and L1 cut, last first');
+    assert.deepStrictEqual(ex.map(r => r.map(x => Math.round(x * 100) / 100)), [[0, 14.95]], 'L1, L2 and L3 back to back: one stretch, cut once');
     const mk = calls.find(c => c[0] === 'addSequenceMarkers')[1].markers;
     assert.deepStrictEqual(mk.map(m => m.name.slice(0, 11)), ['Take 3 of 3', 'Take 2 of 2']);
-    assert.ok(mk[0].start < 20 && mk[0].start > 0, 'the kept take moved up by what was cut before it');
+    assert.deepStrictEqual(mk.map(m => Math.round(m.start * 100) / 100), [5.05, 10.05], 'each kept take moved up by exactly what was cut before it');
     assert.ok(/3 takes cut/.test(done.summary), done.summary);
   } finally { US.host.call = was.call; US.ctx = was.ctx; US.story = was.story; US.ai = was.ai; US.refreshContext = was.refresh; }
 });

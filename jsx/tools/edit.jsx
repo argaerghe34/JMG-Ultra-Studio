@@ -184,7 +184,7 @@
         var seq = U.needSeq(a.seqId), p = a.params || {}, out = { done: 0, skipped: [], log: [] }, q = null;
         var targets = (a.targets || []).slice(0);
         // removing with ripple, last first, so earlier times stay put
-        if (a.op === 'remove') targets.sort(function (x, y) { return y.start - x.start; });
+        if (a.op === 'remove' || a.op === 'speed') targets.sort(function (x, y) { return y.start - x.start; });   // from the end: a ripple doesn't move what's still to do
         if (/^(transition|effect|speed|razor)$/.test(a.op)) q = U.openAndQE(seq);
         if (a.op === 'razor') {
             var times = {}, list = [];

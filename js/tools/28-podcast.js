@@ -56,7 +56,13 @@
    */
   function plan(runs, setup, rules = RULES, { duration = runs.length ? runs[runs.length - 1].end : 0, fps = 25, boundaries = [] } = {}) {
     const R = Object.assign({}, RULES, rules), rand = rng(R.seed), delay = R.delayFrames / fps;
-    const cams = setup.cameras || [], wides = cams.filter(c => c.shows === 'wide').map(c => c.track);
+    // the panel's switches are on/off: on means the usual length (wides 3 s at the ends, on silences over 3 s)
+    const secs = (v, d) => (v === true ? d : v === false || v == null ? 0 : +v || 0);
+    R.introWide = secs(R.introWide, 3); R.outroWide = rules.outroWide === undefined ? R.introWide : secs(R.outroWide, 3); R.wideOnSilence = secs(R.wideOnSilence, 3);
+    // a camera names the mic of the person it shows by the mic's audio track (so adding or removing a mic changes nothing)
+    const micOf = sh => (typeof sh === 'number' && setup.mics ? setup.mics.findIndex(m => m.track === sh) : sh);
+    const cams = (setup.cameras || []).map(c => Object.assign({}, c, { shows: c.shows === 'wide' ? 'wide' : micOf(c.shows) })).filter(c => c.shows === 'wide' || c.shows >= 0);
+    const wides = cams.filter(c => c.shows === 'wide').map(c => c.track);
     const of = who => cams.filter(c => c.shows === who).map(c => c.track);
     const pick = list => (list.length ? list[Math.floor(rand() * list.length) % list.length] : null);
     const nameOf = who => (setup.names && setup.names[who]) || `Speaker ${who + 1}`;
@@ -86,6 +92,7 @@
       const last = segs[segs.length - 1];
       if (last.camera === w.camera) continue;
       if (segs.length === 1 && last.why === 'Opening wide' && t < R.introWide) { segs.push({ start: R.introWide, end: 0, camera: w.camera, why: w.why }); continue; }
+      if (t <= last.start) { last.camera = w.camera; last.why = w.why; continue; }   // never before the shot already planned
       segs.push({ start: t, end: 0, camera: w.camera, why: w.why });
     }
     for (let i = 0; i < segs.length; i++) segs[i].end = i + 1 < segs.length ? segs[i + 1].start : duration;
@@ -218,7 +225,7 @@
         const mics = i.audio.filter(t => t.clips.length).map((t, k) => ({ track: t.index, name: /^audio \d+$/i.test(t.name) || !t.name ? `Speaker ${k + 1}` : t.name }));
         const vids = i.video.filter(t => t.clips.length);
         // a guess: the first video track is the wide, the others one per speaker in order
-        const cameras = vids.map((t, k) => ({ track: t.index, shows: vids.length > mics.length && k === 0 ? 'wide' : Math.min(mics.length - 1, k - (vids.length > mics.length ? 1 : 0)) }));
+        const cameras = vids.map((t, k) => ({ track: t.index, shows: vids.length > mics.length && k === 0 ? 'wide' : (mics[Math.min(mics.length - 1, k - (vids.length > mics.length ? 1 : 0))] || {}).track })).filter(c => c.shows != null);
         return { mics, cameras };
       }
       function drawSetup() {
@@ -235,7 +242,7 @@
           US.clear(camBox);
           for (const t of info.video.filter(x => x.clips.length)) {
             const c = setup.cameras.find(x => x.track === t.index);
-            const opts = [{ value: 'none', label: 'Not a camera' }, { value: 'wide', label: 'Wide / everyone' }].concat(setup.mics.map((m, k) => ({ value: String(k), label: m.name })));
+            const opts = [{ value: 'none', label: 'Not a camera' }, { value: 'wide', label: 'Wide / everyone' }].concat(setup.mics.map(m => ({ value: String(m.track), label: m.name })));
             const sel = ui.select({ options: opts, value: c ? String(c.shows) : 'none', onChange: x => { setup.cameras = setup.cameras.filter(y => y.track !== t.index); if (x !== 'none') setup.cameras.push({ track: t.index, shows: x === 'wide' ? 'wide' : +x }); setup.cameras.sort((a, b) => a.track - b.track); store(); } });
             camBox.appendChild(h('div.pod-row', h('span.pod-track', `V${t.index + 1}`), h('span.field-hint.pod-clip', (t.clips[0] || {}).name || ''), sel));
           }
@@ -269,10 +276,9 @@
       }), { icon: 'cameras' });
       const tl = ui.timeline({ height: 46, onSeek: t => target && kit().goTo(target, t) });
       const COLS = ['#3d7ff0', '#e2483f', '#3fbf4a', '#f08a24', '#a35bd6', '#2fc6d6', '#e9d33a', '#e6e6e6'];
-      function camName(track) { const c = setup && setup.cameras.find(x => x.track === track); return c ? `V${track + 1} ${c.shows === 'wide' ? 'Wide' : (setup.mics[c.shows] || {}).name || ''}`.trim() : `V${track + 1}`; }
+      function camName(track) { const c = setup && setup.cameras.find(x => x.track === track); return c ? `V${track + 1} ${c.shows === 'wide' ? 'Wide' : (setup.mics.find(m => m.track === c.shows) || {}).name || ''}`.trim() : `V${track + 1}`; }
       function recompute() {
         if (!envs || !setup) { draw(); return; }
-        rules.introWide = rules.introWide ? 3 : 0; rules.outroWide = rules.introWide; rules.wideOnSilence = rules.wideOnSilence ? 3 : 0;
         runs = speakerRuns(envs).runs;
         const names = Object.fromEntries(setup.mics.map((m, k) => [k, m.name]));
         segs = plan(runs, Object.assign({}, setup, { names }), rules, { duration: target.duration, fps: target.fps || 25, boundaries: rules.snap ? bounds : [] });

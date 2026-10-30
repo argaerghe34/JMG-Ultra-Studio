@@ -1,3 +1,15 @@
+## What's new in 1.3.16.1
+
+A small update to 1.3.16 – fixes found in a review of the weekend's work, before anyone used them:
+
+- Story builds no longer stop with an error on single-speaker interviews, and **Whole sentences** only joins lines that are close together.
+- **What was sent to AI** keeps its record across sessions (a start-up tidy-up used to empty it).
+- **Ask › Edit**: deleting a line you've cut around deletes that line, not what came before it; several deletes and speed changes run from the end so they can't move each other; the self-check reads the new times.
+- **Podcast**: a camera keeps following its person when a mic is added or taken away; the on/off switches mean the same from the Assistant; no overlapping shots at the start.
+- **Fillers**: *cut the ums* cuts only fillers (false starts only when you ask); a sentence with a comma isn't taken for a false start; long restarts are listed but left unticked.
+- **Take Sets**: cuts never reach into the next take, overlapping ones are joined, and the kept-take markers sit exactly where the takes end up.
+- In Resolve: the title tracks are switched back exactly as they were after rendering; a speed-changed camera clip is flagged; a camera track is put back if Resolve won't lay its pieces.
+
 ## What's new in 1.3.16
 
 - **Overnight prep does more** (Home): besides transcripts, themes, moments, the interview log and Selects, it can now **make the beat map**, **find clips for social**, and **then run a recipe** – for example *Podcast episode* on the open sequence – all within the AI limit agreed when you press Start. Edit steps in a recipe are left for the morning, because they need checking; the report says so.

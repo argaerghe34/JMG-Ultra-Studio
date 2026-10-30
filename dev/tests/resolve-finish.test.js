@@ -214,10 +214,11 @@ test('render ranges from Text titles in Resolve: Text+ on a track named like the
   await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId, label: 5 });
   assert.strictEqual(tl._v[1][0]._color, 'Green');
   await assert.rejects(S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId, name: 'New' }), e => e.code === 'BAD_INPUT', 'titles are renamed in the Timeline');
-  assert.deepStrictEqual(await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: false }), { track: 1, was: 1 });
+  assert.deepStrictEqual(await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: false }), { track: 1, was: 1, states: [true] });
   assert.strictEqual(tl.GetIsTrackEnabled('video', 2), false);
   assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).hidden, true);
-  await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: true });
+  await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: true, states: [true] });
+  assert.strictEqual(tl.GetIsTrackEnabled('video', 2), true, 'put back as it was');
   await S.run('removeRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId });
   assert.deepStrictEqual((await only('text')).map(x => x[0]), ['Lower third']);
 });

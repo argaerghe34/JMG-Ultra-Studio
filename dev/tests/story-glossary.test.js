@@ -75,3 +75,13 @@ test('the glossary applies when transcripts load and is kept with the project', 
   assert.strictEqual(st.transcripts[0].lines[0].text, 'Hello Jacob.');
   assert.deepStrictEqual(S.glossary().map(e => e.right), ['Jacob']);
 });
+
+test('soundbites: the second line of a one-speaker interview (no crash), and a line far away is never joined', () => {
+  const mk = (id, start, end, text) => ({ id, start, end, speaker: 'Ruth', text });
+  S._useState({ transcripts: [{ key: 't', name: 'Ruth', lines: [mk('x0', 0, 1, 'Yes.'), mk('x1', 1.1, 3, 'we went to the coast'), mk('x2', 30, 33, 'and it rained all week.')] }] });
+  const r = S.applyBites([{ name: 'G', lineIds: ['x1'], pinned: new Set(), trims: {} }], { sentences: true, noInterviewer: true, minSeconds: 1.5 });
+  assert.deepStrictEqual(r.groups[0].trims.x1 || null, null, 'x2 is 27 s later: not part of the same bite (and x0 ends a sentence)');
+  const r2 = S.applyBites([{ name: 'G', lineIds: ['x2'], pinned: new Set(), trims: {} }], { sentences: true, noInterviewer: true, minSeconds: 1.5 });
+  assert.deepStrictEqual(r2.groups[0].lineIds, ['x2']);
+  assert.ok(!r2.groups[0].trims.x2, 'starts lowercase, but the line before is 27 s earlier – left alone');
+});

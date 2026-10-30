@@ -140,3 +140,23 @@ test('Ask › Edit in Resolve: framing, opacity, colour, on/off, markers, delete
   assert.strictEqual(tl.GetItemListInTrack('video', 1).length, 1);
   assert.deepStrictEqual((await run('editSelection', { seqId })).map(x => [x.name, x.underPlayhead]), [['A.mp4', true]], 'Resolve has no timeline selection: the clip under the playhead');
 });
+
+test('cut around a line, then delete it: the delete takes the line’s piece; several deletes go as one batch', async () => {
+  const host = [], was = US.host.call;
+  US.host.call = async (fn, a) => { host.push([fn, a]); if (fn === 'cloneSequence') return { id: 'c9', name: 'Cut – Ask' }; if (fn === 'editApply') return { done: a.targets.length, skipped: [], log: [] }; return {}; };
+  try {
+    const m = E.timelineModel(INFO, HEARD);
+    const p = E.checkPlan({ reply: '', done: false, steps: [
+      { op: 'remove', targetsJson: '{"lines":["l2"]}', paramsJson: '{"ripple":true}', why: '' },
+      { op: 'razor', targetsJson: '{"lines":["l2"]}', paramsJson: '{}', why: '' },
+      { op: 'remove', targetsJson: '{"nameContains":"drone"}', paramsJson: '{"ripple":false}', why: '' }] }, m);
+    await E.run(job, { model: m }, p.steps, { copy: true });
+    const applies = host.filter(h => h[0] === 'editApply');
+    assert.deepStrictEqual(applies.map(h => h[1].op), ['razor', 'remove'], 'the cut first; both deletes in one call');
+    const del = applies[1][1];
+    assert.ok(del.params.ripple, 'any rippling delete makes the batch ripple');
+    const v1 = del.targets.find(t => t.kind === 'video' && t.track === 0 && t.start >= 5 && t.start < 9);
+    assert.strictEqual(v1.start, 5.2, 'Sam’s line, cut out of its clip, starts where the line starts');
+    assert.ok(del.targets.some(t => t.start === 15), 'and the drone clip');
+  } finally { US.host.call = was; }
+});

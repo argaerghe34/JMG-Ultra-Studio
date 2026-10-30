@@ -52,3 +52,14 @@ test('a cut copy of only the fillers: one copy, cuts from the end, the summary s
     await assert.rejects(US.silenceCut.cutCopy(an, {}, { set() { return this; }, progress() {}, check() {} }, { words: [{ start: 1, end: 2, on: false }], pauses: false }), e => e.code === 'NOTHING_FOUND');
   } finally { US.host.call = was; }
 });
+
+test('a finished clause isn’t a false start; a long restart is listed but left for the editor; “cut the ums” cuts only fillers', () => {
+  assert.strictEqual(C.find([entry('I think we should go, and I think we should stay.')]).length, 0, 'the comma says the first part was meant');
+  const long = C.find([entry('We drove all the way to the we drove all the way to the coast.')]);
+  assert.deepStrictEqual(long.map(x => [x.kind, x.on]), [['restart', false]], 'six words, not broken off: listed, unticked');
+  const short = C.find([entry('We went – we went to the shop.')]);
+  assert.deepStrictEqual(short.map(x => [x.kind, x.on]), [['restart', true]]);
+  const p = US.actions.get('silence.cut').match('cut the ums');
+  assert.deepStrictEqual([p.fillers, p.falseStarts, p.pauses], [true, undefined, false]);
+  assert.strictEqual(US.actions.get('silence.cut').match('cut the ums and the false starts').falseStarts, true);
+});

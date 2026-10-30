@@ -193,7 +193,8 @@
     list(key = projectOf().key) {
       let raw = ''; try { raw = fs.readFileSync(path.join(sentDir(), key + '.jsonl'), 'utf8'); } catch (e) { return []; }
       const byId = new Map(), order = [];
-      for (const line of raw.split('\n')) { if (!line.trim()) continue; let o; try { o = JSON.parse(line); } catch (e) { continue; } if (o.end) { if (byId.has(o.id)) Object.assign(byId.get(o.id), o); } else { byId.set(o.id, o); order.push(o); } }
+      // a request line carries its parts; a line without them says how one ended (after pruning they're merged in one)
+      for (const line of raw.split('\n')) { if (!line.trim()) continue; let o; try { o = JSON.parse(line); } catch (e) { continue; } if (!o.parts) { if (byId.has(o.id)) Object.assign(byId.get(o.id), o); } else if (!byId.has(o.id)) { byId.set(o.id, o); order.push(o); } }
       return order.reverse();
     },
     /** The full text of a request, as sent, with a heading for each part. */
@@ -252,9 +253,9 @@
     const v = await US.ui.modal({ title: `Send this to ${name}?`, wide: true,
       body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. Only this text is sent; no footage, frames or audio.`),
         h('textarea.input.mono.ai-preview', { readOnly: true, rows: 14 }, shown)),
-      buttons: [{ label: 'Cancel', value: 'no', kind: 'ghost' }, { label: 'Send the rest of this job too', value: 'all' }, { label: 'Send', value: 'one', kind: 'primary' }] });
+      buttons: [{ label: 'Cancel', value: 'no', kind: 'ghost' }].concat(job ? [{ label: 'Send the rest of this job too', value: 'all' }] : []).concat([{ label: 'Send', value: 'one', kind: 'primary' }]) });
     if (v !== 'one' && v !== 'all') throw new US.UserError('CANCELLED', { title: 'AI request cancelled.', action: 'Nothing was sent.' });
-    if (v === 'all') previewedJobs.add(key);
+    if (v === 'all' && job) previewedJobs.add(key);
     return true;
   }
 

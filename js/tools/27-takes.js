@@ -98,7 +98,8 @@
         if (ti === s.chosen) return;
         const next = lines[t.i1 + 1], first = lines[t.i0].words && lines[t.i0].words[0];
         const start = Math.max(0, (first ? first.start : t.start) - 0.05);
-        const end = next && next.start - t.end < 3 ? Math.max(t.end, next.start - 0.05) : t.end + 0.1;
+        // the pause after goes too – but never into what follows (lines can overlap)
+        const end = next ? Math.min(next.start - 3 > t.end ? t.end + 0.1 : Math.max(t.end, next.start - 0.05), Math.max(next.start, start + 0.05)) : t.end + 0.1;
         out.push({ id: `take-${si}-${ti}`, kind: t.complete ? 'complete' : 'incomplete', start, end, set: si, title: `“${s.name}” – take ${ti + 1} of ${s.takes.length}`, sub: `${t.text.length > 140 ? t.text.slice(0, 140) + '…' : t.text}${t.note ? ' · ' + t.note : ''}`, on: true });
       });
     });
@@ -124,7 +125,10 @@
   }
   /** A copy of the sequence without the unchosen takes (all tracks), and a marker on each kept take. */
   async function cutCopy(target, found, items, job) {
-    const ranges = items.filter(x => x.on).map(x => [x.start, x.end]).sort((a, b) => b[0] - a[0]);
+    // overlapping cuts joined, so each stretch is removed once
+    const asc = items.filter(x => x.on).map(x => [x.start, x.end]).sort((a, b) => a[0] - b[0]), joined = [];
+    for (const r of asc) { const l = joined[joined.length - 1]; if (l && r[0] <= l[1]) l[1] = Math.max(l[1], r[1]); else joined.push(r.slice()); }
+    const ranges = joined.reverse();
     if (!ranges.length) throw new US.UserError('NOTHING_FOUND', { title: 'No takes are set to be cut.', action: 'Choose a take in a set (or tick a cut in the list).' });
     const locked = await US.host.call('lockedTracksWithClips', { seqId: target.id });
     if (locked.length) throw new US.UserError('BAD_INPUT', { title: `Some tracks are locked (${locked.join(', ')}).`, action: 'Unlock them in the Timeline, then try again – otherwise the cuts would knock them out of sync.' });
@@ -133,11 +137,11 @@
     let removed = 0;
     for (const part of kit().chunk(ranges, 20)) { job.check(); const r = await US.host.call('extractRanges', { seqId: copy.id, ranges: part }); removed += r.removed; }
     // where each kept take now sits: its old start less what was removed before it
-    const before = t => ranges.filter(r => r[1] <= t + 1e-6).reduce((n, r) => n + r[1] - r[0], 0);
+    const before = t => ranges.reduce((n, r) => n + Math.max(0, Math.min(r[1], t) - r[0]), 0);
     const marks = found.sets.filter(s => s.chosen >= 0).map(s => { const t = s.takes[s.chosen]; const st = t.start - before(t.start); return { start: st, end: st + (t.end - t.start), name: `Take ${s.chosen + 1} of ${s.takes.length}: ${s.name}`.slice(0, 64), comment: t.note || '', color: 0 }; });
     if (marks.length) await US.host.call('addSequenceMarkers', { seqId: copy.id, markers: marks });
     await US.host.call('openSequence', { seqId: copy.id });
-    return { summary: `“${copy.name}”: ${US.plural(ranges.length, 'take')} cut (${US.fmtDur(removed, true)}), ${US.plural(marks.length, 'best take')} marked. The original is unchanged.`, copy, removed };
+    return { summary: `“${copy.name}”: ${US.plural(items.filter(x => x.on).length, 'take')} cut (${US.fmtDur(removed, true)}), ${US.plural(marks.length, 'best take')} marked. The original is unchanged.`, copy, removed };
   }
 
   US.actions.register({

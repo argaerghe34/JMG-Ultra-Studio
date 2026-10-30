@@ -65,3 +65,15 @@ test('Resolve: each camera track laid again in pieces at the switches, only the 
   assert.deepStrictEqual(v2.map(x => x._srcStart), [0, 250, 500], 'each piece plays from the same source time');
   assert.deepStrictEqual([r.on, r.off], [3, 3]);
 });
+
+test('cameras follow their mic by track (a mic added or removed changes nothing); on/off switches mean the usual lengths; no overlaps at the start', () => {
+  const runs = [{ start: 0, end: 1, who: 1 }, { start: 1, end: 30, who: 0 }, { start: 30, end: 60, who: 1 }];
+  // mics on A2 and A3 (A1 was the music, now left out): V2 shows the person on A2, V3 the one on A3
+  const setup = { mics: [{ track: 1, name: 'Ruth' }, { track: 2, name: 'Sam' }], cameras: [{ track: 0, shows: 'wide' }, { track: 1, shows: 1 }, { track: 2, shows: 2 }] };
+  const segs = P.plan(runs, setup, { introWide: false, wideOnSilence: true, maxHold: 0, minHold: 0.5 }, { duration: 60, fps: 25 });
+  assert.deepStrictEqual(segs.map(s => s.camera), [2, 1, 2], 'no opening or closing wide when switched off; Ruth (A2) on V2');
+  const on = P.plan(runs, setup, { introWide: true, maxHold: 0, minHold: 0.5 }, { duration: 60, fps: 25 });
+  assert.strictEqual(on[0].camera, 0); assert.strictEqual(on[0].end, 3, 'on = a 3 s opening wide');
+  assert.strictEqual(on[on.length - 1].camera, 0); assert.strictEqual(on[on.length - 1].start, 57, '…and a 3 s closing one');
+  for (let i = 1; i < on.length; i++) assert.ok(on[i].start >= on[i - 1].end - 1e-9 && on[i].start === on[i - 1].end, `no overlap at ${i}`);
+});

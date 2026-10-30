@@ -254,9 +254,10 @@ module.exports = function (R) {
     rangeTrackOutput(a) {
       const tl = R.needSeq(a.seqId), ts = textTracks(tl, a.track || RENDERS);
       if (!ts.length) return { track: -1, was: -1 };
-      const was = ts.every(t => tl.GetIsTrackEnabled('video', t)) ? 1 : 0;
-      for (const t of ts) tl.SetTrackEnable('video', t, !!a.on);
-      return { track: ts[0] - 1, was };
+      const states = ts.map(t => !!tl.GetIsTrackEnabled('video', t)), was = states.some(Boolean) ? 1 : 0;
+      // putting back: each track as it was (a.states from the switch-off), not all on
+      ts.forEach((t, k) => tl.SetTrackEnable('video', t, a.states && a.states.length === ts.length ? !!a.states[k] : !!a.on));
+      return { track: ts[0] - 1, was, states };
     },
     /** Premiere's “new track on top for render ranges”: in Resolve a group of range markers needs nothing made – just a
         name no other group has. a: {seqId, name?} → {index, name, named, log} */

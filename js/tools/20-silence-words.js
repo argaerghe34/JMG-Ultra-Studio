@@ -53,7 +53,13 @@
       for (let j = i + 2; j <= i + 8 && j < ws.length; j++) {
         if (!same(ws[j - 1], ws[j]) || /[.!?]$/.test(ws[j - 1].text)) break;
         let k = 0; while (k < 4 && ws[i + k] && ws[j + k] && i + k < j && ws[i + k].b && ws[i + k].b === ws[j + k].b) k++;
-        if (k >= 2) { add('restart', i, j - 1); i = j - 1; break; }
+        // a comma inside means a finished clause (“I think we should go, and I think we should stay”), not a restart
+        if (k >= 2 && !ws.slice(i, j).some(x => /[,;:]$/.test(x.text))) {
+          add('restart', i, j - 1);
+          // ticked only when it's clearly abandoned: broken off with a dash or dots, or just a few words
+          const last = out[out.length - 1]; last.on = last.on && (/[-–—…]$|\.\.\.$/.test(ws[j - 1].text) || j - i <= 3);
+          i = j - 1; break;
+        }
       }
     }
     // one cut per stretch: an overlap keeps the earlier find, extended

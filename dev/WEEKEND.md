@@ -610,3 +610,10 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     against the UXP changelog, a two-week spike for H1 2027, the gaps: razor/extract, transitions, effects, keyframes),
     and reading the editors' own transcripts (Premiere UXP `Transcript`/`transcribeClipProjectItem`, Resolve 21.1).
     Local visual logging stays parked with B-roll (owner's choice); Selects already drops duplicate takes.
+  - **Review and 1.3.16.1:** an independent review of the weekend's code found 11 issues; all fixed with tests –
+    `applyBites` gap check (crash on single-speaker interviews), sent-log prune emptying the log, Ask › Edit targets
+    after razor/ripple (line pieces, one delete batch, speed last-first, fresh lines in the check), Podcast cameras by mic
+    track + on/off switches in `plan()` + no overlap, fillers command without false starts + comma rule + long restarts
+    unticked, Take Sets cut ends/merging/marker offsets, preview "send the rest" only in a job, Resolve text-track states
+    restored, retimed podcast clips flagged and empty camera tracks restored. Also: `\b` escapes that had become control
+    characters in three new Assistant matchers (caught by build.sh). 432 tests pass.

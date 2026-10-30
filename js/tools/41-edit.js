@@ -188,7 +188,8 @@
     return { reply: String((r && r.reply) || ''), done: !!(r && r.done), steps: steps.slice(0, 12), dropped };
   }
   /** In the order they're safe to run: cuts first (they split clips), deletions last (rippling moves what's after). */
-  const RANK = { razor: 0, remove: 2 };
+  // speed changes can ripple what follows, so they come late too (and each runs from the end, like deleting)
+  const RANK = { razor: 0, speed: 2, remove: 3 };
   const runOrder = steps => steps.map((s, i) => ({ s, i })).sort((a, b) => (RANK[a.s.op] != null ? RANK[a.s.op] : 1) - (RANK[b.s.op] != null ? RANK[b.s.op] : 1) || a.i - b.i).map(x => x.s);
   /** One line for a step: "Cross Dissolve at both ends · 42 clips on V1". */
   function describe(s) {
@@ -269,10 +270,20 @@
   const scopeLabel = (scope, m) => (scope.where === 'bin' ? `the bin “${scope.binName || ''}”` : scope.where === 'project' ? 'the whole project' : scope.where === 'selection' ? `the clips selected in “${m.seq ? m.seq.name : ''}”` : scope.where === 'transcripts' ? `the transcript lines heard in “${m.seq ? m.seq.name : ''}”` : `the sequence “${m.seq ? m.seq.name : ''}”`);
 
   /** A clip or line target → the clips under it (for edits that need clips), or itself. */
-  function clipTargets(m, step) {
+  /**
+   * A clip or line target → the clips under it (for edits that need clips), or itself. cutAt: times the plan cuts at
+   * first – a line cut out of its clip stands for just that piece (so "cut around Ruth's line and delete it" deletes the
+   * line, not what came before it).
+   */
+  function clipTargets(m, step, cutAt = []) {
     if (!step.targets[0] || !step.targets[0].line || /^(marker|text|razor)$/.test(step.op)) return step.targets;
-    const out = [], seen = new Set();
-    for (const t of step.targets) for (const c of m.clips) if (c.start < t.end - 0.05 && c.end > t.start + 0.05 && !seen.has(c.id)) { seen.add(c.id); out.push({ kind: c.kind, track: c.track, start: c.start, end: c.end, id: c.id, name: c.name }); }
+    const out = [], seen = new Set(), cut = x => cutAt.some(c => Math.abs(c - x) < 0.02);
+    for (const t of step.targets) for (const c of m.clips) {
+      if (!(c.start < t.end - 0.05 && c.end > t.start + 0.05)) continue;
+      const a = cut(t.start) && t.start > c.start ? t.start : c.start, b = cut(t.end) && t.end < c.end ? t.end : c.end, k = `${c.id}@${a.toFixed(2)}`;
+      if (seen.has(k)) continue; seen.add(k);
+      out.push({ kind: c.kind, track: c.track, start: a, end: b, id: c.id, name: c.name });
+    }
     return out;
   }
   const fill = (tpl, t, n) => String(tpl || '').replace(/\{n\}/g, String(n)).replace(/\{name\}/g, t.name || '').replace(/\{speaker\}/g, t.speaker || '').replace(/\{says\}/g, (t.says || t.text || '').slice(0, 80));
@@ -316,10 +327,17 @@
       const c = await US.host.call('cloneSequence', { seqId, name: `${m.seq.name} – Ask`, binPath: 'JMG Ultra Studio/Ask' });
       seqId = c.id; copyName = c.name; conv.workSeqId = c.id; conv.workSeqName = c.name;
     }
-    const order = runOrder(steps);
+    // the plan's cuts first; every delete in one batch from the end, so one deletion can't move another's clips
+    const cutAt = steps.filter(s => s.op === 'razor').flatMap(s => s.targets.flatMap(t => [t.start, t.end]).filter(x => x != null));
+    let order = runOrder(steps);
+    const removes = order.filter(s => s.op === 'remove');
+    if (removes.length > 1) {
+      const rippled = removes.some(s => s.params && s.params.ripple);
+      order = order.filter(s => s.op !== 'remove').concat([Object.assign({}, removes[0], { params: Object.assign({}, removes[0].params, { ripple: rippled }), targets: removes.flatMap(s => clipTargets(m, s, cutAt)), merged: removes })]);
+    }
     for (let i = 0; i < order.length; i++) {
       job.check();
-      const s = order[i], targets = clipTargets(m, s);
+      const s = order[i], targets = s.merged ? s.targets : clipTargets(m, s, cutAt);
       job.set({ who: 'premiere', msg: describe(s) }).progress(i / order.length, `${i + 1} of ${order.length}: ${describe(s)}`);
       let n = 0;
       const params = s.op === 'rename' || s.op === 'text' ? null : s.params;
@@ -330,7 +348,8 @@
         r = { done: 0, skipped: [], log: [] };
         for (const t of targets) { n++; const x = await US.host.call('editApply', { seqId, op: s.op, params: Object.assign({}, s.params, s.op === 'rename' ? { name: fill(s.params.name, t, n) } : { text: fill(s.params.text, t, n) }), targets: [{ kind: t.kind, track: t.track, start: t.start, end: t.end }] }); r.done += x.done; r.skipped.push(...x.skipped); if (x.unsupported) { r = x; break; } }
       }
-      results.push(Object.assign({ step: s }, r));
+      if (s.merged) s.merged.forEach((x, k) => results.push(Object.assign({ step: x }, k ? { done: 0, skipped: [], note: 'with the deletes above' } : r)));
+      else results.push(Object.assign({ step: s }, r));
     }
     await US.host.call('openSequence', { seqId }).catch(() => {});
     const done = US.sum(results.map(r => r.done || 0)), skipped = US.sum(results.map(r => (r.skipped || []).length));
@@ -356,9 +375,12 @@
     let after = '';
     if (conv.model.kind === 'timeline' && outcome.seqId) {
       try {
-        const info = await US.host.call('editRead', { seqId: outcome.seqId }), m2 = timelineModel(info, null);
-        // the new state replaces the model, so a further step picks clips as they are now
-        m2.lines = conv.model.lines; m2.scope = conv.model.scope; conv.model = Object.assign(m2, { seq: Object.assign({}, m2.seq) });
+        const info = await US.host.call('editRead', { seqId: outcome.seqId });
+        // what is heard now (times move when something was deleted or sped up), so a further step lands where it should
+        let heard = null;
+        try { if (US.story && US.story.timelineTranscript && conv.model.lines.length) { const tl = await US.story.timelineTranscript(null, { seqId: outcome.seqId }), names = US.story.namesFor ? US.story.namesFor(tl) : new Map(); heard = tl.result.entries.map(e => Object.assign({}, e, { speaker: names.get(e.speakerKey) || e.speaker })); } } catch (e) { heard = null; }
+        const m2 = timelineModel(info, heard);
+        m2.scope = conv.model.scope; conv.model = m2;
         after = `\nThe sequence now (${m2.clips.length} clips, ${fmtT(m2.seq.duration)}):\n` + outline(m2).split('\n').slice(0, 400).join('\n');
       } catch (e) { after = ''; }
     }

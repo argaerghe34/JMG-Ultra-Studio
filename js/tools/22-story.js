@@ -714,15 +714,16 @@
         if (!l || seen.has(id)) continue;
         if (r.noInterviewer && isInterviewer(l)) { dropped++; continue; }
         const t = clipOfLine.get(id), ls = t.lines, i = linesIndex.has(id) ? linesIndex.get(id) : ls.indexOf(l);
-        const same = k => k >= 0 && k < ls.length && ls[k].speaker === l.speaker && ls[k].start - ls[k === i ? i : k - 1].end < 4;
+        // a neighbour that can join: same speaker, and close to the line it joins (j: the line already in the bite)
+        const joins = (k, j) => k >= 0 && k < ls.length && ls[k].speaker === l.speaker && Math.abs(k < j ? ls[j].start - ls[k].end : ls[k].start - ls[j].end) < 4;
         let a = i, b = i;
         const tr = trims[id];
         // a line trimmed on purpose (a narrative tightened by a few words) keeps its trim
         if (r.sentences && !tr) {
-          while (a > 0 && i - a < 1 && same(a - 1) && !endsSentence(ls[a - 1].text) && /^[\p{Ll}…,;]/u.test(String(ls[a].text).trim()) && !seen.has(ls[a - 1].id)) a--;
-          while (b < ls.length - 1 && b - i < 3 && same(b + 1) && !endsSentence(ls[b].text)) b++;
+          while (a > 0 && i - a < 1 && joins(a - 1, a) && !endsSentence(ls[a - 1].text) && /^[\p{Ll}…,;]/u.test(String(ls[a].text).trim()) && !seen.has(ls[a - 1].id)) a--;
+          while (b < ls.length - 1 && b - i < 3 && joins(b + 1, b) && !endsSentence(ls[b].text)) b++;
         }
-        if (r.minSeconds > 0 && !tr) while (b < ls.length - 1 && b - i < 4 && same(b + 1) && ls[b].end - ls[a].start < r.minSeconds) b++;
+        if (r.minSeconds > 0 && !tr) while (b < ls.length - 1 && b - i < 4 && joins(b + 1, b) && ls[b].end - ls[a].start < r.minSeconds) b++;
         let start = a === i && tr ? tr.start : ls[a].start, end = b === i && tr ? tr.end : ls[b].end;
         if (r.tight) {
           const w0 = T.wordTimes(ls[a]), w1 = b === a ? w0 : T.wordTimes(ls[b]);
