@@ -20,3 +20,10 @@ It plays every clip on your computer (nothing is uploaded) and grades its moment
 Nothing changes in your project until you press **Make it**; new items go in *JMG Ultra Studio › Selects*. **Remove Selects markers** takes the markers off again.
 
 **Formats the panel can't read.** The panel reads H.264 MP4 files directly, and uses a clip's proxy if it has one. For 10-bit 4:2:2 (Lumix and others), iPhone HEVC, ProRes or RAW, leave **Make small analysis copies of clips the panel can't read** on: Media Encoder makes a 1280×720 copy with Premiere's own *High Quality 720 HD* preset. The copies stay in Ultra Studio's own folder, and times always match the original. They aren't added to your project unless you tick **Also attach them as proxies** (16:9 clips only).
+
+### Subclip Maker – browse only the parts you chose
+Choose a bin. Every clip in it becomes a subclip of only the part between the In and Out you set on it (in Resolve: Mark In and Mark Out), with restricted In/Out – so long clips show just that part in thumbnails and when you scrub. Clips without In/Out are kept whole; your originals aren't changed.
+
+- The subclips go in a new bin next to the original, **"<bin> – Subclips"**, numbered in filming order with the original file name: *01 – C0012.MP4*.
+- Only clips directly in the bin are used, not clips in bins inside it.
+- If subclips with the same names are already there, you're asked first: **Replace** moves the earlier ones into **"<bin> – Subclips – earlier"** (add-ons can't delete clips – delete that bin yourself), **Add alongside** names the new ones *(2)*, *(3)*…

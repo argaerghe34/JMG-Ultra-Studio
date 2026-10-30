@@ -104,6 +104,8 @@
   /* ---------- the tool ---------- */
   US.tools.register({
     id: 'mcselects', name: 'MC Selects', short: 'MC Sel', icon: 'cameras', group: 'cut', order: 25,
+    // Premiere only: Resolve's scripting can't say which camera a multicam cut shows (dev/RESOLVE.md)
+    apps: ['premiere'],
     blurb: 'From your cut multicam edit, a sequence of just the cameras you keep, each clip as you cut it.',
     hostFns: ['mcRead', 'mcBuild', 'storyProjectFile', 'newSequence', 'placeClips'],
     create() {
@@ -141,7 +143,7 @@
   });
 
   US.actions.register({
-    id: 'mcselects.make', tool: 'mcselects', title: 'Make MC Selects from the multicam edit', changes: true,
+    id: 'mcselects.make', tool: 'mcselects', title: 'Make MC Selects from the multicam edit', changes: true, apps: ['premiere'],
     describe: 'From the open multicam edit, makes a new sequence of only the cameras kept in MC Selects, each clip as cut, back to back.',
     examples: ['make the multicam selects', 'pull the roaming camera shots out of the multicam'],
     match: t => /multi-?cam|mc selects/i.test(t) && /select|pull|keep|extract|roaming|b-?roll/i.test(t) ? { _score: 2 } : null,

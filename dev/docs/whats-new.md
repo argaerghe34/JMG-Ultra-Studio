@@ -1,3 +1,9 @@
+## What's new in 1.3.6
+
+- **MC Selects** (Cut): from a cut multicam edit (the multicam clips on V1), see every camera by its file name with how many cuts and how long it's on screen. Keep the ones you want and get a new sequence of just their shots, back to back in the order you edited them, each cut its own clip with no handles. Give each camera a label colour if you like, and add its scratch audio. Your choices are remembered. Works with multicam source sequences and with nested sequences switched to multicam.
+- **Subclip Maker** (Find): choose a bin and every clip in it becomes a subclip of only the part between the In and Out you set on it, with restricted In/Out – so long clips show just that part in thumbnails and when you scrub. Clips without In/Out are kept whole. They go in a new bin next to the original, "<bin> – Subclips", numbered in filming order with the original file name ("01 – C0012.MP4"). If subclips with the same names are already there you're asked first: **Replace** (the earlier ones move to "<bin> – Subclips – earlier", as add-ons can't delete clips) or **Add alongside** (the new ones get "(2)", "(3)"…).
+- **In DaVinci Resolve** Subclip Maker works the same, from each clip's Mark In and Mark Out. MC Selects isn't offered in Resolve: Resolve doesn't let add-ons see which camera a multicam cut shows.
+
 ## What's new in 1.3.5
 
 - **Ask about your interviews.** **Ask › My interviews**: ask anything about what your interviews say – *every story about Grandma, in the order it happened*, *where do Ruth and Sam disagree?*, *a 45-second opening about why they came*. You get a short answer and the clips, grouped and whole. Play, reorder, take out, rename and recolour them, then choose how they land: a **new sequence** (grouped and coloured, with markers or name layers), **range markers** on a sequence you have, **themes**, **Word** or text. Type a change under the answer (*shorter*, *leave out Sam*) and it reworks it. Needs AI.

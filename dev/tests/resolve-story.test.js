@@ -306,11 +306,12 @@ test('resolve story: storyCue selects the clip and says where its media is; stor
 test('resolve story: the panel plays a line itself in Resolve (cue), toggles, falls back and says so once', async () => {
   const US = load([]);
   const els = [], toasts = [], calls = [];
-  const bad = new Set(['/m/ProRes.mov']);
+  // file URLs as the panel makes them (file:///C:/m/… on Windows)
+  const href = p => require('url').pathToFileURL(p).href, bad = new Set([href('/m/ProRes.mov')]);
   const fakeAudio = () => {
     const el = { paused: true, readyState: 0, duration: 60, currentTime: 0, _src: '', played: [] };
     Object.defineProperty(el, 'src', { get: () => el._src, set: v => { el._src = v; el.readyState = 0; } });
-    el.load = () => setTimeout(() => { if (bad.has(decodeURIComponent(new URL(el._src).pathname))) { el.onerror && el.onerror(); } else { el.readyState = 1; el.onloadedmetadata && el.onloadedmetadata(); } }, 1);
+    el.load = () => setTimeout(() => { if (bad.has(el._src)) { el.onerror && el.onerror(); } else { el.readyState = 1; el.onloadedmetadata && el.onloadedmetadata(); } }, 1);
     el.play = () => { el.paused = false; el.played.push([el._src, el.currentTime]); return Promise.resolve(); };
     el.pause = () => { el.paused = true; };
     els.push(el); return el;
@@ -325,13 +326,13 @@ test('resolve story: the panel plays a line itself in Resolve (cue), toggles, fa
     let r = await US.host.cue('a', 12, { play: true });
     assert.deepStrictEqual([r.playing, r.landed, r.player, r.file], [true, true, 'panel', '/m/A.mp4']);
     assert.deepStrictEqual(calls[0], ['storyCue', { id: 'a', seconds: 12, play: true, open: true }]);
-    assert.strictEqual(els.length, 1); assert.deepStrictEqual(els[0].played, [['file:///m/A.mp4', 12]]);
+    assert.strictEqual(els.length, 1); assert.deepStrictEqual(els[0].played, [[href('/m/A.mp4'), 12]]);
     // the same line again: stops
     r = await US.host.cue('a', 12, { play: true });
     assert.strictEqual(r.playing, false); assert.strictEqual(els[0].paused, true);
     // another line of the same clip plays at once (already loaded)
     r = await US.host.cue('a', 30, { play: true });
-    assert.strictEqual(r.playing, true); assert.deepStrictEqual(els[0].played[1], ['file:///m/A.mp4', 30]);
+    assert.strictEqual(r.playing, true); assert.deepStrictEqual(els[0].played[1], [href('/m/A.mp4'), 30]);
     // storyStop (Resolve side) reaches the panel's player
     US.host.cue.stop(); assert.strictEqual(els[0].paused, true);
     // a file Chromium can't decode: its proxy plays instead
