@@ -184,7 +184,8 @@
           return;
         }
         bubble('bot', h('div', 'Hi! I can run any JMG Ultra Studio tool for you. Try one of these:'), chips(exampleChips()),
-          h('div.field-hint', aiOn ? `Anything else goes to ${US.ai.label()} (only your words are sent – never footage).` : 'These work without any AI. Add a Claude or Gemini key in Settings and I’ll understand free-form requests too.'));
+          h('div.field-hint', aiOn ? `Anything else goes to ${US.ai.label()} (only your words are sent – never footage).` : 'These work without any AI. Add a Claude or Gemini key in Settings and I’ll understand free-form requests too.'),
+          recipeChips());
       }
 
       async function submit() {
@@ -219,6 +220,38 @@
           h('div.field-hint', 'Add a Claude or Gemini key in Settings and I’ll handle free-form requests.'), ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings') }));
       }
 
+      /* ---------- recipes: saved chains of steps ---------- */
+      function recipeChips() {
+        if (!US.recipes) return null;
+        const rs = US.recipes.list().slice(0, 6);
+        return h('div', h('div.field-label', 'Recipes'), h('div.chat-chips', rs.map(r => h('button.chip', { title: US.recipes.describe(r), onclick: () => { bubble('me', `Run “${r.name}”`); runRecipe(r); } }, r.name)),
+          h('button.chip.ghost', { onclick: () => showRecipes() }, 'All recipes…')));
+      }
+      function showRecipes() {
+        const rows = US.recipes.list().map(r => h('div.list-row',
+          h('div.list-main', h('div.list-title', r.name, r.starter ? ui.pill('starter', 'var(--text-2)') : null), h('div.list-sub', US.recipes.describe(r))),
+          h('div.songs-actions',
+            ui.button('Run', { small: true, kind: 'primary', onClick: () => { bubble('me', `Run “${r.name}”`); runRecipe(r); } }),
+            r.starter ? null : ui.button('Rename', { small: true, kind: 'ghost', onClick: async () => { const nm = await ui.promptText({ title: 'Recipe name', value: r.name, ok: 'Rename' }); if (nm) { US.recipes.rename(r.id, nm); showRecipes(); } } }),
+            r.starter ? null : ui.button('Delete', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: `Delete the recipe “${r.name}”?`, ok: 'Delete', danger: true })) { US.recipes.remove(r.id); showRecipes(); } } }))));
+        bubble('bot wide', h('div', h('div', 'Recipes run their steps one after another, on whatever project is open. Save one from any plan (“Save as a recipe” after it runs) or from an edit.'), h('div.list', rows)));
+      }
+      async function saveRecipe(steps, suggested) {
+        const nm = await ui.promptText({ title: 'Save as a recipe', label: 'Name it so you can run it again on another project', value: suggested || '', ok: 'Save' });
+        if (!nm) return;
+        try { const r = US.recipes.save({ name: nm, steps }); ui.toast({ type: 'ok', title: `Saved “${r.name}”`, text: US.recipes.describe(r), timeout: 5000 }); } catch (e) { ui.showError(e); }
+      }
+      async function runRecipe(r) {
+        if (US.jobs.current) { ui.toast({ type: 'warn', title: 'Something else is still running.', text: 'Wait for it to finish, or press Stop.' }); return; }
+        const status = h('div.plan-status', 'Starting…'), lines = h('ol.plan-steps', r.steps.map(s => h('li', s.edit != null ? `Edit: “${s.edit}”` : US.say((US.actions.get(s.action) || {}).title || s.action))));
+        bubble('bot', h('div.plan', h('b', r.name), lines, status));
+        const out = await US.recipes.run(r, {
+          onStep: (i, s, phase, res) => { const li = lines.children[i]; if (!li) return; if (phase === 'start') { status.textContent = `Step ${i + 1} of ${r.steps.length}…`; li.classList.add('running'); } else { li.classList.remove('running'); li.classList.add('done'); if (res && res.summary) li.appendChild(h('div.field-hint', res.summary)); } },
+          onEdit: s => new Promise(resolve => { if (mode !== 'edit') { mode = 'edit'; modeSel.set && modeSel.set('edit'); whereBar.classList.remove('hidden'); } editConv = null; runEdit(s.edit, { where: s.where || 'sequence' }, resolve); })
+        });
+        status.textContent = out.stoppedAt < 0 ? `All ${US.plural(out.of, 'step')} done.` : `Stopped at step ${out.stoppedAt + 1} of ${out.of}. Nothing after it ran.`;
+      }
+
       function showAll() {
         const byTool = new Map();
         for (const a of US.actions.list()) { const n = (US.tools.get(a.tool) || {}).name || a.tool; if (!byTool.has(n)) byTool.set(n, []); byTool.get(n).push(a); }
@@ -249,6 +282,7 @@
             if (r.ask) showAsk(r.ask);
           }
           status.textContent = 'All done.';
+          card.appendChild(h('div.row', ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Run these steps again later, on any project, in one go', onClick: () => saveRecipe(steps, plan.reply ? '' : '') })));
         });
       }
 
@@ -260,19 +294,20 @@
         if (r && r.ask) showAsk(r.ask);
       }
       /* ---------- Edit: plan → check the plan → run (on a copy) → read back and check the result ---------- */
-      async function runEdit(text, over = null) {
+      async function runEdit(text, over = null, onDone = null) {
         const scope = Object.assign(scopeNow(), over || {});
         const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai && US.ai.available() ? US.ai.label() : 'The AI'} is reading ${scope.where === 'bin' ? 'the bin' : scope.where === 'project' ? 'the project' : 'the sequence'} and planning…`)));
         const r = await US.jobs.run({ title: editConv ? 'Changing the edit plan' : 'Planning the edit', tool: 'assistant', who: US.jobs.WHO.ai }, job => E.plan(job, { request: text, scope, conv: editConv }));
         thinking.remove();
-        if (!r) return;
+        if (!r) { if (onDone) onDone(false); return; }
         editConv = r.conv;
-        showEditPlan(r.plan);
+        showEditPlan(r.plan, { onDone, request: text, where: scope.where });
       }
-      function showEditPlan(p, { followUp = false } = {}) {
+      function showEditPlan(p, { followUp = false, onDone = null, request = '', where = 'sequence' } = {}) {
         const conv = editConv, m = conv.model, timeline = m.kind === 'timeline';
         if (!p.steps.length) {
           bubble('bot', h('div', p.reply || (p.done ? 'That’s all done.' : 'I couldn’t find a way to do that with the edits I have.')), p.dropped.length ? h('div.field-hint', 'Left out: ' + p.dropped.join(' · ')) : null);
+          if (onDone) onDone(!!p.done);
           return;
         }
         const on = p.steps.map(() => true);
@@ -295,14 +330,15 @@
           h('div.row', runBtn, cancel), status,
           h('div.field-hint', 'Not right? Type what to change below and I’ll redo the plan.'));
         bubble('bot wide', card);
-        cancel.addEventListener('click', () => { runBtn.disabled = cancel.disabled = true; status.textContent = 'Cancelled.'; });
+        cancel.addEventListener('click', () => { runBtn.disabled = cancel.disabled = true; status.textContent = 'Cancelled.'; if (onDone) onDone(false); });
         runBtn.addEventListener('click', async () => {
           const steps = p.steps.filter((x, i) => on[i]);
           if (!steps.length) { status.textContent = 'Tick at least one edit.'; return; }
           runBtn.disabled = cancel.disabled = true; status.textContent = 'Running…';
           const out = await US.jobs.run({ title: 'Editing', tool: 'assistant' }, job => E.run(job, conv, steps, { copy: !timeline ? false : conv.workSeqId ? true : US.settings.get('editAsk.copy', true) }));
-          if (!out) { status.textContent = 'Stopped – see the message above.'; return; }
+          if (!out) { status.textContent = 'Stopped – see the message above.'; if (onDone) onDone(false); return; }
           status.textContent = 'Done.';
+          if (request && !followUp) card.appendChild(h('div.row', ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Ask for this edit again later, on any sequence, in one go', onClick: () => saveRecipe([{ edit: request, where }], request.slice(0, 40)) })));
           bubble('bot', h('div.done', US.icon('ok', 15), h('span', out.summary)),
             h('ul.edit-results', out.results.map(x => h('li', `${E.describe(x.step)}: ${x.unsupported ? x.why : `${x.done} done${x.skipped && x.skipped.length ? ` · ${x.skipped.length} skipped (${[...new Set(x.skipped.map(k => k.why))].slice(0, 2).join('; ')})` : ''}`}`))),
             out.undo && out.undo.length ? ui.button('Undo', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Putting it back', tool: 'assistant' }, async () => { await E.undoItems(out.undo); return { summary: 'Put back as it was' }; }) }) : null);
@@ -310,10 +346,10 @@
           const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', 'Checking the result…')));
           const c = await US.jobs.run({ title: 'Checking the edit', tool: 'assistant', who: US.jobs.WHO.ai }, job => E.check(job, conv, out));
           thinking.remove();
-          if (!c) return;
+          if (!c) { if (onDone) onDone(true); return; }
           editConv = c.conv;
-          if (c.plan.steps.length) showEditPlan(c.plan, { followUp: true });
-          else bubble('bot', h('div', c.plan.reply || 'That looks done.'));
+          if (c.plan.steps.length) showEditPlan(c.plan, { followUp: true, onDone });
+          else { bubble('bot', h('div', c.plan.reply || 'That looks done.')); if (onDone) onDone(true); }
         });
       }
       function showAsk(a) { bubble('bot wide', US.story.askCard(a, { onRefine: t => { bubble('me', t); runAsk(t, a.id); } })); }

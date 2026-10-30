@@ -304,15 +304,48 @@
     }
   });
 
+  /* ---------- episode text: titles, description, show notes, chapters, quotes, social posts ---------- */
+  const ET = () => US.episodeText;
+  /** The pack for a sequence, from what is said in it (Story's transcripts). -> {pack, title, paras, duration} */
+  async function episodeText(job, { seqId, notes = '', useAI = true }) {
+    if (!US.story || !US.story.timelineTranscript) throw new US.UserError('NOTHING_FOUND', { title: 'Episode text needs Story’s transcripts.' });
+    job && job.set({ who: 'premiere', msg: 'Reading what is said in the sequence' });
+    const tl = await US.story.timelineTranscript(job, { seqId });
+    const display = US.story.namesFor(tl), paras = US.storyTimeline.paragraphs(tl.result.entries, display);
+    if (!paras.length) throw new US.UserError('NOTHING_FOUND', { title: `No transcribed speech is heard in “${tl.info.name}”.`, action: 'Transcribe the clips in Story › 1 Interviews (or link their transcripts), then try again.' });
+    const duration = tl.info.duration || paras[paras.length - 1].end;
+    let pack;
+    if (useAI && US.ai && US.ai.available()) {
+      job && job.set({ who: 'ai', msg: `${US.ai.label()} is writing the episode text` });
+      pack = ET().organise(await US.ai.json(ET().request(paras, { title: tl.info.name, notes })), paras, duration);
+    } else pack = ET().basic(paras, tl.info.markers || []);
+    return { pack, title: tl.info.name, paras, duration, seqId };
+  }
+  US.actions.register({
+    id: 'deliver.text', tool: 'deliver', title: 'Write the episode text (titles, description, show notes, chapters, quotes, social posts)', changes: false,
+    describe: 'From what is said in the active sequence (only the transcript text is sent to the AI): title ideas, a description, show notes with times, YouTube chapters, pull quotes, social posts and keywords. Without AI: chapters from markers and the strongest lines as quotes.',
+    params: { notes: { type: 'string', default: '', desc: 'Tone, show name, links or anything the text should mention' } },
+    examples: ['write the show notes', 'give me titles and a description for this episode', 'write social posts for this video'],
+    match: t => (/(show ?notes|titles?|description|social posts?|pull quotes?|captions? for (instagram|linkedin)|episode text)/i.test(t) && !/(text layers?|subtitles?|burn)/i.test(t) ? { _score: 2.2 } : null),
+    run: async (p, job) => {
+      const s = US.ctx.sequence; if (!s) throw new US.UserError('NO_SEQUENCE');
+      const r = await episodeText(job, { seqId: s.id, notes: p.notes || US.settings.get('deliver.textNotes', '') });
+      lastEpisode = r;
+      US.tools.open('deliver', { tab: 'text' });
+      return { summary: r.pack.by === 'ai' ? `Episode text for “${r.title}”: ${US.plural(r.pack.titles.length, 'title')}, ${US.plural(r.pack.chapters.length, 'chapter')}, ${US.plural(r.pack.quotes.length, 'quote')}` : `Chapters and pull quotes for “${r.title}” (basic – no AI)`, pack: r.pack };
+    }
+  });
+  let lastEpisode = null;
+
   /* ---------- the tool ---------- */
   US.tools.register({
     id: 'deliver', name: 'Deliver', short: 'Deliver', icon: 'deliver', group: 'finish', order: 33,
-    blurb: 'Every export in one go, render ranges, YouTube chapters.',
+    blurb: 'Every export in one go, render ranges, YouTube chapters, episode text.',
     hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'rangeTrackOutput', 'addRangeTrack', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead'],
     create() {
       const v = ui.toolView({ icon: 'deliver', title: 'Deliver', blurb: 'Export everything in one go, render the parts you mark, and make YouTube chapters.' });
-      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'chapters', label: 'Chapters' }], value: 'pack', onChange: t => showTab(t) });
-      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), chapters: h('div.tool-body') };
+      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'chapters', label: 'Chapters' }, { value: 'text', label: 'Episode text' }], value: 'pack', onChange: t => showTab(t) });
+      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), chapters: h('div.tool-body'), text: h('div.tool-body') };
       const seqLine = h('div.field-hint');
 
       /* export pack */
@@ -536,7 +569,42 @@
         ui.button('Copy', { kind: 'primary', small: true, onClick: () => { ui.copy(chapterText.value); ui.toast({ type: 'ok', title: 'Chapters copied – paste them into the YouTube description', timeout: 2500 }); } }),
         ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: buildChapters }))), chapterNotes);
 
-      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'ranges') { fillPresets(); showRanges(); } }
+      /* episode text */
+      const textOut = h('div');
+      const notesIn = h('textarea.input', { rows: 3, placeholder: 'Optional: the show’s name, tone, links, a guest’s title, what to mention…', oninput: () => US.settings.set('deliver.textNotes', notesIn.value) }, US.settings.get('deliver.textNotes', ''));
+      const box = (label, text, rows = 4) => { const ta = h('textarea.input', { rows }, text); return h('div.ep-box', h('div.row', h('div.grow.field-label', label), ui.button('Copy', { small: true, kind: 'ghost', onClick: () => { ui.copy(ta.value); ui.toast({ type: 'ok', title: `${label} copied`, timeout: 1500 }); } })), ta); };
+      function drawEpisode(r) {
+        US.clear(textOut); if (!r) return;
+        const p = r.pack, E = ET(), yt = t => US.time.toYouTube(t);
+        if (p.by === 'basic') textOut.appendChild(ui.note('Basic version (no AI): chapters from your named markers and the strongest lines as pull quotes. With a Claude or Gemini key it also writes titles, a description, show notes and social posts.', 'info'));
+        if (p.titles.length) textOut.appendChild(box('Title ideas', p.titles.join('\n'), Math.min(8, p.titles.length + 1)));
+        if (p.description) textOut.appendChild(box('Description', p.description, 6));
+        if (p.chapters.length) textOut.appendChild(box('Chapters', p.chapters.map(c => `${yt(c.t)} ${c.title}`).join('\n'), Math.min(12, p.chapters.length + 1)));
+        if (p.showNotes.length) textOut.appendChild(box('Show notes', p.showNotes.map(n => `${E.mmss(n.t)} ${n.text}`).join('\n'), Math.min(14, p.showNotes.length + 1)));
+        if (p.quotes.length) textOut.appendChild(box('Pull quotes', p.quotes.map(q => `“${q.text}” – ${q.speaker || 'Speaker'} (${E.mmss(q.t)})`).join('\n\n'), Math.min(14, p.quotes.length * 3)));
+        if (p.social.short) textOut.appendChild(box('Short post', p.social.short, 3));
+        if (p.social.linkedin) textOut.appendChild(box('LinkedIn', p.social.linkedin, 5));
+        if (p.social.instagram) textOut.appendChild(box('Instagram', p.social.instagram, 4));
+        if (p.keywords.length) textOut.appendChild(box('Keywords', p.keywords.join(', '), 2));
+        textOut.appendChild(h('div.row',
+          ui.button('Save as a text file', { small: true, icon: 'folder', onClick: () => {
+            try {
+              const dir = US.fsx.ensureDir(folder || defaultDir(r.title)), f = path.join(dir, `${safeName(r.title)} – episode text.md`);
+              fs.writeFileSync(f, E.toText(p, r.title)); lastDir = dir;
+              ui.toast({ type: 'ok', title: 'Saved', text: path.basename(f), action: { label: 'Show', fn: openFolder } });
+            } catch (e) { ui.showError(new US.UserError('DISK', { detail: e.message })); }
+          } }),
+          p.chapters.length > 1 ? ui.button('Add the chapters as markers', { small: true, kind: 'ghost', title: 'A marker at each chapter, named after it – Deliver › Chapters can then read them', onClick: () => US.jobs.run({ title: 'Adding chapter markers', tool: 'deliver' }, async () => { await US.host.call('addSequenceMarkers', { seqId: r.seqId, markers: p.chapters.map(c => ({ start: c.t, name: c.title, color: 6 })) }); return { summary: `${US.plural(p.chapters.length, 'chapter marker')} added` }; }) }) : null));
+      }
+      const writeBtn = ui.actionButton('Write the episode text', async () => {
+        const r = await US.actions.run('deliver.text', { notes: notesIn.value });
+        if (r) drawEpisode(lastEpisode);
+      });
+      panes.text.append(ui.card(h('div.card-title', 'Episode text'),
+        h('div.muted', 'Titles, a description, show notes with times, YouTube chapters, pull quotes, social posts and keywords – from what is said in the open sequence (Story’s transcripts of the clips in it). Only that text is sent to the AI; the quotes are checked against the transcript.'),
+        ui.field('Notes for the writer', notesIn), writeBtn), textOut);
+
+      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'ranges') { fillPresets(); showRanges(); } if (t === 'text' && lastEpisode && !textOut.childNodes.length) drawEpisode(lastEpisode); }
       // another sequence opened while Render ranges is showing: list its ranges
       let shownSeq = null;
       const refreshRanges = US.debounce(() => { if (!panes.ranges.classList.contains('hidden')) showRanges(); }, 400);

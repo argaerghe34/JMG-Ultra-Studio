@@ -51,3 +51,5 @@ Switch a layer off (Enable, in its right-click menu) to skip it. An empty adjust
 
 
 **Chapters** – builds a YouTube chapter list from your named markers (`0:00 Intro`, `1:23 Family`…). It starts at 0:00 and warns about YouTube's rules (at least 3 chapters, each 10 seconds or longer). **Copy** it into the video description.
+
+**Episode text** – titles, a description, show notes with times, YouTube chapters, pull quotes, social posts and keywords, written from what is said in the open sequence (Story's transcripts of the clips in it; only that text goes to the AI). Add **Notes for the writer** – the show's name, tone, links – then **Write the episode text**. Each part has **Copy**; **Save as a text file** keeps them all; **Add the chapters as markers** puts them on the sequence. Quotes the AI returns are checked against the transcript, and chapters follow YouTube's rules (first at 0:00, each at least 10 seconds). Without AI it gives chapters from your named markers and the strongest lines as quotes.

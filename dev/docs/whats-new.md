@@ -1,3 +1,9 @@
+## What's new in 1.3.9
+
+- **Length** (Story › 4 Build): type a length like *3:00* and the cut is fitted to it (±10%): the weakest lines are left out, from the longest themes first, until it fits – pinned lines and each theme's best line stay. It never makes lines up: if there aren't enough, it says so. The Assistant understands *build a 3 minute cut from the themes*.
+- **Recipes** (Ask): a chain of steps saved under a name and run again on another project in one go. After any plan runs, **Save as a recipe**; after an Ask › Edit, save the request itself. Three to start with: *Get interviews ready* (transcripts → themes → moments → interview log), *Themes into a string-out* and *Check and deliver*. An edit step stops for you to check its plan, then the recipe carries on. Run one from its chip, from **All recipes…**, or by asking *run my … recipe*.
+- **Episode text** (Deliver): title ideas, a description, show notes with times, YouTube chapters, pull quotes (checked word for word against the transcript), social posts and keywords – from what is said in the open sequence. Add notes for the writer (show name, tone, links). Copy each part, save them all as one text file, or add the chapters as markers. Without AI: chapters from your markers and the strongest lines as quotes.
+
 ## What's new in 1.3.8.2
 
 A small update to 1.3.8.

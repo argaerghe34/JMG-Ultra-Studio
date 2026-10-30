@@ -574,3 +574,8 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     [Name n] in every request (cache flags kept) and restores them in answers. Soundbite rules (`applyBites`) before every
     build: whole sentences (same speaker, ≤3 lines on), no interviewer, shortest bite 1.5 s, tight edges, why-markers
     (narrative beat purposes added); deliberate trims kept.
+  - **1.3.9** Length target (`fitToLength`, ±10%, weakest lines out from the longest group, pinned/last kept; story.build
+    `seconds` param, -1 = Story's setting); Recipes (42-recipes.js: saved chains of actions and edit requests, starters,
+    run in the Assistant or as `recipes.run` inside one job); Deliver › Episode text (33-deliver-text.js: titles,
+    description, show notes, YouTube-valid chapters, quotes verified against the transcript, social posts; basic version
+    without AI; save as .md, chapters as markers).

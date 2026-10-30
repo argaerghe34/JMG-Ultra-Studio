@@ -739,6 +739,47 @@
     return { groups: out, joined, dropped };
   }
 
+  /* ---------- a target length: build to 3:00 ±10% ---------- */
+  /** Seconds a group's lines run on the timeline (their trims, plus handles each side). */
+  function groupsLength(groups, handles = 0) {
+    let n = 0;
+    for (const g of groups) for (const id of g.lineIds) { const l = lineById.get(id); if (!l) continue; const tr = g.trims && g.trims[id]; n += (tr ? tr.end - tr.start : l.end - l.start) + 2 * handles; }
+    return n;
+  }
+  /**
+   * Fit groups to a length: while they run longer than target + tolerance, the weakest line (quality score; pinned and
+   * each group's last line are kept) goes from the group with the most time. Never adds lines – shorter is reported.
+   * -> {groups, removed:[lineIds], seconds, short}
+   */
+  function fitToLength(groups, target, { handles = 0, tolerance = 0.1 } = {}) {
+    const out = groups.map(g => Object.assign({}, g, { lineIds: g.lineIds.slice() })), removed = [];
+    const len = (g, id) => { const l = lineById.get(id), tr = g.trims && g.trims[id]; return l ? (tr ? tr.end - tr.start : l.end - l.start) + 2 * handles : 0; };
+    let total = groupsLength(out, handles);
+    while (total > target * (1 + tolerance)) {
+      const cands = [];
+      for (const g of out) {
+        if (g.lineIds.length <= 1) continue;
+        const gl = g.lineIds.reduce((n, id) => n + len(g, id), 0);
+        for (const id of g.lineIds) if (!(g.pinned && g.pinned.has && g.pinned.has(id))) cands.push({ g, id, q: T.quality(lineById.get(id) || { text: '' }).score, gl, over: total - len(g, id) });
+      }
+      if (!cands.length) break;
+      // the weakest line, from the longest group; prefer a line whose removal doesn't undershoot the target
+      cands.sort((a, b) => ((a.over >= target * (1 - tolerance)) === (b.over >= target * (1 - tolerance)) ? 0 : a.over >= target * (1 - tolerance) ? -1 : 1) || a.q - b.q || b.gl - a.gl);
+      const c = cands[0];
+      c.g.lineIds.splice(c.g.lineIds.indexOf(c.id), 1); removed.push(c.id);
+      total = groupsLength(out, handles);
+    }
+    return { groups: out, removed, seconds: total, short: total < target * (1 - tolerance) };
+  }
+  /** "3:00", "3m", "90", "1:30" -> seconds (0 = no target) */
+  function parseLength(x) {
+    const t = String(x || '').trim().toLowerCase(); if (!t) return 0;
+    const m = /^(\d+):(\d{1,2})$/.exec(t); if (m) return +m[1] * 60 + +m[2];
+    const n = /^(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?)?\s*$/.exec(t); if (n) return Math.round(+n[1] * (n[2] ? 60 : 1));
+    const ms = /^(\d+)\s*m(?:in)?\s*(\d+)\s*s/.exec(t); if (ms) return +ms[1] * 60 + +ms[2];
+    return 0;
+  }
+
   /**
    * Pure plan: groups [{name, label, lineIds, pinned:Set, labels?:{lineId: label}, trims?:{lineId: {start, end}}}]
    * -> {clips:[{lineId, group, id, in, out, label, strong, name}], skipped}.
@@ -777,9 +818,15 @@
    * Lay lines into a new sequence. groups: [{name, label, lineIds, pinned}]. look: lookOptions().
    * Returns {summary, seq, notes}.
    */
-  async function buildSequence(job, { name, groups, look = lookOptions() }) {
+  async function buildSequence(job, { name, groups, look = lookOptions(), target = 0 }) {
     const bitten = applyBites(groups, look.bites || biteRules());
     groups = bitten.groups;
+    let fitted = null;
+    if (target > 0) {
+      fitted = fitToLength(groups, target, { handles: look.handles });
+      groups = fitted.groups;
+      job.log(`Target length ${US.fmtDur(target)}: ${fitted.removed.length ? `${US.plural(fitted.removed.length, 'weaker line')} left out` : 'already fits'} – about ${US.fmtDur(fitted.seconds)}${fitted.short ? ' (shorter than asked: add lines with Find more)' : ''}`);
+    }
     if (bitten.dropped || bitten.joined) job.log(`Soundbites: ${bitten.joined ? `${US.plural(bitten.joined, 'line')} run on to finish the thought` : ''}${bitten.joined && bitten.dropped ? ' · ' : ''}${bitten.dropped ? `${US.plural(bitten.dropped, 'interviewer line')} left out` : ''}`);
     const ids = groups.flatMap(g => g.lineIds).filter(id => lineById.has(id));
     if (!ids.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no lines to build from.', action: 'Add some cards to the board (or pick lines in Search) first.' });
@@ -838,7 +885,7 @@
     job.progress(1);
     if (notes.length) US.ui.toast({ type: 'info', title: 'Built – one thing to know', text: notes.join(' '), timeout: 15000 });
     const skipped = plan.skipped + (total - placedN);
-    return { seq, notes, summary: `Built “${seq.name}” · ${US.plural(placedN, 'line')} · ${US.fmtDur(cursor)}${skipped ? ` (${skipped} skipped: clip not in project)` : ''}` };
+    return { seq, notes, fitted, summary: `Built “${seq.name}” · ${US.plural(placedN, 'line')} · ${US.fmtDur(cursor)}${target > 0 ? ` (target ${US.fmtDur(target)}${fitted && fitted.short ? ' – shorter: there aren’t enough lines' : ''})` : ''}${skipped ? ` (${skipped} skipped: clip not in project)` : ''}` };
   }
 
   /** A bin of subclips per theme, best first, in the theme's colour (strongest lines in the highlight colour, starred). */
@@ -2966,6 +3013,8 @@
         const count = groups.reduce((n, g) => n + g.lineIds.length, 0);
         const secs = groups.reduce((n, g) => n + g.lineIds.reduce((m, id) => { const l = (g.trims && g.trims[id]) || lineById.get(id); return m + (l ? l.end - l.start + 2 * L.handles : 0); }, 0), 0);
         const nameIn = ui.input({ value: US.settings.get('story.seqName', 'Story – rough cut'), onInput: x => US.settings.set('story.seqName', x) });
+        const targetIn = ui.input({ value: US.settings.get('story.buildTarget', ''), placeholder: 'Any length (or e.g. 3:00)', onInput: x => US.settings.set('story.buildTarget', x) });
+        targetIn.addEventListener('change', () => renderBuild());
         const named = state.themes.filter(t => t.name !== 'Other'), off = new Set(state.buildOff || []);
         const setAll = on => { state.buildOff = on ? [] : named.map(t => t.id); saveNow(); renderBuild(); };
         const which = BOARD || !named.length ? null : ui.section('Themes to include', [h('div.row', h('span.field-hint.grow', 'In the order of the Themes list (⋯ › Move up / down there). The lines are the ones How picky keeps.'),
@@ -2976,6 +3025,7 @@
           BOARD && state.wall.loose.length ? ui.note(`${US.plural(state.wall.loose.length, 'card')} parked on the free board ${state.wall.loose.length === 1 ? 'isn’t' : 'aren’t'} in a group, so ${state.wall.loose.length === 1 ? 'it isn’t' : 'they aren’t'} built.`, 'warn') : null,
           which,
           ui.field('Sequence name', nameIn),
+          ui.field('Length', targetIn, (() => { const t = parseLength(US.settings.get('story.buildTarget', '')); return t ? `About ${US.fmtDur(t)} (±10%): the weakest lines are left out until it fits – pinned lines and each theme’s best line stay.` : 'Any length – every line. Type a length like 3:00 to fit the cut to it.'; })()),
           ui.section('In the timeline', lookControls({ withNames: true }), { open: false, hint: 'colours, ★ strongest lines, theme names' }),
           ui.section('Soundbites', biteControls(), { open: false, hint: 'whole sentences, no interviewer, shortest bite, why' }),
           ui.section('Options', [ui.slider({ label: 'Handles', min: 0, max: 2, step: 0.1, value: L.handles, fmt: x => `${x.toFixed(1)} s each side`, onChange: x => US.settings.set('story.handles', x) })], { open: false }),
@@ -3388,16 +3438,17 @@
   US.actions.register({
     id: 'story.build', tool: 'story', title: 'Build a sequence from your themes', changes: true,
     describe: 'Lays the interview lines into a new sequence in order: every theme in turn (as chosen by How picky), picked search lines, one theme, or a narrative. Uses the colour, highlight and theme-name options set in Story.',
-    params: { source: { type: 'enum', options: ['themes', 'picked', 'theme', 'narrative', 'wall'], default: 'themes', desc: 'Where the lines come from: every theme in order (themes), the picked lines, one theme, or the newest narrative made from a brief' }, theme: { type: 'string', default: '', desc: 'Theme name when source is "theme"' }, narrative: { type: 'string', default: '', desc: 'Board group id of the narrative when source is "narrative" (empty = the newest)' }, name: { type: 'string', default: '', desc: 'Name for the new sequence' } },
-    examples: ['build a sequence from the themes', 'make a stringout of the family theme', 'build the narrative'],
+    params: { source: { type: 'enum', options: ['themes', 'picked', 'theme', 'narrative', 'wall'], default: 'themes', desc: 'Where the lines come from: every theme in order (themes), the picked lines, one theme, or the newest narrative made from a brief' }, theme: { type: 'string', default: '', desc: 'Theme name when source is "theme"' }, narrative: { type: 'string', default: '', desc: 'Board group id of the narrative when source is "narrative" (empty = the newest)' }, name: { type: 'string', default: '', desc: 'Name for the new sequence' }, seconds: { type: 'number', default: -1, desc: 'Target length in seconds (±10%): weaker lines are left out to fit; 0 = every line; -1 = the Length set in Story › Build' } },
+    examples: ['build a sequence from the themes', 'make a stringout of the family theme', 'build the narrative', 'build a 3 minute cut from the themes'],
     match(t) {
       if (/\b(build|make|lay out|assemble)\b.*\b(the|this|that|my)\s+narrative\b/i.test(t)) return { source: 'narrative', _score: 2.9 };
       if (!/\b(build|make|create|assemble|lay out|string ?out)\b/i.test(t) || !/\b(sequence|stringout|string-out|rough ?cut|cut|timeline|edit)\b/i.test(t) || !/\b(wall|story|interviews?|themes?|picked|selected lines|stringout|string-out)\b/i.test(t)) return null;
       const th = /([\w&'-]+(?:\s+[\w&'-]+)?)\s+theme\b/i.exec(t) || /\btheme\s+(?:called\s+)?["“]?([\w &'-]+)/i.exec(t);
       const thName = th ? th[1].trim().replace(/^(the|a|an|of|from)\s+/i, '') : '';
       if (thName && !/^(a|the|each|every|per|by)$/i.test(thName)) return { source: 'theme', theme: thName, _score: 2 };
-      if (/\bpicked|selected lines|ticked\b/i.test(t)) return { source: 'picked', _score: 2 };
-      return { source: 'themes', _score: 1.5 };
+      const len = /(\d+(?:\.\d+)?)[\s-]*(minutes?|mins?|seconds?|secs?)\b/i.exec(t), fit = len ? { seconds: Math.round(+len[1] * (/^m/i.test(len[2]) ? 60 : 1)) } : {};
+      if (/\bpicked|selected lines|ticked\b/i.test(t)) return Object.assign({ source: 'picked', _score: 2 }, fit);
+      return Object.assign({ source: 'themes', _score: 1.5 }, fit);
     },
     run: async (p, job) => {
       await ready(); needLines();
@@ -3420,7 +3471,8 @@
         if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: state.themes.length ? 'None of your themes has lines at this How picky setting.' : 'There are no themes yet.', action: state.themes.length ? 'Choose a less picky setting, or switch more themes on.' : 'Find themes first (Story › 2 Themes).' });
         name = name || US.settings.get('story.seqName', 'Story – rough cut');
       }
-      return buildSequence(job, { name, groups, look: lookOptions() });
+      const target = +p.seconds > 0 ? +p.seconds : +p.seconds === 0 ? 0 : parseLength(US.settings.get('story.buildTarget', ''));
+      return buildSequence(job, { name, groups, look: lookOptions(), target });
     }
   });
 
@@ -3591,7 +3643,7 @@
   // for Home, tests and the Assistant
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' } };
   US.story = {
-    applyBites, biteRules, glossary: () => (loadState(), state.glossary || []),
+    applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
     SECTIONS,

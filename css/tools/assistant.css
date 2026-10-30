@@ -36,3 +36,5 @@
 .edit-step input[type=checkbox] { margin-top: 3px; }
 .edit-targets { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0 24px; }
 .edit-results { margin: 6px 0 0 18px; padding: 0; font-size: 12px; color: var(--text-2); }
+.plan-steps li.running { font-weight: 600; }
+.plan-steps li.done::marker { color: var(--ok); }
