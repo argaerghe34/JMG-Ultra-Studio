@@ -1,3 +1,9 @@
+## What's new in 1.3.7
+
+This version brings together what was added on the Mac and on Windows: everything from 1.3.6 (**MC Selects** and **Subclip Maker**, below) plus:
+
+- **Narrative from a timeline** (Story › Build › Narrative from a brief): a new **Lines from** switch. **Your themes** works as before (your themes, as chosen by How picky, plus other lines on the topic). **A timeline** makes the story only from the interview lines heard in a sequence you choose – a selects sequence, a string-out of your picks or a rough cut. The open sequence is chosen to start with. Story reads the timeline again each time, so changes to it count. A topic in the brief still narrows it to lines about that topic; the alternative selects come from the same timeline; with AI only the text of those lines is sent. Works the same in DaVinci Resolve.
+
 ## What's new in 1.3.6
 
 - **MC Selects** (Cut): from a cut multicam edit (the multicam clips on V1), see every camera by its file name with how many cuts and how long it's on screen. Keep the ones you want and get a new sequence of just their shots, back to back in the order you edited them, each cut its own clip with no handles. Give each camera a label colour if you like, and add its scratch audio. Your choices are remembered. Works with multicam source sequences and with nested sequences switched to multicam.

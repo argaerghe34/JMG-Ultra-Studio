@@ -9,9 +9,9 @@ can be on different versions – the table below always says where each one is.
 
 | | Premiere Pro (Mac + Windows) | DaVinci Resolve Studio (Mac + Windows) |
 |---|---|---|
-| **Latest release** | **1.3.6** | **1.3.6** |
-| **Tested** | Windows (Premiere): MC Selects tried on a test multicam and on the user's own multicam edit (a nested sequence, 1,401 cuts, 7 cameras); Subclip Maker tried by the user on a real bin; 378 unit tests, all passing on Windows (a test that assumed Mac file URLs is fixed). Mac: not yet tried for 1.3.6. | Unit tests against a stand-in Resolve only – Subclip Maker not yet tried in Resolve itself. |
-| **In this version** | MC Selects (keep chosen cameras from a cut multicam edit, as a new sequence); Subclip Maker (every clip in a bin as a subclip of its own In to Out) | Subclip Maker (from Mark In/Out). MC Selects isn't offered: Resolve can't tell add-ons which camera a multicam cut shows |
+| **Latest release** | **1.3.7** | **1.3.7** |
+| **Tested** | 379 unit tests and the headless screen tests pass on the Mac with the Mac and Windows work combined. Windows (1.3.6): MC Selects tried on a test multicam and on a real 7-camera multicam edit; Subclip Maker tried on a real bin. Mac: Narrative from a timeline covered by unit tests – not yet tried in Premiere; MC Selects and Subclip Maker not yet tried on the Mac. | Unit tests against a stand-in Resolve only – Subclip Maker and Narrative from a timeline not yet tried in Resolve itself. |
+| **In this version** | Everything from 1.3.6 (MC Selects; Subclip Maker) plus Story › Build › Narrative from a brief: **Lines from** your themes or **a timeline** you choose | Subclip Maker (from Mark In/Out) and Narrative from a timeline. MC Selects isn't offered: Resolve can't tell add-ons which camera a multicam cut shows |
 | **Next** | Your next notes | Your next notes |
 | **Paused in both** | Colour, Camera Switch, B-roll, Sound Check | Colour, Camera Switch, B-roll, Sound Check |
 

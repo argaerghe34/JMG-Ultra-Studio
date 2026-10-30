@@ -552,3 +552,7 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   Resolve version from `GetMarkInOut()` + `createSubclips` (stand-in tests only). Confirmed by Jacob in Premiere on
   the PC. The resolve-story cue test assumed Mac file URLs; fixed, so all 378 tests pass on Windows too.
   → **v1.3.6** for Premiere and Resolve. Not yet tried on the Mac, nor in Resolve itself.
+- **30 Oct (Mac):** Narrative from a brief gets **Lines from: Your themes / A timeline** – the pool is the lines heard in
+  a chosen sequence (`timelineTranscript`, as highlights use), no themes or Find more; recorded as `narrative.timeline`.
+  Shared panel code only, so Resolve gets it too. Merged with the PC's 1.3.6 (no conflicts); 379 unit tests and the
+  headless screen test pass on the Mac. Not tried in Premiere (Jacob was using it). → **v1.3.7**.
