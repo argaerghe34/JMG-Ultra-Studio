@@ -569,3 +569,8 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   - **1.3.8.1** What was sent to AI: `US.ai.sent` keeps each request's exact text per project in `ai-sent/` (blocks
     de-duplicated by hash, 500 requests / 90 days), with how it ended; Settings card to read, copy, save or clear;
     optional preview before every request (Send / Send the rest of this job / Cancel – nothing sent).
+  - **1.3.8.2** Names and terms (22-story-glossary.js): word-level corrections from `orig` (timings kept or shared),
+    applied in `reindex`, suggestions of names spelt two ways, "Keep out of AI" → `US.ai.setRedactions` swaps names for
+    [Name n] in every request (cache flags kept) and restores them in answers. Soundbite rules (`applyBites`) before every
+    build: whole sentences (same speaker, ≤3 lines on), no interviewer, shortest bite 1.5 s, tight edges, why-markers
+    (narrative beat purposes added); deliberate trims kept.

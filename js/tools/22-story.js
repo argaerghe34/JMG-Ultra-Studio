@@ -46,7 +46,7 @@
 
   /* ================= state (one file per project) ================= */
   let state = null, statePath = '', lineById = new Map(), clipOfLine = new Map();
-  const emptyState = () => ({ transcripts: [], speakers: {}, themes: [], wall: { columns: [] }, picked: [], whoIsWho: {} });
+  const emptyState = () => ({ transcripts: [], speakers: {}, themes: [], wall: { columns: [] }, picked: [], whoIsWho: {}, glossary: [] });
   function storyFile(projectPath) { return path.join(US.fsx.dataDir, 'projects', US.fsx.hash(projectPath || 'none') + '-story.json'); }
   // the copy next to the project (22-story-sync.js), so the project opened on another computer has its Story
   let session = null;
@@ -129,9 +129,16 @@
     US.bus.emit('story-replaced');
   }
   function reindex() {
-    lineById = new Map(); clipOfLine = new Map(); linesStamp++;
-    for (const t of state.transcripts) for (const l of t.lines) { lineById.set(l.id, l); clipOfLine.set(l.id, t); }
+    lineById = new Map(); clipOfLine = new Map(); linesIndex = new Map(); linesStamp++;
+    for (const t of state.transcripts) t.lines.forEach((l, i) => { lineById.set(l.id, l); clipOfLine.set(l.id, t); linesIndex.set(l.id, i); });
+    // names and terms spelt as the project's glossary says (from each line's original text, so it never doubles)
+    if ((state.glossary && state.glossary.length) || allLinesRaw().some(l => l.orig != null)) GL().apply(allLinesRaw(), state.glossary || []);
   }
+  const allLinesRaw = () => state.transcripts.flatMap(t => t.lines);
+  const GL = () => US.storyGlossary;
+  let linesIndex = new Map();
+  // the names marked "keep out of AI" become placeholders in everything sent, for the open project
+  if (US.ai && US.ai.setRedactions) US.ai.setRedactions(() => (state && state.glossary && state.glossary.some(e => e.hide) && US.storyGlossary ? US.storyGlossary.redactor(state.glossary) : null));
   /** Every theme and wall column gets a colour; a column that came from a theme shares the theme's colour. */
   function ensureColours() {
     const avoid = strongLabel();
@@ -683,9 +690,55 @@
       strong: { highlight: US.settings.get('story.strongHighlight', false), label: strongLabel(), first: US.settings.get('story.strongFirst', false) },
       themeNames: names, // 'marker' | 'layer' | 'both' | 'none'
       inOrder: !!US.settings.get('story.keepOrder', false), // clips in the order they were filmed (within each group)
+      bites: biteRules(),
       method: US.settings.get('story.colourMethod', 'relabel') // 'relabel' (verified) | 'subclips'
     };
   }
+  /* ---------- soundbite rules: whole thoughts, no interviewer, long enough, tight edges ---------- */
+  const BITES = { sentences: true, noInterviewer: true, minSeconds: 1.5, tight: false, why: true };
+  const biteRules = () => Object.assign({}, BITES, US.settings.get('story.bites', {}));
+  const endsSentence = text => /[.!?…]["”’')\]]*$/.test(String(text || '').trim());
+  /**
+   * Groups with the soundbite rules applied: interviewer lines left out; a line that stops mid-sentence runs on into the
+   * same speaker's next lines (up to 3) until the sentence ends, and one that starts mid-sentence takes in the line
+   * before; a bite shorter than minSeconds takes in the next lines; with tight, the edges sit on the first and last
+   * word. Only neighbouring lines of the same interview and speaker are joined – never across takes or people – and a
+   * line taken into another bite isn't used twice. Joined bites become trims (start/end). -> {groups, joined, dropped}
+   */
+  function applyBites(groups, r = biteRules()) {
+    let joined = 0, dropped = 0;
+    const out = groups.map(g => {
+      const ids = [], trims = Object.assign({}, g.trims || {}), seen = new Set();
+      for (const id of g.lineIds) {
+        const l = lineById.get(id);
+        if (!l || seen.has(id)) continue;
+        if (r.noInterviewer && isInterviewer(l)) { dropped++; continue; }
+        const t = clipOfLine.get(id), ls = t.lines, i = linesIndex.has(id) ? linesIndex.get(id) : ls.indexOf(l);
+        const same = k => k >= 0 && k < ls.length && ls[k].speaker === l.speaker && ls[k].start - ls[k === i ? i : k - 1].end < 4;
+        let a = i, b = i;
+        const tr = trims[id];
+        // a line trimmed on purpose (a narrative tightened by a few words) keeps its trim
+        if (r.sentences && !tr) {
+          while (a > 0 && i - a < 1 && same(a - 1) && !endsSentence(ls[a - 1].text) && /^[\p{Ll}…,;]/u.test(String(ls[a].text).trim()) && !seen.has(ls[a - 1].id)) a--;
+          while (b < ls.length - 1 && b - i < 3 && same(b + 1) && !endsSentence(ls[b].text)) b++;
+        }
+        if (r.minSeconds > 0 && !tr) while (b < ls.length - 1 && b - i < 4 && same(b + 1) && ls[b].end - ls[a].start < r.minSeconds) b++;
+        let start = a === i && tr ? tr.start : ls[a].start, end = b === i && tr ? tr.end : ls[b].end;
+        if (r.tight) {
+          const w0 = T.wordTimes(ls[a]), w1 = b === a ? w0 : T.wordTimes(ls[b]);
+          if (w0.exact && w0.words.length && !(a === i && tr)) start = Math.max(ls[a].start, w0.words[0].s - 0.06);
+          if (w1.exact && w1.words.length && !(b === i && tr)) end = Math.min(ls[b].end, w1.words[w1.words.length - 1].e + 0.1);
+        }
+        if (a !== i || b !== i) joined++;
+        if (a !== i || b !== i || r.tight) trims[id] = Object.assign({}, tr || {}, { start, end });
+        for (let k = a; k <= b; k++) seen.add(ls[k].id);
+        ids.push(id);
+      }
+      return Object.assign({}, g, { lineIds: ids, trims });
+    });
+    return { groups: out, joined, dropped };
+  }
+
   /**
    * Pure plan: groups [{name, label, lineIds, pinned:Set, labels?:{lineId: label}, trims?:{lineId: {start, end}}}]
    * -> {clips:[{lineId, group, id, in, out, label, strong, name}], skipped}.
@@ -725,6 +778,9 @@
    * Returns {summary, seq, notes}.
    */
   async function buildSequence(job, { name, groups, look = lookOptions() }) {
+    const bitten = applyBites(groups, look.bites || biteRules());
+    groups = bitten.groups;
+    if (bitten.dropped || bitten.joined) job.log(`Soundbites: ${bitten.joined ? `${US.plural(bitten.joined, 'line')} run on to finish the thought` : ''}${bitten.joined && bitten.dropped ? ' · ' : ''}${bitten.dropped ? `${US.plural(bitten.dropped, 'interviewer line')} left out` : ''}`);
     const ids = groups.flatMap(g => g.lineIds).filter(id => lineById.has(id));
     if (!ids.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no lines to build from.', action: 'Add some cards to the board (or pick lines in Search) first.' });
     job.set({ who: 'premiere', msg: 'Finding the interview clips in your project' });
@@ -766,7 +822,7 @@
       if (inG.length) lastEnd = inG[inG.length - 1].placed.end;
     });
     // a marker on each clip that says what it is (moments: “Funny – laughter”), in its group's colour
-    for (const c of plan.clips) { const mk = c.placed && groups[c.group] && groups[c.group].lineMarks && groups[c.group].lineMarks[c.lineId]; if (mk) markers.push({ start: c.placed.start, end: c.placed.end, name: mk.name, comment: mk.comment || '', color: look.colour && groups[c.group].label != null ? LABEL_TO_MARKER[groups[c.group].label] : 5 }); }
+    if ((look.bites || biteRules()).why !== false) for (const c of plan.clips) { const mk = c.placed && groups[c.group] && groups[c.group].lineMarks && groups[c.group].lineMarks[c.lineId]; if (mk) markers.push({ start: c.placed.start, end: c.placed.end, name: mk.name, comment: mk.comment || '', color: look.colour && groups[c.group].label != null ? LABEL_TO_MARKER[groups[c.group].label] : 5 }); }
     if (look.strong.highlight) for (const c of plan.clips) if (c.strong && c.placed) { const l = lineById.get(c.lineId); markers.push({ start: c.placed.start, end: c.placed.end, name: '★ Strongest', comment: l.text.slice(0, 200), color: LABEL_TO_MARKER[look.strong.label] }); }
     if (markers.length) { job.set({ msg: 'Adding markers' }); await US.host.call('addSequenceMarkers', { seqId: seq.id, markers }); }
     if ((look.themeNames === 'layer' || look.themeNames === 'both') && sections.length) {
@@ -1306,7 +1362,10 @@
     for (const id of g.lineIds) { const x = sel.get(id); labels[id] = x ? x.label : g.label; }
     const ids = g.lineIds;
     const parts = ids.length >= 3 ? [['Hook', ids.slice(0, 1)], ['Build', ids.slice(1, -1)], ['Payoff', ids.slice(-1)]] : [[col.name, ids]];
+    // why each beat is there (what the AI said it does), as a marker on its clip
+    const notes = Object.fromEntries(col.cards.filter(k => k.lineId && k.note).map(k => [k.lineId, k.note]));
     const groups = parts.map(([name, lineIds], i) => ({ name, label: g.label, lineIds, labels, trims: g.trims, pinned: new Set(),
+      lineMarks: Object.fromEntries(lineIds.filter(id => notes[id]).map(id => [id, { name: `${name}: ${notes[id]}`.slice(0, 64), comment: notes[id] }])),
       ideas: g.ideas.filter(x => (x.before ? lineIds.includes(x.before) : i === parts.length - 1)) }));
     // after the payoff: other selects the editor could swap in, each with a marker saying why
     const alts = alternates ? narrativeAlternates(col) : [];
@@ -2004,12 +2063,49 @@
         el.appendChild(ui.stats(ui.stat(state.transcripts.length, one(state.transcripts.length, 'interview')), ui.stat(US.fmtDur(secs), 'of speech'), ui.stat(lines.length, one(lines.length, 'line')),
           named ? ui.stat(named, one(named, 'speaker')) : ui.stat('No', 'speaker names')));
         el.appendChild(scopeCard());
+        el.appendChild(glossaryCard());
         // the technical part: which clip each transcript belongs to, and speaker names
         const unlinked = state.transcripts.filter(t => !(t.path || t.itemId));
         const details = ui.section('Interviews and speakers', [interviewList(), speakerNames(speakers, lines)], { open: unlinked.length > 0, hint: unlinked.length ? `${unlinked.length} not linked to a clip` : 'link clips, name speakers' });
         if (unlinked.length) el.appendChild(ui.note(`${US.plural(unlinked.length, 'transcript')} ${unlinked.length === 1 ? 'isn’t' : 'aren’t'} linked to a clip yet, so ${unlinked.length === 1 ? 'its lines' : 'their lines'} can’t be played or built. Link ${unlinked.length === 1 ? 'it' : 'them'} below.`, 'warn'));
         el.appendChild(details);
         el.appendChild(nextBar('transcripts'));
+      }
+      /** Names and terms: how they're spelt, how the transcription heard them, and which to keep out of AI. */
+      function glossaryCard() {
+        const rows = h('div.glossary-rows'), result = h('div.field-hint');
+        let list = (state.glossary || []).map(e => Object.assign({}, e, { heard: Array.isArray(e.heard) ? e.heard.join(', ') : e.heard || '' }));
+        const store = () => { state.glossary = GL().clean(list); save(); };
+        function draw() {
+          US.clear(rows);
+          list.forEach((e, i) => rows.appendChild(h('div.glossary-row',
+            ui.input({ value: e.right, placeholder: 'Spelt like this', onInput: x => { e.right = x; store(); } }),
+            ui.input({ value: e.heard, placeholder: 'Heard as (commas between)', onInput: x => { e.heard = x; store(); } }),
+            h('label.glossary-hide', { title: 'Replaced by “[Name 1]” in everything sent to AI, and put back in its answers' }, h('input', { type: 'checkbox', checked: !!e.hide, onchange: ev => { e.hide = ev.target.checked; store(); } }), ' Keep out of AI'),
+            h('button.btn.small.ghost', { title: 'Remove', onclick: () => { list.splice(i, 1); store(); draw(); } }, '×'))));
+          if (!list.length) rows.appendChild(h('div.field-hint', 'No names yet. Add the ones the transcription gets wrong – people, places, brands, jargon.'));
+        }
+        const applyNow = () => {
+          store();
+          const n = GL().apply(allLinesRaw(), state.glossary);
+          reindex(); saveNow();
+          result.textContent = n ? `${US.plural(n, 'line')} corrected. Search, themes, captions, documents and AI requests use the corrected spelling.` : 'Nothing to change – the transcripts already match.';
+        };
+        draw();
+        const hidden = (state.glossary || []).filter(e => e.hide).length;
+        return ui.section('Names and terms', [
+          h('div.field-hint', 'Spell names, places and jargon as they should be, with how the transcription heard them. Lines are corrected from their original text (kept, so removing a name puts it back), word timings stay exact, and everything – search, themes, captions, text layers, documents and AI requests – uses the right spelling. Tick “Keep out of AI” to send a placeholder instead of the name.'),
+          rows,
+          h('div.row', ui.button('Add a name', { small: true, icon: 'plus', onClick: () => { list.push({ right: '', heard: '', hide: false }); draw(); } }),
+            ui.button('Suggest from the transcripts', { small: true, kind: 'ghost', title: 'Capitalised words spelt more than one way, e.g. Gersch and Gersh', onClick: () => {
+              const got = GL().suggest(allLines(), state.glossary);
+              if (!got.length) { result.textContent = 'No names spelt more than one way were found.'; return; }
+              for (const g of got) list.push({ right: g.right, heard: g.heard.join(', '), hide: false });
+              store(); draw(); result.textContent = `${US.plural(got.length, 'suggestion')} added – check the spelling on the left, then Apply.`;
+            } }),
+            ui.button('Apply to the transcripts', { small: true, kind: 'primary', onClick: applyNow })),
+          result
+        ], { open: false, hint: list.length ? `${US.plural(list.length, 'name')}${hidden ? ` · ${hidden} kept out of AI` : ''}` : 'correct spellings, keep names out of AI' });
       }
       function interviewList() {
         const rows = state.transcripts.slice().sort((a, b) => a.name.localeCompare(b.name)).map(t => {
@@ -2367,6 +2463,17 @@
       }
 
       /* ---------- shared "how it looks in the timeline" options ---------- */
+      /** The soundbite rules every build follows. */
+      function biteControls() {
+        const r = biteRules(), set = (k, v) => US.settings.set('story.bites', Object.assign(biteRules(), { [k]: v }));
+        return [
+          ui.toggle({ label: 'Whole sentences', hint: 'A line that stops mid-sentence runs on into the same speaker’s next lines until the thought ends (and one that starts mid-sentence takes in the line before). Never across a cut to someone else.', value: r.sentences, onChange: x => set('sentences', x) }),
+          ui.toggle({ label: 'Leave out the interviewer', hint: 'Questions and interviewer lines aren’t built, whichever feature picked them.', value: r.noInterviewer, onChange: x => set('noInterviewer', x) }),
+          ui.slider({ label: 'Shortest soundbite', min: 0, max: 6, step: 0.5, value: r.minSeconds, fmt: x => (x ? `${x.toFixed(1)} s` : 'any length'), hint: 'A shorter bite takes in the same speaker’s next lines until it’s this long.', onChange: x => set('minSeconds', x) }),
+          ui.toggle({ label: 'Tight edges', hint: 'Start on the first word and end on the last (with word timings from Premiere) instead of the line’s own start and end; handles still apply.', value: r.tight, onChange: x => set('tight', x) }),
+          ui.toggle({ label: 'Say why each clip is there', hint: 'A marker on each clip with the reason it was chosen – what a narrative beat does, an answer’s note, a moment’s type.', value: r.why, onChange: x => set('why', x) })
+        ];
+      }
       function lookControls({ withNames = true } = {}) {
         const L = lookOptions();
         const strongSw = swatchButton(L.strong.label, i => { US.settings.set('story.strongLabel', i); render(); }, 'Highlight colour');
@@ -2870,6 +2977,7 @@
           which,
           ui.field('Sequence name', nameIn),
           ui.section('In the timeline', lookControls({ withNames: true }), { open: false, hint: 'colours, ★ strongest lines, theme names' }),
+          ui.section('Soundbites', biteControls(), { open: false, hint: 'whole sentences, no interviewer, shortest bite, why' }),
           ui.section('Options', [ui.slider({ label: 'Handles', min: 0, max: 2, step: 0.1, value: L.handles, fmt: x => `${x.toFixed(1)} s each side`, onChange: x => US.settings.set('story.handles', x) })], { open: false }),
           ui.actionButton(BOARD ? 'Build sequence from the board' : 'Build sequence', () => US.actions.run('story.build', { source: BOARD ? 'wall' : 'themes' }), { icon: 'film' })));
         el.appendChild(narrativeCard());
@@ -3483,6 +3591,7 @@
   // for Home, tests and the Assistant
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' } };
   US.story = {
+    applyBites, biteRules, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
     SECTIONS,

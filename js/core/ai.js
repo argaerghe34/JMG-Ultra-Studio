@@ -223,6 +223,19 @@
   };
   setTimeout(() => sentLog.prune(), 20000);   // tidy once a session, after start-up
 
+  /* ---------- names kept out of AI (Story › Names and terms): placeholders out, real names back ---------- */
+  let redactions = () => null;
+  /** fn() -> {redact(text), restore(text)} or null – set by Story for the open project. */
+  function setRedactions(fn) { redactions = typeof fn === 'function' ? fn : () => null; }
+  /** The request with names swapped for placeholders (cache flags kept), and how to put them back. */
+  function redacted({ system, user, turns }) {
+    let R = null; try { R = redactions(); } catch (e) { R = null; }
+    if (!R) return { system, user, turns, restore: t => t };
+    const one = b => (typeof b === 'string' ? R.redact(b) : b && typeof b === 'object' && b.text != null ? Object.assign({}, b, { text: R.redact(b.text) }) : b);
+    const many = x => (Array.isArray(x) ? x.map(one) : one(x));
+    return { system: many(system), user: many(user), turns: (turns || []).map(t => ({ assistant: R.redact(String(t.assistant || '')), user: R.redact(String(t.user || '')) })), restore: t => R.restore(t) };
+  }
+
   /**
    * “Show me before sending”: the exact text and its cost, before each request (Send, Send the rest of this job, Cancel).
    * Only when the editor asked for it (Settings › What was sent to AI); otherwise the cost question above applies.
@@ -297,6 +310,7 @@
   /** turns: earlier rounds of the same conversation after the first message, [{assistant, user}] (a follow-up keeps the
       cached first message, so the transcripts in it are read from the cache). */
   async function claude({ system, user, turns, schema, maxTokens = 16000, effort = 'low', feature }) {
+    const red = redacted({ system, user, turns }); ({ system, user, turns } = red);
     const key = US.secrets.get('anthropicKey');
     if (!key) throw new US.UserError('AI_KEY');
     const model = claudeModel(), price = MODELS[model], est = estimate({ system, user, turns, maxTokens, effort, model });
@@ -323,7 +337,7 @@
     if (msg.usage && (msg.usage.cache_read_input_tokens || msg.usage.cache_creation_input_tokens)) noteWarm([].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []), usedModel, startedAt);
     if (msg.stop_reason === 'refusal') throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(msg.stop_details || {}) });
     if (msg.stop_reason === 'max_tokens') throw new US.UserError('AI_FAILED', { title: 'The AI’s answer was too long and got cut off.', action: 'Try a smaller request (fewer clips or interviews at once).', detail: 'stop_reason max_tokens' });
-    const text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    const text = red.restore((msg.content || []).filter(b => b.type === 'text').map(b => b.text).join(''));
     return { text, usage: msg.usage };
   }
 
@@ -352,6 +366,7 @@
       .sort((a, b) => ver(b) - ver(a) || a.localeCompare(b));
   }
   async function gemini({ system, user, turns, schema, maxTokens = 16000, fast, feature }) {
+    const red = redacted({ system, user, turns }); ({ system, user, turns } = red);
     const asked = { system, user, turns, schema };
     system = blocksText(system); user = blocksText(user);
     const key = US.secrets.get('geminiKey');
@@ -386,7 +401,7 @@
     const text = ((cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
     if (!text && cand.finishReason === 'MAX_TOKENS') throw new US.UserError('AI_FAILED', { title: 'The AI ran out of room before answering.', action: 'Try a smaller request (fewer interviews or lines at once).', detail: `${used}: finishReason MAX_TOKENS, ${JSON.stringify(r.json.usageMetadata || {})}` });
     if (!text) throw new US.UserError('AI_FAILED', { title: 'The AI sent back an empty answer.', action: 'Try again.', detail: `${used}: finishReason ${cand.finishReason}` });
-    return { text, usage: r.json.usageMetadata, model: used };
+    return { text: red.restore(text), usage: r.json.usageMetadata, model: used };
   }
 
   function provider() {
@@ -410,7 +425,7 @@
   US.ai = {
     CLAUDE_MODEL, MODELS, claudeModel, estimate, costOf, fmtUSD, warmUntil,
     /** The local record of what was sent (Settings › What was sent to AI). */
-    sent: sentLog,
+    sent: sentLog, setRedactions,
     /**
      * Usage per API key, newest first: [{id, provider, name, last4, added, first, last, calls, cost, tokensIn, tokensOut,
      * thisMonth, current}], and what was used before keys were tracked: {since, claude:{calls, cost}, gemini:{calls, cost}}.

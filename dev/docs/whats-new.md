@@ -1,6 +1,11 @@
-## What's new in 1.3.8.1
+## What's new in 1.3.8.2
 
 A small update to 1.3.8.
+
+- **Names and terms** (Story › 1 Interviews): spell names, places and jargon as they should be, with how the transcription heard them (*Jacob Gersch* – heard as *Jakob Gersh*). Apply, and every line is corrected – search, themes, captions, text layers, documents and AI requests all use the right spelling. The original text is kept, so applying again never doubles a name and removing one puts it back; word timings stay exact. **Suggest from the transcripts** finds names spelt more than one way. Tick **Keep out of AI** and the name is replaced by *[Name 1]* in everything sent to Claude or Gemini and put back in the answer – *What was sent to AI* shows it.
+- **Soundbites** (Story › 4 Build): rules every built sequence follows – **whole sentences** (a line that stops mid-sentence runs on into the same speaker's next lines; never across to someone else), **leave out the interviewer**, a **shortest soundbite** (1.5 s to start with), **tight edges** on the first and last word, and **say why each clip is there** – a marker with the reason (a narrative beat's purpose, an answer's note, a moment's type). Lines a narrative trimmed on purpose keep their trim.
+
+## What's new in 1.3.8.1
 
 - **What was sent to AI** (Settings): every AI request's exact text is kept on this computer, per project, for 90 days – click one to read it, copy it or save it as a text file for a client. Large parts sent again and again (the shared transcript) are stored once. Switch the log off if you'd rather not keep it.
 - **Show me before sending**: set it to **Always** and each AI request opens first with the text and its cost – **Send**, **Send the rest of this job** (for features that send several requests) or **Cancel**, which sends nothing. Otherwise Ultra Studio asks only when a request costs more than your limit, as before.
