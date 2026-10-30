@@ -33,3 +33,12 @@ The subclips have restricted In/Out, so long clips show just that part in thumbn
 - They're numbered in filming order (timeline order for the timeline) with the original file name: *01 – C0012.MP4*.
 - Only clips directly in the bin are used, not clips in bins inside it.
 - If subclips with the same names are already there, you're asked first: **Replace** moves the earlier ones into **"<bin> – Subclips – earlier"** (add-ons can't delete clips – delete that bin yourself), **Add alongside** names the new ones *(2)*, *(3)*…
+
+### Take Sets – the best take of each retake
+For pieces to camera, interviews with do-overs and podcast reads. Pick the sequence and press **Find the takes**: every set of attempts at the same line is grouped – word for word, reworded, cut short or picked up again minutes later (with AI; without it, retakes that share most of their words). Paste the **Script** if there is one: sets are named after its lines and judged against it.
+
+- Each set lists its takes, marked **complete** or **incomplete**, with a note on how they differ and ▶ to hear them. The **last complete take** is chosen; pick another, or **Keep every take** when they aren't really retakes.
+- **What will be cut** lists every unchosen take (with the pause after it) – untick any to keep it.
+- **Make a copy with the chosen takes** cuts the others out of a copy of the sequence, on every track together so nothing goes out of sync, and puts a marker on each kept take. Words from two takes are never stitched together. The original isn't changed.
+- Takes are found from Story's transcripts of the clips in the sequence (only their text goes to the AI). Ask: *keep the best takes*.
+

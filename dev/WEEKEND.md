@@ -582,3 +582,7 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   - **1.3.10** Fillers and false starts (20-silence-words.js: fillers, doubled small words, restarts within 8 words and
     one speaker, soft fillers between commas when asked; ticked only with exact word timings) in Silence Cut, cut with or
     without the pauses in one copy (`cutCopy` words/pauses). `ui.reviewList` – the shared list of proposed changes.
+  - **1.3.11** Take Sets (27-takes.js, Selects & clips): AI groups retakes from the timeline transcript text (+ optional
+    script) into sets of contiguous same-speaker takes, tidied (no line twice, ≥2 takes); basic word-overlap grouping
+    without AI; last complete take chosen; unchosen takes (and the pause after) cut from a copy via extractRanges, kept
+    takes marked. Review list of cuts. `takes.cut` action.

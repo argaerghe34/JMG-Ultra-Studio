@@ -11,3 +11,10 @@ canvas.sel-chart { display: block; width: 100%; border-radius: var(--radius-s); 
 .sel-cat-group { grid-column: 1 / -1; color: var(--text-3); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
 .sel-cat { display: flex; align-items: center; gap: 7px; font-size: 11.5px; }
 .sel-cat .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Take Sets */
+.take-set { margin: 8px 0; }
+.take-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
+.take-row.on { background: var(--bg-2, rgba(127,127,127,.12)); }
+.take-row input { margin-top: 3px; }
+.take-text { font-size: 12px; color: var(--text-2); margin-top: 2px; }

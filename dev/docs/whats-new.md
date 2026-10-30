@@ -1,3 +1,7 @@
+## What's new in 1.3.11
+
+- **Take Sets** (Selects & clips): the retakes in a sequence – pieces to camera, interview do-overs, podcast reads – grouped by what they try to say, even reworded or minutes apart, with the last complete take chosen. Pick another or keep them all, check what will be cut, and get a copy of the sequence with only the chosen takes: every track cut together, a marker on each kept take, and never words from two takes stitched together. Paste the script to judge takes against it. Without AI it groups retakes that share most of their words. Ask: *keep the best takes*.
+
 ## What's new in 1.3.10
 
 - **Fillers and false starts** (Silence Cut): found from the words in Story's transcripts of the clips in the sequence – *um*, *uh*, *er*, doubled small words (*I I went*), restarted sentences (*we went to the – we went to the shop*), and, if you ask, soft fillers between commas (*, you know,*). Each one is listed with the words around it: untick any you want to keep, press ▶ to hear it in the Timeline, then **Make a cut copy** – with the pauses too if you found them, in one copy. With Premiere's word timings the cuts are exact; otherwise they're estimated and left unticked for you to check. Ask: *cut the ums and the false starts*.
