@@ -1211,6 +1211,36 @@
     return { vertical: vert, done };
   }
 
+  /* ================= Beat map and story board ================= */
+  const HT = () => US.storyHeat;
+  /** Score every passage in scope on the chosen criteria (AI on text, or word cues). Kept with the project. */
+  async function scoreBeats(job, { crit = ['emotion', 'humour', 'information'], useAI = true, brief = '' } = {}) {
+    await ready(); loadState();
+    crit = crit.filter(c => HT().CRITERIA[c]); if (!crit.length) throw new US.UserError('BAD_INPUT', { title: 'Choose at least one thing to look for.' });
+    const scoped = new Set((await linesInScope(job)).map(l => l.id));
+    const ps = HT().passages(state.transcripts, { keep: l => scoped.has(l.id) && !isInterviewer(l) }).map(p => Object.assign(p, { speakerName: speakerName(p.speaker) }));
+    if (!ps.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no interview passages to score.' });
+    let scores, by = 'basic';
+    if (useAI && US.ai && US.ai.available()) {
+      const reqs = HT().requests(ps, crit, { brief });
+      if (reqs.length > 1 && US.ai.approveTotal) await US.ai.approveTotal(SAI().cost(reqs).usd, `Beat map (${reqs.length} requests)`);
+      const results = [];
+      for (let i = 0; i < reqs.length; i++) { job.check(); job.set({ who: 'ai', msg: `${US.ai.label()} is scoring the passages` }).progress(i / reqs.length, `Part ${i + 1} of ${reqs.length}`); results.push(await US.ai.json(reqs[i])); }
+      scores = HT().collect(results, crit); by = 'ai';
+    } else scores = HT().basic(ps, crit);
+    state.beatMap = { at: Date.now(), crit, by, passages: ps.map(({ speakerName: x, ...p }) => p), scores: Object.fromEntries(scores) };
+    state.beatBoard = (state.beatBoard || []).filter(id => ps.some(p => p.id === id));
+    saveNow();
+    const hot = ps.filter(p => HT().heat(scores.get(p.id), 'any', crit) >= 0.7).length;
+    return { summary: `${US.plural(ps.length, 'passage')} scored${by === 'basic' ? ' (basic – word cues, no AI)' : ''} · ${US.plural(hot, 'standout')}` };
+  }
+  /** The board's passages as one build group, in the board's order. */
+  function boardGroups() {
+    const ps = new Map(((state.beatMap && state.beatMap.passages) || []).map(p => [p.id, p]));
+    const ids = (state.beatBoard || []).map(id => ps.get(id)).filter(Boolean).flatMap(p => p.lineIds).filter(id => lineById.has(id));
+    return ids.length ? [{ name: 'Beat board', label: null, lineIds: ids, pinned: new Set(ids), trims: {}, ideas: [] }] : [];
+  }
+
   /* ================= Clip Finder: short clips for social ================= */
   const CL = () => US.storyClips;
   /**
@@ -3086,6 +3116,7 @@
           ui.section('Soundbites', biteControls(), { open: false, hint: 'whole sentences, no interviewer, shortest bite, why' }),
           ui.section('Options', [ui.slider({ label: 'Handles', min: 0, max: 2, step: 0.1, value: L.handles, fmt: x => `${x.toFixed(1)} s each side`, onChange: x => US.settings.set('story.handles', x) })], { open: false }),
           ui.actionButton(BOARD ? 'Build sequence from the board' : 'Build sequence', () => US.actions.run('story.build', { source: BOARD ? 'wall' : 'themes' }), { icon: 'film' })));
+        el.appendChild(beatCard());
         el.appendChild(narrativeCard());
         el.appendChild(clipsCard());
         // bins by theme
@@ -3119,6 +3150,56 @@
           hl ? coverageView(hl) : null));
         el.appendChild(nextBar('build'));
       }
+      /* Beat map and story board */
+      let beatView = 'any', beatPick = null;
+      function beatCard() {
+        const C = HT().CRITERIA, crit = US.settings.get('story.heatCrit', ['emotion', 'humour', 'information']);
+        const bm = state.beatMap, board = state.beatBoard || (state.beatBoard = []);
+        const chips = h('div.chat-chips', Object.entries(C).map(([k, c]) => h('button.chip' + (crit.includes(k) ? '.on' : ''), { title: c.hint, onclick: () => { US.settings.set('story.heatCrit', crit.includes(k) ? crit.filter(x => x !== k) : crit.concat(k)); renderBuild(); } }, c.label)));
+        const scoreBtn = ui.actionButton(bm ? 'Score again' : 'Score the interviews', () => US.actions.run('story.beats', {}).then(r => { if (r) renderBuild(); }), { icon: 'spark' });
+        const card = h('div.card', { dataset: { section: 'beats' } }, h('div.card-title', 'Beat map'),
+          h('div.muted', 'Every passage of the interviews scored on what you’re looking for, shown as a heat strip per interview – the strongest parts stand out at a glance. Click one to read and hear it, add it to the board, put the board in order and build it. Only the text is sent to the AI; without AI, word cues score it.'),
+          ui.field('Look for', chips), scoreBtn);
+        if (!bm) return card;
+        const ps = bm.passages, scores = new Map(Object.entries(bm.scores || {})), pById = new Map(ps.map(p => [p.id, p]));
+        const view = ui.select({ options: [{ value: 'any', label: 'The strongest of them' }].concat(bm.crit.map(k => ({ value: k, label: C[k].label }))), value: beatView, onChange: x => { beatView = x; renderBuild(); } });
+        const colour = beatView === 'any' ? '#e2483f' : C[beatView].colour;
+        const detail = h('div.beat-detail');
+        const add = id => { if (!board.includes(id)) { board.push(id); saveNow(); renderBuild(); } };
+        function showDetail(p) {
+          beatPick = p.id; US.clear(detail);
+          const sc = scores.get(p.id), first = lineById.get(p.lineIds[0]);
+          detail.append(h('div.row', h('b.grow', `${whoSaid(first || { speaker: p.speaker, id: p.lineIds[0] })} · ${US.fmtDur(p.end - p.start, true)}`), first ? playButton(first, first.start) : null, ui.button(board.includes(p.id) ? 'On the board' : 'Add to the board', { small: true, kind: board.includes(p.id) ? 'ghost' : 'primary', onClick: () => add(p.id) })),
+            sc ? h('div.field-hint', bm.crit.map(k => `${C[k].label} ${Math.round((sc.scores[k] || 0) * 10)}`).join(' · ') + (sc.note ? ` – ${sc.note}` : '')) : null,
+            h('div.story-text', `“${p.text}”`));
+        }
+        const strips = state.transcripts.filter(t => ps.some(p => p.key === t.key)).map(t => {
+          const mine = ps.filter(p => p.key === t.key), len = Math.max(1, mine[mine.length - 1].end - mine[0].start);
+          return h('div.heat-row', h('div.heat-name', t.name), h('div.heat-strip', mine.map(p => {
+            const v = HT().heat(scores.get(p.id), beatView, bm.crit);
+            return h('div.heat-cell' + (beatPick === p.id ? '.picked' : '') + (board.includes(p.id) ? '.onboard' : ''), { title: p.text.slice(0, 200), style: { flexGrow: String(Math.max(0.5, p.end - p.start)), background: colour, opacity: String(0.08 + 0.92 * v) }, onclick: e => { showDetail(p); card.querySelectorAll('.heat-cell.picked').forEach(x => x.classList.remove('picked')); e.currentTarget.classList.add('picked'); } });
+          })), h('div.field-hint.heat-len', US.fmtDur(len)));
+        });
+        const best = HT().top(ps, scores, beatView, bm.crit, 8);
+        const total = board.reduce((n, id) => { const p = pById.get(id); return n + (p ? p.end - p.start : 0); }, 0);
+        const move = (i, d) => { const j = i + d; if (j < 0 || j >= board.length) return; [board[i], board[j]] = [board[j], board[i]]; saveNow(); renderBuild(); };
+        const boardList = h('ol.beat-board', board.map((id, i) => { const p = pById.get(id); if (!p) return null;
+          const row = h('li.beat-board-row', { draggable: 'true', ondragstart: e => e.dataTransfer.setData('text/plain', String(i)), ondragover: e => e.preventDefault(), ondrop: e => { e.preventDefault(); const from = +e.dataTransfer.getData('text/plain'); if (isNaN(from) || from === i) return; const [x] = board.splice(from, 1); board.splice(i, 0, x); saveNow(); renderBuild(); } },
+            h('div.grow', h('div', p.text.length > 120 ? p.text.slice(0, 120) + '…' : p.text), h('div.field-hint', `${speakerName(p.speaker)} · ${US.fmtDur(p.end - p.start, true)}`)),
+            h('button.btn.small.ghost', { title: 'Earlier', onclick: () => move(i, -1) }, '↑'), h('button.btn.small.ghost', { title: 'Later', onclick: () => move(i, 1) }, '↓'),
+            h('button.btn.small.ghost', { title: 'Take off the board', onclick: () => { board.splice(i, 1); saveNow(); renderBuild(); } }, '×'));
+          return row; }));
+        card.append(h('div.row', h('span.field-hint.grow', `${US.plural(ps.length, 'passage')}${bm.by === 'basic' ? ' · basic (word cues, no AI)' : ''}`), h('span.field-hint', 'Show'), view),
+          h('div.heat-map', strips), detail,
+          best.length ? h('div', h('div.field-label', 'The strongest'), h('div.chat-chips', best.map(p => h('button.chip', { title: p.text.slice(0, 200), onclick: () => showDetail(p) }, p.text.split(/\s+/).slice(0, 7).join(' ') + '…')))) : null,
+          h('div.field-label', `Board – ${US.plural(board.length, 'beat')} · ${US.fmtDur(total)}`),
+          board.length ? boardList : h('div.field-hint', 'Click a passage in the map and press Add to the board. Drag the board’s beats (or use ↑ ↓) into the order you want.'),
+          board.length ? h('div.row', ui.actionButton('Build the board', () => US.jobs.run({ title: 'Building the beat board', tool: 'story' }, job => buildSequence(job, { name: 'Story – beat board', groups: boardGroups(), look: Object.assign(lookOptions(), { inOrder: false }) })), { icon: 'film', block: false }),
+            ui.button('Clear the board', { small: true, kind: 'ghost', onClick: () => { state.beatBoard = []; saveNow(); renderBuild(); } })) : null);
+        if (beatPick && pById.has(beatPick)) showDetail(pById.get(beatPick));
+        return card;
+      }
+
       /* Clip Finder: short clips for social */
       const CLIP_LENGTHS = { short: { label: 'Short (15–30 s)', min: 15, max: 30 }, standard: { label: 'Standard (30–60 s)', min: 30, max: 60 }, long: { label: 'Long (60–90 s)', min: 60, max: 90 } };
       function clipsCard() {
@@ -3714,6 +3795,15 @@
   });
 
   US.actions.register({
+    id: 'story.beats', tool: 'story', title: 'Make a beat map of the interviews', changes: false,
+    describe: 'Scores every passage of the interviews on emotion, humour, information, conflict and surprise (the ones chosen in Story › Build › Beat map) and shows them as a heat map, to pick beats onto a board and build. Only text is sent to the AI.',
+    params: { brief: { type: 'string', default: '', desc: 'What the film is about (optional)' } },
+    examples: ['make a beat map', 'show me the most emotional moments in the interviews', 'where are the funniest parts'],
+    match: t => (/(beat ?map|heat ?map|most (emotional|moving|funny|surprising)|funniest parts|strongest moments)/i.test(t) ? { _score: 2.4 } : null),
+    run: async (p, job) => { const r = await scoreBeats(job, { crit: US.settings.get('story.heatCrit', ['emotion', 'humour', 'information']), brief: p.brief }); openStory('build', { section: 'beats' }); return r; }
+  });
+
+  US.actions.register({
     id: 'story.clips', tool: 'story', title: 'Find clips for social', changes: false,
     describe: 'Finds short clips that stand on their own in the interviews (or the lines heard in a timeline, e.g. a podcast episode) – each with a hook, title, scores and why it works. Only line text is sent to the AI. Build them in Story › Build › Clips for social (each its own sequence, with a vertical version and captions).',
     params: { source: { type: 'enum', options: ['interviews', 'timeline'], default: 'interviews', desc: 'From the interviews in scope, or a timeline' }, seqId: { type: 'string', default: '', desc: 'The timeline when source is timeline (empty = the open one)' }, length: { type: 'enum', options: ['short', 'standard', 'long'], default: 'standard', desc: '15–30, 30–60 or 60–90 seconds' }, count: { type: 'number', default: 8, desc: 'How many clips' }, brief: { type: 'string', default: '', desc: 'What the clips are for' } },
@@ -3752,7 +3842,7 @@
   // for Home, tests and the Assistant
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' } };
   US.story = {
-    findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
+    scoreBeats, boardGroups, findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
     SECTIONS,

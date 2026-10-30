@@ -598,3 +598,6 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     snapped to whole sentences, non-contiguous parts allowed; basic version without AI; each clip built as its own
     sequence with a hook marker, then `finishSocial` (shared with the promo): host reframe to 9:16 / 4:5 / 1:1 and
     captions. Per-speaker fixed crops (the report's fallback) not built – the hosts' reframe is used.
+  - **1.3.14** Beat map (22-story-heat.js + `scoreBeats`/`boardGroups`): passages (one speaker, ≤40 s, in scope, no
+    interviewer) scored 0–10 on chosen criteria by the AI in batches of 250 (text only) or by word cues; heat strip per
+    interview, detail with play, strongest list; a simple ordered board (drag or ↑↓) built as one sequence.

@@ -1,3 +1,7 @@
+## What's new in 1.3.14
+
+- **Beat map** (Story › 4 Build): every passage of the interviews scored on what you're looking for – **Emotion**, **Humour**, **Information**, **Conflict**, **Surprise** – and shown as a heat strip per interview, so the strongest parts stand out at a glance. Click a passage to read and hear it, with its scores and what makes it stand out; **The strongest** lists the top ones. **Add to the board**, drag the board's beats into order (or ↑ ↓), and **Build the board** as a sequence. Only text goes to the AI; without AI, word cues score it. Ask: *show me the most emotional moments*.
+
 ## What's new in 1.3.13
 
 - **Clips for social** (Story › 4 Build): short clips that stand on their own, from your interviews or from what is heard in a timeline (a podcast episode, a rough cut). Each comes with a hook, a title, a score for the hook, standing alone, the payoff and the length, and why it works – not a bare "virality" number. A clip can join two moments (a question and its answer); every part ends on a whole sentence. Tick the ones you want and **Build the ticked clips**: each gets its own sequence with the hook as a marker, a vertical version (9:16, 4:5 or 1:1, using Premiere's Auto Reframe or Resolve's Smart Reframe) and captions. Only line text goes to the AI; without AI, strong stretches by one speaker. Ask: *find 5 short clips from this podcast episode*.
