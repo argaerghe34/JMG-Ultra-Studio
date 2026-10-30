@@ -326,7 +326,7 @@
     describe: 'From what is said in the active sequence (only the transcript text is sent to the AI): title ideas, a description, show notes with times, YouTube chapters, pull quotes, social posts and keywords. Without AI: chapters from markers and the strongest lines as quotes.',
     params: { notes: { type: 'string', default: '', desc: 'Tone, show name, links or anything the text should mention' } },
     examples: ['write the show notes', 'give me titles and a description for this episode', 'write social posts for this video'],
-    match: t => (/(show ?notes|titles?|description|social posts?|pull quotes?|captions? for (instagram|linkedin)|episode text)/i.test(t) && !/(text layers?|subtitles?|burn)/i.test(t) ? { _score: 2.2 } : null),
+    match: t => (/\b(show ?notes|titles?|description|social posts?|pull quotes?|captions? for (instagram|linkedin)|episode text)\b/i.test(t) && !/\b(text layers?|subtitles?|burn)\b/i.test(t) ? { _score: 2.2 } : null),
     run: async (p, job) => {
       const s = US.ctx.sequence; if (!s) throw new US.UserError('NO_SEQUENCE');
       const r = await episodeText(job, { seqId: s.id, notes: p.notes || US.settings.get('deliver.textNotes', '') });

@@ -1,0 +1,24 @@
+// The Assistant understands the weekend's new commands without AI (and none of them steals another's phrasing).
+const assert = require('assert');
+const { load, test } = require('./harness');
+global.addEventListener = global.addEventListener || (() => {});
+global.ResizeObserver = global.ResizeObserver || function () { return { observe() {} }; };
+const US = load(['time', 'audio', 'dsp', 'transcript', 'ui', 'app', 'js/tools/11-audio-kit.js', 'js/tools/20-silence-words.js', 'js/tools/20-silence.js', 'js/tools/22-story-glossary.js', 'js/tools/22-story-board.js', 'js/tools/22-story-export.js', 'js/tools/22-story-timeline.js', 'js/tools/22-story-narrative.js', 'js/tools/22-story-moments.js', 'js/tools/22-story-ai.js', 'js/tools/22-story-clips.js', 'js/tools/22-story-heat.js', 'js/tools/22-story.js', 'js/tools/27-takes.js', 'js/tools/28-podcast.js', 'js/tools/33-deliver-text.js', 'js/tools/33-deliver.js', 'js/tools/40-assistant.js', 'js/tools/41-edit.js', 'js/tools/42-recipes.js']);
+const m = t => (US.assistant.matchOffline(t).steps[0] || {});
+
+test('new commands by plain words', () => {
+  const cases = [
+    ['find clips for TikTok', 'story.clips'], ['find 5 short clips from this podcast episode', 'story.clips'], ['make a beat map', 'story.beats'],
+    ['write the show notes', 'deliver.text'], ['give me titles and a description for this episode', 'deliver.text'],
+    ['keep the best takes', 'takes.cut'], ['get rid of the retakes', 'takes.cut'], ['switch the podcast cameras', 'podcast.switch'],
+    ['cut the ums and the false starts', 'silence.cut'], ['run my Podcast episode recipe', 'recipes.run'], ['build a 3 minute cut from the themes', 'story.build']
+  ];
+  for (const [t, want] of cases) assert.strictEqual(m(t).action, want, t);
+  assert.strictEqual(m('find 5 short clips from this podcast episode').params.source, 'timeline');
+  assert.strictEqual(m('cut the ums and the false starts').params.fillers, true);
+  assert.strictEqual(m('cut the ums and the false starts').params.pauses, false);
+  assert.notStrictEqual(m('make subclips of this bin').action, 'story.clips', 'subclips aren’t social clips');
+  assert.notStrictEqual(m('add subtitles to the sequence').action, 'deliver.text');
+  const sug = US.assistant.suggest('remove the silent bits');
+  assert.strictEqual(sug[0] && sug[0].a.id, 'silence.cut', JSON.stringify(sug.map(x => x.a.id)));
+});

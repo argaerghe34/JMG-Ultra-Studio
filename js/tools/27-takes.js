@@ -144,7 +144,7 @@
     id: 'takes.cut', tool: 'takes', title: 'Keep the best take of each retake', changes: true,
     describe: 'Groups the retakes in the active sequence (from Story’s transcripts; the AI reads only the text), keeps the last complete take of each and makes a copy of the sequence without the others.',
     params: { script: { type: 'string', default: '', desc: 'The script they read from, if any' } },
-    examples: ['keep the best takes', 'remove the retakes', 'cut out the bad takes'],
+    examples: ['keep the best takes', 'cut out the bad takes', 'pick the best retake of each line'],
     match: t => (/\b(re-?takes?|bad takes?|best takes?|take sets?)\b/i.test(t) ? { _score: 2.4 } : null),
     run: async (p, job) => {
       const target = await kit().activeSequenceTarget();

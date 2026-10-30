@@ -89,7 +89,7 @@
       const m = /(longer|more) than (\d+(?:\.\d+)?)\s*(ms|milliseconds?|s\b|secs?|seconds?)/.exec(t);
       if (m) p.minPause = /ms|milli/.test(m[3]) ? +m[2] / 1000 : +m[2];
       if (/very tight|really tight|aggressive/.test(t)) Object.assign(p, { minPause: PRESETS.verytight.minPause, padding: PRESETS.verytight.padding });
-      if (/\b(ums?|uhs?|ers?|fillers?|false starts?|stumbles?|repeats?)\b/.test(t)) { p.fillers = true; if (!about) p.pauses = false; }
+      if (/\b(ums?|uhs?|ers?|fillers?|false starts?|stumbles?|repeats?)\b/.test(t)) { p.fillers = true; if (!about) p.pauses = false; if (words) p._score = 3; }   // “cut the ums” is a cut, not a search for moments (which scores 2.7)
       return p;
     },
     async run(params, job) {

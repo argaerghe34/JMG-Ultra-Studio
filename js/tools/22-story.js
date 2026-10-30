@@ -3799,7 +3799,7 @@
     describe: 'Scores every passage of the interviews on emotion, humour, information, conflict and surprise (the ones chosen in Story › Build › Beat map) and shows them as a heat map, to pick beats onto a board and build. Only text is sent to the AI.',
     params: { brief: { type: 'string', default: '', desc: 'What the film is about (optional)' } },
     examples: ['make a beat map', 'show me the most emotional moments in the interviews', 'where are the funniest parts'],
-    match: t => (/(beat ?map|heat ?map|most (emotional|moving|funny|surprising)|funniest parts|strongest moments)/i.test(t) ? { _score: 2.4 } : null),
+    match: t => (/\b(beat ?map|heat ?map|most (emotional|moving|funny|surprising)|funniest parts|strongest moments)\b/i.test(t) ? { _score: 2.4 } : null),
     run: async (p, job) => { const r = await scoreBeats(job, { crit: US.settings.get('story.heatCrit', ['emotion', 'humour', 'information']), brief: p.brief }); openStory('build', { section: 'beats' }); return r; }
   });
 
@@ -3808,7 +3808,7 @@
     describe: 'Finds short clips that stand on their own in the interviews (or the lines heard in a timeline, e.g. a podcast episode) – each with a hook, title, scores and why it works. Only line text is sent to the AI. Build them in Story › Build › Clips for social (each its own sequence, with a vertical version and captions).',
     params: { source: { type: 'enum', options: ['interviews', 'timeline'], default: 'interviews', desc: 'From the interviews in scope, or a timeline' }, seqId: { type: 'string', default: '', desc: 'The timeline when source is timeline (empty = the open one)' }, length: { type: 'enum', options: ['short', 'standard', 'long'], default: 'standard', desc: '15–30, 30–60 or 60–90 seconds' }, count: { type: 'number', default: 8, desc: 'How many clips' }, brief: { type: 'string', default: '', desc: 'What the clips are for' } },
     examples: ['find clips for TikTok', 'find 5 short clips from this podcast episode', 'find social clips about family'],
-    match: t => (/(clips?|shorts|reels?|tiktoks?)/i.test(t) && /(find|social|tiktok|reels?|shorts|instagram|linkedin|viral)/i.test(t) && !/sub-?clips?/i.test(t) ? Object.assign({ _score: 2.3 }, /podcast|episode|this (sequence|timeline|cut)/i.test(t) ? { source: 'timeline' } : {}, /short/i.test(t) ? { length: 'short' } : {}) : null),
+    match: t => (/\b(clips?|shorts|reels?|tiktoks?)\b/i.test(t) && /\b(find|social|tiktok|reels?|shorts|instagram|linkedin|viral)\b/i.test(t) && !/\bsub-?clips?\b/i.test(t) ? Object.assign({ _score: 2.3 }, /podcast|episode|this (sequence|timeline|cut)/i.test(t) ? { source: 'timeline' } : {}, /\bshort\b/i.test(t) ? { length: 'short' } : {}) : null),
     run: async (p, job) => {
       const L = { short: [15, 30], standard: [30, 60], long: [60, 90] }[p.length] || [30, 60];
       const seqId = p.source === 'timeline' ? (p.seqId || (US.ctx.sequence && US.ctx.sequence.id) || '') : '';
