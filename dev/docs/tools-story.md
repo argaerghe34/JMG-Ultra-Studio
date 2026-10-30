@@ -53,6 +53,8 @@ Each choice shows its line count. **Fine-tune** goes in between, and **More opti
 
 **Names and terms** (1 Interviews): list how names, places and jargon should be spelt and how the transcription heard them, then **Apply to the transcripts** – everything downstream uses the right spelling, word timings stay exact, and the original is kept (removing a name puts it back). **Suggest from the transcripts** finds names spelt more than one way. **Keep out of AI** sends *[Name 1]* instead of the name and puts it back in the answer.
 
+**Clips for social** (4 Build): **Find clips** from **Your interviews** or **A timeline** (only what's heard in it), at a **Length** (15–30, 30–60 or 60–90 s), with what they're **For** if you like (*funny moments for TikTok*). Each clip shows its hook, its scores (hook, stands alone, payoff, length), why it works and its words, with ▶ to hear it. Tick the ones you want, choose **A vertical version too** (9:16, 4:5 or 1:1) and **Captions**, then **Build the ticked clips** – one sequence each, with the hook as a marker. A clip may join two moments; each part ends on a whole sentence.
+
 **Length** (4 Build): type *3:00* (or *90*, *2 min*) and the cut is fitted to it ±10% – the weakest lines go first, from the longest themes; pinned lines and each theme's best line stay; if it's still short it says so.
 
 **Soundbites** (4 Build): every build finishes sentences (running on into the same speaker's next lines, never across to someone else), leaves out the interviewer, lengthens bites shorter than the **Shortest soundbite**, can start and end on the first and last word (**Tight edges**), and marks each clip with **why it's there**.

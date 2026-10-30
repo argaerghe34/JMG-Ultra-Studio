@@ -31,7 +31,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -103,6 +103,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   tool.onShow({ tab: 'build' }); await new Promise(r => setTimeout(r, 20));
   for (const sec of ['build', 'narrative', 'bins', 'highlights']) if (!tool.el.querySelector(`[data-section="${sec}"]`)) errors.push(`build step: no ${sec} section`);
   if (!/Soundbites/.test(tool.el.textContent)) errors.push('build step: no Soundbites rules');
+  if (!tool.el.querySelector('[data-section="clips"]')) errors.push('build step: no Clips for social');
   if (!/Build a sequence from your themes/.test(tool.el.querySelector('[data-section="build"]').textContent)) errors.push('build card is not “from your themes”');
   if (typeof S.open !== 'function' || S.SECTIONS.board.tab !== 'build') errors.push('US.story.open missing');
   // S2: the narrative card, a basic narrative, its beats

@@ -1175,29 +1175,85 @@
       }
       if (r) { seq = r.copy; done.push(`${US.plural(r.shots.length, 'B-roll cutaway')}`); } else done.push('no spots for B-roll (too short)');
     }
-    let inner = null, vertical = null;
-    if (o.vertical) {
+    const fin = await finishSocial(job, seq, { vertical: o.vertical, captions: o.captions, stage });
+    done.push(...fin.done);
+    job.range(0, 1);
+    await US.host.call('openSequence', { seqId: (fin.vertical || seq).id }); await US.refreshContext();
+    return { seq, vertical: fin.vertical, summary: `Promo: ${done.join(', ')}` };
+  }
+  /**
+   * The social steps after a build: a vertical version (aspect 9:16, 4:5 or 1:1 – the host's own reframe, then fitted to
+   * a full-size frame) and captions timed to the words (on the vertical one too). -> {vertical, done:[what was made]}
+   */
+  async function finishSocial(job, seq, { vertical = false, captions = '', aspect = '9:16', stage = () => {} } = {}) {
+    const done = [];
+    let inner = null, vert = null;
+    if (vertical) {
       stage();
-      job.set({ who: 'premiere', msg: 'Auto Reframe: making the 9:16 version' });
+      const [num, den] = String(aspect || '9:16').split(':').map(Number);
+      job.set({ who: 'premiere', msg: `Reframing: making the ${num}:${den} version` });
       const info = await US.host.call('sequenceInfo', { seqId: seq.id, clips: false });
-      inner = await US.host.call('autoReframe', { seqId: seq.id, num: 9, den: 16, motion: 'default', name: `${seq.name} – 9:16`, binPath: binBase() });
-      const W = Math.max(info.width, info.height) >= 3000 ? 2160 : 1080, H = Math.round(W * 16 / 9);
-      vertical = await US.host.call('fitToSize', { seqId: inner.id, width: W, height: H, name: `${seq.name} – 9:16 ${W}×${H}`, binPath: binBase() });
-      done.push(`a ${W}×${H} vertical version`);
+      inner = await US.host.call('autoReframe', { seqId: seq.id, num, den, motion: 'default', name: `${seq.name} – ${num}:${den}`, binPath: binBase() });
+      const W = Math.max(info.width, info.height) >= 3000 ? 2160 : 1080, H = Math.round(W * den / num);
+      vert = await US.host.call('fitToSize', { seqId: inner.id, width: W, height: H, name: `${seq.name} – ${num}:${den} ${W}×${H}`, binPath: binBase() });
+      done.push(`a ${W}×${H} ${num}:${den} version`);
     }
-    if (o.captions) {
+    if (captions) {
       stage();
-      await makeCaptions(job, await timelineTranscript(job, { seqId: seq.id }), { style: o.captions });
-      if (vertical) {
+      await makeCaptions(job, await timelineTranscript(job, { seqId: seq.id }), { style: captions });
+      if (vert) {
         // the vertical sequence holds the reframed one nested, so its captions come from the reframed sequence's words
         stage();
-        await makeCaptions(job, await timelineTranscript(job, { seqId: inner.id }), { style: o.captions, target: vertical.id });
+        await makeCaptions(job, await timelineTranscript(job, { seqId: inner.id }), { style: captions, target: vert.id });
       }
-      done.push(`${CAP().STYLES[o.captions].label.toLowerCase()} captions`);
+      done.push(`${CAP().STYLES[captions].label.toLowerCase()} captions`);
+    }
+    return { vertical: vert, done };
+  }
+
+  /* ================= Clip Finder: short clips for social ================= */
+  const CL = () => US.storyClips;
+  /**
+   * Clips for social from the interviews in scope or the lines heard in a timeline. The AI reads the lines as text
+   * (without AI: strong stretches by one speaker). Kept with the project. -> {clips, summary}
+   */
+  async function findClips(job, { source = 'interviews', seqId = '', count = 8, min = 20, max = 60, brief = '', useAI = true } = {}) {
+    await ready(); loadState();
+    const tl = source === 'timeline' ? await timelineLines(job, seqId) : null;
+    const lines = (tl ? tl.lines : await linesInScope(job)).filter(l => !isInterviewer(l));
+    if (!lines.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no lines to find clips in.' });
+    const at = new Map(); for (const t of state.transcripts) t.lines.forEach((l, i) => at.set(l.id, { list: t.lines, i }));
+    let clips, by = 'basic';
+    if (useAI && US.ai && US.ai.available()) {
+      job.set({ who: 'ai', msg: `${US.ai.label()} is looking for clips` });
+      const r = await US.ai.json(CL().request(lines.map(l => ({ id: l.id, start: l.start, end: l.end, text: l.text, speaker: speakerName(l.speaker) })), { count, min, max, brief }));
+      clips = CL().organise(r, at, { min, max }).slice(0, count); by = 'ai';
+    } else {
+      const byT = new Map(); for (const l of lines) { const t = clipOfLine.get(l.id); if (!byT.has(t)) byT.set(t, []); byT.get(t).push(l); }
+      clips = CL().basic(Array.from(byT.values()), l => T.quality(l).score, { count, min, max });
+    }
+    state.clips = { at: Date.now(), source, seqName: tl ? tl.name : '', by, items: clips.map(c => Object.assign({ id: US.uid('k'), on: true }, c)) };
+    saveNow();
+    return { clips: state.clips.items, summary: `${US.plural(clips.length, 'clip')} found${tl ? ` in “${tl.name}”` : ''}${by === 'basic' ? ' (basic – no AI)' : ''}` };
+  }
+  /** Build clips: each its own sequence (parts in order, a marker with the hook), then the vertical version and captions. */
+  async function buildClips(job, clips, { vertical = true, aspect = '9:16', captions = 'social' } = {}) {
+    if (!clips.length) throw new US.UserError('NOTHING_FOUND', { title: 'No clips are ticked.' });
+    const look = Object.assign(lookOptions(), { themeNames: 'none' }); look.strong = Object.assign({}, look.strong, { highlight: false, first: false });
+    const made = [];
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i];
+      job.range(i / clips.length, (i + 1) / clips.length);
+      const groups = c.parts.map((p, k) => ({ name: '', label: null, lineIds: p.lineIds.filter(id => lineById.has(id)), pinned: new Set(), trims: {}, ideas: [] }));
+      const b = await buildSequence(job, { name: `Clip ${i + 1} – ${c.title}`.slice(0, 80), groups, look });
+      await US.host.call('addSequenceMarkers', { seqId: b.seq.id, markers: [{ start: 0, name: (c.hook || c.title).slice(0, 64), comment: [c.caption, c.reason].filter(Boolean).join('\n'), color: 3 }] });
+      const fin = await finishSocial(job, b.seq, { vertical, captions, aspect });
+      made.push({ seq: b.seq, vertical: fin.vertical });
     }
     job.range(0, 1);
-    await US.host.call('openSequence', { seqId: (vertical || seq).id }); await US.refreshContext();
-    return { seq, vertical, summary: `Promo: ${done.join(', ')}` };
+    const last = made[made.length - 1];
+    await US.host.call('openSequence', { seqId: (last.vertical || last.seq).id }); await US.refreshContext();
+    return { made, summary: `${US.plural(made.length, 'clip')} built${vertical ? ` with ${aspect} versions` : ''}${captions ? ' and captions' : ''}` };
   }
 
   /* ================= highlight selects on a string-out (S1) ================= */
@@ -3031,6 +3087,7 @@
           ui.section('Options', [ui.slider({ label: 'Handles', min: 0, max: 2, step: 0.1, value: L.handles, fmt: x => `${x.toFixed(1)} s each side`, onChange: x => US.settings.set('story.handles', x) })], { open: false }),
           ui.actionButton(BOARD ? 'Build sequence from the board' : 'Build sequence', () => US.actions.run('story.build', { source: BOARD ? 'wall' : 'themes' }), { icon: 'film' })));
         el.appendChild(narrativeCard());
+        el.appendChild(clipsCard());
         // bins by theme
         let seqs = US.settings.get('story.seqPerTheme', false);
         el.appendChild(h('div.card', { dataset: { section: 'bins' } }, h('div.card-title', 'Sort selects into bins'),
@@ -3062,6 +3119,42 @@
           hl ? coverageView(hl) : null));
         el.appendChild(nextBar('build'));
       }
+      /* Clip Finder: short clips for social */
+      const CLIP_LENGTHS = { short: { label: 'Short (15–30 s)', min: 15, max: 30 }, standard: { label: 'Standard (30–60 s)', min: 30, max: 60 }, long: { label: 'Long (60–90 s)', min: 60, max: 90 } };
+      function clipsCard() {
+        const o = Object.assign({ source: 'interviews', length: 'standard', count: 8, brief: '', vertical: true, aspect: '9:16', captions: 'social' }, US.settings.get('story.clips', {}));
+        const save = () => US.settings.set('story.clips', o);
+        const seqSel = ui.select({ options: [], placeholder: 'Choose a timeline…', onChange: x => { o.seqId = x; save(); } });
+        if (o.source === 'timeline') US.host.call('listSequences').then(seqs => seqSel.setOptions(seqs.map(q => ({ value: q.id, label: q.name })), o.seqId || (US.ctx.sequence && US.ctx.sequence.id) || '')).catch(() => {});
+        const briefIn = ui.input({ value: o.brief, placeholder: 'Optional: what the clips are for – e.g. funny moments for TikTok, advice for LinkedIn', onInput: x => { o.brief = x; save(); } });
+        const found = state.clips && state.clips.items ? state.clips.items : [];
+        const list = h('div.clip-list', found.map(c => {
+          const sc = c.scores || {}, text = c.parts.flatMap(p => p.lineIds).map(id => (lineById.get(id) || {}).text || '').join(' ');
+          const first = lineById.get(c.parts[0].lineIds[0]);
+          return h('div.clip-card' + (c.on ? '' : '.off'),
+            h('label.row', h('input', { type: 'checkbox', checked: !!c.on, onchange: e => { c.on = e.target.checked; save(); saveNow(); } }), h('b.grow', c.title), ui.pill(`${c.score}/10`, c.score >= 7 ? 'var(--ok)' : 'var(--text-2)'), h('span.field-hint', US.fmtDur(c.seconds, true))),
+            c.hook ? h('div.clip-hook', `“${c.hook}”`) : null,
+            h('div.field-hint', `Hook ${sc.hook} · stands alone ${sc.standalone} · payoff ${sc.payoff} · length ${sc.length}${c.parts.length > 1 ? ` · ${c.parts.length} parts joined` : ''}`),
+            c.reason ? h('div.story-why', c.reason) : null,
+            h('div.clip-text', text.length > 280 ? text.slice(0, 280) + '…' : text),
+            first ? h('div.row', playButton(first, first.start), first ? h('span.field-hint', whoSaid(first)) : null) : null);
+        }));
+        const go = () => US.actions.run('story.clips', { source: o.source, seqId: o.seqId || '', length: o.length, count: o.count, brief: o.brief }).then(r => { if (r) renderBuild(); });
+        return h('div.card', { dataset: { section: 'clips' } }, h('div.card-title', 'Clips for social'),
+          h('div.muted', 'Short clips that stand on their own – each with a hook, a title, a score for the hook, standing alone, the payoff and the length, and why it works. A clip can join two moments (a question and its answer). Only the text of the lines is sent to the AI; without AI, strong stretches by one speaker.'),
+          ui.field('From', ui.segmented({ options: [{ value: 'interviews', label: 'Your interviews' }, { value: 'timeline', label: 'A timeline' }], value: o.source, onChange: x => { o.source = x; save(); renderBuild(); } })),
+          o.source === 'timeline' ? ui.field('Timeline', seqSel, 'A podcast episode, a rough cut or a string-out – clips come only from what is heard in it.') : null,
+          h('div.grid2', ui.field('Length', ui.segmented({ options: Object.entries(CLIP_LENGTHS).map(([k, v]) => ({ value: k, label: v.label })), value: o.length, onChange: x => { o.length = x; save(); } })),
+            ui.field('How many', ui.select({ options: [3, 5, 8, 12, 20].map(n => ({ value: String(n), label: String(n) })), value: String(o.count), onChange: x => { o.count = +x; save(); } }))),
+          ui.field('For', briefIn),
+          ui.actionButton(found.length ? 'Find clips again' : 'Find clips', go, { icon: 'spark' }),
+          found.length ? h('div', h('div.field-hint', `${US.plural(found.length, 'clip')}${state.clips.seqName ? ` from “${state.clips.seqName}”` : ''}${state.clips.by === 'basic' ? ' (basic – no AI)' : ''} – tick the ones to build.`), list,
+            h('div.grid2', ui.toggle({ label: 'A vertical version too', hint: RES ? 'Resolve’s Smart Reframe, then fitted to a full-size frame.' : 'Premiere’s Auto Reframe, then fitted to a full-size frame.', value: o.vertical, onChange: x => { o.vertical = x; save(); } }),
+              ui.field('Shape', ui.segmented({ options: [{ value: '9:16', label: '9:16' }, { value: '4:5', label: '4:5' }, { value: '1:1', label: '1:1' }], value: o.aspect, onChange: x => { o.aspect = x; save(); } }))),
+            ui.field('Captions', ui.segmented({ options: [{ value: 'social', label: 'Social' }, { value: 'subtitles', label: 'Subtitles' }, { value: '', label: 'None' }], value: o.captions, onChange: x => { o.captions = x; save(); } })),
+            ui.actionButton('Build the ticked clips', () => US.jobs.run({ title: 'Building the clips', tool: 'story' }, job => buildClips(job, (state.clips.items || []).filter(c => c.on), { vertical: o.vertical, aspect: o.aspect, captions: o.captions })), { icon: 'film' })) : null);
+      }
+
       /* narrative from a brief */
       let narBrief = US.settings.get('story.brief', ''), narAI = US.settings.get('story.narrativeAI', true), narFrom = US.settings.get('story.narrativeFrom', 'selects'), narSeqs = null;
       function narrativeCard() {
@@ -3621,6 +3714,22 @@
   });
 
   US.actions.register({
+    id: 'story.clips', tool: 'story', title: 'Find clips for social', changes: false,
+    describe: 'Finds short clips that stand on their own in the interviews (or the lines heard in a timeline, e.g. a podcast episode) – each with a hook, title, scores and why it works. Only line text is sent to the AI. Build them in Story › Build › Clips for social (each its own sequence, with a vertical version and captions).',
+    params: { source: { type: 'enum', options: ['interviews', 'timeline'], default: 'interviews', desc: 'From the interviews in scope, or a timeline' }, seqId: { type: 'string', default: '', desc: 'The timeline when source is timeline (empty = the open one)' }, length: { type: 'enum', options: ['short', 'standard', 'long'], default: 'standard', desc: '15–30, 30–60 or 60–90 seconds' }, count: { type: 'number', default: 8, desc: 'How many clips' }, brief: { type: 'string', default: '', desc: 'What the clips are for' } },
+    examples: ['find clips for TikTok', 'find 5 short clips from this podcast episode', 'find social clips about family'],
+    match: t => (/(clips?|shorts|reels?|tiktoks?)/i.test(t) && /(find|social|tiktok|reels?|shorts|instagram|linkedin|viral)/i.test(t) && !/sub-?clips?/i.test(t) ? Object.assign({ _score: 2.3 }, /podcast|episode|this (sequence|timeline|cut)/i.test(t) ? { source: 'timeline' } : {}, /short/i.test(t) ? { length: 'short' } : {}) : null),
+    run: async (p, job) => {
+      const L = { short: [15, 30], standard: [30, 60], long: [60, 90] }[p.length] || [30, 60];
+      const seqId = p.source === 'timeline' ? (p.seqId || (US.ctx.sequence && US.ctx.sequence.id) || '') : '';
+      if (p.source === 'timeline' && !seqId) throw new US.UserError('NO_SEQUENCE');
+      const r = await findClips(job, { source: p.source, seqId, count: Math.max(1, Math.min(30, +p.count || 8)), min: L[0], max: L[1], brief: p.brief });
+      openStory('build', { section: 'clips' });
+      return r;
+    }
+  });
+
+  US.actions.register({
     id: 'story.promo', tool: 'story', title: 'Make a promo from the latest narrative', changes: true,
     describe: 'Builds the latest narrative cut, then (optionally) covers its jump cuts with B-roll from a bin, adds captions and makes a vertical 9:16 version.',
     params: { bin: { type: 'string', default: '', desc: 'B-roll bin name (empty = no B-roll)' }, captions: { type: 'enum', options: ['', 'social', 'subtitles'], default: 'social', desc: 'Caption style' }, vertical: { type: 'boolean', default: true, desc: 'Also a 9:16 version' } },
@@ -3643,7 +3752,7 @@
   // for Home, tests and the Assistant
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' } };
   US.story = {
-    applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
+    findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
     SECTIONS,

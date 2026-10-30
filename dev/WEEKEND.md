@@ -593,3 +593,8 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     sentence ends); switches in the review list; `podSwitch` – Premiere razors each camera track and disables inactive
     pieces (jsx/tools/podcast.jsx), Resolve lays each camera again in pieces (resolve/host/podcast.js). Starter recipe
     "Podcast episode". The owner's open question (Podcast tool vs MC Selects mode) – built as its own tool in Cut faster.
+  - **1.3.13** Clips for social (22-story-clips.js + `findClips`/`buildClips` in Story): AI picks clips from the
+    interviews in scope or a timeline's lines (text only) with hook/title/caption, rubric scores and a reason, parts
+    snapped to whole sentences, non-contiguous parts allowed; basic version without AI; each clip built as its own
+    sequence with a hook marker, then `finishSocial` (shared with the promo): host reframe to 9:16 / 4:5 / 1:1 and
+    captions. Per-speaker fixed crops (the report's fallback) not built – the hosts' reframe is used.

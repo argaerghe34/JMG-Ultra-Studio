@@ -206,3 +206,11 @@
 .glossary-rows { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .glossary-row { display: grid; grid-template-columns: 1fr 1.4fr auto auto; gap: 6px; align-items: center; }
 .glossary-hide { font-size: 11px; color: var(--text-2); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+
+/* Clips for social */
+.clip-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.clip-card { border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 8px; padding: 8px 10px; }
+.clip-card.off { opacity: .55; }
+.clip-card label.row { gap: 8px; align-items: center; }
+.clip-hook { font-weight: 600; margin: 4px 0; }
+.clip-text { font-size: 12px; color: var(--text-2); margin-top: 4px; }

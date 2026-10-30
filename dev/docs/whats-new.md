@@ -1,3 +1,7 @@
+## What's new in 1.3.13
+
+- **Clips for social** (Story › 4 Build): short clips that stand on their own, from your interviews or from what is heard in a timeline (a podcast episode, a rough cut). Each comes with a hook, a title, a score for the hook, standing alone, the payoff and the length, and why it works – not a bare "virality" number. A clip can join two moments (a question and its answer); every part ends on a whole sentence. Tick the ones you want and **Build the ticked clips**: each gets its own sequence with the hook as a marker, a vertical version (9:16, 4:5 or 1:1, using Premiere's Auto Reframe or Resolve's Smart Reframe) and captions. Only line text goes to the AI; without AI, strong stretches by one speaker. Ask: *find 5 short clips from this podcast episode*.
+
 ## What's new in 1.3.12
 
 - **Podcast** (Cut faster): cuts between the cameras of a video podcast by who is speaking. Say whose mic is whose and what each camera shows (save it as a preset per show); each mic is heard on its own, on this computer, against its own levels, so bleed doesn't steal the shot. Editor's rules: shortest and longest shot (Long-form, Standard, Promo), a cut a few frames after the voice starts, *mm-hm*s ignored, the wide on crosstalk, long silences and at the ends, reaction shots in long answers, cutaways on sentence ends. Every switch is listed – untick one to keep the shot before. The copy keeps every camera, cut and switched on or off, so it stays re-switchable. Works in Resolve too (each camera laid again in pieces). Ask: *switch the podcast cameras*.
