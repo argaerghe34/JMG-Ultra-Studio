@@ -606,3 +606,7 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     test; per-project "nothing leaves this computer" (`ai.offlineProjects`) forces local or no AI. Top-bar chip says so.
   - **1.3.16** Overnight prep (the report's "Night Shift"): new steps – beat map, clips for social, and a chosen recipe run
     inside the night's job (unattended AI budget applies); edit steps stop the recipe and are reported for the morning.
+  - **Plans, not code:** `dev/UXP-PLAN.md` – the Premiere UXP port as a third host adapter (command-by-command map
+    against the UXP changelog, a two-week spike for H1 2027, the gaps: razor/extract, transitions, effects, keyframes),
+    and reading the editors' own transcripts (Premiere UXP `Transcript`/`transcribeClipProjectItem`, Resolve 21.1).
+    Local visual logging stays parked with B-roll (owner's choice); Selects already drops duplicate takes.
