@@ -52,12 +52,17 @@ function makePremiere({ clipColours = false, adjustment = false, qeMethods = ['n
         if (kind === 'v' && !it.adj && src !== null && it.name !== 'Ultra Studio theme label' && !/transparent/i.test(it.name)) seq._a[0].overwriteClipAudio(ti);
         return true;
       },
-      overwriteClipAudio(vti) { clips.push(Object.assign({}, vti)); }
+      overwriteClipAudio(vti) { clips.push(Object.assign({}, vti, { end: T(vti._end), name: vti._name })); }
     };
   }
   const seq = { sequenceID: 's1', name: 'Seq', timebase: String(TICKS / 25), frameSizeHorizontal: 1920, frameSizeVertical: 1080, videoDisplayFormat: 101, _v: [], _a: [] };
   for (let i = 0; i < tracks; i++) { seq._v.push(track('v', i + 1)); seq._a.push(track('a', i + 1)); }
   seq.videoTracks = coll(seq._v, 'numTracks'); seq.audioTracks = coll(seq._a, 'numTracks');
+  // sequence markers and the Timeline selection (Ask › Edit)
+  seq._markers = []; seq._sel = [];
+  seq.markers = { createMarker(s) { const m = { start: T(s), _end: s, name: '', comments: '', guid: 'g' + seq._markers.length, color: 0, setColorByIndex(i) { m.color = i; }, getColorByIndex() { return m.color; } }; Object.defineProperty(m, 'end', { get: () => T(m._end), set: v => { m._end = v.seconds; } }); seq._markers.push(m); return m; },
+    getFirstMarker: () => seq._markers[0] || null, getNextMarker: m => seq._markers[seq._markers.indexOf(m) + 1] || null };
+  seq.getSelection = () => seq._sel;
   Object.defineProperty(seq, 'end', { get: () => String(Math.round(Math.max(0, ...seq._v.flatMap(t => t._clips.map(c => c._end))) * TICKS)) });
   // sequence In/Out (seconds, like Premiere 26) and a Media Encoder that records what it was given
   seq._io = [0, 0];
@@ -80,7 +85,7 @@ function makePremiere({ clipColours = false, adjustment = false, qeMethods = ['n
   const ctx = { app: { project, enableQE() {}, path: '/Applications/Premiere/', encoder }, qe: { project: qeProject }, Time, $: { os: 'Macintosh' }, File: function () { return { exists: false }; }, JSON };
   vm.createContext(ctx);
   // alphabetical, as Premiere loads them: finish.jsx comes first and only reaches story.jsx's label-clip helpers when called
-  for (const f of ['jsx/host.jsx', 'jsx/tools/finish.jsx', 'jsx/tools/story.jsx']) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
+  for (const f of ['jsx/host.jsx', 'jsx/tools/edit.jsx', 'jsx/tools/finish.jsx', 'jsx/tools/story.jsx']) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
   const call = (fn, args) => { const r = JSON.parse(ctx.UStudio.run(fn, JSON.stringify(args))); if (!r.ok) { const e = new Error(r.error.detail); e.code = r.error.code; e.title = r.error.title; throw e; } return r.data; };
   return { call, seq, root, interview, logs, encoded, findAll: name => { const out = []; ctx.UStudio.walk(root, c => { if (c.name === name) out.push(c); }); return out; } };
 }
@@ -330,4 +335,27 @@ test('render ranges from text layers: named by the words they show (Source Text 
   assert.ok(!r.ranges[0].probe && /Source Text=\?\?\?/.test(r.ranges[3].probe), 'unreadable words: what the layer is made of comes back for the log');
   assert.deepStrictEqual(P.call('renderRanges', { seqId: 's1' }).ranges.map(x => x.name), ['Hook'], 'adjustment layers only, as before');
   assert.strictEqual(P.call('renderRanges', { seqId: 's1', kinds: 'both' }).ranges.length, 5);
+});
+
+/* ---------- Ask › Edit (edit.jsx) ---------- */
+test('Ask › Edit in Premiere: clips found by track and start; switch off, colour, marker, delete; gone clips skipped; the selection read', () => {
+  const P = makePremiere({ clipColours: true });
+  P.call('storyPlace', { seqId: 's1', cursor: 0, method: 'relabel', clips: [{ id: P.interview.nodeId, in: 0, out: 4 }, { id: P.interview.nodeId, in: 10, out: 13 }, { id: P.interview.nodeId, in: 20, out: 22 }] });
+  const r = P.call('editRead', { seqId: 's1' });
+  assert.deepStrictEqual(r.video[0].clips.map(c => [c.start, c.end, c.effects.length]), [[0, 4, 0], [4, 7, 0], [7, 9, 0]]);
+  const at = start => ({ kind: 'video', track: 0, start });
+  assert.strictEqual(P.call('editApply', { seqId: 's1', op: 'enable', params: { on: false }, targets: [at(4)] }).done, 1);
+  assert.strictEqual(P.seq._v[0]._clips[1].disabled, true);
+  assert.strictEqual(P.call('editApply', { seqId: 's1', op: 'label', params: { label: 7 }, targets: [at(0), at(7)] }).done, 2);
+  assert.deepStrictEqual(P.seq._v[0]._clips.map(c => c.label), [7, 3, 7]);
+  P.call('editApply', { seqId: 's1', op: 'marker', params: { name: 'Answer', color: 3 }, targets: [at(4)] });
+  assert.deepStrictEqual(P.seq._markers.map(m => [m.start.seconds, m._end, m.name, m.color]), [[4, 7, 'Answer', 3]]);
+  const gone = P.call('editApply', { seqId: 's1', op: 'label', params: { label: 1 }, targets: [at(55)] });
+  assert.deepStrictEqual([gone.done, gone.skipped[0].why], [0, 'not on the timeline any more']);
+  P.seq._sel = [P.seq._v[0]._clips[2]];
+  assert.deepStrictEqual(P.call('editSelection', { seqId: 's1' }).map(x => [x.kind, x.track, x.start]), [['video', 0, 7]]);
+  const del = P.call('editApply', { seqId: 's1', op: 'remove', params: { ripple: true }, targets: [at(0), at(7)] });
+  assert.strictEqual(del.done, 2);
+  assert.deepStrictEqual(P.seq._v[0]._clips.map(c => c.start.seconds), [4]);
+  assert.ok(/Unknown edit/.test(P.call('editApply', { seqId: 's1', op: 'nonsense', params: {}, targets: [at(4)] }).skipped[0].why));
 });

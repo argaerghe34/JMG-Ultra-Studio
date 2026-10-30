@@ -27,3 +27,12 @@
 .ask-moves .icon-btn { height: 16px; }
 .ask-landing { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--bg); }
 .ask-refine { margin-top: 4px; }
+
+/* Ask › Edit */
+.edit-where { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.edit-where .field-label { margin: 0; }
+.edit-step { margin: 6px 0; }
+.edit-step label.row { align-items: flex-start; gap: 8px; cursor: pointer; }
+.edit-step input[type=checkbox] { margin-top: 3px; }
+.edit-targets { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0 24px; }
+.edit-results { margin: 6px 0 0 18px; padding: 0; font-size: 12px; color: var(--text-2); }

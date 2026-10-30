@@ -1,6 +1,8 @@
-## What's new in 1.3.7.1
+## What's new in 1.3.8
 
-A small update to 1.3.7.
+- **Ask › Edit**: say what to change in your sequence or project and the AI plans it – dissolves on every cut, a punch-in on each answer, dip to black where the speaker changes, lower thirds with each speaker's name, audio fades, effects, speed, labels, markers, cuts, deleting, renaming, moving clips to bins. Choose **where** it acts: the sequence, its selected clips, the transcript lines heard in it, a bin or the whole project. You check the plan first; sequence edits run on a copy; then it reads the result back, checks it against what you asked and offers what's still missing.
+
+Also in this version (first tried as 1.3.7.1):
 
 - **Song Splitter finds the right number of songs**: it listens once and remembers every place a song might end, with how sure it is. Applause and longer talk between songs are the surest signs; a key change alone (a solo, a bridge) no longer starts a new song unless you ask for more. New **Fewer songs – more songs** slider, and a box for **the number of songs played** if you know the setlist – both re-sort the list instantly, without listening again.
 - **MC Selects** shows a still of each camera (the file's own preview from Finder or Explorer – nothing is rendered), the **camera model** when the file says (Sony, Canon, Panasonic Lumix, Fujifilm, Nikon, GoPro, DJI, iPhone…), and the **total running time** of the cameras you keep.

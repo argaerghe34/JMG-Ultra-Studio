@@ -31,7 +31,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -215,6 +215,16 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     const txt = as.el.textContent;
     if (!/Ask anything about what your interviews say/.test(txt) || !/Earlier:/.test(txt)) errors.push('Ask tab (interviews): ' + txt.slice(0, 200));
     US.settings.set('assistant.mode', 'auto'); as.el.remove();
+  }
+  // the Ask tab in Edit mode: where it acts, and examples
+  {
+    US.settings.set('assistant.mode', 'edit');
+    const as = US.tools.get('assistant').create(); w.document.body.appendChild(as.el); as.onShow && as.onShow();
+    const where = as.el.querySelector('.edit-where'), txt = as.el.textContent;
+    if (!where || where.classList.contains('hidden') || !['This sequence', 'Selected clips', 'Transcript lines', 'A bin', 'Whole project'].every(x => where.textContent.includes(x))) errors.push('Ask tab (edit): no Where bar');
+    if (!/Tell me what to change/.test(txt) || !/cross dissolve on every cut/i.test(txt)) errors.push('Ask tab (edit): ' + txt.slice(0, 200));
+    US.settings.set('assistant.mode', 'auto'); as.el.remove();
+    checks.push('ask edit: where bar + examples');
   }
   // Search › Find more renders results with reasons (lines not yet selected)
   st.picky = { s: S.PICKY_LEVELS.all };
