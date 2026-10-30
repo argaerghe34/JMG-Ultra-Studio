@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const US = window.US, h = US.h, ui = US.ui;
-  const fs = require('fs'), zlib = require('zlib');
+  const fs = require('fs'), path = require('path'), zlib = require('zlib');
 
   /* ---------- which camera each cut shows, from the .prproj (gzipped XML) ---------- */
   /** Objects by id: one pass over the file, then each body is sliced on demand. */
@@ -39,13 +39,121 @@
     return (raw[0] === 0x1f && raw[1] === 0x8b ? zlib.gunzipSync(raw) : raw).toString('utf8');
   }
 
+  /* ---------- which camera made a file, read from the file itself (nothing rendered, nothing sent) ---------- */
+  const GOPRO = { HD3: 'HERO3', HD4: 'HERO4', HD5: 'HERO5', HD6: 'HERO6', HD7: 'HERO7', HD8: 'HERO8', HD9: 'HERO9', H21: 'HERO10', H22: 'HERO11', H23: 'HERO12', H24: 'HERO13' };
+  const clean = x => String(x || '').replace(/\0/g, '').replace(/\s+/g, ' ').trim();
+  /** Make and model from bytes of an MP4/MOV header (moov and the small boxes around it). -> {make, model} or null */
+  function modelFromBytes(buf) {
+    const txt = buf.toString('latin1'), out = { make: '', model: '' };
+    // Sony XAVC / Canon / Panasonic: the camera's own XML inside the file
+    const xm = /modelName="([^"]+)"/i.exec(txt); if (xm) { out.model = xm[1]; out.make = (/manufacturer="([^"]+)"/i.exec(txt) || [])[1] || ''; return out; }
+    const xe = /<(?:\w+:)?ModelName>\s*([^<]+?)\s*</i.exec(txt); if (xe) { out.model = xe[1]; out.make = (/<(?:\w+:)?Manufacturer>\s*([^<]+?)\s*</i.exec(txt) || [])[1] || ''; return out; }
+    // Apple-style metadata: keys "com.apple.quicktime.make/model" with their values in ilst
+    const k = txt.indexOf('keys'), il = txt.indexOf('ilst', k);
+    if (k > 4 && il > k) {
+      const n = buf.readUInt32BE(k + 8), names = []; let at = k + 12;
+      for (let i = 0; i < n && at + 8 <= buf.length; i++) { const sz = buf.readUInt32BE(at); if (sz < 8) break; names.push(buf.toString('utf8', at + 8, at + sz)); at += sz; }
+      const end = il - 4 + buf.readUInt32BE(il - 4); at = il + 4;
+      while (at + 8 <= Math.min(end, buf.length)) {
+        const sz = buf.readUInt32BE(at), idx = buf.readUInt32BE(at + 4), d = txt.indexOf('data', at);
+        if (sz < 8) break;
+        if (d > 0 && d < at + sz) { const v = clean(buf.toString('utf8', d + 12, at + sz)), key = names[idx - 1] || ''; if (/\.model$/.test(key)) out.model = v; if (/\.make$/.test(key)) out.make = v; }
+        at += sz;
+      }
+      if (out.model) return out;
+    }
+    // QuickTime user data: ©mak / ©mod (length-prefixed text, or an iTunes-style data box)
+    const ud = tag => { const i = txt.indexOf('\xa9' + tag); if (i < 4) return ''; const sz = buf.readUInt32BE(i - 4); if (sz < 12 || sz > 512) return ''; const body = buf.slice(i + 4, i - 4 + sz); return clean(body.indexOf('data') === 4 ? body.toString('utf8', 16) : body.toString('utf8', 4, 4 + body.readUInt16BE(0))); };
+    out.model = ud('mod'); out.make = ud('mak');
+    if (out.model) return out;
+    // GoPro: the firmware box says which HERO
+    // EXIF as in photos (Lumix, Fujifilm, Nikon…): the make, then the model, each ending in a zero byte
+    const ex = /(Panasonic|Canon|NIKON(?: CORPORATION)?|SONY|FUJIFILM|OLYMPUS[ A-Z]*|OM Digital Solutions|Blackmagic Design|LEICA[ A-Z]*|SIGMA|RICOH[ A-Z]*|Hasselblad|Insta360)\0+([A-Za-z0-9][\x20-\x7e]{1,30})\0/.exec(txt);
+    if (ex) return { make: clean(ex[1]), model: clean(ex[2]) };
+    const fw = /FIRM.{0,8}?(HD\d|H\d\d)\.[0-9.]+/.exec(txt); if (fw) return { make: 'GoPro', model: GOPRO[fw[1]] || fw[1] };
+    const dji = /DJI ?([A-Za-z0-9][A-Za-z0-9 \-]{1,24})/.exec(txt); if (dji) return { make: 'DJI', model: clean(dji[1]) };
+    return null;
+  }
+  /** The top-level boxes of an MP4/MOV except the media itself, at most 32 MB in all. */
+  function headerBytes(file) {
+    const fd = fs.openSync(file, 'r'), parts = [], head = Buffer.alloc(16);
+    try {
+      const size = fs.fstatSync(fd).size; let at = 0, total = 0;
+      while (at + 8 <= size && total < 32e6) {
+        fs.readSync(fd, head, 0, 16, at);
+        let len = head.readUInt32BE(0); const type = head.toString('latin1', 4, 8);
+        if (len === 1) len = Number(head.readBigUInt64BE(8)); else if (len === 0) len = size - at;
+        if (len < 8 || !/^[\w ©]{4}$/.test(type)) break;
+        if (type !== 'mdat' && type !== 'free' && type !== 'skip' && len < 32e6 - total) { const b = Buffer.alloc(len); fs.readSync(fd, b, 0, len, at); parts.push(b); total += len; }
+        at += len;
+      }
+    } finally { fs.closeSync(fd); }
+    return Buffer.concat(parts);
+  }
+  const modelMemo = new Map();
+  /** "Sony ILCE-7SM3", "GoPro HERO11", "Apple iPhone 15 Pro"… or '' when the file doesn't say. */
+  function cameraModel(file) {
+    if (!file) return '';
+    if (modelMemo.has(file)) return modelMemo.get(file);
+    let r = null;
+    try {
+      // Sony and Canon write the camera's XML next to the clip (C0001.MP4 + C0001M01.XML)
+      const dir = path.dirname(file), stem = path.basename(file).replace(/\.[^.]+$/, '');
+      const side = fs.readdirSync(dir).find(f => f.toLowerCase().startsWith(stem.toLowerCase()) && /\.xml$/i.test(f) && f.length <= stem.length + 8);
+      if (side) r = modelFromBytes(fs.readFileSync(path.join(dir, side)));
+      if (!r && /\.(mp4|mov|m4v|mts|3gp|insv|lrv)$/i.test(file)) r = modelFromBytes(headerBytes(file));
+    } catch (e) { /* not readable: no model */ }
+    if (!r && process.platform === 'darwin') {
+      try { const o = require('child_process').execFileSync('mdls', ['-raw', '-name', 'kMDItemAcquisitionMake', '-name', 'kMDItemAcquisitionModel', file], { timeout: 3000 }).toString().split('\0'); if (o[1] && o[1] !== '(null)') r = { make: o[0] === '(null)' ? '' : o[0], model: o[1] }; } catch (e) { /* Spotlight doesn't know it */ }
+    }
+    const name = r && r.model ? clean((r.make && !r.model.toLowerCase().startsWith(r.make.toLowerCase()) ? r.make + ' ' : '') + r.model) : '';
+    modelMemo.set(file, name);
+    return name;
+  }
+
+  /* ---------- a still of each camera: the computer's own file preview (Finder / Explorer), no rendering ---------- */
+  const thumbDir = () => US.fsx.ensureDir(path.join(US.fsx.cacheDir(), 'thumbs'));
+  const thumbFile = file => path.join(thumbDir(), US.fsx.mediaKey(file) + '.png');
+  /** The preview picture of a media file (made once, then kept). -> png path, or '' when the system has none */
+  async function thumbnail(file, size = 320) {
+    if (!file || !fs.existsSync(file)) return '';
+    const out = thumbFile(file);
+    if (fs.existsSync(out)) return out;
+    const cp = require('child_process'), tmp = fs.mkdtempSync(path.join(US.fsx.tempDir(), 'thumb-'));
+    try {
+      if (process.platform === 'darwin') {
+        await new Promise(res => cp.execFile('qlmanage', ['-t', '-s', String(size), '-o', tmp, file], { timeout: 20000 }, () => res()));
+        const got = fs.readdirSync(tmp).find(f => /\.png$/i.test(f));
+        if (got) fs.renameSync(path.join(tmp, got), out);
+      } else if (US.fsx.isWin) {
+        const ps = `Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System; using System.Runtime.InteropServices; using System.Drawing; using System.Drawing.Imaging;
+public static class UsThumb {
+  [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IShellItemImageFactory { [PreserveSig] int GetImage(Size size, int flags, out IntPtr bmp); }
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+  static extern void SHCreateItemFromParsingName(string path, IntPtr bc, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, out IShellItemImageFactory item);
+  [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
+  public static void Save(string file, string png, int size) {
+    IShellItemImageFactory f; SHCreateItemFromParsingName(file, IntPtr.Zero, new Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), out f);
+    IntPtr h; if (f.GetImage(new Size(size, size), 0x8, out h) != 0) return;
+    try { using (Bitmap b = Image.FromHbitmap(h)) b.Save(png, ImageFormat.Png); } finally { DeleteObject(h); }
+  }
+}
+'@; [UsThumb]::Save($env:US_THUMB_IN, $env:US_THUMB_OUT, ${size})`;
+        await new Promise(res => cp.execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 30000, windowsHide: true, env: Object.assign({}, process.env, { US_THUMB_IN: file, US_THUMB_OUT: out }) }, () => res()));
+      }
+    } catch (e) { /* no preview */ } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* later */ } }
+    return fs.existsSync(out) ? out : '';
+  }
+
   /* ---------- cameras and the plan (pure) ---------- */
   /** A camera's name: its file, or the first file and how many more when the card was split. */
   const cameraName = ang => { const n = ang.clips.map(c => c.name); return !n.length ? `Camera ${ang.index + 1} (empty)` : n.length === 1 ? n[0] : `${n[0]} +${n.length - 1} more`; };
-  /** Every camera used in the edit: [{name, cuts, seconds}] in the multicam's own order. */
+  /** Every camera used in the edit: [{name, cuts, seconds, file}] in the multicam's own order (file: its first clip's media). */
   function cameras(read, angles) {
     const by = new Map();
-    for (const mc of Object.values(read.multicams)) for (const a of mc.angles) { const n = cameraName(a); if (!by.has(n)) by.set(n, { name: n, cuts: 0, seconds: 0 }); }
+    for (const mc of Object.values(read.multicams)) for (const a of mc.angles) { const n = cameraName(a); if (!by.has(n)) by.set(n, { name: n, cuts: 0, seconds: 0, file: (a.clips.find(c => c.path) || {}).path || '' }); }
     for (const c of read.cuts) {
       const a = angles.get(c.startTicks + '|' + c.endTicks), ang = a != null && read.multicams[c.mcId].angles[a];
       if (ang && !c.disabled) { const r = by.get(cameraName(ang)); r.cuts++; r.seconds += c.end - c.start; }
@@ -103,7 +211,7 @@
 
   /* ---------- the tool ---------- */
   US.tools.register({
-    id: 'mcselects', name: 'MC Selects', short: 'MC Sel', icon: 'cameras', group: 'cut', order: 25,
+    id: 'mcselects', name: 'MC Selects', short: 'MC Sel', icon: 'cameras', group: 'selects', order: 12,
     // Premiere only: Resolve's scripting can't say which camera a multicam cut shows (dev/RESOLVE.md)
     apps: ['premiere'],
     blurb: 'From your cut multicam edit, a sequence of just the cameras you keep, each clip as you cut it.',
@@ -113,16 +221,29 @@
       const seqLine = h('div.field-hint'), list = h('div'), note = h('div');
       let o = opts(), cams = [];
       const set = (name, k, val) => { o.cameras[name] = Object.assign({ keep: true, label: '' }, o.cameras[name], { [k]: val }); saveOpts(o); };
+      const totals = h('div.field-hint.mc-total');
+      /** Total running time of the cameras kept (what the new sequence will run), and of the whole edit. */
+      function showTotal() {
+        const used = cams.filter(c => c.cuts), kept = used.filter(c => keepOf(o)(c.name));
+        const all = US.sum(used.map(c => c.seconds)), mine = US.sum(kept.map(c => c.seconds));
+        totals.textContent = used.length ? `MC Selects will run ${US.fmtDur(mine)} – ${US.plural(US.sum(kept.map(c => c.cuts)), 'cut')} from ${US.plural(kept.length, 'camera')} (the edit is ${US.fmtDur(all)})` : '';
+      }
+      let showThumbs = US.settings.get('mcSelects.thumbs', true);
       function render() {
         US.clear(list);
-        if (!cams.length) { list.appendChild(ui.note('Open your cut multicam sequence, then press Read the cameras.', 'info')); return; }
+        if (!cams.length) { list.appendChild(ui.note('Open your cut multicam sequence, then press Read the cameras.', 'info')); showTotal(); return; }
         for (const c of cams) {
           const cur = Object.assign({ keep: true, label: '' }, o.cameras[c.name]);
-          const keep = ui.toggle({ label: c.name, hint: c.cuts ? `${US.plural(c.cuts, 'cut')} · ${US.fmtDur(c.seconds)} in the edit` : 'Not used in this edit', value: cur.keep, onChange: x => set(c.name, 'keep', x) });
+          const model = cameraModel(c.file);
+          const keep = ui.toggle({ label: c.name, hint: [model ? `📷 ${model}` : '', c.cuts ? `${US.plural(c.cuts, 'cut')} · ${US.fmtDur(c.seconds)} in the edit` : 'Not used in this edit'].filter(Boolean).join(' · '), value: cur.keep, onChange: x => { set(c.name, 'keep', x); showTotal(); } });
           const colour = ui.select({ options: [{ value: '', label: 'Its own colour' }].concat(ui.LABELS.map(l => ({ value: String(l.i), label: l.name }))), value: String(cur.label), onChange: x => set(c.name, 'label', x) });
-          list.appendChild(h('div.row', h('div.grow', keep), h('div', { style: { width: '150px' } }, colour)));
+          const pic = h('div.mc-thumb', { title: c.file ? 'The file’s own preview (as Finder or Explorer shows it)' : '' });
+          if (showThumbs && c.file) thumbnail(c.file).then(f => { if (f) pic.appendChild(h('img', { src: require('url').pathToFileURL(f).href + '?' + fs.statSync(f).mtimeMs, alt: c.name })); else pic.classList.add('none'); });
+          list.appendChild(h('div.row.mc-cam', showThumbs ? pic : null, h('div.grow', keep), h('div', { style: { width: '150px' } }, colour)));
         }
+        showTotal();
       }
+      const thumbsToggle = ui.toggle({ label: 'Show a still of each camera', hint: 'The file’s own preview picture, as Finder or Explorer shows it – nothing is rendered.', value: showThumbs, onChange: x => { showThumbs = x; US.settings.set('mcSelects.thumbs', x); render(); } });
       const readBtn = ui.button('Read the cameras', { small: true, icon: 'refresh', onClick: async () => {
         const s = US.ctx.sequence; if (!s) return ui.showError(new US.UserError('NO_SEQUENCE'));
         const r = await US.jobs.run({ title: 'Reading the multicam cameras', tool: 'mcselects' }, job => readEdit(s.id, job));
@@ -136,7 +257,7 @@
       note.appendChild(ui.note('Ultra Studio saves the project first: Premiere only writes down which camera each cut shows when it saves. Your edit isn’t changed. The new sequence goes in “JMG Ultra Studio › MC Selects”.'));
       function renderCtx() { seqLine.textContent = US.ctx.sequence ? `Sequence: ${US.ctx.sequence.name}` : 'Open your cut multicam sequence in the Timeline first.'; }
       US.bus.on('context', renderCtx);
-      v.body.append(seqLine, ui.card(h('div.row', h('div.grow.card-title', 'Cameras – keep or reject'), readBtn), list), ui.card(audio), note, go);
+      v.body.append(seqLine, ui.card(h('div.row', h('div.grow.card-title', 'Cameras – keep or reject'), readBtn), thumbsToggle, list, totals), ui.card(audio), note, go);
       render();
       return { el: v.el, onShow() { renderCtx(); } };
     }
@@ -150,5 +271,5 @@
     run: (p, job) => { const s = US.ctx.sequence; if (!s) throw new US.UserError('NO_SEQUENCE'); return build(s.id, opts(), job); }
   });
 
-  US.mcSelects = { activeAngles, cameras, plan, cameraName, readProjectFile };
+  US.mcSelects = { activeAngles, cameras, plan, cameraName, readProjectFile, modelFromBytes, cameraModel, thumbnail };
 })();

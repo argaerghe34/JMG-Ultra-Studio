@@ -499,9 +499,11 @@
   /* =================== music / applause / speech / silence =================== */
   /**
    * Splits a long recording (concert, event) into labelled parts.
-   * Returns {segments:[{type:'song'|'applause'|'talk'|'silence', start, end}], seconds:[{t, type, f:{...}}]}.
+   * Returns {segments:[{type:'song'|'applause'|'talk'|'silence', start, end}], seconds:[{t, type, f:{...}}], model}.
+   * model ({runs, changes, duration}) holds every place a song might end, with how sure each one is: songParts(model,
+   * {sensitivity | count}) makes the parts again from it in no time – more or fewer songs without listening again.
    */
-  async function classify(data, sr, { onProgress, check, minSong = 20 } = {}) {
+  async function classify(data, sr, { onProgress, check, minSong = 20, sensitivity = SENS_DEFAULT } = {}) {
     const prog = (a, b) => f => onProgress && onProgress(a + (b - a) * f);
     const hopSec = 0.05, n = 1024, hop = Math.round(sr * hopSec), binHz = sr / n;
     const kLo = Math.max(1, Math.round(150 / binHz)), kHi = Math.min(n / 2, Math.round(Math.min(6000, sr / 2 - 100) / binHz));
@@ -562,17 +564,63 @@
       });
       segs = mergeSame(segs);
     }
-    // split long music runs where the music changes (key / tempo): novelty on per-second chroma + regularity lag
-    const out = [];
-    for (const sg of segs) {
-      if (sg.type !== 'song' || sg.end - sg.start < 2 * minSong) { out.push(sg); continue; }
-      const cuts = songChanges(ch, sg.start, sg.end, { minSong, flux: F.flux, fluxRate: 1 / hopSec });
-      let a = sg.start;
-      for (const c of cuts) { out.push({ type: 'song', start: a, end: c }); a = c; }
-      out.push({ type: 'song', start: a, end: sg.end });
-    }
+    // places inside long music runs where the music changes (key / tempo), each with how strong the change is
+    const changes = [];
+    for (const sg of segs) if (sg.type === 'song' && sg.end - sg.start >= 2 * minSong) changes.push(...songChanges(ch, sg.start, sg.end, { minSong, flux: F.flux, fluxRate: 1 / hopSec, all: true }));
+    const duration = data.length / sr;
+    const model = { runs: segs.map(s => ({ type: s.type, start: s.start, end: Math.min(s.end, duration) })), changes, duration };
     if (onProgress) onProgress(1);
-    return { segments: out.map(s => ({ type: s.type, start: s.start, end: Math.min(s.end, data.length / sr) })), seconds };
+    return { segments: songParts(model, { sensitivity }), seconds, model };
+  }
+
+  /* how sure a place is where one song ends and the next begins:
+     – a gap in the music (applause, talk, quiet): applause is the surest sign, longer gaps are surer
+     – a change inside the music (key, tempo): weaker – a solo, a bridge or a key change often isn't a new song */
+  const SENS_DEFAULT = 5;
+  function gapStrength(parts) {
+    const len = parts.reduce((t, p) => t + p.end - p.start, 0), clap = parts.filter(p => p.type === 'applause').reduce((t, p) => t + p.end - p.start, 0);
+    return (clap >= 1.5 ? 2 + clap / 5 : 0) + len / 8 + 0.6;
+  }
+  /** sensitivity 0 (fewest songs) … 10 (most): how sure a break must be, and the shortest song allowed */
+  const sensRule = sens => { const s = Math.max(0, Math.min(10, Number(sens))); return { min: 3.6 - 0.32 * s, minSong: Math.round(60 - 4 * s) }; };
+  /**
+   * The parts again from a classify() model. {sensitivity} keeps the breaks at least that sure; {count} keeps the
+   * strongest breaks that give that many songs. Breaks are never closer than the shortest song allowed; a gap that
+   * isn't a break (a quiet bridge, a few claps mid-song) becomes part of the song around it.
+   * -> [{type, start, end, strength?}] – songs carry the strength of the break they start with
+   */
+  function songParts(model, { sensitivity = SENS_DEFAULT, count = 0 } = {}) {
+    const runs = model.runs || [], cands = [];
+    const firstSong = runs.findIndex(r => r.type === 'song');
+    if (firstSong < 0) return runs.map(r => Object.assign({}, r));
+    let lastSong = -1; runs.forEach((r, i) => { if (r.type === 'song') lastSong = i; });
+    // gaps between songs: each run of non-music between two music runs
+    for (let i = firstSong + 1; i < lastSong; i++) {
+      if (runs[i].type === 'song') continue;
+      let j = i; while (runs[j + 1] && runs[j + 1].type !== 'song') j++;
+      const parts = runs.slice(i, j + 1);
+      cands.push({ kind: 'gap', start: parts[0].start, end: parts[parts.length - 1].end, parts, strength: gapStrength(parts) });
+      i = j;
+    }
+    for (const c of model.changes || []) cands.push({ kind: 'change', start: c.t, end: c.t, strength: c.score });
+    const rule = sensRule(sensitivity), minSong = count > 0 ? Math.min(20, rule.minSong) : rule.minSong;
+    const kept = [];
+    const fits = c => kept.every(k => c.start - k.end >= minSong || k.start - c.end >= minSong) && c.start - runs[firstSong].start >= minSong * 0.5 && runs[lastSong].end - c.end >= minSong * 0.5;
+    for (const c of cands.slice().sort((a, b) => b.strength - a.strength)) {
+      if (count > 0 ? kept.length >= count - 1 : c.strength < rule.min) break;
+      if (c.kind === 'gap' && c.strength >= 4 || fits(c)) kept.push(c);   // a long applause is always a break
+    }
+    kept.sort((a, b) => a.start - b.start);
+    const out = runs.slice(0, firstSong).map(r => Object.assign({}, r));
+    let at = runs[firstSong].start, strength = Infinity;
+    for (const k of kept) {
+      out.push({ type: 'song', start: at, end: k.start, strength });
+      if (k.kind === 'gap') k.parts.forEach(p => out.push(Object.assign({}, p)));
+      at = k.end; strength = Math.round(k.strength * 100) / 100;
+    }
+    out.push({ type: 'song', start: at, end: runs[lastSong].end, strength });
+    runs.slice(lastSong + 1).forEach(r => out.push(Object.assign({}, r)));
+    return out.filter(s => s.end - s.start > 0.01).map(s => (s.strength === Infinity ? (delete s.strength, s) : s));
   }
   function toRuns(labels) {
     const out = []; let s = 0;
@@ -585,7 +633,7 @@
    * Points inside [t0,t1] where one song turns into another. Evidence: the pitch-class profile over ~12 s
    * (a full chord cycle) changes a lot, and/or the local tempo changes by more than ~6 %. Each part >= minSong.
    */
-  function songChanges(ch, t0, t1, { minSong = 20, flux, fluxRate }) {
+  function songChanges(ch, t0, t1, { minSong = 20, flux, fluxRate, all = false }) {
     const W = 12;
     const localBpm = (a, b) => {
       if (!flux) return 0;
@@ -614,6 +662,8 @@
       const isMax = pts.slice(Math.max(0, i - 12), i + 13).every(q => q.d <= p.d);
       if (!isMax || p.d < Math.max(0.05, base * 2)) continue;
       const tc = tempoChange(p.t);
+      // all: every candidate with a score (key change ×, tempo change +1) – songParts chooses; else the old rule
+      if (all) { out.push({ t: p.t, score: Math.round(Math.min(3, 0.6 * p.d / Math.max(0.05, base * 2) + (tc > 0.06 ? 1 : 0)) * 100) / 100 }); continue; }
       const strong = p.d > Math.max(0.12, base * 4);
       if ((tc > 0.06 || strong) && (!out.length || p.t - out[out.length - 1] >= minSong)) out.push(p.t);
     }
@@ -622,7 +672,7 @@
 
   US.dsp = {
     fft, hann, eachSpectrum, stft, onsetStrength, tempo, beatTrack, chromaFrames, analyseBeats,
-    levelStats, findPauses, kWeighting, loudness, LoudnessMeter, peaks, quietSpectrum, detectHum, windAndDeadAir, classify,
+    levelStats, findPauses, kWeighting, loudness, LoudnessMeter, peaks, quietSpectrum, detectHum, windAndDeadAir, classify, songParts, SENS_DEFAULT,
     util: { amax, mean, std, percentile, movingAverage, medianFilter, db, cosDist, chromaMean }
   };
 })();

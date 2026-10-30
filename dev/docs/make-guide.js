@@ -8,7 +8,7 @@ for (const f of ['tools-cut.md', 'tools-find.md', 'tools-finish.md', 'tools-stor
   const text = fs.readFileSync(path.join(dir, f), 'utf8');
   for (const part of text.split(/^(?=### )/m)) { const m = /^### ([^–\n]+?) –/.exec(part); if (m) sections[m[1].trim()] = part.trim(); }
 }
-const ORDER = [[null, ['Story']], ['Find the good bits', ['Selects', 'Subclip Maker', 'Song Splitter']], ['Cut faster', ['Silence Cut', 'Beat Cut', 'MC Selects', 'B-roll', 'Camera Switch']],
+const ORDER = [[null, ['Story']], ['Selects & clips', ['Selects', 'Subclip Maker', 'MC Selects']], ['Find the good bits', ['Song Splitter']], ['Cut faster', ['Silence Cut', 'Beat Cut', 'B-roll', 'Camera Switch']],
   ['Finish & deliver', ['Colour', 'Safe Zones', 'Sound Check', 'Final Check', 'Deliver']], ['Ask', ['Assistant']]];
 const tools = ORDER.map(([group, names]) => (group ? `**${group}**\n\n` : '') + names.map(n => { if (!sections[n]) throw new Error('No guide section for ' + n); return sections[n]; }).join('\n\n')).join('\n\n');
 md = md.replace('{{TOOLS}}', tools);

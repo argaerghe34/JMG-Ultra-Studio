@@ -60,6 +60,40 @@ module.exports = function (R) {
     if (ok) taken.add(f);
     return { frame: f, ok, why };
   }
+  /* text layers as ranges: Text / Text+ titles on the video track named like the group (Premiere: text layers on the
+     range track). Their nodeId is "text:<item id>". */
+  const TEXT_ID = 'text:';
+  const tryCall = (f, d) => { try { const v = f(); return v == null ? d : v; } catch (e) { return d; } };
+  /** A title (Text, Text+, a Fusion title): no media behind it. On the range track (onTrack) any such clip counts. */
+  function isTextItem(ti, onTrack) {
+    if (tryCall(() => ti.GetMediaPoolItem(), null)) return false;
+    if (onTrack || /(text\+?|title|titel|titre|título|titolo)/i.test(itemName(ti))) return true;
+    return tryCall(() => ti.GetFusionCompCount(), 0) > 0;
+  }
+  /** The words a Text+ title shows, or '' (plain Text titles don't tell scripts). */
+  function textOfItem(ti) {
+    const comp = tryCall(() => (ti.GetFusionCompCount() > 0 ? ti.GetFusionCompByIndex(1) : null), null);
+    if (!comp) return '';
+    const tools = Object.values(tryCall(() => comp.GetToolList(false, 'TextPlus'), {}) || {});
+    for (const t of tools) { const v = tryCall(() => t.GetInput('StyledText'), ''); if (String(v || '').trim()) return String(v).trim(); }
+    return '';
+  }
+  /** Video tracks named like the group (any case), 1-based. */
+  const textTracks = (tl, group) => { const out = []; for (let t = 1, n = tl.GetTrackCount('video'); t <= n; t++) if (groupKey(tl.GetTrackName('video', t)) === groupKey(group)) out.push(t); return out; };
+  function textRanges(tl, fps, group) {
+    const t0 = tl.GetStartFrame(), out = [];
+    for (const t of textTracks(tl, group)) for (const ti of items(tl, t)) {
+      if (!isTextItem(ti, true)) continue;
+      const plain = itemName(ti), words = textOfItem(ti);
+      out.push({ name: /^(text\+?|fusion title)?\s*\d*$/i.test(plain.trim()) && words ? words : plain || words || 'Text', start: (ti.GetStart() - t0) / fps, end: (ti.GetEnd() - t0) / fps,
+        disabled: tryCall(() => ti.GetClipEnabled(), true) === false, nodeId: TEXT_ID + R.id(ti), label: labelOfColour(tryCall(() => ti.GetClipColor(), '')), kind: 'text', track: t });
+    }
+    return out;
+  }
+  function needText(tl, a) {
+    for (const t of textTracks(tl, a.track)) for (const ti of items(tl, t)) if (TEXT_ID + R.id(ti) === String(a.nodeId)) return ti;
+    throw R.err('NOT_FOUND', 'Text range ' + a.nodeId, 'That text layer isn’t on the timeline any more.', 'Press Refresh in Deliver › Render ranges.');
+  }
   function needRange(tl, a) {
     const hit = rangeMarkers(tl, a.track).find(x => String(x.m.customData) === String(a.nodeId));
     if (!hit) throw R.err('NOT_FOUND', 'Range marker ' + a.nodeId, 'That render range isn’t on the timeline any more.', 'Press Refresh in Deliver › Render ranges.');
@@ -191,17 +225,38 @@ module.exports = function (R) {
       };
     },
 
-    /** a: {seqId, track?} → {track, trackName, ranges:[{name, start, end, disabled, nodeId, label}], colours} (track -1 when there are none) */
+    /**
+     * a: {seqId, track?, kinds?} → {track, trackName, ranges:[{name, start, end, disabled, nodeId, label, kind}], colours, hidden}
+     * (track -1 when there are none). kinds: 'adjustment' (Premiere's word – here the range markers), 'text' (Text / Text+
+     * titles on the video track named like the group) or 'both'.
+     */
     renderRanges(a) {
-      const tl = R.needSeq(a.seqId), fps = R.fps(tl), group = a.track || RENDERS;
-      const ranges = rangeMarkers(tl, group).map(({ frame, m }) => rangeOf(fps, frame, m));
-      return { track: ranges.length ? 0 : -1, trackName: ranges.length ? String(group) : '', ranges, colours: true };
+      const tl = R.needSeq(a.seqId), fps = R.fps(tl), group = a.track || RENDERS, k = a.kinds || 'adjustment';
+      const ranges = (k !== 'text' ? rangeMarkers(tl, group).map(({ frame, m }) => Object.assign(rangeOf(fps, frame, m), { kind: 'marker' })) : [])
+        .concat(k !== 'adjustment' ? textRanges(tl, fps, group) : []);
+      const hidden = k !== 'adjustment' && textTracks(tl, group).some(t => !tl.GetIsTrackEnabled('video', t));
+      return { track: ranges.length ? 0 : -1, trackName: ranges.length ? String(group) : '', ranges: ranges.map(({ track, ...r }) => r), colours: true, hidden };
     },
-    /** a: {seqId} → {tracks:[{index, name, count}]} – every group of range markers on the timeline (Renders, Songs…) */
+    /** a: {seqId, kinds?} → {tracks:[{index, name, count}]} – every group of range markers on the timeline (Renders, Songs…),
+        and with text kinds every video track holding Text titles */
     rangeTracks(a) {
-      const tl = R.needSeq(a.seqId), count = new Map();
-      for (const m of Object.values(R.markers(tl))) { const g = m && groupOf(m.customData); if (g) count.set(g, (count.get(g) || 0) + 1); }
+      const tl = R.needSeq(a.seqId), count = new Map(), k = a.kinds || 'adjustment';
+      if (k !== 'text') for (const m of Object.values(R.markers(tl))) { const g = m && groupOf(m.customData); if (g) count.set(g, (count.get(g) || 0) + 1); }
+      if (k !== 'adjustment') for (let t = 1, n = tl.GetTrackCount('video'); t <= n; t++) {
+        const name = String(tl.GetTrackName('video', t) || `Video ${t}`), ours = count.has(name) || groupKey(name) === groupKey(RENDERS) || [...count.keys()].some(x => groupKey(x) === groupKey(name));
+        const c = items(tl, t).filter(ti => isTextItem(ti, ours)).length;
+        if (c) { const key = [...count.keys()].find(x => groupKey(x) === groupKey(name)) || name; count.set(key, (count.get(key) || 0) + c); }
+      }
       return { tracks: [...count.entries()].map(([name, n], i) => ({ index: i, name, count: n })) };
+    },
+    /** Switch the text tracks of a group on or off, so titles used as ranges don't show in the renders.
+        a: {seqId, track, on} → {track, was} (was: 1 shown, 0 hidden, -1 no such track) */
+    rangeTrackOutput(a) {
+      const tl = R.needSeq(a.seqId), ts = textTracks(tl, a.track || RENDERS);
+      if (!ts.length) return { track: -1, was: -1 };
+      const was = ts.every(t => tl.GetIsTrackEnabled('video', t)) ? 1 : 0;
+      for (const t of ts) tl.SetTrackEnable('video', t, !!a.on);
+      return { track: ts[0] - 1, was };
     },
     /** Premiere's “new track on top for render ranges”: in Resolve a group of range markers needs nothing made – just a
         name no other group has. a: {seqId, name?} → {index, name, named, log} */
@@ -228,6 +283,13 @@ module.exports = function (R) {
     },
     /** Change a range: name, colour (Premiere label), start, end – the marker is laid again with the same id. a: {seqId, track, nodeId, name?, label?, start?, end?} → {range, log} */
     editRenderRange(a) {
+      if (String(a.nodeId).indexOf(TEXT_ID) === 0) {
+        // a text title: its colour can change here; its name and times are changed in the Timeline
+        const tl = R.needSeq(a.seqId), ti = needText(tl, a), label = R.num(a.label);
+        if (a.name != null || a.start != null || a.end != null) throw R.err('BAD_INPUT', 'Text ranges are edited in Resolve', 'Change that title in the Timeline.', 'Resolve doesn’t let add-ons rename or move titles: type the new name in the title, or drag its ends. The list follows by itself.');
+        if (label != null && LABEL_MARKER[label]) ti.SetClipColor(LABEL_MARKER[label]);
+        return { range: textRanges(tl, R.fps(tl), a.track).find(r => r.nodeId === String(a.nodeId)) || null, log: [] };
+      }
       const tl = R.needSeq(a.seqId), fps = R.fps(tl), hit = needRange(tl, a), old = rangeOf(fps, hit.frame, hit.m), log = [];
       const start = R.num(a.start) != null ? R.num(a.start) : old.start, end = R.num(a.end) != null ? R.num(a.end) : old.end;
       if (!(end > start) || start < 0) throw R.err('BAD_INPUT', 'Range ' + start + '–' + end, 'That range is empty.', 'Make the end later than the start.');
@@ -247,6 +309,11 @@ module.exports = function (R) {
     },
     /** a: {seqId, track, nodeId} → {removed: 1} */
     removeRenderRange(a) {
+      if (String(a.nodeId).indexOf(TEXT_ID) === 0) {
+        const tl = R.needSeq(a.seqId), ti = needText(tl, a);
+        if (!tl.DeleteClips([ti], false)) throw R.err('HOST_SCRIPT', 'Text range not deleted', 'Couldn’t delete that title.', 'Check the track isn’t locked, then try again.');
+        return { removed: 1 };
+      }
       const tl = R.needSeq(a.seqId), hit = needRange(tl, a);
       if (!R.deleteMarker(tl, hit.frame, hit.m.customData)) throw R.err('HOST_SCRIPT', 'Range marker not deleted', 'Couldn’t delete that render range.', 'Check the timeline isn’t locked, then try again.');
       return { removed: 1 };

@@ -112,10 +112,47 @@
         if (U.labelParts.isAdj(pi)) return true;
         try { return pi.name === RANGE_ITEM || pi.name === LABEL_ITEM; } catch (e) { return false; }
     }
-    function rangeClips(tr) {
-        var out = [];
-        for (var c = 0; c < tr.clips.numItems; c++) { var pi = null; try { pi = tr.clips[c].projectItem; } catch (e) { } if (isRangeItem(pi)) out.push(tr.clips[c]); }
+    /** A text layer (a graphic made with the Type tool or from a title template). */
+    function isTextClip(ti) {
+        try { if (typeof ti.isMGT === 'function' && ti.isMGT()) return true; } catch (e) { }
+        try {
+            for (var k = 0; k < ti.components.numItems; k++) {
+                var m = String(ti.components[k].matchName || '') + ' ' + String(ti.components[k].displayName || '');
+                if (/ADBE (Text|Capsule)|Graphic Parameters|^\s*Text\s*$/i.test(m)) return true;
+            }
+        } catch (e2) { }
+        return false;
+    }
+    /** kinds: 'adjustment' (default: adjustment layers and our invisible range clips), 'text' or 'both' */
+    function rangeClips(tr, kinds) {
+        var out = [], k = kinds || 'adjustment';
+        for (var c = 0; c < tr.clips.numItems; c++) {
+            var ti = tr.clips[c], pi = null; try { pi = ti.projectItem; } catch (e) { }
+            if ((k !== 'text' && isRangeItem(pi)) || (k !== 'adjustment' && !isRangeItem(pi) && isTextClip(ti))) out.push(ti);
+        }
         return out;
+    }
+    /** The words a text layer shows (its first text box), or ''. */
+    function textOf(ti) {
+        try {
+            var mgt = ti.getMGTComponent(); if (!mgt) return '';
+            for (var i = 0; i < mgt.properties.numItems; i++) {
+                var v = mgt.properties[i].getValue();
+                if (typeof v === 'string' && v.indexOf('textEditValue') >= 0) { var o = JSON.parse(v); return trim(o.textEditValue || ''); }
+            }
+        } catch (e) { }
+        return '';
+    }
+    /** Put words in a text layer's first text box. -> true if it took */
+    function setText(ti, words) {
+        try {
+            var mgt = ti.getMGTComponent(); if (!mgt) return false;
+            for (var i = 0; i < mgt.properties.numItems; i++) {
+                var p = mgt.properties[i], v = p.getValue();
+                if (typeof v === 'string' && v.indexOf('textEditValue') >= 0) { var o = JSON.parse(v); o.textEditValue = words; p.setValue(JSON.stringify(o), true); return true; }
+            }
+        } catch (e) { }
+        return false;
     }
     var trim = function (x) { return String(x).replace(/^\s+|\s+$/g, ''); };
     /**
@@ -132,13 +169,20 @@
     }
     /** A timeline clip's own colour label (0–15), or null when this Premiere can't say. */
     function labelOf(ti) { try { if (typeof ti.getColorLabel === 'function') { var l = Number(ti.getColorLabel()); return isFinite(l) ? l : null; } } catch (e) { } return null; }
-    function rangeOf(ti) { return { name: ti.name, start: ti.start.seconds, end: ti.end.seconds, disabled: !!ti.disabled, nodeId: ti.nodeId, label: labelOf(ti) }; }
-    /** a: {seqId, all?} -> {tracks:[{index, name, count}]} – every video track holding adjustment layers (or our range
-        clips), top first; with all, every video track (count 0 for the ones without) */
+    // a text layer with a template's own name ("Graphic", "Basic Title") is named by the words it shows
+    var PLAIN_TEXT_NAME = /^(graphic|grafik|graphique|gráfico|grafica|basic title|text|texte)( \d+)?$/i;
+    function rangeOf(ti) {
+        var pi = null; try { pi = ti.projectItem; } catch (e) { }
+        var text = !isRangeItem(pi) && isTextClip(ti), name = String(ti.name || '');
+        if (text && (!trim(name) || PLAIN_TEXT_NAME.test(trim(name)))) name = textOf(ti) || name;
+        return { name: name, start: ti.start.seconds, end: ti.end.seconds, disabled: !!ti.disabled, nodeId: ti.nodeId, label: labelOf(ti), kind: text ? 'text' : 'adjustment' };
+    }
+    /** a: {seqId, all?, kinds?} -> {tracks:[{index, name, count}]} – every video track holding adjustment layers (or our
+        range clips, or text layers – as a.kinds says), top first; with all, every video track (count 0 for the ones without) */
     fn.rangeTracks = function (a) {
         var seq = U.needSeq(a.seqId), out = [];
         for (var t = seq.videoTracks.numTracks - 1; t >= 0; t--) {
-            var n = rangeClips(seq.videoTracks[t]).length, name = '';
+            var n = rangeClips(seq.videoTracks[t], a.kinds).length, name = '';
             try { name = String(seq.videoTracks[t].name); } catch (e) { }
             if (n || a.all) out.push({ index: t, name: name, count: n });
         }
@@ -156,23 +200,60 @@
         var name = ''; try { name = String(seq.videoTracks[t].name); } catch (e) { }
         return { index: t, name: name, named: trim(name).toLowerCase() === want.toLowerCase(), log: log };
     };
-    /** a: {seqId, track?} -> {track, trackName, ranges:[{name, start, end, disabled, nodeId, label}], colours} */
+    /** a: {seqId, track?, kinds?} -> {track, trackName, ranges:[{name, start, end, disabled, nodeId, label, kind}], colours, hidden} */
     fn.renderRanges = function (a) {
         var seq = U.needSeq(a.seqId), t = rangeTrack(seq, a.track), out = [], name = '', colours = true;
         if (t < 0) return { track: -1, trackName: '', ranges: out, colours: colours };
-        var list = rangeClips(seq.videoTracks[t]);
+        var list = rangeClips(seq.videoTracks[t], a.kinds);
         for (var i = 0; i < list.length; i++) { var r = rangeOf(list[i]); if (r.label == null) colours = false; out.push(r); }
         try { name = seq.videoTracks[t].name; } catch (e) { }
-        return { track: t, trackName: name, ranges: out, colours: colours };
+        var hidden = false; try { hidden = !!seq.videoTracks[t].isMuted(); } catch (e) { }
+        return { track: t, trackName: name, ranges: out, colours: colours, hidden: hidden };
     };
     /**
+     * Switch the range track's picture on or off (the eye in the Timeline), so text layers used as ranges don't show in
+     * the renders. a: {seqId, track, on} -> {track, was} – was: whether it showed before (-1: no such track)
+     */
+    fn.rangeTrackOutput = function (a) {
+        var seq = U.needSeq(a.seqId), t = rangeTrack(seq, a.track), was = -1;
+        if (t < 0) return { track: -1, was: was };
+        try { was = seq.videoTracks[t].isMuted() ? 0 : 1; } catch (e) { }
+        seq.videoTracks[t].setMute(a.on ? 0 : 1);
+        return { track: t, was: was };
+    };
+    /** Premiere's own "Basic Title" template (Essential Graphics), or null. */
+    function basicTitle() {
+        var base = String(app.path || ''), tries = [base + '/Contents/Essential Graphics/Basic Title.mogrt', base + '/Essential Graphics/Basic Title.mogrt', base + '\\Essential Graphics\\Basic Title.mogrt'];
+        for (var i = 0; i < tries.length; i++) { var f = new File(tries[i]); if (f.exists) return f.fsName; }
+        return null;
+    }
+    /** A text layer showing the range's name, over start–end on track t (from Premiere's Basic Title). -> the clip, or null */
+    function placeTextRange(seq, t, a, log) {
+        var mogrt = basicTitle();
+        if (!mogrt) { log.push('Basic Title.mogrt not found under ' + app.path); return null; }
+        var ti = null;
+        try { ti = seq.importMGT(mogrt, String(Math.round(a.start * U.TICKS)), t, 0); } catch (e) { log.push('importMGT: ' + e); }
+        if (!ti) return null;
+        try { var e2 = new Time(); e2.seconds = a.end; ti.end = e2; } catch (e) { log.push('end: ' + e); }
+        if (!setText(ti, a.name)) log.push('text not set');
+        try { ti.name = a.name; } catch (e) { log.push('name: ' + e); }
+        if (a.label != null) { try { if (typeof ti.setColorLabel === 'function') ti.setColorLabel(a.label); } catch (e) { log.push('colour: ' + e); } }
+        return ti;
+    }
+    /**
      * Put a render range on the chosen track (a.track, default "Renders"; made on top the first time), using the
-     * project's adjustment layer (or an invisible label clip when there is none).
-     * a: {seqId, name, start, end, track?, label?, binPath} -> {track, kind, placed, renamed, named, log}
+     * project's adjustment layer (or an invisible label clip when there is none) – or, with a.as 'text', a text layer
+     * showing its name (Premiere's Basic Title).
+     * a: {seqId, name, start, end, track?, label?, binPath, as?} -> {track, kind, placed, renamed, named, log}
      */
     fn.addRenderRange = function (a) {
         var seq = U.needSeq(a.seqId), P = U.labelParts, log = [], kind = 'adjustment', want = trim(a.track || RANGE_TRACK);
         if (!(a.end > a.start)) throw U.err('BAD_INPUT', 'Empty range ' + a.start + '–' + a.end, 'That range is empty.', 'Set In and Out points around the part to render, or move the playhead into the edit.');
+        if (a.as === 'text') {
+            var tt = ensureRangeTrack(seq, want, log), made2 = placeTextRange(seq, tt.t, a, log);
+            if (!made2) throw U.err('HOST_SCRIPT', 'No text layer: ' + log.join('; '), 'Premiere didn’t add the text layer.', 'Make one with the Type tool on the “' + want + '” track instead – or add the range as an adjustment layer.');
+            return { track: tt.t, named: tt.named, kind: 'text', placed: 1, renamed: 1, log: log };
+        }
         var src = P.findAdjustmentLayer() || P.findByName(RANGE_ITEM);
         if (src && !P.isAdj(src)) kind = 'transparent';
         if (!src) {
@@ -184,20 +265,25 @@
             }
         }
         if (!src) throw U.err('HOST_SCRIPT', 'No way to make a range clip. ' + log.join('; '), 'Couldn’t add the render range.', 'Add an adjustment layer to the project (File › New › Adjustment Layer), then try again.');
+        var tr = ensureRangeTrack(seq, want, log), t = tr.t;
+        var r = P.placeSections(seq.videoTracks[t], src, [{ name: a.name, start: a.start, end: a.end, label: a.label }], log);
+        return { track: t, named: tr.named, kind: kind, placed: r.placed, renamed: r.renamed, log: log };
+    };
+    /** The range track named want, made on top the first time. -> {t, named} */
+    function ensureRangeTrack(seq, want, log) {
         var t = rangeTrack(seq, want), named = true;
         if (t < 0) {
             t = seq.videoTracks.numTracks;
-            P.ensureVideoTracks(seq, t + 1);
+            U.labelParts.ensureVideoTracks(seq, t + 1);
             if (seq.videoTracks.numTracks <= t) throw U.err('HOST_SCRIPT', 'Could not add a video track');
             try { U.openAndQE(seq).getVideoTrackAt(t).setName(want); } catch (e) { log.push('track name: ' + e); }
             named = rangeTrack(seq, want) === t;
         }
-        var r = P.placeSections(seq.videoTracks[t], src, [{ name: a.name, start: a.start, end: a.end, label: a.label }], log);
-        return { track: t, named: named, kind: kind, placed: r.placed, renamed: r.renamed, log: log };
-    };
+        return { t: t, named: named };
+    }
     function needRange(seq, a) {
         var t = rangeTrack(seq, a.track);
-        if (t >= 0) { var list = rangeClips(seq.videoTracks[t]); for (var i = 0; i < list.length; i++) if (list[i].nodeId === a.nodeId) return { t: t, ti: list[i] }; }
+        if (t >= 0) { var list = rangeClips(seq.videoTracks[t], 'both'); for (var i = 0; i < list.length; i++) if (list[i].nodeId === a.nodeId) return { t: t, ti: list[i] }; }
         throw U.err('NOT_FOUND', 'Render range ' + a.nodeId + ' on ' + (a.track || RANGE_TRACK), 'That render range isn’t on the timeline any more.', 'Press Refresh in Deliver › Render ranges.');
     }
     /**
@@ -218,8 +304,22 @@
             if (!took) moved = true;   // no clip colours by script here: lay it again in the new colour
         }
         if (!moved) {
-            if (name !== old.name) { try { ti.name = name; } catch (e) { log.push('rename: ' + e); } }
+            if (name !== old.name) { try { ti.name = name; } catch (e) { log.push('rename: ' + e); } if (old.kind === 'text') setText(ti, name); }
             return { range: rangeOf(ti), log: log };
+        }
+        if (old.kind === 'text') {
+            // a text layer is moved and trimmed where it is (it can't be laid again from the project)
+            try {
+                if (Math.abs(end - old.end) > 0.001 || Math.abs(start - old.start) > 0.001) {
+                    var ts = new Time(), te = new Time(); ts.seconds = start; te.seconds = end;
+                    if (start < old.start) { ti.start = ts; ti.end = te; } else { ti.end = te; ti.start = ts; }
+                }
+            } catch (e) { log.push('times: ' + e); }
+            if (a.label != null) { try { ti.setColorLabel(a.label); } catch (e) { log.push('colour: ' + e); } }
+            if (name !== old.name) { try { ti.name = name; } catch (e) { } setText(ti, name); }
+            var now = rangeOf(ti);
+            if (Math.abs(now.start - start) > 0.05 || Math.abs(now.end - end) > 0.05) throw U.err('HOST_SCRIPT', 'Text range not moved: ' + log.join('; '), 'Premiere didn’t move that text layer.', 'Drag or trim it in the Timeline instead.');
+            return { range: now, log: log };
         }
         var src = null; try { src = ti.projectItem; } catch (e) { }
         if (!src) throw U.err('HOST_SCRIPT', 'No project item behind range ' + old.name, 'Couldn’t change that render range.', 'Delete it and add it again.');

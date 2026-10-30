@@ -49,3 +49,23 @@ test('cameras are named by file, with how much of the edit each one has', () => 
   const angles = M.activeAngles(project([[0, 2, 0], [2, 4, 1], [4, 6, 2], [6, 8, 1], [8, 10, 0]]), 'seq-1');
   assert.deepStrictEqual(M.cameras(read, angles).map(c => [c.name, c.cuts, c.seconds]), [['Stage.mp4', 2, 4], ['Roam1_A.mp4 +1 more', 2, 4], ['Roam2.mp4', 1, 2]]);
 });
+
+test('camera model from the file: Sony XML, Apple keys, QuickTime ©mak/©mod, GoPro firmware – or nothing', () => {
+  const M = US.mcSelects.modelFromBytes, box = (type, body) => { const b = Buffer.concat([Buffer.alloc(8), body]); b.writeUInt32BE(b.length, 0); b.write(type, 4, 'latin1'); return b; };
+  assert.deepStrictEqual(M(Buffer.from('<NonRealTimeMeta><Device manufacturer="Sony" modelName="ILCE-7SM3" serialNo="1"/></NonRealTimeMeta>')), { model: 'ILCE-7SM3', make: 'Sony' });
+  // Apple: keys (count + mdta entries) then ilst (index boxes holding data)
+  const key = k => { const b = Buffer.concat([Buffer.alloc(8), Buffer.from(k)]); b.writeUInt32BE(b.length, 0); b.write('mdta', 4); return b; };
+  const cnt = Buffer.alloc(8); cnt.writeUInt32BE(2, 4);
+  const keys = box('keys', Buffer.concat([cnt, key('com.apple.quicktime.make'), key('com.apple.quicktime.model')]));
+  const item = (i, v) => { const d = box('data', Buffer.concat([Buffer.from([0, 0, 0, 1, 0, 0, 0, 0]), Buffer.from(v)])); const b = Buffer.concat([Buffer.alloc(8), d]); b.writeUInt32BE(b.length, 0); b.writeUInt32BE(i, 4); return b; };
+  assert.deepStrictEqual(M(box('meta', Buffer.concat([keys, box('ilst', Buffer.concat([item(1, 'Apple'), item(2, 'iPhone 15 Pro')]))]))), { make: 'Apple', model: 'iPhone 15 Pro' });
+  const qt = (tag, v) => { const t = Buffer.alloc(4); t.writeUInt16BE(v.length, 0); const b = Buffer.concat([Buffer.alloc(8), t, Buffer.from(v)]); b.writeUInt32BE(b.length, 0); b.write('\xa9' + tag, 4, 'latin1'); return b; };
+  assert.deepStrictEqual(M(box('udta', Buffer.concat([qt('mak', 'Canon'), qt('mod', 'EOS R5')]))), { make: 'Canon', model: 'EOS R5' });
+  assert.deepStrictEqual(M(box('udta', Buffer.concat([box('FIRM', Buffer.from('H22.01.01.10.00'))]))), { make: 'GoPro', model: 'HERO11' });
+  assert.strictEqual(M(Buffer.from('nothing to see here')), null);
+});
+
+test('cameras carry their first file (for the still and the model)', () => {
+  const read = { cuts: [], multicams: { m: { angles: [{ index: 0, clips: [{ name: 'A001.MP4', path: '/m/A001.MP4' }] }, { index: 1, clips: [] }] } } };
+  assert.deepStrictEqual(US.mcSelects.cameras(read, new Map()).map(c => [c.name, c.file]), [['A001.MP4', '/m/A001.MP4'], ['Camera 2 (empty)', '']]);
+});

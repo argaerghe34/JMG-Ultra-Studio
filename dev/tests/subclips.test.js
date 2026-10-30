@@ -21,3 +21,15 @@ test('names already in the subclip bin: listed as conflicts; "add alongside" num
   const a = US.subclipMaker.plan(read(['02 – C0013.MP4', '02 – C0013.MP4 (2)']), 'add');
   assert.strictEqual(a.items[1].name, '02 – C0013.MP4 (3)');
 });
+test('handles (off by default): each side widened, never past the ends of the clip; whole clips unchanged', () => {
+  const r = { target: 'T', existing: [], clips: [
+    { id: 'a', name: 'A.MP4', start: 0, in: 0.5, out: 20, whole: false, dur: 21, inTicks: '1', outTicks: '2' },
+    { id: 'b', name: 'B.MP4', start: 1, in: 0, out: 600, whole: true, dur: 600, inTicks: '0', outTicks: '9' },
+    { id: 'c', name: 'C.MP4', start: 2, in: 10, out: 12, whole: false, dur: 0, inTicks: '3', outTicks: '4' }] };
+  const none = US.subclipMaker.plan(r, 'replace');
+  assert.deepStrictEqual(none.items.map(x => [x.inTicks, x.outTicks]), [['1', '2'], ['0', '9'], ['3', '4']], 'no handles: the host’s own ticks');
+  const p = US.subclipMaker.plan(r, 'replace', 2);
+  assert.deepStrictEqual(p.items.map(x => [x.in, x.out]), [[0, 21], [0, 600], [8, 14]]);
+  assert.strictEqual(p.items[0].inTicks, '0'); assert.strictEqual(p.items[2].outTicks, String(14 * 254016000000));
+  assert.ok(!p.items[1].handles, 'a whole clip keeps its length');
+});

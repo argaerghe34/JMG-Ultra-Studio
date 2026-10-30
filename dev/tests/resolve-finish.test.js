@@ -92,7 +92,7 @@ test('deliverPresets: built-in recipes plus Resolve’s own render presets (not 
 
 test('render ranges: duration markers with Ultra Studio’s tag; other markers are left out', async () => {
   const S = withTimeline();
-  assert.deepStrictEqual(await S.run('renderRanges', { seqId: S.seqId }), { track: -1, trackName: '', ranges: [], colours: true });
+  assert.deepStrictEqual(await S.run('renderRanges', { seqId: S.seqId }), { track: -1, trackName: '', ranges: [], colours: true, hidden: false });
   S.tl.AddMarker(50, 'Blue', 'A note', '', 1, 'us-123');   // someone else's marker at 2 s
   const r = await S.run('addRenderRange', { seqId: S.seqId, name: 'Teaser', start: 2, end: 6 });
   assert.deepStrictEqual([r.placed, r.named, r.kind], [1, true, 'marker']);
@@ -195,4 +195,29 @@ test('Deliver and Safe Zones say Smart Reframe and the Render Queue in Resolve, 
   assert.ok(/Smart Reframe/.test(src) && /Render All on the Deliver page/.test(src));
   const sz = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'tools', '30-safezones.js'), 'utf8');
   assert.ok(/Resolve renders every track that’s switched on/.test(sz));
+});
+
+test('render ranges from Text titles in Resolve: Text+ on a track named like the ranges, named by its words; colour, delete, track off while rendering', async () => {
+  const S = withTimeline(), tl = S.tl;
+  tl.AddTrack('video'); tl.SetTrackName('video', 2, 'Renders');
+  const title = (name, words, at, end) => ({ _id: 'title-' + at, _type: 'video', _track: 2, _start: 86400 + at, _end: 86400 + end, _color: '', GetName: () => name, GetUniqueId() { return this._id; }, GetStart() { return this._start; }, GetEnd() { return this._end; },
+    GetMediaPoolItem: () => null, GetClipEnabled: () => true, GetClipColor() { return this._color; }, SetClipColor(c) { this._color = c; return true; },
+    GetFusionCompCount: () => (words ? 1 : 0), GetFusionCompByIndex: () => ({ GetToolList: () => ({ 1: { GetInput: k => (k === 'StyledText' ? words : '') } }) }) });
+  tl._v[1].push(title('Text+', 'Teaser 30s', 0, 75), title('Lower third', '', 100, 150));
+  await S.run('addRenderRange', { seqId: S.seqId, name: 'Outro', start: 8, end: 10 });
+  const only = k => S.run('renderRanges', { seqId: S.seqId, kinds: k }).then(r => r.ranges.map(x => [x.name, x.start, x.end, x.kind]));
+  assert.deepStrictEqual(await only('adjustment'), [['Outro', 8, 10, 'marker']], 'markers only, as before');
+  assert.deepStrictEqual(await only('text'), [['Teaser 30s', 0, 3, 'text'], ['Lower third', 4, 6, 'text']], 'titles: named by their words, else the clip name');
+  assert.strictEqual((await only('both')).length, 3);
+  assert.deepStrictEqual((await S.run('rangeTracks', { seqId: S.seqId, kinds: 'both' })).tracks.map(t => [t.name, t.count]), [['Renders', 3]]);
+  const t1 = (await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).ranges[0];
+  await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId, label: 5 });
+  assert.strictEqual(tl._v[1][0]._color, 'Green');
+  await assert.rejects(S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId, name: 'New' }), e => e.code === 'BAD_INPUT', 'titles are renamed in the Timeline');
+  assert.deepStrictEqual(await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: false }), { track: 1, was: 1 });
+  assert.strictEqual(tl.GetIsTrackEnabled('video', 2), false);
+  assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).hidden, true);
+  await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: true });
+  await S.run('removeRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId });
+  assert.deepStrictEqual((await only('text')).map(x => x[0]), ['Lower third']);
 });

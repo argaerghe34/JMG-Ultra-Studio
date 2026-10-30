@@ -67,6 +67,20 @@ test('concert set: songs, applause and talk', async () => {
   assert.ok(Math.max(...startErr) <= 3);
 });
 
+test('song breaks without listening again: fewer / more songs, an exact number, short gaps inside a song joined', () => {
+  // applause 0–15, song 15–75, a 3 s quiet bridge 75–78, song 78–140, applause 140–150, song 150–260 with a segue at 205
+  const model = { duration: 270, runs: [{ type: 'applause', start: 0, end: 15 }, { type: 'song', start: 15, end: 75 }, { type: 'silence', start: 75, end: 78 }, { type: 'song', start: 78, end: 140 },
+    { type: 'applause', start: 140, end: 150 }, { type: 'song', start: 150, end: 260 }, { type: 'applause', start: 260, end: 270 }], changes: [{ t: 205, score: 2.4 }, { t: 110, score: 0.7 }] };
+  const songs = o => US.dsp.songParts(model, o).filter(x => x.type === 'song').map(x => [x.start, x.end]);
+  assert.deepStrictEqual(songs({ sensitivity: 0 }), [[15, 140], [150, 260]], 'fewest: only the applause breaks; the quiet bridge is part of the song');
+  assert.deepStrictEqual(songs({}), [[15, 140], [150, 205], [205, 260]], 'balanced: plus the segue');
+  assert.deepStrictEqual(songs({ sensitivity: 10 }), [[15, 75], [78, 110], [110, 140], [150, 205], [205, 260]], 'most: every change');
+  assert.deepStrictEqual(songs({ count: 2 }), [[15, 140], [150, 260]], 'an exact number keeps the strongest breaks');
+  assert.strictEqual(songs({ count: 4 }).length, 4);
+  const parts = US.dsp.songParts(model, { sensitivity: 0 });
+  assert.deepStrictEqual(parts.map(x => x.type), ['applause', 'song', 'applause', 'song', 'applause'], 'the quiet bridge isn’t listed on its own');
+});
+
 test('loudness: 1 kHz sine at −20 dBFS', () => {
   const sr = 48000, s = sine(997, 0.1, 5, sr);
   const mono = US.dsp.loudness([s], sr).integrated, stereo = US.dsp.loudness([s, s], sr).integrated;

@@ -61,7 +61,8 @@ stays, and they get no Resolve layer until they come back.
 | Captions (Story) | The SRT is written and imported into the Captions bin; the person drags it to the timeline (placing a subtitle by script crashes Resolve 21.1). |
 | Selects: faces / close-ups | The panel's browser in Resolve has no face detector, so shot sizes don't use faces. |
 | MC Selects (1.3.6): which camera each multicam cut shows | Not readable by script in Resolve (Premiere's comes from the saved project file), so MC Selects is Premiere only (`apps: ['premiere']` on the tool). |
-| Subclip Maker (1.3.6) | Each clip's `GetMarkInOut()` (out inclusive), made with `createSubclips`; Replace moves earlier ones with `MoveClips`. |
+| Subclip Maker (1.3.6) | Each clip's `GetMarkInOut()` (out inclusive), made with `createSubclips`; Replace moves earlier ones with `MoveClips`. 1.3.7.1: from the timeline, each item's `GetSourceStartFrame()` (else `GetLeftOffset()`) and length. |
+| Render ranges as text layers (1.3.7.1) | Premiere: text layers (`isMGT()` / a Text component) on the range track; **Add a render range** imports Premiere's own *Basic Title.mogrt* (`importMGT`) and sets its text. Resolve: Text / Text+ titles (no media pool item) on a video track named like the group; the name is Text+'s `StyledText` when the clip has its default name. Resolve can't place, rename or move titles by script, so there a new range is still a marker and titles are renamed/moved in the Timeline (colour and delete work). Hiding the text while rendering: `setMute` on the track in Premiere, `SetTrackEnable` in Resolve (left off with queue-only, as Resolve renders later). |
 | Project file path (Story travels with the project) | Resolve projects live in a database, not a file: see `storyProjectFile` in `resolve/host/story.js`. |
 
 ## Measured in real Resolve Studio 21.1.2 (28 Oct 2026) – the API reference doesn't say these

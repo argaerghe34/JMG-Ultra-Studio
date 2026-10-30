@@ -61,6 +61,7 @@
   /** The tool the app is built around: shown first in the rail and as the big card on Home. */
   US.FEATURED = 'story';
   US.GROUPS = [
+    { id: 'selects', name: 'Selects & clips' },
     { id: 'find', name: 'Find the good bits' },
     { id: 'cut', name: 'Cut faster' },
     { id: 'finish', name: 'Finish & deliver' }

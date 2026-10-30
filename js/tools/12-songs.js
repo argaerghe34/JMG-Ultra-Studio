@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const US = window.US, h = US.h, ui = US.ui, kit = US.audioKit;
-  const VERSION = 1;
+  const VERSION = 2;   // 2: the result keeps every possible song break (model), so Fewer/More songs needs no new listen
   const TYPES = { song: 'Song', applause: 'Applause', talk: 'Talk', silence: 'Quiet' };
   const MARKER_COLOR = { song: 2, applause: 4, talk: 6, silence: 5 };
   const LABEL_SONG = 3; // Lavender
@@ -25,12 +25,28 @@
       job.range(0.3, 1).set({ who: 'computer', msg: `Listening to “${target.name}” (${US.fmtDur(a.duration)})` });
       const r = await US.dsp.classify(a.data, a.sr, { onProgress: f => job.progress(f, `Listening… ${US.fmtDur(f * a.duration)} of ${US.fmtDur(a.duration)}`), check: () => job.check() });
       const env = US.audio.envelope(a.data, a.sr, 0.5).db;
-      return { segments: r.segments, duration: a.duration, offset: a.offset || 0, curve: Array.from(env) };
+      return { segments: r.segments, model: r.model, duration: a.duration, offset: a.offset || 0, curve: Array.from(env) };
     };
     const res = (target.kind === 'item' && target.item.path)
       ? await US.cache.cached('songs', target.item.path, VERSION + '-' + (await US.host.call('audioClipRange', { id: target.id }))['in'].toFixed(3), run)
       : await run();
-    return name(res.segments.map(s => Object.assign({}, s)), res);
+    return regroup(res, tuning());
+  }
+  /** How many songs: {sensitivity 0–10, count (0 = by sensitivity)} – the sensitivity is remembered, the count isn't. */
+  let songCount = 0;
+  const tuning = () => ({ sensitivity: US.settings.get('songs.sensitivity', US.dsp.SENS_DEFAULT), count: songCount });
+  /**
+   * The parts again from what was heard, for another sensitivity or number of songs – no new listen. Titles you gave
+   * stay with the song that starts within 3 s of where it did; changes of type, joins and splits start again.
+   */
+  function regroup(res, t) {
+    if (!res.model) return name(res.segments.map(s => Object.assign({}, s)), res);
+    const named = (res.segments || []).filter(s => s.type === 'song' && s.named);
+    const segs = US.dsp.songParts(res.model, t).map(s => {
+      const was = s.type === 'song' && named.find(n => Math.abs(n.start - s.start) < 3);
+      return was ? Object.assign(s, { name: was.name, named: true }) : s;
+    });
+    return name(segs, res);
   }
   function name(segs, res) {
     let n = 0;
@@ -128,7 +144,7 @@
     hostFns: ['renderAudio', 'addClipMarkers', 'addSequenceMarkers', 'createSubclips', 'newSequence', 'placeClips', 'cloneSequence', 'extractRanges', 'audioClipRange', 'labelLayers', 'removeLabelLayers'],
     create() {
       const v = ui.toolView({ icon: 'songs', title: 'Song Splitter', blurb: 'Point it at the sound-desk recording or your multicam sequence. It finds each song, the applause, talk and the interval.',
-        help: h('div', h('ul', h('li', 'It listens for music (steady beat, tuned notes), applause (noisy, no beat) and talk (stop-start speech).'), h('li', 'A change of key or tempo with no gap (a segue) starts a new song.'), h('li', 'It can’t recognise song titles – click a song to rename it.'), h('li', 'Long shows take about a second per 30 minutes once Premiere has rendered the sound.'))) });
+        help: h('div', h('ul', h('li', 'It listens for music (steady beat, tuned notes), applause (noisy, no beat) and talk (stop-start speech).'), h('li', 'Applause and longer talk between songs are the surest sign of a new song. A change of key and tempo with no gap (a segue) counts too; a key change alone (a solo, a bridge) only with “More songs”.'), h('li', 'Too many or too few? Move Fewer – More songs, or type how many songs were played: it re-sorts what it heard straight away, without listening again.'), h('li', 'It can’t recognise song titles – click a song to rename it.'), h('li', 'Long shows take about a second per 30 minutes once Premiere has rendered the sound.'))) });
       let target = null, res = null, showAll = US.settings.get('songs.showAll', false);
 
       const picker = ui.sourcePicker({ modes: ['selection', 'sequence'], kinds: ['audio'], label: 'Recording', onChange: () => { res = null; render(); } });
@@ -140,7 +156,17 @@
         return { summary: `${US.plural(n, 'song')} found in “${target.name}”` };
       }), { icon: 'songs' });
       const results = h('div');
-      v.body.append(ui.card(picker.el, findBtn), results);
+      // fewer / more songs: re-sorts what was heard, no new listen
+      const countLine = h('div.field-hint');
+      const retune = () => { if (!res) return; res = regroup(res, tuning()); render(); };
+      const sensSlider = ui.slider({ label: 'Fewer songs – more songs', min: 0, max: 10, step: 1, value: tuning().sensitivity, fmt: x => (x <= 2 ? 'Only clear breaks' : x >= 8 ? 'Every change' : x === US.dsp.SENS_DEFAULT ? 'Balanced' : String(x)),
+        hint: 'Fewer: only applause or long talk between songs starts a new one, and short songs join their neighbours. More: key and tempo changes count too.',
+        onInput: x => { US.settings.set('songs.sensitivity', x); songCount = 0; countIn.value = ''; retune(); } });
+      const countIn = ui.input({ placeholder: 'e.g. 14', value: '' });
+      countIn.addEventListener('input', US.debounce(() => { const n = Math.round(Number(countIn.value)); songCount = n > 0 && n < 500 ? n : 0; retune(); }, 300));
+      const tuneCard = ui.card(h('div.card-title', 'How many songs'), sensSlider, ui.field('Or the number of songs played', countIn, 'If you know the setlist: the strongest breaks are kept so there are this many songs. Leave empty to use the slider.'), countLine);
+      tuneCard.classList.add('hidden');
+      v.body.append(ui.card(picker.el, findBtn), tuneCard, results);
 
       const tl = ui.timeline({ height: 50, onSeek: t => target && kit.goTo(target, t, res ? res.offset : 0) });
       const optMarkers = ui.toggle({ label: 'A marker for each song', value: US.settings.get('songs.markers', true), onChange: x => US.settings.set('songs.markers', x) });
@@ -177,6 +203,8 @@
 
       function render() {
         US.clear(results);
+        tuneCard.classList.toggle('hidden', !(res && res.model));
+        if (res && res.model) { const n = res.segments.filter(s => s.type === 'song').length; countLine.textContent = songCount && n !== songCount ? `Only ${US.plural(n, 'song')} could be made – there aren’t that many breaks at least 20 s apart.` : `${US.plural(n, 'song')} with this setting.`; }
         if (!res) { results.appendChild(ui.empty({ icon: 'songs', title: 'Select the concert recording and press “Find the songs”.', text: 'Works on a sound-desk WAV, a camera clip or a whole multicam sequence.' })); return; }
         const songs = res.segments.filter(s => s.type === 'song');
         const music = songs.reduce((t, s) => t + s.end - s.start, 0);

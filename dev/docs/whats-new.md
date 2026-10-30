@@ -1,3 +1,13 @@
+## What's new in 1.3.7.1
+
+A small update to 1.3.7.
+
+- **Song Splitter finds the right number of songs**: it listens once and remembers every place a song might end, with how sure it is. Applause and longer talk between songs are the surest signs; a key change alone (a solo, a bridge) no longer starts a new song unless you ask for more. New **Fewer songs – more songs** slider, and a box for **the number of songs played** if you know the setlist – both re-sort the list instantly, without listening again.
+- **MC Selects** shows a still of each camera (the file's own preview from Finder or Explorer – nothing is rendered), the **camera model** when the file says (Sony, Canon, Panasonic Lumix, Fujifilm, Nikon, GoPro, DJI, iPhone…), and the **total running time** of the cameras you keep.
+- **Subclip Maker** can make subclips of **every clip on the timeline** (the part used), and put them in **a new bin you name or a bin you choose**. **Add handles** (off by default) adds a few seconds each side.
+- **Deliver › Render ranges** can use **text layers** as well as adjustment layers – they show their name in the Timeline. The text is kept out of the renders. In Resolve: Text and Text+ titles.
+- **Selects, Subclip Maker and MC Selects** have their own section in the tool bar, **Selects & clips**, under Story.
+
 ## What's new in 1.3.7
 
 This version brings together what was added on the Mac and on Windows: everything from 1.3.6 (**MC Selects** and **Subclip Maker**, below) plus:

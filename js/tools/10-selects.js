@@ -426,7 +426,7 @@
 
   /* ---------- the screen ---------- */
   US.tools.register({
-    id: 'selects', name: 'Selects', short: 'Selects', icon: 'selects', group: 'find', order: 10,
+    id: 'selects', name: 'Selects', short: 'Selects', icon: 'selects', group: 'selects', order: 10,
     blurb: 'Grades any footage BEST / GOOD / OK; sorts it by shot, move and more.',
     hostFns: ['selectsPlaceWhole', 'selectsSequenceUses', 'selectsAttachProxy', 'createSubclips', 'newSequence', 'addClipMarkers', 'removeClipMarkers', 'addSequenceMarkers', 'removeSequenceMarkers', 'setLabels', 'showInSource', 'storyCue', 'setPlayhead', 'itemsInfo', 'encoderPresets'],
     create() {

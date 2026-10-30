@@ -21,22 +21,57 @@
         return hit;
     }
 
+    /** The clips used on a sequence's video and audio tracks, each stretch of source once, in timeline order. */
+    function timelineClips(seq) {
+        var out = [], seen = {};
+        function add(tracks) {
+            for (var t = 0; t < tracks.numTracks; t++) {
+                var tr = tracks[t];
+                for (var c = 0; c < tr.clips.numItems; c++) {
+                    var ti = tr.clips[c], pi = null, seqItem = false;
+                    try { pi = ti.projectItem; } catch (e) { }
+                    if (!pi || pi.type !== 1) continue;
+                    try { seqItem = pi.isSequence(); } catch (e) { }
+                    if (seqItem || U.labelParts.isAdj(pi)) continue;
+                    var ip = ti.inPoint, op = ti.outPoint, k = pi.nodeId + '|' + Math.round(ip.seconds * 100) + '|' + Math.round(op.seconds * 100);
+                    if (seen[k]) continue;   // the audio of a clip already taken from its video
+                    seen[k] = true;
+                    var dur = Number(col(pi, 'MediaDuration') || 0);
+                    out.push({ id: pi.nodeId, name: pi.name, inTicks: String(ip.ticks), outTicks: String(op.ticks), 'in': ip.seconds, out: op.seconds, whole: false, start: ti.start.seconds, dur: dur ? dur / U.TICKS : 0 });
+                }
+            }
+        }
+        add(seq.videoTracks); add(seq.audioTracks);
+        return out;
+    }
     /**
-     * The clips in a bin (not its sub-bins) with their own In/Out, oldest first by timecode, and what's already in the
-     * subclip bin next to it. a: {binId} -> {bin, target, targetPath, existing:[names], clips:[{id, name, inTicks, outTicks, in, out, whole, start}]}
+     * What to make subclips of, and where they go. a: {from: 'bin' (default) | 'timeline', binId, seqId, into?: {binId} | {name}}
+     * bin: the clips in the bin (not its sub-bins) with their own In/Out, oldest first by timecode; timeline: the clips on
+     * the sequence with the part used, in timeline order. Into "<bin> – Subclips" next to the bin ("<sequence> – Subclips"
+     * at the top for the timeline) unless a bin is chosen or named.
+     * -> {source, target, targetPath, existing:[names], clips:[{id, name, inTicks, outTicks, in, out, whole, start, dur}]}
      */
     fn.subRead = function (a) {
-        var bin = U.needItem(a.binId), path = U.binPath(bin), parts = path.split(' / ');
-        var target = bin.name + ' – Subclips', targetPath = parts.slice(0, -1).concat([target]).join(' / ');
-        var clips = [], list = directClips(bin);
-        for (var i = 0; i < list.length; i++) {
-            var it = list[i]; if (isSubclip(it)) continue;
-            var ip = it.getInPoint(), op = it.getOutPoint(), dur = col(it, 'MediaDuration'), whole = false;
-            // nothing set: Premiere reports the whole clip (In at the start, Out at the end)
-            if (dur) whole = Number(ip.ticks) <= 0 && Math.abs(Number(op.ticks) - Number(dur)) < U.TICKS / 10;
-            clips.push({ id: it.nodeId, name: it.name, inTicks: String(ip.ticks), outTicks: String(op.ticks), 'in': ip.seconds, out: op.seconds, whole: whole, start: Number(col(it, 'MediaStart') || 0) });
+        var clips = [], source = '', parentParts = [], target = '';
+        if (a.from === 'timeline') {
+            var seq = U.needSeq(a.seqId);
+            source = seq.name; target = seq.name + ' – Subclips';
+            clips = timelineClips(seq);
+        } else {
+            var bin = U.needItem(a.binId), path = U.binPath(bin), list = directClips(bin);
+            source = path; parentParts = path.split(' / ').slice(0, -1); target = bin.name + ' – Subclips';
+            for (var i = 0; i < list.length; i++) {
+                var it = list[i]; if (isSubclip(it)) continue;
+                var ip = it.getInPoint(), op = it.getOutPoint(), dur = col(it, 'MediaDuration'), whole = false;
+                // nothing set: Premiere reports the whole clip (In at the start, Out at the end)
+                if (dur) whole = Number(ip.ticks) <= 0 && Math.abs(Number(op.ticks) - Number(dur)) < U.TICKS / 10;
+                clips.push({ id: it.nodeId, name: it.name, inTicks: String(ip.ticks), outTicks: String(op.ticks), 'in': ip.seconds, out: op.seconds, whole: whole, start: Number(col(it, 'MediaStart') || 0), dur: dur ? Number(dur) / U.TICKS : 0 });
+            }
         }
-        return { bin: path, target: target, targetPath: targetPath, existing: names(findBin(targetPath)), clips: clips };
+        var targetPath = parentParts.concat([target]).join(' / ');
+        if (a.into && a.into.binId) { var tb = U.needItem(a.into.binId); targetPath = U.binPath(tb); target = tb.name; }
+        else if (a.into && a.into.name) { target = String(a.into.name).replace(/[\/]+/g, '-'); targetPath = parentParts.concat([target]).join(' / '); }
+        return { source: source, bin: source, target: target, targetPath: targetPath, existing: names(findBin(targetPath)), clips: clips };
     };
 
     /**
