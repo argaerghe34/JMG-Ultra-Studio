@@ -9,9 +9,9 @@ can be on different versions – the table below always says where each one is.
 
 | | Premiere Pro (Mac + Windows) | DaVinci Resolve Studio (Mac + Windows) |
 |---|---|---|
-| **Latest release** | **1.3.7** | **1.3.7** |
-| **Tested** | 379 unit tests and the headless screen tests pass on the Mac with the Mac and Windows work combined. Windows (1.3.6): MC Selects tried on a test multicam and on a real 7-camera multicam edit; Subclip Maker tried on a real bin. Mac: Narrative from a timeline covered by unit tests – not yet tried in Premiere; MC Selects and Subclip Maker not yet tried on the Mac. | Unit tests against a stand-in Resolve only – Subclip Maker and Narrative from a timeline not yet tried in Resolve itself. |
-| **In this version** | Everything from 1.3.6 (MC Selects; Subclip Maker) plus Story › Build › Narrative from a brief: **Lines from** your themes or **a timeline** you choose | Subclip Maker (from Mark In/Out) and Narrative from a timeline. MC Selects isn't offered: Resolve can't tell add-ons which camera a multicam cut shows |
+| **Latest release** | **1.3.8** | **1.3.8** |
+| **Tested** | 393 unit tests and the headless screen tests on the Mac (Ask › Edit's Premiere commands against a stand-in Premiere). Not yet tried in Premiere itself: Ask › Edit, Song Splitter's new song breaks, MC Selects stills and camera model (checked on real clips outside Premiere), Subclip Maker from the timeline, text-layer render ranges, Reload. Windows: to check. | Unit tests against a stand-in Resolve only – none of 1.3.7.1/1.3.8's changes tried in Resolve itself. |
+| **In this version** | Ask › Edit (plan edits to a sequence, its selected clips, transcript lines, a bin or the project; on a copy; checked afterwards); Song Splitter fewer/more songs and song count without rescanning; MC Selects stills, camera model, total runtime; Subclip Maker from the timeline with handles and a chosen or new bin; render ranges from text layers; a Selects & clips section; Reload button | Ask › Edit with framing, opacity, colours, on/off, delete and markers (no transitions, effects, speed, keyframes or text in Resolve); the rest as Premiere, render ranges from Text/Text+ titles |
 | **Next** | Your next notes | Your next notes |
 | **Paused in both** | Colour, Camera Switch, B-roll, Sound Check | Colour, Camera Switch, B-roll, Sound Check |
 

@@ -556,3 +556,11 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   a chosen sequence (`timelineTranscript`, as highlights use), no themes or Find more; recorded as `narrative.timeline`.
   Shared panel code only, so Resolve gets it too. Merged with the PC's 1.3.6 (no conflicts); 379 unit tests and the
   headless screen test pass on the Mac. Not tried in Premiere (Jacob was using it). → **v1.3.7**.
+- **30 Oct (Mac):** 1.3.7.1 tried locally (Song Splitter keeps every possible break with a strength – `dsp.songParts` re-sorts
+  for Fewer/More songs or a song count without listening again; MC Selects stills from the OS preview (qlmanage /
+  IShellItemImageFactory, no rendering) and camera model from the file's own metadata; Subclip Maker from the timeline,
+  handles, chosen/new bin; render ranges from text layers, named by their Source Text; Selects & clips rail section;
+  Reload button). Then **Ask › Edit** (stages 1 and 2): `editRead` / `editApply` / `editSelection` in jsx/tools/edit.jsx
+  and resolve/host/edit.js, js/tools/41-edit.js (scopes, outline, clip queries, plan, run on a copy, read back and the
+  AI checks). Clips are addressed by track + start so plans work on the copy. 393 tests pass; nothing tried in Premiere
+  or Resolve yet. → **v1.3.8**.
