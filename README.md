@@ -9,9 +9,9 @@ can be on different versions – the table below always says where each one is.
 
 | | Premiere Pro (Mac + Windows) | DaVinci Resolve Studio (Mac + Windows) |
 |---|---|---|
-| **Latest release** | **1.3.5** | **1.3.5** |
-| **Tested** | Mac: tried in Premiere 26.5.2 on a real project (Questions, Find more, building, ▶ on camera-timecode footage, Deliver), 372 unit tests and the headless screen tests. The full Premiere e2e suite wasn't run again for 1.3.5 (Premiere was in use); 1.3.4 passed 30/30. Windows: to check ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13), [#14](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/14)). | Mac: unit tests against a stand-in Resolve only – 1.3.5 not yet tried in Resolve itself (1.3.4 passed 29/29 in Resolve Studio 21.1.2). Windows: not yet tested ([#13](https://github.com/argaerghe34/JMG-Ultra-Studio/issues/13)). |
-| **In this version** | Ask › My interviews; Story › Find › Questions; interviews read once and shared (cheaper AI); narrative client notes and alternative selects; Select all and a named new sequence; keep clips in filmed order; Build all on/off; highlight markers on clips; Deliver render ranges on any track or a new top one, colour drop-down, Client notes removed; ▶ fixed for camera timecode; three-click Stop; AI status and usage by key | The same – Ask's group names as markers, render ranges as range-marker groups (no new track needed) |
+| **Latest release** | **1.3.6** | **1.3.6** |
+| **Tested** | Windows (Premiere): MC Selects tried on a test multicam and on the user's own multicam edit (a nested sequence, 1,401 cuts, 7 cameras); Subclip Maker tried by the user on a real bin; 378 unit tests, all passing on Windows (a test that assumed Mac file URLs is fixed). Mac: not yet tried for 1.3.6. | Unit tests against a stand-in Resolve only – Subclip Maker not yet tried in Resolve itself. |
+| **In this version** | MC Selects (keep chosen cameras from a cut multicam edit, as a new sequence); Subclip Maker (every clip in a bin as a subclip of its own In to Out) | Subclip Maker (from Mark In/Out). MC Selects isn't offered: Resolve can't tell add-ons which camera a multicam cut shows |
 | **Next** | Your next notes | Your next notes |
 | **Paused in both** | Colour, Camera Switch, B-roll, Sound Check | Colour, Camera Switch, B-roll, Sound Check |
 

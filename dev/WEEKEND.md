@@ -541,3 +541,14 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   (Premiere was in use – `dev/monday.sh` quits it); Resolve 1.3.5 not yet tried in Resolve itself. Premiere on the
   Mac has the real 1.3.5 install (copied as the installer does, without waiting for Premiere to quit); Resolve on the
   Mac still has 1.3.4 until it can be quit. Due: the e2e suites on 1.3.5 and a camera-timecode clip in the e2e.
+- **29–30 Oct (PC):** **MC Selects** (Cut) and **Subclip Maker** (Find), built and tried on Windows. MC Selects: which
+  camera each multicam cut shows isn't scriptable (QE `setMulticam` only switches multicam on/off; the FCP XML export
+  leaves multicam video out), so the panel saves the project and reads `<IsMulticam>`/`<SelectedTrackIndex>` of each
+  VideoClip from the .prproj, matching cuts by start/end ticks (runtime nodeIds don't survive razor cuts). Jacob's
+  multicam edits are nested sequences with multicam on (`isMulticamClip()` false, `isSequence()` true) – handled;
+  tried on a copy of his project (1,401 cuts, 7 cameras) and confirmed by him. Premiere only (`apps: ['premiere']`):
+  Resolve's API has no multicam angle. Subclip Maker: each clip's own In/Out → `createSubClip(…, hardBoundaries 1)` in
+  "<bin> – Subclips", numbered in filming order; Replace moves earlier ones to "… – earlier" (scripts can't delete);
+  Resolve version from `GetMarkInOut()` + `createSubclips` (stand-in tests only). Confirmed by Jacob in Premiere on
+  the PC. The resolve-story cue test assumed Mac file URLs; fixed, so all 378 tests pass on Windows too.
+  → **v1.3.6** for Premiere and Resolve. Not yet tried on the Mac, nor in Resolve itself.

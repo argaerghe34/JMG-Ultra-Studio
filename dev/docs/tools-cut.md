@@ -69,3 +69,8 @@ Checking never changes your sequence. When the loudness is off, **Make a copy at
 Type what you want: *“cut the silences”*, *“markers on every beat”*, *“check the cut”*, *“safe zones for Reels”*, *“export the master and a vertical version”*, *“what changed between v1 and v2”*. It shows a **plan** first – each step in plain words, with the ones that change your project marked – and only acts when you press **Run**.
 
 Common requests work with **no AI key**. With a key (Settings), it can handle anything phrased freely and chain several steps. It can only ever run Ultra Studio's own tools.
+
+### MC Selects – the cameras you keep from a multicam edit
+Open a cut multicam edit (the multicam clips on V1) and press **Read the cameras**. Every camera is listed by its file name, with how many cuts it has and how long it's on screen. Keep the ones you want and press **Make the MC Selects sequence**: a new sequence of just their shots, back to back in the order you edited them, each cut its own clip with no handles. Give a camera a label colour to see it at a glance, and switch on **Include the camera’s scratch audio** for the camera's own sound. Your choices are remembered.
+
+Works with Multi-Camera Source Sequences and with nested sequences switched to multicam. Ultra Studio saves the project first, because which camera each cut shows is only written in the saved project. **Premiere only:** Resolve doesn't let add-ons see which camera a multicam cut shows.

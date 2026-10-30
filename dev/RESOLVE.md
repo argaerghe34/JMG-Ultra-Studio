@@ -60,6 +60,8 @@ stays, and they get no Resolve layer until they come back.
 | Premiere transcripts | Resolve's own transcripts can't be read by script, so Story has Resolve make subtitles of each clip on a scratch timeline and reads those (per phrase: no word timings or speaker names). Transcript files work as in Premiere. |
 | Captions (Story) | The SRT is written and imported into the Captions bin; the person drags it to the timeline (placing a subtitle by script crashes Resolve 21.1). |
 | Selects: faces / close-ups | The panel's browser in Resolve has no face detector, so shot sizes don't use faces. |
+| MC Selects (1.3.6): which camera each multicam cut shows | Not readable by script in Resolve (Premiere's comes from the saved project file), so MC Selects is Premiere only (`apps: ['premiere']` on the tool). |
+| Subclip Maker (1.3.6) | Each clip's `GetMarkInOut()` (out inclusive), made with `createSubclips`; Replace moves earlier ones with `MoveClips`. |
 | Project file path (Story travels with the project) | Resolve projects live in a database, not a file: see `storyProjectFile` in `resolve/host/story.js`. |
 
 ## Measured in real Resolve Studio 21.1.2 (28 Oct 2026) – the API reference doesn't say these
