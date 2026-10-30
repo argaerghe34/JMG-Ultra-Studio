@@ -601,3 +601,6 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   - **1.3.14** Beat map (22-story-heat.js + `scoreBeats`/`boardGroups`): passages (one speaker, ≤40 s, in scope, no
     interviewer) scored 0–10 on chosen criteria by the AI in batches of 250 (text only) or by word cues; heat strip per
     interview, detail with play, strongest list; a simple ordered board (drag or ↑↓) built as one sequence.
+  - **1.3.15** AI on this computer: provider 'local' (OpenAI-style /v1/chat/completions on localhost only – Ollama,
+    LM Studio; json_schema with Ollama's `format: json` fallback; `<think>` stripped; logged; never billed), model list,
+    test; per-project "nothing leaves this computer" (`ai.offlineProjects`) forces local or no AI. Top-bar chip says so.

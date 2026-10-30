@@ -404,9 +404,67 @@
     return { text: red.restore(text), usage: r.json.usageMetadata, model: used };
   }
 
+  /* ---------- on this computer: a local model (Ollama, LM Studio – their OpenAI-style endpoint), nothing leaves ---------- */
+  const LOCAL_URL = 'http://localhost:11434';
+  const localUrl = () => String(US.settings.get('ai.localUrl', LOCAL_URL) || LOCAL_URL).replace(/\/+$/, '');
+  const localModel = () => String(US.settings.get('ai.localModel', '') || '').trim();
+  /** Only this computer: a local model's address must be localhost. */
+  function localTarget() {
+    let u; try { u = new URL(localUrl()); } catch (e) { throw new US.UserError('AI_FAILED', { title: 'The local AI’s address isn’t right.', action: 'Use something like http://localhost:11434 (Ollama) or http://localhost:1234 (LM Studio) in Settings.' }); }
+    if (!/^(localhost|127\.0\.0\.1|\[::1\]|::1)$/i.test(u.hostname)) throw new US.UserError('AI_FAILED', { title: 'The local AI must run on this computer.', action: 'Its address has to start with http://localhost – a model elsewhere would mean text leaving this computer.' });
+    return u;
+  }
+  function httpLocal(method, pathname, body, timeoutMs = 600000) {
+    const u = localTarget(), mod = u.protocol === 'https:' ? https : require('http');
+    return new Promise((resolve, reject) => {
+      const data = body ? Buffer.from(JSON.stringify(body)) : null;
+      const req = mod.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || (u.protocol === 'https:' ? 443 : 80), path: (u.pathname.replace(/\/$/, '') || '') + pathname, method, headers: data ? { 'content-type': 'application/json', 'content-length': data.length } : {}, timeout: timeoutMs }, res => {
+        const chunks = []; res.on('data', c => chunks.push(c));
+        res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8'); let json = null; try { json = JSON.parse(text); } catch (e) { /* not JSON */ } resolve({ status: res.statusCode, json, text }); });
+      });
+      live.add(req); req.on('close', () => live.delete(req));
+      req.on('timeout', () => req.destroy(new Error('timeout after ' + timeoutMs + 'ms')));
+      req.on('error', e => reject(e));
+      if (data) req.write(data); req.end();
+    });
+  }
+  /** The models the local AI has (names to choose from). */
+  async function localModels() {
+    try { const r = await httpLocal('GET', '/v1/models', null, 8000); if (r.json && Array.isArray(r.json.data)) return r.json.data.map(m => m.id).filter(Boolean); } catch (e) { /* try Ollama's own list */ }
+    try { const r = await httpLocal('GET', '/api/tags', null, 8000); if (r.json && Array.isArray(r.json.models)) return r.json.models.map(m => m.name).filter(Boolean); } catch (e) { /* not running */ }
+    return [];
+  }
+  async function local({ system, user, turns, schema, maxTokens = 16000, feature }) {
+    const model = localModel();
+    if (!model) throw new US.UserError('AI_KEY', { title: 'Choose a local model first.', action: 'Settings › AI › On this computer: pick the model (Ollama or LM Studio must be running).' });
+    localTarget();   // this computer only – checked before anything is logged or sent
+    const sys = blocksText(system) + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '');
+    const messages = [{ role: 'system', content: sys }, { role: 'user', content: blocksText(user) }].concat((turns || []).flatMap(t => [{ role: 'assistant', content: String(t.assistant) }, { role: 'user', content: String(t.user) }]));
+    const body = Object.assign({ model, messages, max_tokens: Math.min(maxTokens, 16000), temperature: 0.2, stream: false }, schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: false } } } : {});
+    const logged = sentLog.begin({ provider: 'local', model, feature, req: { system, user, turns, schema }, est: { usd: 0, inputTokens: Math.ceil(sys.length / 3.6) } });
+    let r;
+    try { r = await httpLocal('POST', '/v1/chat/completions', body); }
+    catch (e) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw new US.UserError('AI_FAILED', { title: 'The local AI didn’t answer.', action: 'Start Ollama or LM Studio (with the model loaded), then try again.', detail: String(e && e.message || e) }); }
+    // older Ollama: no json_schema – ask again with its own JSON mode
+    if (r.status === 400 && schema) { delete body.response_format; body.format = 'json'; try { r = await httpLocal('POST', '/v1/chat/completions', body); } catch (e) { /* reported below */ } }
+    if (r.status !== 200 || !r.json) { sentLog.end(logged, { ok: false, error: 'HTTP ' + r.status }); throw new US.UserError('AI_FAILED', { title: 'The local AI said no.', action: 'Check the model name in Settings, and that it’s loaded.', detail: `${r.status}: ${String(r.text || '').slice(0, 400)}` }); }
+    const ch = (r.json.choices || [])[0] || {}, text = String((ch.message && ch.message.content) || '').replace(/^<think>[\s\S]*?<\/think>\s*/, '');
+    const u = r.json.usage || {};
+    sentLog.end(logged, { ok: true, model, usd: 0, tokensIn: u.prompt_tokens || 0, tokensOut: u.completion_tokens || 0 });
+    record('local:' + model, { input_tokens: u.prompt_tokens || 0, output_tokens: u.completion_tokens || 0 }, feature, 0, null);   // no key: nothing to bill
+    if (!text) throw new US.UserError('AI_FAILED', { title: 'The local AI sent back an empty answer.', action: 'Try again, or a larger model.' });
+    return { text };
+  }
+  /** "Nothing leaves this computer" for the open project: only the local model (or no AI) is used for it. */
+  const offlineProjects = () => US.settings.get('ai.offlineProjects', {}) || {};
+  const projectOffline = () => !!offlineProjects()[projectOf().key];
+  function setProjectOffline(on) { const m = Object.assign({}, offlineProjects()); if (on) m[projectOf().key] = projectOf().name; else delete m[projectOf().key]; US.settings.set('ai.offlineProjects', m); }
+
   function provider() {
     const pref = US.settings.get('aiProvider', 'auto');
-    const hasC = !!US.secrets.get('anthropicKey'), hasG = !!US.secrets.get('geminiKey');
+    const hasC = !!US.secrets.get('anthropicKey'), hasG = !!US.secrets.get('geminiKey'), hasL = !!localModel();
+    if (projectOffline()) return hasL ? 'local' : 'none';
+    if (pref === 'local') return hasL ? 'local' : 'none';
     if (pref === 'claude' && hasC) return 'claude';
     if (pref === 'gemini' && hasG) return 'gemini';
     if (pref === 'off') return 'none';
@@ -436,7 +494,7 @@
         .sort((a, b) => (b.current - a.current) || ((b.added || b.first || 0) - (a.added || a.first || 0)));
       // before: all the months' totals by model, less what the keys account for
       const before = { since: l.trackedSince || null, claude: { calls: 0, cost: 0 }, gemini: { calls: 0, cost: 0 } };
-      for (const m of Object.values(l.months || {})) for (const [model, b] of Object.entries(m.byModel || {})) { const p = /^gemini/.test(model) ? 'gemini' : 'claude'; before[p].calls += b.calls; before[p].cost += b.cost; }
+      for (const m of Object.values(l.months || {})) for (const [model, b] of Object.entries(m.byModel || {})) { if (/^local:/.test(model)) continue; const p = /^gemini/.test(model) ? 'gemini' : 'claude'; before[p].calls += b.calls; before[p].cost += b.cost; }
       for (const K of keys) { const b = before[K.provider]; if (b) { b.calls -= K.calls; b.cost -= K.cost; } }
       for (const p of ['claude', 'gemini']) { before[p].calls = Math.max(0, before[p].calls); before[p].cost = Math.max(0, before[p].cost); }
       return { keys, before };
@@ -451,29 +509,30 @@
     budgetLeft() { const job = US.jobs.current, key = job ? job.id : 'none'; return unattended.has(key) ? unattended.get(key) : null; },
     endBudget() { const job = US.jobs.current; unattended.delete(job ? job.id : 'none'); },
     /** What a request would cost with the current provider (Gemini: free). */
-    estimateFor(req) { const p = provider(); return p === 'claude' ? estimate(req) : { usd: 0, free: true, name: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)) }; },
+    estimateFor(req) { const p = provider(); return p === 'claude' ? estimate(req) : { usd: 0, free: true, name: p === 'local' ? localModel() : geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)) }; },
     provider,
     available: () => provider() !== 'none',
-    label: () => ({ claude: MODELS[claudeModel()].name, gemini: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)), none: 'No AI' }[provider()]),
+    label: () => ({ claude: MODELS[claudeModel()].name, gemini: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)), local: `${localModel()} (on this computer)`, none: 'No AI' }[provider()]),
+    localModels, LOCAL_URL, projectOffline, setProjectOffline,
     geminiName, geminiModels, GEMINI_DEFAULT, GEMINI_FAST_DEFAULT,
     /** Plain text answer. */
     async text({ system, user, maxTokens, effort, fast, feature }) {
       const p = provider();
       if (p === 'none') throw new US.UserError('AI_KEY');
-      return (p === 'claude' ? claude({ system, user, maxTokens, effort, feature }) : gemini({ system, user, maxTokens, fast, feature })).then(r => r.text);
+      return (p === 'claude' ? claude({ system, user, maxTokens, effort, feature }) : p === 'local' ? local({ system, user, maxTokens, feature }) : gemini({ system, user, maxTokens, fast, feature })).then(r => r.text);
     },
     /** JSON answer matching a JSON Schema (objects need additionalProperties:false and required for Claude). */
     /** fast: a quick, short request (the Assistant's plans) – uses Gemini's quick model; Claude is quick at low effort. */
     async json({ system, user, turns, schema, maxTokens, effort, fast, feature }) {
       const p = provider();
       if (p === 'none') throw new US.UserError('AI_KEY');
-      const r = p === 'claude' ? await claude({ system, user, turns, schema, maxTokens, effort, feature }) : await gemini({ system, user, turns, schema, maxTokens, fast, feature });
+      const r = p === 'claude' ? await claude({ system, user, turns, schema, maxTokens, effort, feature }) : p === 'local' ? await local({ system, user, turns, schema, maxTokens, feature }) : await gemini({ system, user, turns, schema, maxTokens, fast, feature });
       return parseJSON(r.text);
     },
     /** Quick check that a key works. */
     async test(which) {
       const system = 'You are a connection test. Reply with the single word OK.';
-      const r = which === 'gemini' ? await gemini({ system, user: 'Say OK.', maxTokens: 64, fast: true, feature: 'Key test' }) : await claude({ system, user: 'Say OK.', maxTokens: 200, feature: 'Key test' });
+      const r = which === 'gemini' ? await gemini({ system, user: 'Say OK.', maxTokens: 64, fast: true, feature: 'Key test' }) : which === 'local' ? await local({ system, user: 'Say OK.', maxTokens: 64, feature: 'Key test' }) : await claude({ system, user: 'Say OK.', maxTokens: 200, feature: 'Key test' });
       return r.text.trim();
     }
   };

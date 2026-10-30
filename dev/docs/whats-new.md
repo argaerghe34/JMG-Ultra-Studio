@@ -1,3 +1,8 @@
+## What's new in 1.3.15
+
+- **AI on this computer** (Settings › AI): choose **On this computer** and Ultra Studio uses a model running locally – Ollama or LM Studio – so not even text leaves. **Find models** lists what's installed; **Test** checks it answers. It only ever talks to this computer (an address elsewhere is refused). Small local models are fast but clearly weaker at story work, so themes, narratives and edits come out simpler – try an 8B model or larger.
+- **This project: nothing leaves this computer**: a switch per project, for NDA or broadcast work. That project then uses only the local model – or no AI at all – never Claude or Gemini, whatever else is chosen. The top bar says so.
+
 ## What's new in 1.3.14
 
 - **Beat map** (Story › 4 Build): every passage of the interviews scored on what you're looking for – **Emotion**, **Humour**, **Information**, **Conflict**, **Surprise** – and shown as a heat strip per interview, so the strongest parts stand out at a glance. Click a passage to read and hear it, with its scores and what makes it stand out; **The strongest** lists the top ones. **Add to the board**, drag the board's beats into order (or ↑ ↓), and **Build the board** as a sequence. Only text goes to the AI; without AI, word cues score it. Ask: *show me the most emotional moments*.

@@ -31,7 +31,7 @@
 
       /* AI */
       const provider = ui.segmented({
-        options: [{ value: 'auto', label: 'Automatic' }, { value: 'claude', label: 'Claude' }, { value: 'gemini', label: 'Gemini' }, { value: 'off', label: 'Off' }],
+        options: [{ value: 'auto', label: 'Automatic' }, { value: 'claude', label: 'Claude' }, { value: 'gemini', label: 'Gemini' }, { value: 'local', label: 'On this computer', title: 'A model running on this computer (Ollama or LM Studio) – not even text leaves' }, { value: 'off', label: 'Off' }],
         value: US.settings.get('aiProvider', 'auto'), onChange: val => { US.settings.set('aiProvider', val); status(); }
       });
       const aiStatus = h('div.field-hint');
@@ -45,10 +45,26 @@
         return ui.field(label, h('div.row', h('div.grow', input), save, test, remove), hint);
       }
       function status() {
-        const p = US.ai.provider();
-        aiStatus.textContent = p === 'none' ? 'AI is off. Every tool still works; the Assistant uses its built-in commands.' : `Using ${US.ai.label()} for AI requests.${p === 'gemini' ? ' Free within Google’s daily allowance (see the Gemini model below for what that means).' : ''}`;
+        const p = US.ai.provider(), off = US.ai.projectOffline();
+        aiStatus.textContent = (off ? `This project is set to keep everything on this computer – ${p === 'local' ? `${US.ai.label()} is used for it.` : 'no AI is used for it (choose a local model below to use one).'} ` : '') + (p === 'none' ? (off ? '' : 'AI is off. Every tool still works; the Assistant uses its built-in commands.') : off ? '' : `Using ${US.ai.label()} for AI requests.${p === 'gemini' ? ' Free within Google’s daily allowance (see the Gemini model below for what that means).' : p === 'local' ? ' Nothing leaves this computer – not even text.' : ''}`);
         drawGemini();
         renderSpend();
+      }
+
+      /* on this computer: a local model, and the per-project "nothing leaves" switch */
+      function localField() {
+        const url = ui.input({ value: US.settings.get('ai.localUrl', US.ai.LOCAL_URL), placeholder: US.ai.LOCAL_URL, onInput: x => US.settings.set('ai.localUrl', x.trim()) });
+        const modelSel = ui.select({ options: [{ value: US.settings.get('ai.localModel', ''), label: US.settings.get('ai.localModel', '') || 'Press Find models…' }], value: US.settings.get('ai.localModel', ''), onChange: x => { US.settings.set('ai.localModel', x); status(); } });
+        const find = ui.button('Find models', { small: true, kind: 'ghost', onClick: async () => { const ms = await US.ai.localModels(); if (!ms.length) { ui.toast({ type: 'warn', title: 'No local AI found', text: 'Start Ollama (ollama.com) or LM Studio with a model, then try again.', timeout: 6000 }); return; } modelSel.setOptions(ms.map(m => ({ value: m, label: m })), ms.includes(US.settings.get('ai.localModel', '')) ? US.settings.get('ai.localModel', '') : ms[0]); US.settings.set('ai.localModel', modelSel.get()); status(); } });
+        const test = ui.button('Test', { small: true, onClick: () => US.jobs.run({ title: 'Testing the local AI', tool: 'settings', who: 'AI' }, async () => { await US.ai.test('local'); ui.toast({ type: 'ok', title: 'The local AI answers' }); return { summary: 'works' }; }) });
+        const proj = US.ctx && US.ctx.project ? US.ctx.project.name : '';
+        const offline = proj ? ui.toggle({ label: `“${proj}”: nothing leaves this computer`, hint: 'For NDA or broadcast work: this project uses only the model on this computer (or no AI) – never Claude or Gemini, whatever is chosen above.', value: US.ai.projectOffline(), onChange: x => { US.ai.setProjectOffline(x); status(); } }) : null;
+        return ui.section('On this computer (offline)', [
+          h('div.field-hint', 'A model running on this computer – Ollama (ollama.com) or LM Studio – so not even text leaves. Small models are fast but clearly weaker at story work: themes, narratives and edits come out simpler. Try an 8B model or larger.'),
+          ui.field('Address', url, 'Ollama: http://localhost:11434 · LM Studio: http://localhost:1234 – it must be this computer.'),
+          ui.field('Model', h('div.row', h('div.grow', modelSel), find, test)),
+          offline
+        ], { open: US.settings.get('aiProvider', 'auto') === 'local' || US.ai.projectOffline() });
       }
 
       /* Gemini model: Google's newest Flash by default – named, so you know which one */
@@ -121,6 +137,7 @@
           keyField('geminiKey', 'Google Gemini API key', 'From aistudio.google.com › Get API key. Has a free daily allowance.', 'gemini'),
           ui.field('Gemini model', h('div.row', h('div.grow', gemSel), gemCheck), h('span', gemHint, ' Free tier: Google may use what you send to improve its products, and people there may read it – so not for interviews you’ve promised to keep private. Its daily limits are low (check aistudio.google.com › Rate limits). With billing switched on in Google AI Studio, Google doesn’t use it, and 3.8 Flash costs $0.75 / $3.75 per million tokens in / out until 31 Dec 2026, then $1.50 / $7.50.')),
           ui.toggle({ label: 'Read the interviews once and share them (Claude)', hint: 'Every Story AI feature and Ask start from the same copy of your transcripts, which Claude keeps for an hour – after the first request each reads them at a twentieth of the price. Off: each feature sends its own selection of lines (the “How much the AI reads” sliders).', value: US.settings.get('ai.shareTranscripts', true) !== false, onChange: x => US.settings.set('ai.shareTranscripts', x) }),
+          localField(),
           ui.field('Claude model', modelSel, 'Opus gives the best story judgement. Sonnet costs about half; Haiku a fortieth but is noticeably weaker at story work.'),
           ui.section('Cost', [
             spendBox, keysBox,

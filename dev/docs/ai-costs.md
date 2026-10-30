@@ -43,6 +43,7 @@ Using *Everything* for every search on a project that size comes to roughly $20�
 - Put **$25 of prepaid credit** on console.anthropic.com and set a **monthly spend limit of $50** there.
 - In Ultra Studio › Settings › AI › Cost: keep **Ask before a request costing over 25¢** and set a **monthly limit** (e.g. $40) – Ultra Studio stops before going over it.
 - Settings shows **this month's spending**, per feature, from Claude's own usage figures.
+- **On this computer** (Settings › AI): a local model through Ollama or LM Studio costs nothing and sends nothing – not even text – at the price of simpler results. **Nothing leaves this computer** can be switched on per project.
 - **Settings › What was sent to AI** keeps the exact text of every request on this computer, per project (90 days), with what each cost. Set **Show the text and cost before sending** to **Always** to see each request – and send or cancel it – before anything goes.
 - Start with **Opus** for story work; switch to **Sonnet** if you want to halve the cost.
 
