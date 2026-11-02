@@ -17,3 +17,27 @@
 .marker-add, .marker-out { gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
 .marker-add .marker-every { width: 70px; flex: none; }
 .marker-add select.input { width: auto; flex: none; }
+/* Marker pad: big buttons, each one kind of marker */
+.pad-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.pad-btn { position: relative; min-height: 72px; border: none; border-radius: var(--radius); padding: 10px 8px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; color: #111; font-family: var(--font); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18); transition: transform .06s, filter .12s; }
+.pad-btn:hover { filter: brightness(1.08); }
+.pad-btn:active { transform: scale(.96); }
+.pad-btn .pad-label { font-size: 15px; font-weight: 700; text-align: center; line-height: 1.15; }
+.pad-btn .pad-sub { font-size: 10.5px; opacity: .75; text-align: center; }
+.pad-btn .pad-key-tag { position: absolute; top: 4px; left: 6px; font-size: 10px; font-weight: 700; opacity: .6; font-family: var(--mono); }
+.pad-btn.recording { outline: 3px solid #fff; outline-offset: -3px; animation: pad-pulse 1s ease-in-out infinite; }
+@keyframes pad-pulse { 50% { filter: brightness(1.25); } }
+.pad-colours { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 4px 0 10px; }
+.pad-colour { min-height: 40px; border: none; border-radius: var(--radius-s); color: #111; font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--font); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .18); }
+.pad-colour:active { transform: scale(.95); }
+.pad-last { gap: 6px; align-items: center; flex-wrap: wrap; }
+.pad-status { min-height: 18px; margin-top: 6px; color: var(--text-2); font-size: 12px; }
+.pad-status.ok { color: var(--ok); }
+.pad-status.warn { color: var(--warn); }
+.pad-edits { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.pad-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; border: 1px solid var(--border); border-left: 6px solid; border-radius: var(--radius-s); background: var(--surface-2); }
+.pad-edit > input.input:first-child { flex: 1 1 120px; min-width: 100px; }
+.pad-edit select.input { width: auto; }
+.pad-edit .pad-secs { width: 64px; }
+.pad-edit .pad-key { width: 44px; text-align: center; }
+@media (max-width: 420px) { .pad-colours { grid-template-columns: repeat(4, 1fr); } }

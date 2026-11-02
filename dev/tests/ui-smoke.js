@@ -294,8 +294,28 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     if (mt.el.querySelectorAll('.marker-row').length !== 1) errors.push('markers: search did not filter');
     const notes = mt.el.querySelector('textarea');
     if (US.markerKit.fromText('00:01 a\n00:02 b', { fps: 25 }).length !== 2 || !notes) errors.push('markers: notes box');
+    // the pad: big buttons; a press adds at the playhead; start/stop waits for the second press; a key presses too
+    const pads = mt.el.querySelectorAll('.pad-btn');
+    if (pads.length !== 9) errors.push(`marker pad: ${pads.length} buttons`);
+    const wasCall = US.host.call, added = [], updated = [];
+    US.host.call = async (fn, a) => { if (fn === 'addSequenceMarkers') { added.push(a); return ['n' + added.length]; } if (fn === 'updateMarkers') { updated.push(a); return { done: 1, guids: {} }; } if (fn === 'sequenceInfo') return Object.assign({}, SEQ, { playhead: 1 }); return wasCall(fn, a); };
+    try {
+      const pick = label => Array.from(mt.el.querySelectorAll('.pad-btn')).find(b => b.querySelector('.pad-label').textContent.replace('● ', '') === label);
+      pick('Fix').click(); await new Promise(r => setTimeout(r, 30));
+      if (!added.length || added[0].markers[0].color !== 1 || added[0].markers[0].start !== 1 || added[0].where !== 'timeline') errors.push('marker pad: Fix did not add a red marker at the playhead ' + JSON.stringify(added));
+      pick('Highlight').click(); await new Promise(r => setTimeout(r, 30));
+      if (added.length !== 1 || !mt.el.querySelector('.pad-btn.recording')) errors.push('marker pad: start/stop did not wait for its end');
+      pick('Select on the clip').click(); await new Promise(r => setTimeout(r, 30));
+      if (!added[1] || added[1].where !== 'clips' || added[1].markers[0].end !== 6) errors.push('marker pad: a 5 s marker on the clip');
+      Array.from(mt.el.querySelectorAll('.pad-colour'))[6].click(); await new Promise(r => setTimeout(r, 30));
+      if (!updated.length || updated[0].markers[0].guid !== 'm1' || updated[0].markers[0].color !== 6) errors.push('marker pad: colour did not change the marker at the playhead ' + JSON.stringify(updated));
+      w.document.body.dispatchEvent(new w.KeyboardEvent('keydown', { key: '1', bubbles: true })); await new Promise(r => setTimeout(r, 30));
+      if (added.length !== 3 || added[2].markers[0].name !== 'Good') errors.push('marker pad: key 1 did not press Good');
+      Array.from(mt.el.querySelectorAll('.btn')).find(b => b.textContent === 'Edit buttons').click(); await new Promise(r => setTimeout(r, 10));
+      if (mt.el.querySelectorAll('.pad-edit').length !== 9) errors.push('marker pad: no editors');
+    } finally { US.host.call = wasCall; }
     SEQ.markers = [];
-    checks.push(`markers: ${rows.length} rows, search, bulk bar`);
+    checks.push(`markers: ${rows.length} rows, search, bulk bar · pad: ${pads.length} buttons, start/stop, colour, keys`);
   }
   if (errors.length) { console.log('✗ UI smoke test\n  ' + errors.join('\n  ')); process.exit(1); }
   console.log('✓ UI smoke test · ' + checks.join(' · '));

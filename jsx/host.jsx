@@ -325,6 +325,7 @@ var UStudio = (function () {
         var s = needSeq(a.seqId), o = { id: s.sequenceID, name: s.name, fps: seqFps(s), frame: Number(s.timebase) / TICKS, duration: ticksToSec(s.end), width: s.frameSizeHorizontal, height: s.frameSizeVertical, displayFormat: s.videoDisplayFormat, video: [], audio: [], markers: [] };
         try { o.itemId = s.projectItem.nodeId; } catch (e) { }
         // the sequence's In and Out points (when none are set Premiere reports the whole sequence or nothing)
+        try { o.playhead = s.getPlayerPosition().seconds; } catch (e) { }
         try { o.inPoint = s.getInPointAsTime().seconds; o.outPoint = s.getOutPointAsTime().seconds; } catch (e) { try { o.inPoint = Number(s.getInPoint()); o.outPoint = Number(s.getOutPoint()); } catch (e2) { } }
         function tracks(coll, out, isVideo) {
             for (var t = 0; t < coll.numTracks; t++) {

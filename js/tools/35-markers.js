@@ -153,6 +153,55 @@
     return markers.map((m, i) => ({ guid: m.guid, name: String(pattern).replace(/\{n\}/g, String(from + i)).replace(/\{name\}/g, m.name || '').replace(/\{tc\}/g, tc(m.start, fps, zero)).trim() }));
   }
 
+  /* ---------- the marker pad: big buttons that each make one kind of marker ---------- */
+  const LENGTHS = { point: 'A point', secs: 'Seconds', clip: 'The clip under the playhead', inout: 'In to Out', toggle: 'Press to start, press to end' };
+  const WHERES = { timeline: 'Timeline', clips: 'Clip', both: 'Both' };
+  const PAD_DEFAULTS = [
+    { id: 'good', label: 'Good', color: 0, length: 'point', secs: 2, where: 'timeline', key: '1' },
+    { id: 'fix', label: 'Fix', color: 1, length: 'point', secs: 2, where: 'timeline', key: '2' },
+    { id: 'note', label: 'Note…', color: 4, length: 'point', secs: 2, where: 'timeline', key: '3', ask: true },
+    { id: 'broll', label: 'B-roll here', color: 7, length: 'toggle', secs: 5, where: 'timeline', key: '4' },
+    { id: 'highlight', label: 'Highlight', color: 3, length: 'toggle', secs: 5, where: 'timeline', key: '5' },
+    { id: 'music', label: 'Music cue', color: 6, length: 'secs', secs: 4, where: 'timeline', key: '6' },
+    { id: 'chapter', label: 'Chapter', color: 2, length: 'point', secs: 2, where: 'timeline', key: '7', chapter: true },
+    { id: 'shot', label: 'Whole clip', color: 5, length: 'clip', secs: 2, where: 'timeline', key: '8' },
+    { id: 'select', label: 'Select on the clip', color: 0, length: 'secs', secs: 5, where: 'clips', key: '9' }
+  ];
+  const describePad = b => `${b.length === 'secs' ? `${b.secs} s` : LENGTHS[b.length]} · ${WHERES[b.where] || 'Timeline'}${b.key ? ` · key ${b.key}` : ''}`;
+  /** The clip seen at a time: the topmost enabled video clip there, else the first audio clip. */
+  function clipAt(info, t) {
+    const look = (tracks, top) => { const ts = (tracks || []).slice(); if (top) ts.reverse(); for (const tr of ts) for (const c of tr.clips || []) if (!c.disabled && t >= c.start - 1e-6 && t < c.end) return c; return null; };
+    return look(info.video, true) || look(info.audio, false);
+  }
+  /**
+   * What a pad button does at the playhead. info: sequenceInfo (with playhead); pending: when a start/stop button was
+   * started. -> {start: t} (a start/stop button waiting for its end) | {marker, where} | {error}
+   */
+  function press(b, info, { pending = null, name = '' } = {}) {
+    const t = info.playhead, frame = info.frame || 1 / (info.fps || 25), dur = info.duration || Infinity;
+    if (t == null || !isFinite(t)) return { error: 'Couldn’t read where the playhead is.' };
+    const mk = (start, end, extra = {}) => ({ marker: Object.assign({ start, end: end != null && end > start + frame / 2 ? end : null, name: name || b.name || b.label.replace(/…$/, ''), comment: '', color: b.color, chapter: !!b.chapter }, extra), where: b.where || 'timeline' });
+    if (b.length === 'toggle') {
+      if (pending == null) return { start: t };
+      return mk(Math.min(pending, t), Math.max(pending, t));
+    }
+    if (b.length === 'secs') return mk(t, Math.min(dur, t + Math.max(0.04, +b.secs || 1)));
+    if (b.length === 'clip') { const c = clipAt(info, t); return c ? mk(c.start, c.end, { comment: c.name }) : { error: 'There’s no clip under the playhead.' }; }
+    if (b.length === 'inout') {
+      const a = +info.inPoint, z = +info.outPoint;
+      if (!(isFinite(a) && isFinite(z) && z > a + frame) || (a < frame && z >= dur - frame)) return { error: 'Set In and Out points in the Timeline first (I and O).' };
+      return mk(a, z);
+    }
+    return mk(t, null);
+  }
+  /** The marker at the playhead: one that covers it (the latest to start), else the nearest within half a second. */
+  function markerAt(markers, t, frame = 1 / 25) {
+    const covering = markers.filter(m => m.start <= t + frame / 2 && t <= Math.max(m.end || m.start, m.start) + frame / 2).sort((a, b) => b.start - a.start);
+    if (covering.length) return covering[0];
+    const near = markers.map(m => ({ m, d: Math.abs(m.start - t) })).filter(x => x.d <= 0.5).sort((a, b) => a.d - b.d);
+    return near.length ? near[0].m : null;
+  }
+
   /* ---------- reading what's there ---------- */
   /** The open sequence: its markers, tracks and timing. */
   async function readSequence(seqId) {
@@ -308,6 +357,7 @@
           list.length > 500 ? h('div.field-hint', `Showing the first 500 of ${list.length}.`) : null);
         drawBulk();
         if (src.kind === 'sequence') trackSel.setOptions(tracks(), trackSel.value || 'v0');
+        if (!editing) drawPad();
       }
       const search = ui.input({ placeholder: 'Search names and comments…', onInput: x => { text = x; draw(); } });
       const whereSeg = ui.segmented({ value: where, onChange: x => { where = x; US.settings.set('markers.where', x); ticked.clear(); colours = null; read(); }, options: [{ value: 'sequence', label: 'The open sequence' }, { value: 'clips', label: RES ? 'Clips selected in the Media Pool' : 'Clips selected in the Project panel' }] });
@@ -357,16 +407,124 @@
         ui.button('Remove duplicates', { small: true, title: 'Markers at the same time with the same name as another', onClick: () => run('Removing duplicates', async () => { if (!src) return null; const d = duplicates(src.markers, src.frame || 0.04); if (!d.length) return { summary: 'No duplicates.' }; const n = await remove(src, src.markers.filter(m => d.includes(m.guid))); await read(); return { summary: `${US.plural(n, 'duplicate')} removed` }; }) }),
         ui.button('Remove the ones shown…', { small: true, kind: 'ghost', title: 'Every marker the search and colours leave', onClick: async () => { const list = shown(); if (!list.length) return; if (await ui.confirm({ title: `Delete ${US.plural(list.length, 'marker')}?`, text: (text || colours ? 'Every marker the search and colours leave. ' : 'Every marker in the list. ') + 'Undo in ' + (RES ? 'Resolve' : 'Premiere') + ' brings them back.' })) run('Deleting markers', () => after(remove(src, list))); } }));
 
+      /* the marker pad */
+      let pad = (US.settings.get('markers.pad', null) || PAD_DEFAULTS).map(b => Object.assign({}, b)), editing = false, last = null, showing = false;
+      const pending = new Map(), padBox = h('div'), padStatus = h('div.pad-status');
+      const savePad = () => US.settings.set('markers.pad', pad);
+      const say = (txt, kind = '') => { padStatus.textContent = txt; padStatus.className = 'pad-status' + (kind ? ' ' + kind : ''); };
+      async function seqNow() {
+        let s = US.ctx.sequence;
+        if (!s) { await US.refreshContext(); s = US.ctx.sequence; }
+        if (!s) throw new US.UserError('NO_SEQUENCE', { title: 'No sequence is open.', action: 'Open one in the Timeline.' });
+        const info = await US.host.call('sequenceInfo', { seqId: s.id });
+        info.id = s.id; info.frame = info.frame || 1 / (info.fps || 25);
+        return info;
+      }
+      async function hit(b) {
+        try {
+          const info = await seqNow(), fps = info.fps || 25;
+          const r = press(b, info, { pending: pending.has(b.id) ? pending.get(b.id) : null });
+          if (r.error) { say(r.error, 'warn'); return; }
+          if (r.start != null) { pending.set(b.id, r.start); say(`${b.label}: started at ${tc(r.start, fps)} – press again at the end`); drawPad(); return; }
+          pending.delete(b.id);
+          if (b.ask) { const n = await ui.promptText({ title: b.label.replace(/…$/, ''), label: `At ${tc(r.marker.start, fps)}`, placeholder: 'What’s the note?' }); if (n == null) { drawPad(); return; } r.marker.comment = n; r.marker.name = n.split(/[.!?]\s/)[0].slice(0, 60) || r.marker.name; }
+          const g = await US.host.call('addSequenceMarkers', { seqId: info.id, markers: [r.marker], where: r.where });
+          last = { seqId: info.id, guids: g, start: r.marker.start, name: r.marker.name, fps };
+          say(`${r.marker.name} · ${tc(r.marker.start, fps)}${r.marker.end ? ` – ${tc(r.marker.end, fps)}` : ''} · ${r.where === 'clips' ? 'on the clip' : r.where === 'both' ? 'on the timeline and the clip' : 'on the timeline'}`, 'ok');
+          drawPad();
+          if (src && src.kind === 'sequence' && src.id === info.id) read();
+        } catch (e) { ui.showError(e); }
+      }
+      async function colourHere(c) {
+        try {
+          if (ticked.size && src) { const ms = sel(); await update(src, ms.map(m => ({ marker: m, fields: { color: c } }))); say(`${US.plural(ms.length, 'ticked marker')} made ${COLOURS[c].name.toLowerCase()}`, 'ok'); read(); return; }
+          const info = await seqNow(), t = info.playhead;
+          // the timeline's markers, and the markers of the clip under the playhead where they show
+          const all = (info.markers || []).map(m => Object.assign({ color: 0 }, m));
+          const c0 = clipAt(info, t);
+          if (c0 && c0.itemId) { let ms = []; try { ms = await US.host.call('clipMarkers', { id: c0.itemId }); } catch (e) { /* none */ } for (const m of ms) { const on = clipMarkersOnTimeline([{ clip: c0, markers: [m] }], { tag: false })[0]; if (on) all.push(Object.assign(on, { guid: `clip:${c0.itemId}:${m.guid}` })); } }
+          const m = markerAt(all, t, info.frame);
+          if (!m) { say('No marker at the playhead – move onto one, or tick some in the list.', 'warn'); return; }
+          await US.host.call('updateMarkers', { seqId: info.id, markers: [{ guid: m.guid, color: c }] });
+          say(`“${m.name || 'Marker'}” made ${COLOURS[c].name.toLowerCase()}`, 'ok');
+          if (src && src.kind === 'sequence') read();
+        } catch (e) { ui.showError(e); }
+      }
+      async function lastDo(what) {
+        if (!last) { say('Make a marker with the pad first.', 'warn'); return; }
+        try {
+          if (what === 'delete') { await US.host.call('removeSequenceMarkers', { seqId: last.seqId, guids: last.guids }); say(`“${last.name}” deleted`, 'ok'); last = null; }
+          else if (what === 'end') {
+            const info = await seqNow();
+            if (!(info.playhead > last.start)) { say('Move the playhead past the marker’s start first.', 'warn'); return; }
+            const r = await US.host.call('updateMarkers', { seqId: last.seqId, markers: last.guids.map(g => ({ guid: g, end: info.playhead })) });
+            last.guids = last.guids.map(g => r.guids[g] || g);
+            say(`“${last.name}” now ends at ${tc(info.playhead, last.fps)}`, 'ok');
+          } else if (what === 'rename') {
+            const n = await ui.promptText({ title: 'Rename the last marker', value: last.name }); if (!n) return;
+            const r = await US.host.call('updateMarkers', { seqId: last.seqId, markers: last.guids.map(g => ({ guid: g, name: n })) });
+            last.guids = last.guids.map(g => r.guids[g] || g); last.name = n; say(`Renamed “${n}”`, 'ok');
+          }
+          drawPad(); if (src && src.kind === 'sequence') read();
+        } catch (e) { ui.showError(e); }
+      }
+      function editor(b, i) {
+        const ch = (k, val) => { b[k] = val; savePad(); drawPad(); };
+        const secs = h('input.input.pad-secs', { type: 'number', min: 0.1, step: 0.5, value: b.secs || 2, onchange: e => ch('secs', +e.target.value || 2) });
+        return h('div.pad-edit', { style: { borderLeftColor: COLOURS[b.color].hex } },
+          h('input.input', { value: b.label, placeholder: 'Button name', onchange: e => ch('label', e.target.value.trim() || 'Marker') }),
+          ui.select({ options: COLOURS.map(c => ({ value: String(c.i), label: c.name })), value: String(b.color), onChange: x => ch('color', +x) }),
+          ui.select({ options: Object.entries(LENGTHS).map(([value, label]) => ({ value, label })), value: b.length, onChange: x => ch('length', x) }),
+          b.length === 'secs' ? secs : null,
+          ui.select({ options: Object.entries(WHERES).map(([value, label]) => ({ value, label: 'On: ' + label })), value: b.where || 'timeline', onChange: x => ch('where', x) }),
+          h('input.input.pad-key', { value: b.key || '', maxlength: 1, placeholder: 'Key', title: 'A key that presses this button while the panel has focus', onchange: e => ch('key', e.target.value.trim().slice(0, 1)) }),
+          h('label.row', h('input', { type: 'checkbox', checked: !!b.ask, onchange: e => ch('ask', e.target.checked) }), h('span.field-hint', 'Ask for a note')),
+          RES ? null : h('label.row', h('input', { type: 'checkbox', checked: !!b.chapter, onchange: e => ch('chapter', e.target.checked) }), h('span.field-hint', 'Chapter marker')),
+          h('button.icon-btn', { title: 'Remove this button', onclick: () => { pad.splice(i, 1); savePad(); drawPad(); } }, US.icon('close', 14)));
+      }
+      function drawPad() {
+        US.clear(padBox);
+        if (editing) {
+          padBox.append(h('div.pad-edits', pad.map(editor)),
+            h('div.row', ui.button('Add a button', { small: true, icon: 'plus', onClick: () => { pad.push({ id: US.uid('p'), label: 'Marker', color: 6, length: 'point', secs: 2, where: 'timeline', key: '' }); savePad(); drawPad(); } }),
+              ui.button('Standard set', { small: true, kind: 'ghost', title: 'Put the standard buttons back', onClick: () => { pad = PAD_DEFAULTS.map(b => Object.assign({}, b)); savePad(); drawPad(); } }),
+              h('div.grow'), ui.button('Done', { small: true, kind: 'primary', onClick: () => { editing = false; drawPad(); } })));
+          return;
+        }
+        padBox.append(h('div.pad-grid', pad.map(b => {
+          const on = pending.has(b.id), col = COLOURS[b.color] || COLOURS[0];
+          return h('button.pad-btn' + (on ? '.recording' : ''), { style: { background: col.hex }, title: `${b.label}: ${describePad(b)}`, onclick: () => hit(b) },
+            b.key ? h('span.pad-key-tag', b.key) : null, h('span.pad-label', on ? `● ${b.label}` : b.label), h('span.pad-sub', on ? 'Press again at the end' : describePad(b)));
+        })),
+        h('div.field-label', ticked.size ? `Colour the ${US.plural(ticked.size, 'ticked marker')}` : 'Colour the marker at the playhead'),
+        h('div.pad-colours', COLOURS.map(c => h('button.pad-colour', { style: { background: c.hex }, title: c.name, onclick: () => colourHere(c.i) }, c.name))),
+        h('div.row.pad-last', h('span.field-hint', last ? `Last: “${last.name}”` : 'The last marker:'),
+          ui.button('End it here', { small: true, title: 'Make the last marker run to the playhead', onClick: () => lastDo('end') }),
+          ui.button('Rename…', { small: true, onClick: () => lastDo('rename') }),
+          ui.button('Delete it', { small: true, kind: 'ghost', onClick: () => lastDo('delete') }),
+          h('div.grow'), ui.button('Edit buttons', { small: true, kind: 'ghost', icon: 'gear', onClick: () => { editing = true; drawPad(); } })),
+        padStatus);
+      }
+      // the buttons' keys, while this tab is showing and nothing is being typed
+      document.addEventListener('keydown', e => {
+        if (!showing || editing || e.metaKey || e.ctrlKey || e.altKey || !v.el.isConnected || v.el.classList.contains('hidden')) return;
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '') || (e.target && e.target.isContentEditable)) return;
+        const b = pad.find(x => x.key && x.key.toLowerCase() === String(e.key).toLowerCase());
+        if (b) { e.preventDefault(); hit(b); }
+      });
+      drawPad();
+
       v.body.append(
+        ui.card(h('div.card-title', 'Marker pad', h('span.right.field-hint', 'At the playhead of the open sequence')), padBox),
         ui.card(whereSeg, h('div.row', h('div.grow', search), ui.button('Read again', { small: true, icon: 'refresh', onClick: () => run('Reading the markers', read) })), head, bulk, listBox),
         ui.card(h('div.card-title', 'Add markers'), h('div.row.marker-add', colourPick, h('div.grow', nameIn)),
           h('div.row.marker-add', hereBtn, everyIn, everyBtn),
           h('div.row.marker-add', trackSel, cutsBtn, clipsBtn), h('div.row', fromClipsBtn),
           ui.field('From notes or a review export', notes, notesHint), h('div.row', notesBtn, notesFile)),
         ui.card(h('div.card-title', 'Export and tidy up'), h('div.field-hint', 'Exports the markers in the list (after the search and colours).'), outRow, tidyRow));
-      return { el: v.el, onShow() { read(); } };
+      return { el: v.el, onShow() { showing = true; read(); }, onHide() { showing = false; } };
     }
   });
 
-  US.markerKit = { COLOURS, colourOf, parseTime, fromText, toText, toCSV, toChapters, every, atClips, clipMarkersOnTimeline, duplicates, filter, rename, readSequence, update };
+  US.markerKit = { PAD_DEFAULTS, LENGTHS, press, markerAt, clipAt, describePad, COLOURS, colourOf, parseTime, fromText, toText, toCSV, toChapters, every, atClips, clipMarkersOnTimeline, duplicates, filter, rename, readSequence, update };
 })();

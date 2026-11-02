@@ -1,3 +1,9 @@
+## What's new in 1.3.22
+
+- **Marker pad** (Markers): big buttons at the top of the Markers tab, each making one kind of marker at the playhead – its name, colour and length, on the timeline, the clip under the playhead, or both. Lengths: a point, a number of seconds, the whole clip under the playhead, In to Out, or press to start and press again to end (for logging while it plays). Keys 1–9 press them. **Edit buttons** to make your own set.
+- **Colour buttons**: eight big colours that recolour the marker at the playhead (or the ticked ones) with one press.
+- **The last marker**: stretch it to the playhead, rename it or delete it.
+
 ## What's new in 1.3.21
 
 - **Markers** (Finish & deliver): a new tab for making and managing markers on the open sequence or on clips. Every marker in one list – search, filter by colour, rename, recolour, comment, move and delete them, one at a time or ticked together (rename with a pattern like *Shot {n}*). Add them at the playhead, every so often, at every cut or clip, from the clips' own markers, or from a client's notes or a review tool's CSV export. Copy them as a list or YouTube chapters, save them as a spreadsheet, and remove duplicates. Premiere and Resolve. Ask: *add a marker every 30 seconds*.

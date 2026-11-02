@@ -79,3 +79,31 @@ test('the Assistant: a named, coloured marker at the playhead; every 30 s; at ev
     assert.ok(!act('markers.add').match('remove the markers'));
   } finally { US.host.call = was.call; US.refreshContext = was.refresh; US.ui.copy = was.copy; }
 });
+
+test('the marker pad: a point, seconds, the clip under the playhead, In to Out, and start/stop – on the timeline or the clip', () => {
+  const info = { playhead: 6, frame: 0.04, duration: 30, inPoint: 2, outPoint: 9, video: [{ clips: [{ name: 'A.mov', start: 0, end: 5 }, { name: 'B.mov', start: 5, end: 12, itemId: 'b' }] }, { clips: [{ name: 'Off', start: 5, end: 8, disabled: true }] }], audio: [] };
+  const b = (o) => Object.assign({ id: 'x', label: 'Fix', color: 1, length: 'point', secs: 2, where: 'timeline' }, o);
+  assert.deepStrictEqual(M.press(b(), info), { marker: { start: 6, end: null, name: 'Fix', comment: '', color: 1, chapter: false }, where: 'timeline' });
+  assert.deepStrictEqual(M.press(b({ length: 'secs', secs: 3, where: 'clips' }), info).marker.end, 9);
+  assert.strictEqual(M.press(b({ length: 'secs', secs: 30 }), info).marker.end, 30, 'not past the end');
+  const c = M.press(b({ length: 'clip' }), info);
+  assert.deepStrictEqual([c.marker.start, c.marker.end, c.marker.comment], [5, 12, 'B.mov'], 'the enabled clip on top');
+  assert.deepStrictEqual([M.press(b({ length: 'inout' }), info).marker.start, M.press(b({ length: 'inout' }), info).marker.end], [2, 9]);
+  assert.ok(M.press(b({ length: 'inout' }), Object.assign({}, info, { inPoint: 0, outPoint: 30 })).error, 'no In and Out set');
+  const t = b({ length: 'toggle' });
+  assert.deepStrictEqual(M.press(t, info), { start: 6 });
+  assert.deepStrictEqual([M.press(t, Object.assign({}, info, { playhead: 10 }), { pending: 6 }).marker.start, M.press(t, Object.assign({}, info, { playhead: 10 }), { pending: 6 }).marker.end], [6, 10]);
+  assert.strictEqual(M.press(t, Object.assign({}, info, { playhead: 2 }), { pending: 6 }).marker.start, 2, 'pressed earlier: still the right way round');
+  assert.ok(M.press(b(), Object.assign({}, info, { playhead: null })).error);
+  assert.strictEqual(M.press(b({ label: 'Note…' }), info, { name: '' }).marker.name, 'Note');
+  assert.strictEqual(M.PAD_DEFAULTS.length, 9);
+  assert.ok(M.PAD_DEFAULTS.every(x => x.key && M.describePad(x)));
+});
+
+test('the marker at the playhead: one that covers it (the latest to start), else the nearest within half a second', () => {
+  const ms = [{ guid: 'a', start: 1, end: 10 }, { guid: 'b', start: 4, end: 6 }, { guid: 'c', start: 20, end: 20 }];
+  assert.strictEqual(M.markerAt(ms, 5).guid, 'b');
+  assert.strictEqual(M.markerAt(ms, 8).guid, 'a');
+  assert.strictEqual(M.markerAt(ms, 20.3).guid, 'c');
+  assert.strictEqual(M.markerAt(ms, 15), null);
+});

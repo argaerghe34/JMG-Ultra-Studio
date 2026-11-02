@@ -151,6 +151,7 @@ module.exports = (R) => {
       const o = { id: R.id(tl), name: String(tl.GetName() || ''), fps, frame: 1 / fps, duration: dur, width: sz.width, height: sz.height, drop, displayFormat: String(fps) + (drop ? ' DF' : ''), video: [], audio: [], markers: [] };
       const mpi = tryCall(() => tl.GetMediaPoolItem(), null); if (mpi) o.itemId = R.id(mpi);
       // Mark In/Out (offsets from the timeline's start, the Out frame included); none set = the whole timeline
+      { const ph = playheadSec(tl); if (ph != null) o.playhead = ph; }
       const mk = tryCall(() => tl.GetMarkInOut(), {}) || {}, m = mk.video || mk.audio;
       o.inPoint = m && m.in != null ? Number(m.in) / fps : 0;
       o.outPoint = m && m.out != null ? (Number(m.out) + 1) / fps : dur;
