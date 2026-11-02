@@ -1,3 +1,7 @@
+## What's new in 1.3.20
+
+- **Punch in on the jump cuts** (Silence Cut): a switch on the cut copy – every other piece of a shot that was cut is pushed in a little (110 %, or what you choose), so the cuts read as changes of framing, like FireCut's and AutoCut's zoom cuts. B-roll above is left alone; a new shot starts at 100 %. Works in Premiere and Resolve. Ask: *punch in on the jump cuts*.
+
 ## What's new in 1.3.19
 
 - **Like a reference cut** (Story › 4 Build › Narrative from a brief): point it at a past edit or the transcript file of any video whose shape you like, and the next narrative follows it – the same beats (Hook, Set-up, Turning point, Ending…) in the same proportions, scaled to your length, with your own interviews. Only the reference's transcript text is read by the AI; without AI its length and rhythm are used. Ask: *use this timeline as a reference*.

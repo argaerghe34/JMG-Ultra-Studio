@@ -56,9 +56,11 @@
     // check: the copy should be shorter by what we meant to remove (each cut snaps to whole frames)
     const fps = an.target.fps || 25, want = r.removed, slack = (2 / fps) * ranges.length + 0.05;
     if (Math.abs(removed - want) > slack) US.log('error', `Silence Cut: removed ${removed.toFixed(3)} s, expected ${want.toFixed(3)} s`, `${ranges.length} cuts, fps ${fps}`, 'silence');
+    // punch-ins on the jump cuts the cuts made (every other piece of a shot pushed in)
+    const pu = US.settings.get('silence.punch', { on: false, scale: 110 }), pr = pu.on && US.punchIns ? await US.punchIns.apply(copy.id, { scale: pu.scale, job }) : null;
     await US.host.call('openSequence', { seqId: copy.id });
     const said = [r.cuts.length ? US.plural(r.cuts.length, 'pause') : '', nWords ? `${nWords} filler${nWords === 1 ? '' : 's'} and false start${nWords === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
-    return { summary: `Cut ${said} (${US.fmtDur(removed, true)}) – “${copy.name}” is ${US.fmtDur(dur)} long. The original is unchanged.`, copy, removed, cuts: ranges.length, duration: dur };
+    return { summary: `Cut ${said} (${US.fmtDur(removed, true)}) – “${copy.name}” is ${US.fmtDur(dur)} long. ${pr && pr.jumps ? ` ${US.plural(pr.done, 'jump cut')} pushed in to ${pu.scale} %.` : ''} The original is unchanged.`, copy, removed, cuts: ranges.length, duration: dur };
   }
 
   async function addMarkers(an, s, job) {
@@ -116,7 +118,7 @@
   US.tools.register({
     id: 'silence', name: 'Silence Cut', short: 'Silence', icon: 'silence', group: 'cut', order: 20,
     blurb: 'Removes pauses from interviews and talking heads. Always works on a copy.',
-    hostFns: ['renderAudio', 'cloneSequence', 'extractRanges', 'addSequenceMarkers', 'lockedTracksWithClips'],
+    hostFns: ['renderAudio', 'cloneSequence', 'extractRanges', 'addSequenceMarkers', 'lockedTracksWithClips', 'sequenceInfo', 'editApply'],
     create() {
       const v = ui.toolView({ icon: 'silence', title: 'Silence Cut', blurb: 'Finds the pauses in a sequence and cuts them out of a copy. Your original sequence is never changed.',
         help: h('div', h('p', 'How it works:'), h('ul',
@@ -126,6 +128,13 @@
           h('li', US.app.is('resolve') ? '“Make a cut copy” builds a new timeline from the parts you keep, on every track, so B-roll and music stay in sync.' : '“Make a cut copy” duplicates the sequence and ripple-deletes each pause across all tracks, so B-roll and music stay in sync.'))) });
 
       const settings = Object.assign({ preset: 'tight', threshold: null }, PRESETS.tight, US.settings.get('silence.settings', {}));
+      // punch-ins on the jump cuts of the cut copy (shared by both cut buttons)
+      function punchControls() {
+        const pu = Object.assign({ on: false, scale: 110 }, US.settings.get('silence.punch', {})), save = () => US.settings.set('silence.punch', pu);
+        const sl = ui.slider({ label: 'Push in to', min: 104, max: 130, step: 1, value: pu.scale, fmt: v => `${v} %`, onChange: v => { pu.scale = v; save(); } });
+        sl.style.display = pu.on ? '' : 'none';
+        return h('div', ui.toggle({ label: 'Punch in on the jump cuts', hint: 'Every other piece of a shot that was cut is pushed in a little, so the cut reads as a change of framing. Only the talking track; easy to change by hand.', value: pu.on, onChange: x => { pu.on = x; save(); sl.style.display = x ? '' : 'none'; } }), sl);
+      }
       let an = null;
 
       const picker = ui.sourcePicker({ modes: ['sequence'], kinds: ['audio'], label: 'Sequence', onChange: () => { an = null; render(); } });
@@ -157,7 +166,7 @@
         const cutWords = ui.actionButton(an && wo.withPauses ? 'Make a cut copy (fillers and pauses)' : 'Make a cut copy', () => US.jobs.run({ title: 'Cutting', tool: 'silence' }, async job => cutCopy(an && an.target.id === wordsFor.id && wo.withPauses ? an : await prepare(wordsFor), settings, job, { words, pauses: !!(an && an.target.id === wordsFor.id && wo.withPauses) })), { icon: 'silence' });
         wordsOut.append(list,
           an && an.target.id === wordsFor.id ? ui.toggle({ label: 'Cut the pauses too', hint: 'The pauses found above and the ticked words, in one copy.', value: wo.withPauses, onChange: x => { wo.withPauses = x; saveWo(); drawWords(); } }) : h('div.field-hint', 'Press “Find the pauses” above too, to cut both in one copy.'),
-          cutWords);
+          punchControls(), cutWords);
       }
       const wordsCard = ui.card(h('div.card-title', 'Fillers and false starts'),
         h('div.muted', 'Found from the words in Story’s transcripts of the clips in the sequence – “um”, “uh”, “er”, doubled small words (“I I went”) and restarted sentences (“we went to the – we went to the shop”). Each one is listed: untick any you want to keep, then make a cut copy. With Premiere’s word timings the cuts are exact; otherwise they’re estimated and left unticked.'),
@@ -187,7 +196,7 @@
         statsBox, presetSeg,
         h('div.grid2', minS, padS),
         h('div.row', h('div.grow', thrS), autoBtn),
-        lockNote, cutBtn, h('div.row', markBtn, unmarkBtn));
+        lockNote, punchControls(), cutBtn, h('div.row', markBtn, unmarkBtn));
 
       function update() {
         if (!an) return;
