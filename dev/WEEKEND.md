@@ -626,3 +626,14 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   word times, ▶ via `US.story.cueLine`); build through Story's `buildSequence` – just the words (trims with air),
   whole line or full sentence; one group per picked word; Add to Story as a theme. No new host commands, so Premiere
   and Resolve both work. Actions `words.cloud` and `words.build`. 436 tests pass.
+
+## 1.3.17.1 → 1.3.20 (2 Nov 2026, local) – from the competitor research
+- 1.3.17.1 Word cloud: list view, size, build order (as said / mix the voices), tick all, copy and save the counts.
+- 1.3.18 From a script (Jumper Script Editor / Premiere Paper Edit): `22-story-script.js` – units from a pasted script
+  (sections, speakers, [notes]); matched over 1–3 neighbouring lines by coverage + order (LCS) + density, cut to the
+  words; no franken-bites (each line in a multi-line match carries ≥2 of the words); AI picks by meaning among the
+  closest lines for the rest; built in script order.
+- 1.3.19 Like a reference cut (Selects/Cutback structure matching): `22-story-reference.js` – a timeline or a transcript
+  file read as beats (AI, text only) or rhythm (no AI), scaled into the narrative brief.
+- 1.3.20 Punch-ins (FireCut/AutoCut zoom cuts): `20-silence-punch.js` – alternate pieces of a cut shot scaled via
+  `editApply` motion, both hosts; a switch on Silence Cut copies and `silence.punch`. 446 tests pass.
