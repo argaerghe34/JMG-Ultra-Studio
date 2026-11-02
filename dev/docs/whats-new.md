@@ -1,3 +1,7 @@
+## What's new in 1.3.19
+
+- **Like a reference cut** (Story › 4 Build › Narrative from a brief): point it at a past edit or the transcript file of any video whose shape you like, and the next narrative follows it – the same beats (Hook, Set-up, Turning point, Ending…) in the same proportions, scaled to your length, with your own interviews. Only the reference's transcript text is read by the AI; without AI its length and rhythm are used. Ask: *use this timeline as a reference*.
+
 ## What's new in 1.3.18
 
 - **From a script** (Story › 4 Build): paste a script or paper edit and each line is found in the interviews – word for word, cut to just those words, even across two lines – with the next-best takes to choose from. Lines said in other words can be matched by meaning with AI (only text is sent). Then **Build the script**, in its order, a group per section. Like Jumper's Script Editor and Premiere's Paper Edit, but across every interview at once and in Resolve too. Ask: *build from my script*.

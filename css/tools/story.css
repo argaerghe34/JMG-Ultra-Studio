@@ -236,3 +236,5 @@
 .script-want { font-weight: 600; }
 .script-got { margin: 4px 0; color: var(--text-2); }
 .script-note { color: var(--text-3); font-style: italic; padding: 2px 8px; }
+.story-ref-beats { margin: 6px 0 6px 18px; padding: 0; }
+.story-ref-beats li { margin: 2px 0; }

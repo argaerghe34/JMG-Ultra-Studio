@@ -1450,6 +1450,9 @@
   async function makeNarrative(job, { brief: text, useAI = false, seqId = '' }) {
     await ready(); loadState();
     const brief = Object.assign(N().parseBrief(text), { context: String(state.narrativeContext || '') }), L = lookOptions(), ai = !!(useAI && US.ai && US.ai.available());
+    // like a reference cut: its length when none is asked for, and its beats (scaled) for the AI to follow
+    const ref = state.reference && state.reference.on && state.reference.beats && state.reference.beats.length ? state.reference : null;
+    if (ref) { if (!brief.said) brief.seconds = Math.max(15, Math.min(600, Math.round(ref.seconds))); brief.context = (brief.context.trim() ? brief.context.trim() + '\n\n' : '') + RF().note(ref, brief.seconds); }
     const tl = seqId ? await timelineLines(job, seqId) : null;
     const reads = ai ? (tl ? Math.min(readsFor('narrative'), tl.lines.length) : readsFor('narrative')) : 120;
     if (ai && US.ai.approveTotal) { const p = readsPlan('narrative', reads); await US.ai.approveTotal(p.usd, `Narrative cut (${US.plural(p.requests, 'request')})`); }
@@ -1728,6 +1731,34 @@
     if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'No answers were found to build.', action: 'Try the questions in other words, or with AI.' });
     const L = lookOptions();
     return buildSequence(job, { name, groups, look: Object.assign({}, L, { strong: Object.assign({}, L.strong, { first: false, highlight: false }) }) });
+  }
+
+  /* ================= Like a reference cut ================= */
+  const RF = () => US.storyReference;
+  /**
+   * Read a reference: a timeline in the project (what's heard in it, from Story's transcripts) or a transcript file of
+   * any video. With AI its beats (the transcript's text only); without, its rhythm. Kept as state.reference.
+   */
+  async function readReference(job, { seqId = '', file = '', useAI = true } = {}) {
+    await ready(); loadState();
+    let lines, name;
+    if (file) {
+      const f = US.normPath(file); name = US.stem(f);
+      lines = RF().normalise(T.parseFile(f).segments || []);
+    } else {
+      const tl = await timelineTranscript(job, { seqId, tracks: 'auto' }); name = tl.info.name;
+      lines = RF().normalise(tl.result.entries.map(e => ({ start: e.start, end: e.end, speaker: e.speaker || e.speakerKey || '', text: e.text })));
+    }
+    if (lines.length < 2) throw new US.UserError('NOTHING_FOUND', { title: `There’s too little speech in “${name}” to read its shape.`, action: file ? 'Choose a transcript (.srt, .vtt or .txt with times) of the whole video.' : `Choose a timeline with transcribed interview clips – ${READ_FIRST}.` });
+    let r;
+    if (useAI && US.ai && US.ai.available()) {
+      job && job.set({ who: 'ai', msg: `${US.ai.label()} is reading the shape of “${name}”` });
+      r = RF().organise(await US.ai.json(RF().request(lines, { name })), lines);
+      if (!r.beats.length) r = RF().basic(lines);
+    } else r = RF().basic(lines);
+    state.reference = Object.assign({ name, source: file ? 'file' : 'timeline', on: true, at: Date.now() }, r);
+    saveNow();
+    return { reference: state.reference, summary: `“${name}”: ${US.plural(r.beats.length, 'beat')} over ${US.fmtDur(r.seconds)}${r.by === 'basic' ? ' (its rhythm only – no AI)' : ` – ${r.beats.map(b => b.role).join(' → ')}`}` };
   }
 
   /* ================= From a script: find each line of a script or paper edit ================= */
@@ -3327,6 +3358,24 @@
           n ? ui.actionButton(`Build the script (${US.plural(n, 'clip')})`, () => US.jobs.run({ title: 'Building the script', tool: 'story' }, job => buildScript(job)), { icon: 'film' }) : null);
       }
 
+      /* like a reference cut: inside the narrative card */
+      let refSeqs = null;
+      function referenceSection() {
+        const ref = state.reference, aiOn = US.ai && US.ai.available();
+        const read = args => US.jobs.run({ title: 'Reading the reference', tool: 'story' }, async job => { const r = await readReference(job, Object.assign({ useAI: !!aiOn }, args)); renderBuild(); return r; });
+        const sel = ui.select({ options: [], placeholder: 'A timeline…', onChange: x => { if (x) read({ seqId: x }); } });
+        const fill = seqs => { refSeqs = seqs; sel.setOptions(seqs.map(q => ({ value: q.id, label: q.name })), ''); };
+        if (refSeqs) fill(refSeqs); else US.host.call('listSequences').then(fill).catch(() => {});
+        const fileBtn = ui.button('A transcript file…', { small: true, kind: 'ghost', icon: 'folder', title: 'An .srt, .vtt or timed .txt of any video – e.g. one whose pace you want to match', onClick: () => { const f = US.app.pickFiles({ title: 'Choose the reference’s transcript', ext: ['srt', 'vtt', 'txt', 'csv', 'json'] }); if (f && f.length) read({ file: f[0] }); } });
+        const body = [h('div.field-hint', `The narrative follows the shape of a video you like – what each part does and how long it runs, scaled to your length. ${aiOn ? `${US.ai.label()} reads its transcript (text only).` : 'Without AI only its length and rhythm are used.'}`),
+          h('div.row', h('div.grow', sel), fileBtn)];
+        if (ref) body.push(
+          ui.toggle({ label: `Follow “${ref.name}”`, hint: `${US.plural(ref.beats.length, 'beat')} over ${US.fmtDur(ref.seconds)}${ref.summary ? ' · ' + ref.summary : ''}`, value: ref.on !== false, onChange: x => { ref.on = x; saveNow(); } }),
+          h('ol.story-ref-beats', ref.beats.map(b => h('li', h('b', b.role), ` · ${US.fmtDur(b.to - b.from)}`, b.purpose ? h('span.field-hint', ` – ${b.purpose}`) : null))),
+          h('div.row', ui.button('Forget the reference', { small: true, kind: 'ghost', onClick: () => { state.reference = null; saveNow(); renderBuild(); } })));
+        return ui.section('Like a reference cut', body, { open: !!ref, hint: ref ? (ref.on !== false ? `following “${ref.name}”` : 'off') : 'optional' });
+      }
+
       /* narrative from a brief */
       let narBrief = US.settings.get('story.brief', ''), narAI = US.settings.get('story.narrativeAI', true), narFrom = US.settings.get('story.narrativeFrom', 'selects'), narSeqs = null;
       function narrativeCard() {
@@ -3372,6 +3421,7 @@
           ui.field('Lines from', from), seqBox,
           input, parsed,
           ui.field('Client notes and context', ctxBox, h('span', ctxInfo)), h('div.row', ctxLoad, ctxClear),
+          referenceSection(),
           aiOn ? ui.toggle({ label: `Let ${US.ai.label()} shape the story`, hint: 'It chooses the order, tightens lines by a few words and says what each one does. Only the text of your lines is sent.', value: narAI, onChange: x => { narAI = x; US.settings.set('story.narrativeAI', x); renderBuild(); } }) : null,
           useAI ? readsControl('narrative') : !aiOn ? noAINote('A short strong line first, then the most relevant lines and the most heartfelt line last, fitted to the length. Client notes need AI.') : h('div.field-hint', h('b', 'Basic version (no AI): '), 'a short strong line first, then the most relevant lines (mixing voices) and the most heartfelt line last, fitted to the length.'),
           ui.actionButton(latest ? 'Make another narrative' : 'Make the narrative', go, { icon: 'spark' }),
@@ -3742,6 +3792,21 @@
   });
 
   US.actions.register({
+    id: 'story.reference', tool: 'story', title: 'Use a timeline as a reference cut', changes: false,
+    describe: 'Reads the shape of a finished edit – its beats and how long each runs – so the next narrative follows the same structure with your interviews. Only its transcript text goes to the AI.',
+    params: { seqId: { type: 'string', default: '', desc: 'The reference timeline (empty = the open one)' } },
+    examples: ['use this timeline as a reference', 'cut it like my last video', 'same structure as this edit'],
+    match: t => (/\b(as (?:a|the) reference|reference (?:cut|edit|video|timeline))\b|\bsame (?:structure|shape|pacing) as\b|\b(?:cut|edit|make) it like (?:my|the|this|our) (?:last|previous|other)\b/i.test(t) ? { _score: 2.5 } : null),
+    run: async (p, job) => {
+      const seqId = p.seqId || (US.ctx.sequence && US.ctx.sequence.id) || '';
+      if (!seqId) throw new US.UserError('NO_SEQUENCE');
+      const r = await readReference(job, { seqId, useAI: !!(US.ai && US.ai.available()) });
+      openStory('build', { section: 'narrative' });
+      return { summary: `${r.summary} · the next narrative follows it` };
+    }
+  });
+
+  US.actions.register({
     id: 'story.narrative', tool: 'story', title: 'Make a narrative from a brief', changes: false,
     describe: 'Turns a brief like “a 60-second video about how the community looks after each other” into a story told by the interviews – hook, build, payoff – fitted to the length (15 s to 10 min), from your selects and other lines on the topic. It is saved in Story › Build; build it with story.build source "narrative".',
     params: { brief: { type: 'string', default: '', desc: 'The brief in the user’s words, including the length and topic' }, useAI: { type: 'boolean', default: false, desc: 'Let the AI shape the story (only line text is sent); otherwise the basic version' },
@@ -3952,7 +4017,7 @@
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' }, script: { tab: 'build', section: 'script' } };
   US.story = {
     /** for other tabs (Word cloud): play a line, who said it, which interview, and the lines to work on */
-    matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
+    readReference, matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
     scoreBeats, boardGroups, findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
