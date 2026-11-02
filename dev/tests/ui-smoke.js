@@ -269,6 +269,10 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       const rows = wt.el.querySelectorAll('.word-mention');
       if (!rows.length || !wt.el.querySelector('.word-mention mark')) errors.push('word cloud: no mentions listed on click');
       if (!Array.from(wt.el.querySelectorAll('.btn')).some(b => /^Build a sequence of \d+ mentions?$/.test(b.textContent))) errors.push('word cloud: no build button');
+      const listBtn = Array.from(wt.el.querySelectorAll('.seg')).find(b => b.textContent === 'List');
+      listBtn.click(); await new Promise(r => setTimeout(r, 10));
+      if (!wt.el.querySelectorAll('.word-row').length) errors.push('word cloud: list view empty');
+      Array.from(wt.el.querySelectorAll('.seg')).find(b => b.textContent === 'Cloud').click();
       checks.push(`word cloud: ${words.length} words, “${words[0].textContent}” ${rows.length} mentions`);
     }
   }

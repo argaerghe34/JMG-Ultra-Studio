@@ -79,3 +79,14 @@ test('“build every time they say community”: a sequence of just the words, i
     assert.ok(placed[0].in > 0.4 && placed[0].out < 1.8, `just the words: ${placed[0].in}–${placed[0].out}`);
   } finally { US.host.call = was.call; }
 });
+
+test('build order: as said, or taking turns between voices; the counts as a table (tabs) or a .csv', () => {
+  const ms = ['A', 'A', 'A', 'B', 'C', 'B'].map((who, i) => ({ id: String(i), line: { speaker: who } }));
+  assert.deepStrictEqual(W.orderMentions(ms, 'said').map(m => m.id), ['0', '1', '2', '3', '4', '5']);
+  assert.deepStrictEqual(W.orderMentions(ms, 'mix').map(m => m.line.speaker).join(''), 'ABCABA', 'turns between voices, every mention kept');
+  const t = W.toTable([{ text: 'peace, love', kind: 'phrase', n: 3, lines: 2, interviews: 1 }]);
+  assert.strictEqual(t.split('\n')[1], 'peace, love\tphrase\t3\t2\t1');
+  assert.strictEqual(W.toTable([{ text: 'peace, love', kind: 'phrase', n: 3, lines: 2, interviews: 1 }], { csv: true }).split('\n')[1], '"peace, love",phrase,3,2,1');
+  const a = US.actions.list().find(x => x.id === 'words.build').match('a supercut of everyone saying amazing, mix the voices');
+  assert.deepStrictEqual([a.text, a.order], ['amazing', 'mix']);
+});

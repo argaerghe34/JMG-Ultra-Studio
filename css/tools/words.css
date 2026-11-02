@@ -12,3 +12,15 @@
 .word-context { color: var(--text-2); }
 .word-context mark { background: rgba(124, 108, 240, 0.35); color: var(--text); border-radius: 3px; padding: 0 1px; font-weight: 600; }
 .word-set + .word-set { margin-top: 10px; }
+.word-view { align-items: center; gap: 6px; flex-wrap: wrap; }
+.word-cloud.as-list { display: block; padding: 4px 0; }
+.word-row { display: grid; grid-template-columns: 26px minmax(80px, 34%) 1fr 40px; align-items: center; gap: 8px; width: 100%; background: none; border: 1px solid transparent; border-radius: var(--radius-s); padding: 3px 4px; color: var(--text); cursor: pointer; font-family: var(--font); text-align: left; }
+.word-row:hover { background: var(--surface-3); }
+.word-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.word-rank, .word-n { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.word-n { text-align: right; }
+.word-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.word-name.phrase { font-style: italic; font-weight: 500; }
+.word-bar { height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+.word-bar span { display: block; height: 100%; border-radius: 3px; }
+.word-tick { gap: 4px; margin-bottom: 4px; }

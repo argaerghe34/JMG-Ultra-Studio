@@ -130,6 +130,25 @@
     return out;
   }
 
+  /**
+   * The order mentions are built in: 'said' – as given (interview by interview, in time); 'mix' – taking turns between
+   * the people (or interviews) saying it, so one voice doesn't run on – the classic supercut. whoOf(m): who said it.
+   */
+  function orderMentions(ms, order = 'said', whoOf = m => m.line.speaker) {
+    if (order !== 'mix') return ms.slice();
+    const by = new Map();
+    for (const m of ms) { const k = whoOf(m); if (!by.has(k)) by.set(k, []); by.get(k).push(m); }
+    const queues = Array.from(by.values()), out = [];
+    while (out.length < ms.length) for (const q of queues) if (q.length) out.push(q.shift());
+    return out;
+  }
+  /** The counts as text to paste (tab between columns) or a .csv: word, kind, times, lines, interviews. */
+  function toTable(items, { csv = false } = {}) {
+    const cell = v => (csv && /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+    const rows = [['Word or phrase', 'Kind', 'Times said', 'Lines', 'Interviews']].concat(items.map(x => [x.text, x.kind, x.n, x.lines, x.interviews]));
+    return rows.map(r => r.map(cell).join(csv ? ',' : '\t')).join('\n') + '\n';
+  }
+
   /* ---------- running it ---------- */
   const WHO = { everyone: 'Everyone', noInterviewer: 'Everyone but the interviewer' };
   /** The lines to count: Story's What to work on, by speaker. */
@@ -142,15 +161,15 @@
     if (who === 'noInterviewer') return lines.filter(l => !S().isInterviewer(l));
     return lines.filter(l => l.speaker === who);
   }
-  const settings = () => ({ forms: US.settings.get('words.forms', true), phrases: US.settings.get('words.phrases', true), hidden: US.settings.get('words.hidden', []), max: US.settings.get('words.max', 80), who: US.settings.get('words.who', 'noInterviewer'), clip: US.settings.get('words.clip', 'words') });
+  const settings = () => ({ forms: US.settings.get('words.forms', true), phrases: US.settings.get('words.phrases', true), hidden: US.settings.get('words.hidden', []), max: US.settings.get('words.max', 80), who: US.settings.get('words.who', 'noInterviewer'), clip: US.settings.get('words.clip', 'words'), order: US.settings.get('words.order', 'said'), view: US.settings.get('words.view', 'cloud') });
   /** Lines in interview order, then time. */
   function inOrder(lines) {
     const ivs = (S().state().transcripts || []).map(t => t.key), at = k => { const i = ivs.indexOf(k); return i < 0 ? 1e9 : i; };
     return lines.slice().sort((a, b) => at((S().interviewOf(a.id) || {}).key) - at((S().interviewOf(b.id) || {}).key) || a.start - b.start);
   }
   /** A sequence of every mention of some words or phrases (one group each). -> buildSequence's result */
-  async function build(job, sets, { clip = 'words' } = {}) {
-    const groups = groupsFor(sets, { clip });
+  async function build(job, sets, { clip = 'words', order = 'said' } = {}) {
+    const groups = groupsFor(sets.map(s => Object.assign({}, s, { mentions: orderMentions(s.mentions, order, m => S().speakerName(m.line.speaker) + '|' + ((S().interviewOf(m.lineId) || {}).key || '')) })), { clip });
     if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'No mentions are ticked.' });
     const look = Object.assign({}, S().lookOptions(), { themeNames: 'none', inOrder: false });
     look.strong = Object.assign({}, look.strong, { first: false, highlight: false });
@@ -176,19 +195,19 @@
   US.actions.register({
     id: 'words.build', tool: 'words', title: 'Build every time a word is said', changes: true,
     describe: 'A new sequence of every time a word or phrase is said in the interviews – just the words (a supercut), the whole line or the full sentence.',
-    params: { text: { type: 'string', default: '', desc: 'The word or phrase' }, clip: { type: 'enum', options: ['words', 'line', 'sentence'], default: 'words', desc: 'Just the words, the whole line, or the full sentence' } },
+    params: { text: { type: 'string', default: '', desc: 'The word or phrase' }, order: { type: 'enum', options: ['said', 'mix'], default: 'said', desc: 'As said, or taking turns between the people saying it' }, clip: { type: 'enum', options: ['words', 'line', 'sentence'], default: 'words', desc: 'Just the words, the whole line, or the full sentence' } },
     examples: ['build every time they say “community”', 'supercut of everyone saying amazing', 'a sequence of every mention of hope'],
     match(t) {
       const m = /\b(?:every|each) (?:time|mention)\b.*?\b(?:says?|said|say|saying|mentions?|of)\s+["“']?([^"”']+?)["”']?\s*$/i.exec(t) || /\bsupercut\b.*?\b(?:of|saying|says?)\s+["“']?([^"”']+?)["”']?\s*$/i.exec(t);
       if (!m) return null;
-      const text = m[1].replace(/^(?:the (?:word|phrase)|everyone saying|saying)\s+/i, '').trim();
-      return text ? { text, clip: /\b(sentences?|whole thought)\b/i.test(t) ? 'sentence' : /\b(whole|full) lines?\b/i.test(t) ? 'line' : 'words', _score: 2.6 } : null;
+      const text = m[1].replace(/^(?:the (?:word|phrase)|everyone saying|saying)\s+/i, '').replace(/[,;]\s*(?:whole|full|mix|mixed|alternat|taking|take|as said|in order).*$/i, '').trim();
+      return text ? { text, order: /\b(mix|mixed|alternat\w*|take turns|back and forth)\b/i.test(t) ? 'mix' : 'said', clip: /\b(sentences?|whole thought)\b/i.test(t) ? 'sentence' : /\b(whole|full) lines?\b/i.test(t) ? 'line' : 'words', _score: 2.6 } : null;
     },
     run: async (p, job) => {
       const o = settings(), lines = inOrder(await linesFor(job, o));
       const ms = mentions(lines, keyForText(p.text, o.forms), o);
       if (!ms.length) throw new US.UserError('NOTHING_FOUND', { title: `“${p.text}” isn’t said in the lines you’re working on.`, action: 'Check the spelling, or choose more interviews in Story › 1 Interviews › What to work on.' });
-      return build(job, [{ text: p.text, mentions: ms }], { clip: p.clip });
+      return build(job, [{ text: p.text, mentions: ms }], { clip: p.clip, order: p.order });
     }
   });
 
@@ -227,7 +246,10 @@
         US.clear(cloud);
         if (!items.length) { cloud.appendChild(ui.empty('No word is said more than once in these lines.')); return; }
         const lo = Math.min(...items.map(x => x.n)), hi = Math.max(...items.map(x => x.n)), keys = new Set(picked.map(p => p.key));
-        arrange(items).forEach((x, i) => cloud.appendChild(h('button.word' + (x.kind === 'phrase' ? '.phrase' : '') + (keys.has(x.key) ? '.on' : ''), {
+        cloud.classList.toggle('as-list', o.view === 'list');
+        if (o.view === 'list') items.forEach((x, i) => cloud.appendChild(h('button.word-row' + (keys.has(x.key) ? '.on' : ''), { onclick: e => pick(x, e.shiftKey || e.metaKey || e.ctrlKey), title: `In ${US.plural(x.lines, 'line')}, ${US.plural(x.interviews, 'interview')}` },
+          h('span.word-rank', String(i + 1)), h('span.word-name' + (x.kind === 'phrase' ? '.phrase' : ''), x.text), h('span.word-bar', h('span', { style: { width: `${Math.max(4, 100 * x.n / hi).toFixed(0)}%`, background: COLOURS[i % COLOURS.length] } })), h('span.word-n', String(x.n)))));
+        else arrange(items).forEach((x, i) => cloud.appendChild(h('button.word' + (x.kind === 'phrase' ? '.phrase' : '') + (keys.has(x.key) ? '.on' : ''), {
           style: { fontSize: `${sizeFor(x.n, lo, hi).toFixed(1)}px`, color: COLOURS[items.indexOf(x) % COLOURS.length] },
           title: `“${x.text}” – said ${US.plural(x.n, 'time')} in ${US.plural(x.lines, 'line')}, ${US.plural(x.interviews, 'interview')}`,
           onclick: e => pick(x, e.shiftKey || e.metaKey || e.ctrlKey)
@@ -247,8 +269,10 @@
         const sets = picked.map((p, i) => ({ text: p.text, key: p.key, label: picked.length > 1 ? [9, 6, 5, 7, 8, 2, 11, 12][i % 8] : null, mentions: mentionsOf(p) }));
         const total = sets.reduce((n, s) => n + s.mentions.length, 0);
         const clipSeg = ui.segmented({ value: o.clip, onChange: x => save('clip', x), options: [{ value: 'words', label: 'Just the words', title: 'A supercut: each mention with a little air either side' }, { value: 'line', label: 'Whole line' }, { value: 'sentence', label: 'Full sentence', title: 'The line run on to the end of its sentence' }] });
+        const orderSeg = ui.segmented({ value: o.order, onChange: x => save('order', x), options: [{ value: 'said', label: 'As said', title: 'Interview by interview, in the order it was said' }, { value: 'mix', label: 'Mix the voices', title: 'Taking turns between the people saying it' }] });
+        const tickAll = on => { for (const s of sets) for (const m of s.mentions) { if (on) off.delete(m.id); else off.add(m.id); } drawDetail(); };
         const ticked = () => sets.map(s => Object.assign({}, s, { mentions: s.mentions.filter(m => !off.has(m.id)) }));
-        const buildBtn = ui.actionButton(`Build a sequence of ${US.plural(total, 'mention')}`, () => US.jobs.run({ title: 'Building the mentions', tool: 'words' }, job => build(job, ticked(), { clip: o.clip })), { icon: 'film' });
+        const buildBtn = ui.actionButton(`Build a sequence of ${US.plural(total, 'mention')}`, () => US.jobs.run({ title: 'Building the mentions', tool: 'words' }, job => build(job, ticked(), { clip: o.clip, order: o.order })), { icon: 'film' });
         const themeBtn = ui.button('Add to Story as a theme', { small: true, title: 'A theme in Story with every line these are said in', onClick: () => { const ids = Array.from(new Set(ticked().flatMap(s => s.mentions.map(m => m.lineId)))); const th = S().newThemeFrom(sets.map(s => s.text).join(', '), ids); ui.toast({ type: 'ok', title: `Theme “${th.name}” added`, text: US.plural(th.lineIds.length, 'line'), action: { label: 'Open', fn: () => S().open('themes') } }); } });
         const hideBtn = picked.length === 1 && !picked[0].custom && items.some(x => x.key === picked[0].key) ? ui.button('Hide this word', { small: true, kind: 'ghost', title: 'Leave it out of the cloud (Show hidden words brings it back)', onClick: () => { save('hidden', o.hidden.concat(picked[0].key)); picked = []; recount(); } }) : null;
         const body = sets.map(s => h('div.word-set',
@@ -262,16 +286,26 @@
               h('button.btn.small.ghost', { title: 'Play from here', onclick: e => { e.preventDefault(); S().cueLine(m.line, m.start - 1); } }, '▶'));
           })) : ui.empty(`“${s.text}” isn’t said in these lines.`),
           s.mentions.length > 300 ? h('div.field-hint', `Showing the first 300 of ${s.mentions.length} – all are built.`) : null));
+        const tickRow = total > 1 ? h('div.row.word-tick', ui.button('Tick all', { small: true, kind: 'ghost', onClick: () => tickAll(true) }), ui.button('Untick all', { small: true, kind: 'ghost', onClick: () => tickAll(false) })) : null;
         detail.appendChild(ui.card(h('div.card-title', sets.length > 1 ? `${sets.length} words · ${US.plural(total, 'mention')}` : `“${sets[0].text}” · said ${US.plural(total, 'time')}`, h('span.right', h('div.row', themeBtn, hideBtn))),
-          body, total ? h('div', ui.field('Each clip', clipSeg), buildBtn, sets.length > 1 ? h('div.field-hint', 'One group per word, each in its own colour, in the order you picked them.') : null) : null));
+          tickRow, body, total ? h('div', ui.field('Each clip', clipSeg), ui.field('Order', orderSeg), buildBtn, sets.length > 1 ? h('div.field-hint', 'One group per word, each in its own colour, in the order you picked them.') : null) : null));
       }
       const opts = h('div.row.word-opts',
         ui.toggle({ label: 'Word forms together', hint: 'community + communities', value: o.forms, onChange: x => { save('forms', x); picked = []; recount(); } }),
         ui.toggle({ label: 'Phrases', hint: 'two- and three-word phrases', value: o.phrases, onChange: x => { save('phrases', x); recount(); } }));
+      const viewSeg = ui.segmented({ value: o.view, onChange: x => { save('view', x); drawCloud(); }, options: [{ value: 'cloud', label: 'Cloud' }, { value: 'list', label: 'List', title: 'Ranked, with the count of each' }] });
+      const sizeSl = ui.slider({ label: 'How many words', min: 20, max: 200, step: 10, value: o.max, onChange: x => { save('max', x); if (lines) recount(); } });
+      const copyBtn = ui.button('Copy the counts', { small: true, kind: 'ghost', title: 'Word, times said, lines and interviews – paste into a spreadsheet or document', onClick: () => { ui.copy(toTable(items)); ui.toast({ type: 'ok', title: `${US.plural(items.length, 'word')} copied` }); } });
+      const saveBtn = ui.button('Save as spreadsheet', { small: true, kind: 'ghost', icon: 'folder', onClick: () => {
+        try {
+          const f = US.audioKit.saveText(`Word cloud ${new Date().toISOString().slice(0, 10)}.csv`, '\ufeff' + toTable(items, { csv: true }).replace(/\n/g, '\r\n')); // BOM + CRLF so Excel on Windows reads accents
+          ui.toast({ type: 'ok', title: 'Word counts saved', text: `In Documents › JMG Ultra Studio (${US.basename(f)}).`, action: { label: 'Open', fn: () => US.audioKit.open(f) } });
+        } catch (e) { ui.showError(new US.UserError('DISK', { detail: e.message })); }
+      } });
       v.body.append(ui.card(h('div.row', ui.field('Who', whoSel), h('div.grow', ui.field('Find', search))), opts, scopeNote,
         h('div.row', ui.button('Count again', { small: true, icon: 'refresh', onClick: () => US.jobs.run({ title: 'Counting the words', tool: 'words' }, async job => { await load(job); return { summary: `${US.plural(items.length, 'word')} from ${US.plural((lines || []).length, 'line')}` }; }) }),
           ui.button('What to work on…', { small: true, kind: 'ghost', title: 'Choose interviews or a sequence in Story', onClick: () => S().open('transcripts') }))),
-        ui.card(cloud), detail);
+        ui.card(h('div.row.word-view', viewSeg, h('div.grow'), copyBtn, saveBtn), sizeSl, cloud), detail);
       return {
         el: v.el,
         onShow() {
@@ -284,5 +318,5 @@
     }
   });
 
-  US.wordCloud = { count, mentions, groupsFor, keyOf, keyForText, lineTokens, sizeFor, arrange, EXTRA_STOP };
+  US.wordCloud = { count, mentions, groupsFor, orderMentions, toTable, keyOf, keyForText, lineTokens, sizeFor, arrange, EXTRA_STOP };
 })();

@@ -1,3 +1,10 @@
+## What's new in 1.3.17.1
+
+A small update to the Word cloud:
+- **List** view: the words ranked, with a bar for how often each is said. **How many words** sets the size of the cloud (20–200).
+- **Order** when building: **As said** (interview by interview), or **Mix the voices** – taking turns between the people saying it, the classic supercut.
+- **Tick all / Untick all** for the mentions; **Copy the counts** or **Save as spreadsheet** (word, times said, lines, interviews).
+
 ## What's new in 1.3.17
 
 - **Word cloud** (Find the good bits): the words and phrases said most in your interviews, as a cloud – bigger means said more. Choose who: everyone, everyone but the interviewer, or one person. Click a word to see every time it's said, with the words around it, who said it and when, and play any of them. Then **build a sequence** of them – just the words (a supercut), the whole line or the full sentence – or add them to Story as a theme. Shift-click to build several words at once, one group and colour each. Counted on this computer from Story's transcripts; nothing is sent anywhere. Ask: *build every time they say "community"*.
