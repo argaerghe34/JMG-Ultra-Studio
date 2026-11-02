@@ -1,3 +1,10 @@
+## What's new in 1.3.23
+
+The last pieces from the competitor research, in one update:
+- **Same crop per person** (Story › Clips for social, and Make it a promo): instead of the automatic reframe, which can drift from clip to clip, set a crop once for each person – **Left**, **Centre**, **Right** or a slider, and a zoom – and every vertical clip of them uses it. Two people sharing one wide shot each get their own crop. Nothing is looked at; the positions are yours. Premiere and Resolve.
+- **Resolve's own transcripts, word by word** (Story › 1 Interviews, Resolve 21.1 and later): **Transcribe with Resolve** now reads the transcription Resolve keeps with each clip – with exact word times and the speakers – and asks Resolve to make one when a clip has none. Clips you've already transcribed in the Media Pool are read at once. Older Resolve works as before (subtitles, timed per phrase).
+- **Selects: takes of the same setup and how well it's framed**: clips of the same shot (same place, framing and light) are grouped as a **setup**, each select says whether it's the setup's **best take** or an **alternate**, and **Only the best take of each setup** leaves the alternates out of what's made. Each select also gets a framing score from what was already measured – contrast, nothing blown, a face on a third and not cut by the edge – with **Sort › Best looking first** and **Same setup together**. Nothing new is analysed. Ask: *selects, best of each setup*.
+
 ## What's new in 1.3.22
 
 - **Marker pad** (Markers): big buttons at the top of the Markers tab, each making one kind of marker at the playhead – its name, colour and length, on the timeline, the clip under the playhead, or both. Lengths: a point, a number of seconds, the whole clip under the playhead, In to Out, or press to start and press again to end (for logging while it plays). Keys 1–9 press them. **Edit buttons** to make your own set.

@@ -1,8 +1,9 @@
 // JMG Ultra Studio – Story (Resolve side). Same commands, arguments and results as jsx/tools/story.jsx.
 // Where Resolve differs (see dev/RESOLVE.md):
-// - Transcripts: Resolve's own transcription can't be read by script, but its subtitles can. storyTranscribe puts one
-//   clip on a scratch timeline, has Resolve make subtitles from its audio, reads them (text + times in media seconds)
-//   and deletes the timeline again. Subtitles are per phrase, not per word.
+// - Transcripts: Resolve 21.1+ reads the clip's own transcription (GetTranscription: words, times, speakers), making it
+//   with TranscribeAudio when there is none. Older Resolve: storyTranscribe puts one clip on a scratch timeline, has
+//   Resolve make subtitles from its audio, reads them (text + times in media seconds) and deletes the timeline again.
+//   Subtitles are per phrase, not per word.
 // - storyCue can't drive the Source Viewer: it selects the clip in the Media Pool and says where its media is; the
 //   panel plays the line itself (js/core/host.js cue()).
 // - Theme names and highlights: Resolve can't make adjustment clips by script, so they are range markers (one per
@@ -94,6 +95,46 @@ module.exports = (R) => {
     }
     return null;
   }
+  /**
+   * Resolve 21.1+: the clip's own transcription (MediaPoolItem.GetTranscription – words with times and speakers), made
+   * first with TranscribeAudio when the clip has none. Times are source timecodes, turned into media seconds.
+   * -> {words:[{t, d, w, speaker}], language} or null (older Resolve, or nothing came) so the subtitle way is used.
+   */
+  function readTranscription(it) {
+    let tr = null; try { tr = it.GetTranscription(); } catch (e) { return null; }
+    const segs = tr && R.list(tr.segments);
+    if (!segs || !segs.length) return null;
+    const tm = clipTiming(it), sec = tc => { const f = R.tcToFrames(String(tc || ''), tm.fps); return isFinite(f) ? +(f / tm.fps - tm.start).toFixed(3) : NaN; };
+    const words = [];
+    for (const g of segs) {
+      const sp = g.speaker ? String(g.speaker) : '', ws = R.list(g.words);
+      for (const w of ws.length ? ws : [g]) {
+        const text = String(w.text || '').trim(), t = sec(w.start), e = sec(w.end);
+        if (!text || /^\(\.\.\.\)$|^\(…\)$/.test(text) || !isFinite(t)) continue;
+        words.push({ t, d: Math.max(0.05, (isFinite(e) ? e : t + 0.3) - t), w: text, speaker: sp });
+      }
+    }
+    words.sort((a, b) => a.t - b.t);
+    return words.length ? { words, language: String(tr.language || '') } : null;
+  }
+  async function ownTranscription(it, T, secs) {
+    if (typeof it.GetTranscription !== 'function') return null;
+    const have = readTranscription(it);
+    if (have) return Object.assign(have, { made: false });
+    if (typeof it.TranscribeAudio !== 'function') return null;
+    let started = false; try { started = !!it.TranscribeAudio(true); } catch (e) { return null; }
+    if (!started) return null;
+    const pr = R.project(), end = T.now() + T.max(secs);
+    while (T.now() < end) {
+      await sleep(T.poll);
+      let st = {}; try { st = (pr && pr.GetTranscribeAudioStatus && pr.GetTranscribeAudioStatus()) || {}; } catch (e) { /* older 21.1 */ }
+      const got = readTranscription(it);
+      if (got && !/Analyzing|Initializing/i.test(String(st.JobStatus || ''))) return Object.assign(got, { made: true });
+      if (/Cancel/i.test(String(st.JobStatus || '')) || st.Error) return null;
+    }
+    return null;
+  }
+
   /** Transcribe timelines left behind (Resolve was maybe still writing into them): gone once an hour old. */
   function dropOldTranscribeTimelines(now) {
     const old = R.timelines().filter(t => { const m = new RegExp('^' + TRANSCRIBE + ' (\\d{12,})$').exec(String(t.GetName())); return m && now - Number(m[1]) > 3600e3; });
@@ -184,6 +225,11 @@ module.exports = (R) => {
       if (info.offline) throw R.err('OFFLINE', info.path);
       if (!info.hasAudio) throw R.err('NO_AUDIO', info.name, `“${info.name}” has no sound to transcribe.`, 'Pick your interview clips (with sound) in the Media Pool.');
       const T = Object.assign({ poll: 1000, settle: 4000, max: secs => 180e3 + secs * 3000, now: () => Date.now() }, R.transcribeTiming);
+      // Resolve 21.1+: its own transcription, word by word with speakers (Media Pool › Transcribe), when it has one or can make one
+      if (a.own !== false) {
+        const own = await ownTranscription(it, T, info.rangeEnd - info.rangeStart);
+        if (own) return { id: info.id, name: info.name, path: info.path, language: own.language || a.language || '', words: own.words, items: [], how: own.made ? 'transcribed' : 'read' };
+      }
       dropOldTranscribeTimelines(T.now());
       return keepPlace(async () => {
         const tl = scratchTimeline(TRANSCRIBE + ' ' + T.now());

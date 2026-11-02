@@ -748,6 +748,13 @@ var UStudio = (function () {
 
     fn.autoReframe = function (a) {
         var seq = needSeq(a.seqId);
+        // motion 'none': a copy at the new shape (same height) with nothing reframed – the panel places each clip itself
+        if (a.motion === 'none') {
+            var cp = fn.cloneSequence({ seqId: a.seqId, name: a.name, binPath: a.binPath }), ns = needSeq(cp.id), st = ns.getSettings();
+            var h = seq.frameSizeVertical, w = Math.round(h * a.num / a.den / 2) * 2;
+            st.videoFrameWidth = w; st.videoFrameHeight = h; ns.setSettings(st);
+            return { id: ns.sequenceID, name: ns.name, width: ns.frameSizeHorizontal, height: ns.frameSizeVertical, reframed: 0 };
+        }
         var r = seq.autoReframeSequence(a.num, a.den, a.motion || 'default', a.name, !!a.nested);
         if (!r) throw err('HOST_SCRIPT', 'Auto Reframe did not create a sequence');
         if (a.binPath) { try { r.projectItem.moveBin(ensureBin(a.binPath)); } catch (e) { } }

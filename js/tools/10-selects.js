@@ -183,7 +183,7 @@
   async function makeOutputs(o, job) {
     if (!state.result) throw new US.UserError('NOTHING_FOUND', { title: 'There are no selects yet.', action: 'Press “Find selects” first.' });
     const heroFirst = !!o.markBest;
-    const chosen = V().order(pickTiers(state.result.selects, o.tiers), o.order || 'score', { heroFirst });
+    const chosen = V().order(pickTiers(state.result.selects, o.tiers).filter(s => !o.setupBest || s.flags.setupBest !== false), o.order || 'score', { heroFirst });
     if (!chosen.length) throw new US.UserError('NOTHING_FOUND', { title: 'No selects in the grades you picked.', action: 'Include more grades, or loosen the settings.' });
     const d = new Date();
     const run = `${state.sourceLabel.replace(/[“”"]/g, '').replace(/[\\/:]/g, '-')} ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${d.toTimeString().slice(0, 5)}`.trim();
@@ -405,7 +405,8 @@
     id: 'selects.sequence', tool: 'selects', title: 'Make a selects sequence', changes: true,
     describe: 'Builds a new sequence from the current selects (colour-coded by grade, with a marker on each clip; the marked best go first). Runs “Find selects” on the selected clips (or a named bin, or this sequence) first if needed.',
     params: {
-      order: { type: 'enum', options: ['score', 'time', 'shot', 'move', 'action'], default: 'score', desc: 'score = best first, time = shooting order, shot = close-ups first, move = by camera move, action = most action first' },
+      order: { type: 'enum', options: ['score', 'time', 'shot', 'move', 'action', 'looks', 'setup'], default: 'score', desc: 'score = best first, time = shooting order, shot = close-ups first, move = by camera move, action = most action first, looks = best framed and lit first, setup = takes of the same shot together' },
+      setupBest: { type: 'bool', default: false, desc: 'only the best take of each setup (takes of the same shot)' },
       tiers: { type: 'enum', options: ['all', 'bestgood', 'best'], default: 'all', desc: 'Which grades to include' },
       bin: { type: 'string', default: '', desc: 'Bin to analyse first if there are no selects yet' },
       source: { type: 'enum', options: ['clips', 'sequence'], default: 'clips', desc: 'Analyse the active sequence first' }
@@ -414,11 +415,11 @@
     match(t) {
       if (!/(selects?|best (shots?|bits|moments)|highlights?)\b.*\b(sequence|timeline|stringout)|(sequence|timeline|stringout)\b.*\b(selects?|best)/i.test(t)) return null;
       if (/\bin (this|the|my) (sequence|timeline)/i.test(t) && !/\b(make|build|create)\b/i.test(t)) return null;
-      return { order: /order|time|chronolog|as shot/i.test(t) ? 'time' : /shot (type|size)|close.?ups? first/i.test(t) ? 'shot' : /camera move/i.test(t) ? 'move' : /action/i.test(t) ? 'action' : 'score', tiers: /best only|only (the )?best/i.test(t) ? 'best' : /good/i.test(t) ? 'bestgood' : 'all', bin: binFromText(t), source: seqFromText(t) ? 'sequence' : 'clips' };
+      return { order: /order|time|chronolog|as shot/i.test(t) ? 'time' : /shot (type|size)|close.?ups? first/i.test(t) ? 'shot' : /camera move/i.test(t) ? 'move' : /action/i.test(t) ? 'action' : /best.?looking|well framed|framing|composition|prettiest/i.test(t) ? 'looks' : /same (setup|shot|angle)|setups? together|group (the )?takes/i.test(t) ? 'setup' : 'score', setupBest: /best (take )?of each (setup|shot)|one take (of|per) each|no alternates/i.test(t), tiers: /best only|only (the )?best/i.test(t) ? 'best' : /good/i.test(t) ? 'bestgood' : 'all', bin: binFromText(t), source: seqFromText(t) ? 'sequence' : 'clips' };
     },
     run: async (p, job) => {
       if (!state.result || p.bin || p.source === 'sequence') { job.range(0, 0.6); await runPlan(await planFromParams(p, job), job); job.range(0.6, 1); }
-      const r = await makeOutputs({ sequence: true, order: p.order, tiers: p.tiers, markBest: true }, job);
+      const r = await makeOutputs({ sequence: true, order: p.order, tiers: p.tiers, setupBest: !!p.setupBest, markBest: true }, job);
       US.tools.open('selects');
       return r;
     }
@@ -560,6 +561,8 @@
           if (s.moveLabel || s.move) pills.push(ui.pill(`${s.moveLabel || V().MOVE_LABEL[s.move] || s.move}${s.move !== 'static' && s.smooth != null ? ` · ${s.smooth >= 80 ? 'very smooth' : s.smooth >= 60 ? 'smooth' : s.smooth >= 40 ? 'a bit uneven' : 'uneven'}` : ''}`, s.flags.cinematic ? '#57a6ff' : 'var(--text-2)'));
           if (s.flags.vertical) pills.push(ui.pill('9:16', '#3ecf8e'));
           if (s.flags.slowmo) pills.push(ui.pill('Slow-mo', '#57a6ff'));
+          if (s.setup) pills.push(ui.pill(`Setup ${s.setup} · ${s.flags.setupBest ? 'best take' : 'alternate'}`, s.flags.setupBest ? '#3ecf8e' : 'var(--text-2)'));
+          if (s.looks >= 85) pills.push(ui.pill('Well framed', '#57a6ff'));
           if (s.flags.forced) pills.push(ui.pill('Kept by you'));
           for (const iss of s.issues || []) pills.push(ui.pill(iss, '#f2b84b'));
         }
@@ -594,9 +597,9 @@
           h('div.card-title', 'Selects', h('span.right', `${state.sourceLabel} · ${V().FOOTAGE[state.settings.footage].label}`)),
           ui.stats(ui.stat(st.kept, 'selects'), ui.stat(st.best, 'BEST'), ui.stat(st.good, 'GOOD'), ui.stat(st.ok, 'OK'), ui.stat(st.reveals, 'reveals'), ui.stat(US.fmtDur(st.keptDur), `kept of ${US.fmtDur(st.footage)}`)),
           r.selects.length ? chart(r.selects) : null,
-          h('div.legend', h('span', h('i', { style: { background: TIER.BEST.color } }), 'BEST'), h('span', h('i', { style: { background: TIER.GOOD.color } }), 'GOOD'), h('span', h('i', { style: { background: TIER.OK.color } }), 'OK'), h('span', h('i', { style: { background: TIER.REVEAL.color } }), 'Reveal'), outOpts.markBest ? h('span', h('i', { style: { background: HERO.color } }), '★ Best') : null, st.dupes ? h('span', `${US.plural(st.dupes, 'duplicate')} dropped`) : null),
+          h('div.legend', h('span', h('i', { style: { background: TIER.BEST.color } }), 'BEST'), h('span', h('i', { style: { background: TIER.GOOD.color } }), 'GOOD'), h('span', h('i', { style: { background: TIER.OK.color } }), 'OK'), h('span', h('i', { style: { background: TIER.REVEAL.color } }), 'Reveal'), outOpts.markBest ? h('span', h('i', { style: { background: HERO.color } }), '★ Best') : null, st.dupes ? h('span', `${US.plural(st.dupes, 'duplicate')} dropped`) : null, st.setups ? h('span', `${US.plural(st.setups, 'setup')} with ${US.plural(st.alternates, 'alternate')}`) : null),
           failedNote());
-        const sortSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size (close-ups first)' }, { value: 'move', label: 'Camera move' }, { value: 'smooth', label: 'Smoothest moves first' }, { value: 'action', label: 'Most action first' }]), value: sortBy, onChange: x => { sortBy = x; limit = 120; render(); } });
+        const sortSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size (close-ups first)' }, { value: 'move', label: 'Camera move' }, { value: 'smooth', label: 'Smoothest moves first' }, { value: 'action', label: 'Most action first' }, { value: 'looks', label: 'Best looking first' }, { value: 'setup', label: 'Same setup together' }]), value: sortBy, onChange: x => { sortBy = x; limit = 120; render(); } });
         const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, r.selects.filter(fn).length]));
         const filt = ui.select({
           options: FILTERS.filter(([k]) => k === 'all' || counts[k]).map(([k, label]) => ({ value: k, label: `${label} (${counts[k]})` })).concat([{ value: 'rejected', label: `Left out (${r.rejected.length})` }]),
@@ -617,7 +620,7 @@
       /* outputs */
       function outputCard(r) {
         const tog = (key, label, hint, after) => ui.toggle({ label, hint, value: outOpts[key], onChange: x => { outOpts[key] = x; saveOut(); if (after) after(x); } });
-        const orderSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size' }, { value: 'move', label: 'Camera move' }, { value: 'smooth', label: 'Smoothest moves first' }, { value: 'action', label: 'Most action first' }]), value: outOpts.order, onChange: x => { outOpts.order = x; saveOut(); } });
+        const orderSel = ui.select({ options: [{ value: 'score', label: 'Best first' }, { value: 'time', label: 'Shooting order' }].concat(state.seq ? [{ value: 'sequence', label: 'Sequence order' }] : []).concat([{ value: 'shot', label: 'Shot size' }, { value: 'move', label: 'Camera move' }, { value: 'smooth', label: 'Smoothest moves first' }, { value: 'action', label: 'Most action first' }, { value: 'looks', label: 'Best looking first' }, { value: 'setup', label: 'Same setup together' }]), value: outOpts.order, onChange: x => { outOpts.order = x; saveOut(); } });
         const tiersSeg = ui.segmented({ options: [{ value: 'all', label: 'All' }, { value: 'bestgood', label: 'BEST + GOOD' }, { value: 'best', label: 'BEST only' }], value: outOpts.tiers, onChange: x => { outOpts.tiers = x; saveOut(); preview(); } });
         // sort into bins by type
         const GROUP_NAMES = { grade: 'Grade (BEST / GOOD / OK)', shot: 'Shot size (close-ups, mids, wides)', move: 'Camera move (static, pans, push-ins…)', special: 'Special (best, reveals, 9:16, slow-mo, faces, action)' };
@@ -657,6 +660,7 @@
           tog('stills', 'Stills of the best frames', 'A full-size PNG of the sharpest frame in each select (up to 50, best first) – for thumbnails, posts and your photo edit.'),
           tog('markBest', 'Mark the best', `Your ★ best (${state.settings.heroCount === 'pct' ? 'top 10%' : 'top ' + state.settings.heroCount}) get their own colour (magenta), a ★, and go first.`, () => render()),
           ui.field('Include', tiersSeg),
+          tog('setupBest', 'Only the best take of each setup', 'Takes of the same shot (same place, framing and light) are grouped; the alternates are left out. They stay in the list above.'),
           makeBtn,
           h('div.row', h('span.field-hint.grow', 'New items go in JMG Ultra Studio › Selects. Your clips and sequences aren’t changed.'),
             ui.button('Remove Selects markers', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Removing Selects markers', tool: 'selects' }, removeMarkers) })));

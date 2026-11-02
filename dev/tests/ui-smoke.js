@@ -31,7 +31,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -114,6 +114,23 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     const cells = tool.el.querySelectorAll('[data-section="beats"] .heat-cell');
     if (!cells.length) errors.push('beat map: no heat cells'); else { cells[0].click(); await new Promise(r => setTimeout(r, 10)); if (!/Add to the board|On the board/.test(tool.el.querySelector('[data-section="beats"]').textContent)) errors.push('beat map: no detail on click'); }
     checks.push(`beat map: ${cells.length} passages`);
+  }
+  {
+    // Clips for social › Same crop per person: a row per person in the ticked clips, with Left/Centre/Right and sliders
+    const t0 = st.transcripts[0], ids = t0.lines.slice(0, 3).map(l => l.id);
+    st.clips = { items: [{ title: 'Test clip', on: true, parts: [{ lineIds: ids, start: t0.lines[0].start, end: t0.lines[2].end }], seconds: 20, scores: {}, score: 7 }], by: 'basic' };
+    const was = US.settings.get('story.clips', {});
+    US.settings.set('story.clips', Object.assign({}, was, { vertical: true, reframe: 'fixed' }));
+    tool.onShow({ tab: 'build', section: 'clips' }); await new Promise(r => setTimeout(r, 30));
+    const rows = tool.el.querySelectorAll('[data-section="clips"] .crop-person');
+    if (!rows.length) errors.push('clips: no crop rows for “Same crop per person”');
+    else {
+      Array.from(rows[0].querySelectorAll('button')).find(b => b.textContent.trim() === 'Left').click(); await new Promise(r => setTimeout(r, 20));
+      const crops = US.settings.get('story.crops', {});
+      if (!Object.values(crops).some(c => c.x === 0.25)) errors.push('clips: Left didn’t set the crop');
+      checks.push(`crops: ${rows.length} person rows`);
+    }
+    US.settings.set('story.clips', was); US.settings.set('story.crops', {}); st.clips = null;
   }
   if (!/Build a sequence from your themes/.test(tool.el.querySelector('[data-section="build"]').textContent)) errors.push('build card is not “from your themes”');
   if (typeof S.open !== 'function' || S.SECTIONS.board.tab !== 'build') errors.push('US.story.open missing');

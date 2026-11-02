@@ -691,6 +691,57 @@
     return Math.max(d, c);
   }
   /** Same take? Looks alike AND moves, shakes and is exposed the same way over its length. */
+  /**
+   * How well a stretch is framed and lit, from what the analysis already measured (no new look at the picture):
+   * contrast (not flat, nothing crushed or blown) and where the subject sits – a face, else the detail – on a third or
+   * in the middle, not cut by the edge. samples: the select's samples. -> {looks: 0–100, notes: [words for the reasons]}
+   */
+  function framing(samples) {
+    const ss = (samples || []).filter(Boolean);
+    if (!ss.length) return { looks: 50, notes: [] };
+    const med = k => median(ss.map(x => x[k]).filter(v => v != null && isFinite(v)));
+    const span = (med('p90') || 0) - (med('p10') || 0), hi = med('hi') || 0, lo = med('lo') || 0;
+    let con = span >= 70 ? 1 : span >= 35 ? 0.55 + 0.45 * (span - 35) / 35 : 0.35 + 0.2 * span / 35;
+    if (hi > 0.06) con *= 0.8; if (lo > 0.2) con *= 0.85;
+    const faced = ss.filter(x => x.fc > 0 && x.fx != null);
+    const x0 = faced.length >= ss.length * 0.5 ? median(faced.map(f => f.fx)) : med('cx'), x = isFinite(x0) ? x0 : null;
+    const dist = x == null ? 0.1 : Math.min(Math.abs(x - 1 / 3), Math.abs(x - 0.5), Math.abs(x - 2 / 3));
+    const edge = x != null && (x < 0.12 || x > 0.88);
+    let comp = edge ? 0.35 : dist <= 0.06 ? 1 : dist <= 0.12 ? 0.8 : 0.6;
+    if (!faced.length) comp = 0.6 + 0.4 * comp;   // without a face the detail's centre says less
+    const looks = Math.round(100 * (0.5 * US.clamp(con, 0, 1) + 0.5 * comp));
+    const notes = [];
+    if (span < 35) notes.push('flat, low contrast'); else if (hi > 0.06) notes.push('highlights blown');
+    if (edge) notes.push(faced.length ? 'face at the edge of the frame' : 'subject at the edge of the frame');
+    else if (faced.length && dist <= 0.06) notes.push('face well placed');
+    return { looks, notes };
+  }
+  /**
+   * Takes of the same setup: clips that look alike overall (place, framing, light) – whatever their length, unlike
+   * duplicates. -> Map(clipId -> {n, name}) for clips in a setup of two or more; n counts from 1 in clip order.
+   */
+  const setupsCache = new WeakMap();
+  function setups(clips) {
+    const idOf = item => item.srcId || item.id;
+    if (setupsCache.get(clips)) return setupsCache.get(clips);   // the same footage re-ranked: the groups don't change
+    // sorted by overall colour: two clips whose colours sum more than 3×8 apart can't be within 8, so the scan stops early
+    const sum = c => c.data.sig.rgb[0] + c.data.sig.rgb[1] + c.data.sig.rgb[2];
+    const list = clips.filter(c => c.data && c.data.sig && !c.item.range).sort((a, b) => sum(a) - sum(b)), parent = list.map((_, i) => i);
+    const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length && sum(list[j]) - sum(list[i]) <= 24; j++) if (idOf(list[i].item) !== idOf(list[j].item) && sigDistance(list[i].data.sig, list[j].data.sig) <= 8) parent[find(j)] = find(i);
+    const groups = new Map();
+    list.forEach((c, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(c); });
+    const out = new Map(); let n = 0;
+    for (const g of groups.values()) {
+      const ids = [...new Set(g.map(c => idOf(c.item)))];
+      if (ids.length < 2) continue;
+      n++;
+      for (const id of ids) out.set(id, { n, name: g[0].item.name });
+    }
+    setupsCache.set(clips, out);
+    return out;
+  }
+
   function isDuplicate(A, B) {
     const da = A.data.duration, db = B.data.duration;
     if (Math.abs(da - db) / Math.max(da, db) > 0.15) return false;
@@ -812,6 +863,7 @@
           if (sm.fc > 0 && sm.fx != null) cxs.push(sm.fx); else { cxs.push(sm.cx); mids.push(sm.mid == null ? 0.33 : sm.mid); }
         }
         const cnt = k1 - k0 + 1;
+        const fr = framing(S.slice(k0, k1 + 1));
         let segScore = 0.7 * US.mean(q) + 0.3 * US.percentile(q, 0.2);
         if (seg.reveal) segScore = Math.max(segScore, st.good);
         const shot = majority(shots) || 'unknown', move = majority(moves) || 'static';
@@ -837,6 +889,7 @@
         reasons.push(move === 'static' ? (ak > 0.9 ? 'steady' : ak > 0.6 ? 'slight shake' : 'shaky in places') : `${cam.label.toLowerCase()}${cam.smooth != null ? ` (${cam.smooth >= 80 ? 'very smooth' : cam.smooth >= 60 ? 'smooth' : cam.smooth >= 40 ? 'a little uneven' : 'uneven'})` : ''}`);
         if (shot !== 'unknown') reasons.push(shot === 'close' ? 'close-up' : shot === 'mid' ? 'mid shot' : 'wide shot');
         for (const iss of issues) reasons.push(iss.toLowerCase());
+        for (const nt of fr.notes) reasons.push(nt);
         const id = idOf(item);
         const key = `${id}@${seg.start.toFixed(1)}`;
         if (seen.has(key)) continue;   // the same source moment used twice in a sequence
@@ -844,7 +897,7 @@
         const sel = {
           key, clipId: id, clipName: item.name, path: item.path,
           start: +seg.start.toFixed(3), end: +seg.end.toFixed(3), dur: +(seg.end - seg.start).toFixed(3),
-          score: Math.round(segScore), rank: +rank.toFixed(2), shot, move, moveLabel: cam.label, smooth: cam.smooth, energy: +en.toFixed(3), faces: faceChecks ? faces / faceChecks >= 0.5 : false, issues, reasons,
+          score: Math.round(segScore), rank: +rank.toFixed(2), shot, move, moveLabel: cam.label, smooth: cam.smooth, energy: +en.toFixed(3), faces: faceChecks ? faces / faceChecks >= 0.5 : false, looks: fr.looks, issues, reasons,
           flags: { reveal: seg.reveal || null, vertical: Math.abs(median(cxs) - 0.5) <= 0.1 && (!mids.length || median(mids) >= 0.45), slowmo: (item.fps || 0) >= 49, hero: false, forced: null, action: en >= 0.25, cinematic: cam.cinematic }
         };
         if (item.seq) sel.tl = +(item.seq.start + (seg.start - item.range[0]) / (item.seq.speed || 1)).toFixed(3);
@@ -888,6 +941,10 @@
       }
     }
 
+    // the same setup: takes of one shot (same place, framing and light) – grouped, the best of each marked
+    const setupOf = setups(clips);
+    for (const sl of selects) { const g = setupOf.get(sl.clipId); if (g) { sl.setup = g.n; sl.setupName = g.name; } }
+
     // your own choices win
     for (const f of forced) {
       if (f.mode === 'out') {
@@ -905,6 +962,9 @@
     }
 
     for (const s of selects) s.tier = s.score >= st.best ? 'BEST' : s.score >= st.good ? 'GOOD' : 'OK';
+    const topOfSetup = new Map();
+    for (const s of selects) if (s.setup && (!topOfSetup.has(s.setup) || rankOf(s) > rankOf(topOfSetup.get(s.setup)))) topOfSetup.set(s.setup, s);
+    for (const s of selects) { s.flags.setupBest = !s.setup || topOfSetup.get(s.setup) === s; }
     const heroN = st.heroCount === 'pct' ? Math.max(1, Math.round(selects.length * 0.1)) : (st.heroCount || 5);
     selects.filter(s => s.tier !== 'OK').sort((a, b) => rankOf(b) - rankOf(a) || b.dur - a.dur).slice(0, heroN).forEach(s => { s.flags.hero = true; });
     const footage = US.sum(clips.map(c => c.item.range ? c.item.range[1] - c.item.range[0] : (c.data && c.data.range ? c.data.range[1] - c.data.range[0] : (c.data && c.data.duration) || c.item.duration || 0)));
@@ -914,12 +974,12 @@
       stats: {
         clips: new Set(clips.map(c => idOf(c.item))).size, footage, kept: selects.length, keptDur: US.sum(selects.map(s => s.dur)),
         best: count(s => s.tier === 'BEST'), good: count(s => s.tier === 'GOOD'), ok: count(s => s.tier === 'OK'),
-        reveals: count(s => s.flags.reveal), heroes: count(s => s.flags.hero), dupes, rejectedClips: new Set(rejected.map(r => r.clipId)).size
+        reveals: count(s => s.flags.reveal), heroes: count(s => s.flags.hero), dupes, setups: topOfSetup.size, alternates: count(s => !s.flags.setupBest), rejectedClips: new Set(rejected.map(r => r.clipId)).size
       }
     };
   }
 
-  /** Sort selects. how: 'score' | 'time' | 'shot' | 'move' | 'action' | 'sequence'. heroFirst puts the marked best at the front. */
+  /** Sort selects. how: 'score' | 'time' | 'shot' | 'move' | 'action' | 'smooth' | 'looks' | 'setup' | 'sequence'. heroFirst puts the marked best at the front. */
   function order(selects, how, { heroFirst = false } = {}) {
     const a = selects.slice();
     const nat = (x, y) => x.clipName.localeCompare(y.clipName, undefined, { numeric: true }) || x.start - y.start;
@@ -929,6 +989,14 @@
     else if (how === 'shot') a.sort((x, y) => (SHOT_ORDER[x.shot] - SHOT_ORDER[y.shot]) || byScore(x, y));
     else if (how === 'move') a.sort((x, y) => (MOVES.indexOf(x.move) - MOVES.indexOf(y.move)) || byScore(x, y));
     else if (how === 'action') a.sort((x, y) => (y.energy - x.energy) || byScore(x, y));
+    else if (how === 'looks') a.sort((x, y) => ((y.looks || 0) - (x.looks || 0)) || byScore(x, y));
+    else if (how === 'setup') {
+      // each setup together (its best first), setups in the order of their best; one-off shots in between by score
+      const lead = new Map();
+      for (const s of a) { const k = s.setup ? 'g' + s.setup : s.key; if (!lead.has(k) || rankOf(s) > rankOf(lead.get(k))) lead.set(k, s); }
+      const kOf = s => (s.setup ? 'g' + s.setup : s.key);
+      a.sort((x, y) => { const lx = lead.get(kOf(x)), ly = lead.get(kOf(y)); return lx === ly ? byScore(x, y) : byScore(lx, ly); });
+    }
     else if (how === 'smooth') a.sort((x, y) => (+!!y.flags.cinematic - +!!x.flags.cinematic) || ((y.flags.cinematic ? y.smooth || 0 : 0) - (x.flags.cinematic ? x.smooth || 0 : 0)) || byScore(x, y));
     else a.sort(byScore);
     if (heroFirst) { const h = a.filter(s => s.flags.hero), r = a.filter(s => !s.flags.hero); return h.concat(r); }
@@ -960,5 +1028,5 @@
   /** Quick check used by Home › Check my setup. */
   async function probe(item) { const s = await pickSource(item); return s; }
 
-  US.vision = { cameraMove, VERSION, PRESETS, FOOTAGE, PICKY, CATEGORIES, MOVE_LABEL, settingsFor, probe, pickSource, analysisCopyPath, analysisPreset, makeAnalysisCopies, analyseClip, analyseMany, score, order, categories, fileUrl, _internal: { sharpness, exposure, shift, pyramid, normalise, scaleBetween, sampleScores, reveals, sigDistance, isDuplicate, prepare, thresholds } };
+  US.vision = { cameraMove, VERSION, PRESETS, FOOTAGE, PICKY, CATEGORIES, MOVE_LABEL, settingsFor, probe, pickSource, analysisCopyPath, analysisPreset, makeAnalysisCopies, analyseClip, analyseMany, score, order, categories, fileUrl, _internal: { framing, setups, sharpness, exposure, shift, pyramid, normalise, scaleBetween, sampleScores, reveals, sigDistance, isDuplicate, prepare, thresholds } };
 })();

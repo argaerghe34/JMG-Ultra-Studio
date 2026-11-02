@@ -1186,7 +1186,7 @@
    * The social steps after a build: a vertical version (aspect 9:16, 4:5 or 1:1 – the host's own reframe, then fitted to
    * a full-size frame) and captions timed to the words (on the vertical one too). -> {vertical, done:[what was made]}
    */
-  async function finishSocial(job, seq, { vertical = false, captions = '', aspect = '9:16', stage = () => {} } = {}) {
+  async function finishSocial(job, seq, { vertical = false, captions = '', aspect = '9:16', reframe = (US.settings.get('story.clips', {}) || {}).reframe || 'auto', stage = () => {} } = {}) {
     const done = [];
     let inner = null, vert = null;
     if (vertical) {
@@ -1194,7 +1194,9 @@
       const [num, den] = String(aspect || '9:16').split(':').map(Number);
       job.set({ who: 'premiere', msg: `Reframing: making the ${num}:${den} version` });
       const info = await US.host.call('sequenceInfo', { seqId: seq.id, clips: false });
-      inner = await US.host.call('autoReframe', { seqId: seq.id, num, den, motion: 'default', name: `${seq.name} – ${num}:${den}`, binPath: binBase() });
+      const fixed = reframe === 'fixed';
+      inner = await US.host.call('autoReframe', { seqId: seq.id, num, den, motion: fixed ? 'none' : 'default', name: `${seq.name} – ${num}:${den}`, binPath: binBase() });
+      if (fixed) await placeCrops(job, inner.id, info.width);
       const W = Math.max(info.width, info.height) >= 3000 ? 2160 : 1080, H = Math.round(W * den / num);
       vert = await US.host.call('fitToSize', { seqId: inner.id, width: W, height: H, name: `${seq.name} – ${num}:${den} ${W}×${H}`, binPath: binBase() });
       done.push(`a ${W}×${H} ${num}:${den} version`);
@@ -1210,6 +1212,18 @@
       done.push(`${CAP().STYLES[captions].label.toLowerCase()} captions`);
     }
     return { vertical: vert, done };
+  }
+
+  /** Same crop per person: each clip of the copy moved to the crop set for its file and speaker (Clips for social). */
+  async function placeCrops(job, seqId, srcW) {
+    const crops = US.settings.get('story.crops', {}) || {};
+    const info = await US.host.call('editRead', { seqId });
+    const linesOf = p => { const t = state.transcripts.find(x => x.path === p); return t ? t.lines : []; };
+    const moves = US.storyCrops.plan(info, crops, { srcW, linesOf });
+    let n = 0;
+    for (const m of moves) { job.check && job.check(); const r = await US.host.call('editApply', { seqId, op: 'motion', params: m.params, targets: m.targets }); n += (r && r.done) || 0; }
+    job.log && job.log(`Same crop per person: ${US.plural(n, 'clip')} placed`);
+    return n;
   }
 
   /* ================= Beat map and story board ================= */
@@ -2091,7 +2105,8 @@
       await new Promise(res => setTimeout(res, 80));   // let the message show: the call holds the panel while Resolve works
       try {
         const r = await US.host.call('storyTranscribe', { id: c.id, language: US.settings.get('story.language', '') || undefined }, { timeout: 0, slowAfter: 4 * 3600e3 });
-        const segments = T.fromSubtitles(r.items);
+        // Resolve 21.1+ gives its own transcription word by word (exact times, speakers); older Resolve gives subtitles
+        const segments = r.words && r.words.length ? T.wordsToSentences(r.words) : T.fromSubtitles(r.items);
         if (!segments.length) { bad.push(`${c.name}: no speech found`); continue; }
         addTranscript({ name: r.name || c.name, path: r.path || c.path, itemId: c.id, source: 'resolve', language: r.language, segments });
         ok++; lines += segments.length;
@@ -2284,7 +2299,7 @@
             const files = US.app.pickFiles({ multi: true, title: 'Choose transcript files', ext: ['srt', 'vtt', 'txt', 'csv', 'tsv', 'json', 'prtranscript'] });
             if (files.length) await US.jobs.run({ title: 'Importing transcripts', tool: 'story' }, job => importFiles(job, files.map(US.normPath))).then(render);
           } }), h('span.field-hint', 'SRT, VTT, CSV, JSON or text with timecodes'))));
-        if (!state.transcripts.length) { el.appendChild(ui.note(RES ? 'Resolve gives times per phrase rather than per word, so when Story trims a line or times captions it spreads the words evenly over each phrase.' : 'Reading saves your project first, because that’s where Premiere keeps its transcripts.')); return; }
+        if (!state.transcripts.length) { el.appendChild(ui.note(RES ? 'Resolve 21.1 and later give Story their own transcription word by word, with speakers – a clip already transcribed in the Media Pool is read at once. Older Resolve gives times per phrase, so Story spreads the words evenly over each phrase.' : 'Reading saves your project first, because that’s where Premiere keeps its transcripts.')); return; }
         const named = Array.from(speakers).filter(Boolean).length, one = (n, w) => (n === 1 ? w : w + 's');
         el.appendChild(ui.stats(ui.stat(state.transcripts.length, one(state.transcripts.length, 'interview')), ui.stat(US.fmtDur(secs), 'of speech'), ui.stat(lines.length, one(lines.length, 'line')),
           named ? ui.stat(named, one(named, 'speaker')) : ui.stat('No', 'speaker names')));
@@ -3326,8 +3341,32 @@
           found.length ? h('div', h('div.field-hint', `${US.plural(found.length, 'clip')}${state.clips.seqName ? ` from “${state.clips.seqName}”` : ''}${state.clips.by === 'basic' ? ' (basic – no AI)' : ''} – tick the ones to build.`), list,
             h('div.grid2', ui.toggle({ label: 'A vertical version too', hint: RES ? 'Resolve’s Smart Reframe, then fitted to a full-size frame.' : 'Premiere’s Auto Reframe, then fitted to a full-size frame.', value: o.vertical, onChange: x => { o.vertical = x; save(); } }),
               ui.field('Shape', ui.segmented({ options: [{ value: '9:16', label: '9:16' }, { value: '4:5', label: '4:5' }, { value: '1:1', label: '1:1' }], value: o.aspect, onChange: x => { o.aspect = x; save(); } }))),
+            o.vertical ? cropSection(o, save, (state.clips.items || []).filter(c => c.on)) : null,
             ui.field('Captions', ui.segmented({ options: [{ value: 'social', label: 'Social' }, { value: 'subtitles', label: 'Subtitles' }, { value: '', label: 'None' }], value: o.captions, onChange: x => { o.captions = x; save(); } })),
             ui.actionButton('Build the ticked clips', () => US.jobs.run({ title: 'Building the clips', tool: 'story' }, job => buildClips(job, (state.clips.items || []).filter(c => c.on), { vertical: o.vertical, aspect: o.aspect, captions: o.captions })), { icon: 'film' })) : null);
+      }
+
+      /** How the vertical versions are framed: the host's automatic reframe, or one crop per person set here. */
+      function cropSection(o, save, clips) {
+        const reframe = o.reframe || 'auto', box = h('div.crop-people');
+        const seg = ui.field('Framing', ui.segmented({ options: [{ value: 'auto', label: 'Automatic' }, { value: 'fixed', label: 'Same crop per person' }], value: reframe, onChange: x => { o.reframe = x; save(); renderBuild(); } }),
+          reframe === 'fixed' ? 'Set once for each person; every clip of them uses the same crop, so it never drifts between clips. Nothing is looked at – the positions are yours. Clips from a person without one stay centred.' : (RES ? 'Resolve’s Smart Reframe follows the action in each clip.' : 'Premiere’s Auto Reframe follows the action in each clip.'));
+        if (reframe !== 'fixed') return seg;
+        const crops = US.settings.get('story.crops', {}) || {};
+        const ppl = US.storyCrops.people(clips.flatMap(c => c.parts.flatMap(p => p.lineIds)), { lineOf: id => lineById.get(id), transcriptOf: id => clipOfLine.get(id), speakerName });
+        const saveCrops = () => US.settings.set('story.crops', crops);
+        const sameFile = p => ppl.filter(x => x.path === p.path).length > 1;
+        if (!ppl.length) box.appendChild(h('div.field-hint', clips.length ? 'These clips’ lines aren’t from your interviews’ files, so there is nobody to set – the vertical versions stay centred.' : 'Tick some clips to set their people.'));
+        for (const p of ppl) {
+          const key = sameFile(p) ? p.key : US.storyCrops.keyOf(p.path, ''), cur = Object.assign({ x: 0.5, zoom: 1 }, crops[key] || crops[p.key] || {});
+          const set = () => { crops[key] = { x: cur.x, zoom: cur.zoom }; saveCrops(); };
+          const posTxt = v => v < 0.42 ? `${Math.round((0.5 - v) * 200)} % left` : v > 0.58 ? `${Math.round((v - 0.5) * 200)} % right` : 'centre';
+          const pos = ui.slider({ label: 'Left – right', min: 0, max: 1, step: 0.01, value: cur.x, fmt: posTxt, onChange: v => { cur.x = v; set(); } });
+          const zoom = ui.slider({ label: 'Zoom in', min: 1, max: 2, step: 0.05, value: cur.zoom, fmt: v => `${Math.round(v * 100)} %`, onChange: v => { cur.zoom = v; set(); } });
+          const quick = h('div.row', ['Left', 'Centre', 'Right'].map((lab, i) => ui.button(lab, { small: true, kind: 'ghost', onClick: () => { cur.x = [0.25, 0.5, 0.75][i]; set(); renderBuild(); } })));
+          box.appendChild(h('div.crop-person', h('div.row', h('b.grow', p.who), h('span.field-hint', sameFile(p) ? `${p.file} – shares the shot` : p.file)), quick, pos, zoom));
+        }
+        return h('div', seg, box);
       }
 
       /* from a script or paper edit */

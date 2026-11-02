@@ -637,3 +637,20 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
   file read as beats (AI, text only) or rhythm (no AI), scaled into the narrative brief.
 - 1.3.20 Punch-ins (FireCut/AutoCut zoom cuts): `20-silence-punch.js` – alternate pieces of a cut shot scaled via
   `editApply` motion, both hosts; a switch on Silence Cut copies and `silence.punch`. 446 tests pass.
+
+## 1.3.21 → 1.3.23 (2 Nov 2026, local)
+- 1.3.21 Markers tab (`35-markers.js`, `updateMarkers` in both hosts); 1.3.22 Marker pad (big editable buttons, colour
+  buttons, keys 1–9; `playhead` in `sequenceInfo`).
+- 1.3.23 – the research's last open items in one update:
+  - Same crop per person (`22-story-crops.js`): `autoReframe` with motion 'none' makes the copy at the new shape with
+    nothing reframed (Premiere: clone + setSettings; Resolve: the duplicate without SmartReframe), then each clip is
+    moved with `editApply` motion per file+speaker (speaker from the transcript lines in the clip's source range).
+    Settings `story.clips.reframe`, `story.crops`. Untested in the editors: Premiere keeping clip scale after
+    setSettings, and Resolve Pan after 'scaleToCrop'.
+  - Resolve 21.1 transcripts: `storyTranscribe` reads `MediaPoolItem.GetTranscription()` (words, timecodes, speakers;
+    checked against the installed 21.1.2 scripting README), runs `TranscribeAudio(true)` and polls
+    `Project.GetTranscribeAudioStatus()` when there's none, else falls back to subtitles. Panel: `wordsToSentences`.
+    Premiere already reads its own transcripts from the .prproj; the UXP route stays a plan.
+  - Selects: `framing()` (contrast + face/detail placement, from existing samples – no re-analysis, VERSION unchanged),
+    `setups()` (sig distance ≤ 8, cached per clips array, colour-sorted sweep), `setupBest`, orders 'looks' and 'setup'.
+  - Local visual logging stays parked with B-roll (owner's choice). 465 tests pass.

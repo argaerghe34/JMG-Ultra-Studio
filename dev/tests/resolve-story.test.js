@@ -354,3 +354,41 @@ test('resolve story: the Story panel in Resolve – Transcribe with Resolve, and
   const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'resolve-story-panel.js')], { encoding: 'utf8', timeout: 60000 });
   assert.ok(/\bok\b/.test(out), out);
 });
+
+test('resolve story: Resolve 21.1’s own transcription is read word by word with speakers, made first when missing', async () => {
+  const { F, host, run } = setup();
+  const file = touch(path.join(tmp(), 'Ruth.mp4')), a = F.addMedia(file, { frames: 25 * 60 });
+  const R = host.R, tm = { fps: 25, start: R.tcToFrames(String(a.GetClipProperty('Start TC') || '00:00:00:00'), 25) / 25 };
+  const tc = s => R.framesToTC(Math.round((tm.start + s) * 25), 25);
+  const w = (text, s, e) => ({ text, start: tc(s), end: tc(e) });
+  const made = { language: 'en', segments: [
+    { start: tc(1), end: tc(3), text: 'I grew up by the sea.', speaker: 'Ruth', words: [w('I', 1, 1.2), w('grew', 1.2, 1.6), w('up', 1.6, 1.8), w('(...)', 1.8, 2), w('by', 2, 2.2), w('the', 2.2, 2.4), w('sea.', 2.4, 3)] },
+    { start: tc(10), end: tc(12), text: 'And you stayed?', speaker: 'Interviewer', words: [w('And', 10, 10.4), w('you', 10.4, 10.8), w('stayed?', 10.8, 12)] }
+  ] };
+  // a clip Resolve has transcribed already: read, nothing made, no scratch timeline
+  a.GetTranscription = () => made;
+  const before = F.timelines.length;
+  const r = await run('storyTranscribe', { id: a.GetUniqueId() });
+  assert.strictEqual(r.how, 'read');
+  assert.deepStrictEqual(r.words.map(x => [x.w, x.t, x.speaker]).slice(0, 4), [['I', 1, 'Ruth'], ['grew', 1.2, 'Ruth'], ['up', 1.6, 'Ruth'], ['by', 2, 'Ruth']], 'silences left out, media seconds');
+  assert.strictEqual(F.timelines.length, before);
+  assert.ok(!F.log.some(l => l[0] === 'CreateSubtitlesFromAudio'));
+  // the panel: sentences with exact word times and the speakers
+  const T = load(['transcript']).transcript;
+  const segs = T.wordsToSentences(r.words);
+  assert.deepStrictEqual(segs.map(s => [s.speaker, s.text]), [['Ruth', 'I grew up by the sea.'], ['Interviewer', 'And you stayed?']]);
+  assert.ok(T.wordTimes(T.toLines(segs, 'k')[0]).exact, 'word times are exact');
+  // none yet: TranscribeAudio (with speakers), then read once Resolve says it's done
+  let calls = 0, ready = false;
+  a.GetTranscription = () => (ready ? made : {});
+  a.TranscribeAudio = sp => { calls++; assert.strictEqual(sp, true); setTimeout(() => { ready = true; }, 20); return true; };
+  const pr = F.resolve.GetProjectManager().GetCurrentProject();
+  pr.GetTranscribeAudioStatus = () => ({ JobStatus: ready ? 'Complete' : 'Analyzing' });
+  const r2 = await run('storyTranscribe', { id: a.GetUniqueId() });
+  assert.strictEqual(r2.how, 'transcribed'); assert.strictEqual(calls, 1); assert.strictEqual(r2.words.length, 9);
+  // Resolve refuses: the subtitle way, as before
+  a.TranscribeAudio = () => false; ready = false;
+  F.speech[file] = [['From the subtitles.', 1, 3]];
+  const r3 = await run('storyTranscribe', { id: a.GetUniqueId() });
+  assert.ok(!r3.words); assert.deepStrictEqual(r3.items.map(x => x.text), ['From the subtitles.']);
+});

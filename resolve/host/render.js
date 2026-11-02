@@ -512,7 +512,7 @@ module.exports = function (R) {
 
     /**
      * Smart Reframe (Studio) as Premiere's Auto Reframe: a copy of the timeline at num:den with the same height
-     * (607×1080 → 608×1080 from 1080p, even numbers), each video clip reframed. a: {seqId, num, den, name, binPath}
+     * (607×1080 → 608×1080 from 1080p, even numbers), each video clip reframed (not with motion 'none'). a: {seqId, num, den, motion, name, binPath}
      * → {id, name, width, height, reframed, failed}
      */
     async autoReframe(a) {
@@ -527,6 +527,8 @@ module.exports = function (R) {
         if (!dup) throw R.err('HOST_SCRIPT', 'DuplicateTimeline refused', 'Resolve couldn’t copy the timeline for Smart Reframe.', 'Check the project isn’t locked, then try again.');
         E.intoBin(dup, bin);
         if (!E.setSize(dup, w, h, 'scaleToCrop')) { R.pool().DeleteTimelines([dup]); throw R.err('HOST_SCRIPT', `Timeline size ${w}×${h} not taken`, 'Resolve didn’t take the new frame size.', 'Try again. If it keeps happening, make the copy by hand and use Smart Reframe in the Inspector.'); }
+        // motion 'none': the copy at the new shape with nothing reframed – the panel places each clip itself
+        if (a.motion === 'none') return { id: R.id(dup), name: dup.GetName(), width: w, height: h, reframed: 0, failed: 0 };
         R.open(dup);
         const items = R.trackItems(dup, 'video').filter(x => x.ti.GetMediaPoolItem && x.ti.GetMediaPoolItem());
         const tryAll = list => list.filter(x => { try { return !!x.ti.SmartReframe(); } catch (e) { return false; } });
