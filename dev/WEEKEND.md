@@ -617,3 +617,12 @@ S8. **Colour tab** – Jacob, Fri evening: "add a colour tab. It should provide 
     unticked, Take Sets cut ends/merging/marker offsets, preview "send the rest" only in a job, Resolve text-track states
     restored, retimed podcast clips flagged and empty camera tracks restored. Also: `\b` escapes that had become control
     characters in three new Assistant matchers (caught by build.sh). 432 tests pass.
+
+## 1.3.17 (2 Nov 2026, local) – Word cloud
+- The owner agreed: Podcast stays its own tool; audio levelling stays with the hosts.
+- **Word cloud** tab (Find the good bits, `js/tools/29-words.js`, `css/tools/words.css`): words and 2–3 word phrases
+  counted from Story's lines in scope (forms together, stop words/fillers out, phrases never across punctuation, a
+  2-word phrase dropped when it's nearly always inside a 3-word one), by speaker; click for every mention (context,
+  word times, ▶ via `US.story.cueLine`); build through Story's `buildSequence` – just the words (trims with air),
+  whole line or full sentence; one group per picked word; Add to Story as a theme. No new host commands, so Premiere
+  and Resolve both work. Actions `words.cloud` and `words.build`. 436 tests pass.

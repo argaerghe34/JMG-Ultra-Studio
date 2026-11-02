@@ -42,3 +42,13 @@ For pieces to camera, interviews with do-overs and podcast reads. Pick the seque
 - **Make a copy with the chosen takes** cuts the others out of a copy of the sequence, on every track together so nothing goes out of sync, and puts a marker on each kept take. Words from two takes are never stitched together. The original isn't changed.
 - Takes are found from Story's transcripts of the clips in the sequence (only their text goes to the AI). Ask: *keep the best takes*.
 
+### Word cloud – the words said most
+
+The words and phrases said most in your interviews, drawn as a cloud: the bigger the word, the more it's said. It reads Story's transcripts – the interviews (or the sequence) chosen in **Story › 1 Interviews › What to work on** – and counts on this computer; nothing is sent anywhere.
+
+- **Who**: everyone but the interviewer (the default), everyone, or one person – to hear what each of them keeps coming back to.
+- **Word forms together** counts *community* and *communities* as one word; **Phrases** adds two- and three-word phrases said in at least two lines (*local community*, *peace of mind*). Small words and fillers (*the*, *um*, *you know*) are left out. **Hide this word** takes one out of the cloud; **Show hidden words again** brings them back.
+- **Click a word** to list every time it's said: the words around it, who said it, the interview and the time. **▶** plays it (in Premiere's Source Monitor; in Resolve, in the panel). Shift-click to pick several words. **Find** looks up any word or phrase, even one not in the cloud.
+- **Build a sequence of the mentions**: **Just the words** (a supercut – each mention with a little air either side), the **Whole line**, or the **Full sentence**. Untick any you don't want. With several words picked, each gets its own group and colour. Each clip has a marker with the word and its line.
+- **Add to Story as a theme** puts every line it's said in into a theme of yours.
+- Ask: *word cloud*, or *build every time they say "community"*.

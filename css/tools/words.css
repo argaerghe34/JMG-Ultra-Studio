@@ -1,0 +1,14 @@
+/* Word cloud: words sized by how often they're said; click one for every mention */
+.word-cloud { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 12px; padding: 10px 4px; min-height: 120px; line-height: 1.15; }
+.word-cloud .word { background: none; border: 1px solid transparent; border-radius: var(--radius-s); padding: 1px 5px; cursor: pointer; font-family: var(--font); font-weight: 600; transition: background .12s, border-color .12s; }
+.word-cloud .word.phrase { font-weight: 500; font-style: italic; }
+.word-cloud .word:hover { background: var(--surface-3); }
+.word-cloud .word.on { border-color: var(--accent); background: var(--accent-soft); }
+.word-cloud .word-unhide { flex-basis: 100%; margin-top: 6px; }
+.word-opts { gap: 16px; flex-wrap: wrap; margin: 4px 0; }
+.word-mentions { max-height: 360px; overflow-y: auto; }
+.word-mention { align-items: flex-start; gap: 8px; cursor: default; }
+.word-mention input { margin-top: 3px; }
+.word-context { color: var(--text-2); }
+.word-context mark { background: rgba(124, 108, 240, 0.35); color: var(--text); border-radius: 3px; padding: 0 1px; font-weight: 600; }
+.word-set + .word-set { margin-top: 10px; }

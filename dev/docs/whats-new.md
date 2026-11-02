@@ -1,3 +1,8 @@
+## What's new in 1.3.17
+
+- **Word cloud** (Find the good bits): the words and phrases said most in your interviews, as a cloud – bigger means said more. Choose who: everyone, everyone but the interviewer, or one person. Click a word to see every time it's said, with the words around it, who said it and when, and play any of them. Then **build a sequence** of them – just the words (a supercut), the whole line or the full sentence – or add them to Story as a theme. Shift-click to build several words at once, one group and colour each. Counted on this computer from Story's transcripts; nothing is sent anywhere. Ask: *build every time they say "community"*.
+- Decided: **Podcast** stays its own tool in Cut faster, and audio levelling stays with Premiere's and Resolve's own tools.
+
 ## What's new in 1.3.16.1
 
 A small update to 1.3.16 – fixes found in a review of the weekend's work, before anyone used them:

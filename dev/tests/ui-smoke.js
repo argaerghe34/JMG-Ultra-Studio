@@ -31,7 +31,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -255,6 +255,23 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   const why = tool.el.querySelectorAll('.story-why').length;
   if (!more.length || !why) errors.push(`find more showed ${why} reasons for ${more.length} results`);
   checks.push(`find more: ${more.length} results, ${why} with reasons`);
+  // Word cloud: words sized by count; clicking one lists every mention with play and a build button
+  {
+    const wt = US.tools.get('words').create();
+    w.document.body.appendChild(wt.el);
+    wt.onShow(); await new Promise(r => setTimeout(r, 40));
+    const words = wt.el.querySelectorAll('.word-cloud .word');
+    if (words.length < 10) errors.push(`word cloud: ${words.length} words`);
+    else {
+      const sizes = Array.from(words).map(b => parseFloat(b.style.fontSize));
+      if (Math.max(...sizes) <= Math.min(...sizes)) errors.push('word cloud: every word the same size');
+      words[0].click(); await new Promise(r => setTimeout(r, 20));
+      const rows = wt.el.querySelectorAll('.word-mention');
+      if (!rows.length || !wt.el.querySelector('.word-mention mark')) errors.push('word cloud: no mentions listed on click');
+      if (!Array.from(wt.el.querySelectorAll('.btn')).some(b => /^Build a sequence of \d+ mentions?$/.test(b.textContent))) errors.push('word cloud: no build button');
+      checks.push(`word cloud: ${words.length} words, “${words[0].textContent}” ${rows.length} mentions`);
+    }
+  }
   if (errors.length) { console.log('✗ UI smoke test\n  ' + errors.join('\n  ')); process.exit(1); }
   console.log('✓ UI smoke test · ' + checks.join(' · '));
   process.exit(0);

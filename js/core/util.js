@@ -8,8 +8,8 @@
       const fs = require('fs'), path = require('path');
       let p = decodeURIComponent(location.pathname); if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
       const m = /ExtensionBundleVersion="([^"]+)"/.exec(fs.readFileSync(path.join(path.dirname(p), 'CSXS', 'manifest.xml'), 'utf8'));
-      return m ? m[1] : '1.3.16.1';
-    } catch (e) { return '1.3.16.1'; }
+      return m ? m[1] : '1.3.17';
+    } catch (e) { return '1.3.17'; }
   })();
   /** An unpublished copy – one copied in to try before a release (dev/try-in-premiere.sh leaves unpublished.json), or
       Premiere using the source folder itself (dev link) – or null for a released install. {from, at, dev} */
@@ -146,7 +146,8 @@
     target: 'M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zm0-4a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
     folder: 'M3 6a1 1 0 0 1 1-1h4l2 2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',
     film: 'M4 3h12v14H4zM4 7h3m-3 6h3m6-6h3m-3 6h3M7 3v14m6-14v14',
-    spark: 'M10 2v4m0 8v4M2 10h4m8 0h4M4.5 4.5l2.5 2.5m6 6 2.5 2.5m0-11L13 7m-6 6-2.5 2.5'
+    spark: 'M10 2v4m0 8v4M2 10h4m8 0h4M4.5 4.5l2.5 2.5m6 6 2.5 2.5m0-11L13 7m-6 6-2.5 2.5',
+    cloud: 'M6 15.5a3.5 3.5 0 0 1-.5-7 4.5 4.5 0 0 1 8.7-1A3.8 3.8 0 0 1 14.5 15.5zM7 12.5h2m2 0h2'
   };
   /** Tools can add their own icons: US.addIcon('wave', 'M3 10h14'). 20×20 viewBox, stroked. */
   US.addIcon = (name, d) => { P[name] = d; };

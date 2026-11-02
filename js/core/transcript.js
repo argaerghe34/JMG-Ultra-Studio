@@ -779,6 +779,6 @@
   US.transcript = {
     TICKS, parseTime, parseSRT, parseVTT, parseCSV, parseTimedText, parseJSONTranscript, parseText, parseFile,
     decodePremiereTranscript, readProjectTranscripts, fromSubtitles, wordsToSentences, toLines, quality, askedQuestion, isInterviewerLabel, search, parseQuery,
-    themesOffline, themesAI, AI_THEME_SCHEMA, aiRow, inOrder, aiUser, matchClip, stem, tokens, levenshtein, SYNONYMS, indexLine, lineWords, wordTimes
+    themesOffline, themesAI, AI_THEME_SCHEMA, aiRow, inOrder, aiUser, matchClip, stem, tokens, STOP, levenshtein, SYNONYMS, indexLine, lineWords, wordTimes
   };
 })();
