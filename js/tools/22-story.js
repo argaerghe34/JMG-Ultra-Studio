@@ -1730,6 +1730,67 @@
     return buildSequence(job, { name, groups, look: Object.assign({}, L, { strong: Object.assign({}, L.strong, { first: false, highlight: false }) }) });
   }
 
+  /* ================= From a script: find each line of a script or paper edit ================= */
+  const SC = () => US.storyScript;
+  /**
+   * Find every line of a script in the interviews in scope: word for word where it's said, else the closest; with AI,
+   * lines that aren't said word for word are matched by meaning from the closest candidates (text only).
+   * Kept with the project as state.script = {text, at, by, parsed, matches: {unitId: [match]}, chosen: {unitId: index|-1}}.
+   */
+  async function matchScript(job, { text, useAI = false } = {}) {
+    await ready(); loadState();
+    const parsed = SC().parse(text);
+    const units = parsed.units.filter(u => !u.note);
+    if (!units.length) throw new US.UserError('BAD_INPUT', { title: 'There are no script lines to find.', action: 'Paste the script or paper edit – one soundbite or sentence per line. Lines in [brackets] are kept as notes.' });
+    const lines = await linesInScope(job), keepIds = new Set(lines.map(l => l.id));
+    job && job.set({ who: 'computer', msg: `Finding ${US.plural(units.length, 'script line')} in the interviews` });
+    const found = SC().match(parsed.units, state.transcripts, { keep: l => keepIds.has(l.id), speakerOf: l => speakerName(l.speaker) });
+    let by = 'words';
+    const weak = units.filter(u => !(found.get(u.id) || []).some(m => m.score >= 0.6));
+    if (useAI && weak.length && US.ai && US.ai.available()) {
+      job && job.set({ who: 'ai', msg: `${US.ai.label()} is matching ${US.plural(weak.length, 'line')} by meaning` });
+      const asks = weak.map(u => {
+        const have = (found.get(u.id) || []).map(m => ({ m, text: m.text, lineId: m.lineIds[0] }));
+        for (const r of T.search(u.text, lines, { limit: 8 })) if (!have.some(x => x.m.lineIds.includes(r.line.id))) {
+          const t = clipOfLine.get(r.line.id), i = linesIndex.get(r.line.id), n = T.lineWords(r.line.text).length;
+          have.push({ m: { key: t.key, lineIds: [r.line.id], from: [i, 0], to: [i, n - 1], score: 0, grade: 'weak', text: r.line.text }, text: r.line.text, lineId: r.line.id });
+        }
+        return { unit: u, cands: have.slice(0, 8).map((x, k) => Object.assign(x, { id: 'L' + (k + 1), speaker: speakerName((lineById.get(x.lineId) || {}).speaker) })) };
+      }).filter(a => a.cands.length);
+      if (asks.length) {
+        const r = await US.ai.json(SC().request(asks));
+        for (const pk of (r && r.picks) || []) {
+          const a = asks.find(x => x.unit.id === String(pk.unit)), c = a && a.cands.find(x => x.id === String(pk.line));
+          if (!c) continue;
+          const list = found.get(a.unit.id) || [];
+          found.set(a.unit.id, [Object.assign({}, c.m, { grade: 'ai', why: String(pk.why || '').slice(0, 120) })].concat(list.filter(m => m !== c.m)));
+        }
+        by = 'ai';
+      }
+    }
+    const matches = {}, chosen = {};
+    for (const u of units) { const ms = found.get(u.id) || []; matches[u.id] = ms; chosen[u.id] = ms.length && (ms[0].grade !== 'none') ? 0 : -1; }
+    state.script = { text: String(text), at: Date.now(), by, parsed, matches, chosen };
+    saveNow();
+    const g = k => units.filter(u => chosen[u.id] >= 0 && matches[u.id][0].grade === k).length;
+    const none = units.filter(u => chosen[u.id] < 0).length;
+    return { summary: `${US.plural(units.length, 'script line')}: ${g('exact')} said word for word, ${g('close')} close${g('ai') ? `, ${g('ai')} matched by meaning` : ''}${g('weak') ? `, ${g('weak')} loose` : ''}${none ? `, ${none} not found` : ''}` };
+  }
+  /** Build the script in its order: a group per section, each match cut to its words. */
+  async function buildScript(job, { name = 'Story – from the script' } = {}) {
+    await ready(); loadState();
+    const sc = state.script;
+    if (!sc) throw new US.UserError('NOTHING_FOUND', { title: 'No script has been matched yet.', action: 'Paste it in Story › 4 Build › From a script and press “Find the script lines”.' });
+    const chosen = new Map();
+    for (const [id, k] of Object.entries(sc.chosen)) if (k >= 0 && sc.matches[id] && sc.matches[id][k]) chosen.set(id, sc.matches[id][k]);
+    const named = sc.parsed.sections.some(Boolean);
+    const groups = SC().groups(sc.parsed, chosen, id => lineById.get(id), { labels: named ? THEME_PALETTE : [] });
+    if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'None of the script lines have a match to build.', action: 'Choose a match for some lines, or try them in other words.' });
+    const L = lookOptions();
+    const look = Object.assign({}, L, { handles: 0, inOrder: false, themeNames: named ? L.themeNames : 'none', strong: Object.assign({}, L.strong, { first: false, highlight: false }), bites: Object.assign({}, L.bites, { sentences: false, noInterviewer: false, minSeconds: 0, tight: false, why: true }) });
+    return buildSequence(job, { name, groups, look });
+  }
+
   /* ================= Ask your interviews ================= */
   const A = () => US.storyAsk;
   const askIdx = () => A().indexOf(state.transcripts);
@@ -3120,6 +3181,7 @@
         el.appendChild(beatCard());
         el.appendChild(narrativeCard());
         el.appendChild(clipsCard());
+        el.appendChild(scriptCard());
         // bins by theme
         let seqs = US.settings.get('story.seqPerTheme', false);
         el.appendChild(h('div.card', { dataset: { section: 'bins' } }, h('div.card-title', 'Sort selects into bins'),
@@ -3235,6 +3297,34 @@
               ui.field('Shape', ui.segmented({ options: [{ value: '9:16', label: '9:16' }, { value: '4:5', label: '4:5' }, { value: '1:1', label: '1:1' }], value: o.aspect, onChange: x => { o.aspect = x; save(); } }))),
             ui.field('Captions', ui.segmented({ options: [{ value: 'social', label: 'Social' }, { value: 'subtitles', label: 'Subtitles' }, { value: '', label: 'None' }], value: o.captions, onChange: x => { o.captions = x; save(); } })),
             ui.actionButton('Build the ticked clips', () => US.jobs.run({ title: 'Building the clips', tool: 'story' }, job => buildClips(job, (state.clips.items || []).filter(c => c.on), { vertical: o.vertical, aspect: o.aspect, captions: o.captions })), { icon: 'film' })) : null);
+      }
+
+      /* from a script or paper edit */
+      function scriptCard() {
+        const sc = state.script, aiOn = US.ai && US.ai.available();
+        let text = sc ? sc.text : US.settings.get('story.scriptDraft', '');
+        const box = h('textarea.input', { rows: 7, placeholder: '# Opening\nRuth: I never told anyone this, but my grandmother was a spy.\n[B-roll of the bakery]\nDavid: We open the doors every Friday night.\n\n# The letters\nWe found the letters after she died.' }, text);
+        box.addEventListener('input', US.debounce(() => US.settings.set('story.scriptDraft', box.value), 400));
+        let useAI = US.settings.get('story.scriptAI', true);
+        const GR = { exact: ['word for word', 'var(--ok)'], close: ['close', 'var(--info)'], ai: ['by meaning', 'var(--accent)'], weak: ['loose', 'var(--warn)'], none: ['not found', 'var(--err)'] };
+        const rows = [];
+        if (sc) for (const u of sc.parsed.units) {
+          if (u.note) { rows.push(h('div.script-note', u.text)); continue; }
+          const ms = sc.matches[u.id] || [], k = sc.chosen[u.id], m = k >= 0 ? ms[k] : null, l = m && lineById.get(m.lineIds[0]);
+          const sel = ui.select({ options: ms.map((x, i) => ({ value: String(i), label: `${i === 0 ? 'Best' : 'Take ' + (i + 1)} · ${GR[x.grade][0]} · ${x.text.slice(0, 70)}${x.text.length > 70 ? '…' : ''}` })).concat([{ value: '-1', label: 'Leave this line out' }]), value: String(k), onChange: x => { sc.chosen[u.id] = +x; saveNow(); renderBuild(); } });
+          rows.push(h('div.script-row' + (m ? '' : '.missing'),
+            h('div.row', h('div.grow.script-want', u.speaker ? h('b', u.speaker + ': ') : null, u.text), ui.pill(m ? GR[m.grade][0] : 'not found', m ? GR[m.grade][1] : 'var(--err)')),
+            m ? h('div.script-got', h('span.field-hint', `${whoSaid(l)}: `), `“${m.text}”`, m.why ? h('div.story-why', m.why) : null) : h('div.field-hint', ms.length ? 'Left out.' : 'Not said in the interviews you’re working on – try other words, or with AI.'),
+            h('div.row', ms.length ? sel : null, l ? playButton(l, lineById.get(m.lineIds[0]).start) : null)));
+        }
+        const n = sc ? Object.values(sc.chosen).filter(x => x >= 0).length : 0;
+        return h('div.card', { dataset: { section: 'script' } }, h('div.card-title', 'From a script', sc ? h('span.right', `${n} of ${US.plural(Object.keys(sc.chosen).length, 'line')} found`) : null),
+          h('div.muted', 'Paste a script or paper edit – one soundbite per line, “Name:” in front if you know who says it, # headings for sections, [notes] in brackets. Each line is found in the interviews you’re working on, cut to just those words, with the next-best takes to choose from. Then build it in the script’s order.'),
+          box,
+          aiOn ? ui.toggle({ label: 'Match lines in other words with AI', hint: `${US.ai.label()} chooses among the closest lines for anything not said word for word – only text is sent.`, value: useAI, onChange: x => { useAI = x; US.settings.set('story.scriptAI', x); } }) : null,
+          ui.actionButton(sc ? 'Find the script lines again' : 'Find the script lines', () => US.jobs.run({ title: 'Finding the script lines', tool: 'story' }, async job => { const r = await matchScript(job, { text: box.value, useAI: aiOn && useAI }); renderBuild(); return r; }), { icon: 'target' }),
+          rows.length ? h('div.script-list', rows) : null,
+          n ? ui.actionButton(`Build the script (${US.plural(n, 'clip')})`, () => US.jobs.run({ title: 'Building the script', tool: 'story' }, job => buildScript(job)), { icon: 'film' }) : null);
       }
 
       /* narrative from a brief */
@@ -3737,6 +3827,7 @@
       const asDoc = /\b(board|wall|themes|narrative)\b/i.test(t) && /\b(word|docx|document|print(out)?|csv|spreadsheet|excel)\b/i.test(t);
       const saveBoard = /\b(export|save|share|send|print)( out)? (the |my |this |our )?(story )?(board|wall|themes|narrative)\b/i.test(t);
       if (!paper && ((!asDoc && !saveBoard) || other)) return null;
+      if (paper && /\b(match|find)\b/i.test(t)) return null;   // matching a paper edit to the interviews: From a script
       const format = /\b(csv|spreadsheet|excel|sheet)\b/i.test(t) ? 'csv' : /\b(txt|plain text|text file)\b/i.test(t) ? 'txt' : 'docx';
       return { format, source: /\bnarrative\b/i.test(t) ? 'narrative' : 'themes', _score: 2.5 };
     },
@@ -3805,6 +3896,23 @@
   });
 
   US.actions.register({
+    id: 'story.script', tool: 'story', title: 'Build from a script', changes: true,
+    describe: 'Finds each line of a script or paper edit in the interviews (word for word, or the closest; with AI, by meaning from the closest lines – text only) and builds it in the script’s order, each clip cut to its words.',
+    params: { text: { type: 'string', default: '', desc: 'The script (empty = the one already in Story › Build › From a script)' }, build: { type: 'boolean', default: true, desc: 'Build the sequence too' } },
+    examples: ['build from my script', 'match this paper edit to the interviews', 'find these soundbites from the script'],
+    match: t => (/\b(script|paper edit)\b/i.test(t) && /\b(build|match|find|cut|assemble|from)\b/i.test(t) && !/\b(read|export|save|write)\b.*\bpaper edit\b/i.test(t) && !/\btake/i.test(t) ? { _score: 2.4 } : null),
+    run: async (p, job) => {
+      loadState();
+      const text = p.text || (state.script && state.script.text) || US.settings.get('story.scriptDraft', '');
+      if (!String(text).trim()) { openStory('build', { section: 'script' }); throw new US.UserError('BAD_INPUT', { title: 'Paste the script first.', action: 'In Story › 4 Build › From a script – one soundbite per line.' }); }
+      const r = await matchScript(job, { text, useAI: !!(US.ai && US.ai.available() && US.settings.get('story.scriptAI', true)) });
+      if (!p.build) { openStory('build', { section: 'script' }); return r; }
+      const b = await buildScript(job);
+      return Object.assign({}, b, { summary: `${r.summary} · ${b.summary || 'built'}` });
+    }
+  });
+
+  US.actions.register({
     id: 'story.clips', tool: 'story', title: 'Find clips for social', changes: false,
     describe: 'Finds short clips that stand on their own in the interviews (or the lines heard in a timeline, e.g. a podcast episode) – each with a hook, title, scores and why it works. Only line text is sent to the AI. Build them in Story › Build › Clips for social (each its own sequence, with a vertical version and captions).',
     params: { source: { type: 'enum', options: ['interviews', 'timeline'], default: 'interviews', desc: 'From the interviews in scope, or a timeline' }, seqId: { type: 'string', default: '', desc: 'The timeline when source is timeline (empty = the open one)' }, length: { type: 'enum', options: ['short', 'standard', 'long'], default: 'standard', desc: '15–30, 30–60 or 60–90 seconds' }, count: { type: 'number', default: 8, desc: 'How many clips' }, brief: { type: 'string', default: '', desc: 'What the clips are for' } },
@@ -3841,10 +3949,10 @@
   });
 
   // for Home, tests and the Assistant
-  const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' } };
+  const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' }, script: { tab: 'build', section: 'script' } };
   US.story = {
     /** for other tabs (Word cloud): play a line, who said it, which interview, and the lines to work on */
-    cueLine: (l, at) => cueLine(l, at), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
+    matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
     scoreBeats, boardGroups, findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },

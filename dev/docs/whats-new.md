@@ -1,3 +1,7 @@
+## What's new in 1.3.18
+
+- **From a script** (Story › 4 Build): paste a script or paper edit and each line is found in the interviews – word for word, cut to just those words, even across two lines – with the next-best takes to choose from. Lines said in other words can be matched by meaning with AI (only text is sent). Then **Build the script**, in its order, a group per section. Like Jumper's Script Editor and Premiere's Paper Edit, but across every interview at once and in Resolve too. Ask: *build from my script*.
+
 ## What's new in 1.3.17.1
 
 A small update to the Word cloud:

@@ -227,3 +227,12 @@
 .beat-detail { margin: 6px 0; }
 .beat-board { margin: 6px 0 6px 18px; padding: 0; }
 .beat-board-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; cursor: grab; }
+/* From a script */
+.script-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.script-row { border: 1px solid var(--border); border-radius: var(--radius-s); padding: 6px 8px; background: var(--surface-2); }
+.script-row.missing { border-color: var(--err); }
+.script-row .row { align-items: center; gap: 6px; }
+.script-row select.input { flex: 1; min-width: 0; }
+.script-want { font-weight: 600; }
+.script-got { margin: 4px 0; color: var(--text-2); }
+.script-note { color: var(--text-3); font-style: italic; padding: 2px 8px; }
