@@ -239,6 +239,31 @@ module.exports = (R) => {
       }
       return out;
     },
+    /**
+     * Change markers: a.markers [{guid, name?, comment?, color?, start?, end?}] on the timeline (a.seqId), a clip (a.id),
+     * or a clip marker shown on a timeline ("clip:<item id>:<guid>"). Resolve can't edit a marker, so each is taken
+     * off and added again with the changes (its id changes). -> {done, guids: {old: new}}
+     */
+    updateMarkers(a) {
+      const out = { done: 0, guids: {} };
+      const ownerOf = g => {
+        const m = /^clip:(.+):([^:]+)$/.exec(g);
+        if (m || !a.seqId) { const it = R.needItem(m ? m[1] : a.id), c = clipMarkerFrame(it); return { owner: it, guid: m ? m[2] : g, prefix: m ? 'clip:' + m[1] + ':' : '', toFrame: c.toFrame, toSec: c.toSec, fps: c.fps }; }
+        const tl = R.needSeq(a.seqId), fps = R.fps(tl);
+        return { owner: tl, guid: g, prefix: '', toFrame: tlMarkerFrame(tl, fps), toSec: f => f / fps, fps };
+      };
+      for (const ch of a.markers || []) {
+        const o = ownerOf(ch.guid), m = R.readMarkers(o.owner, o.toSec, o.fps).find(x => x.guid === o.guid);
+        if (!m) continue;
+        const next = { start: ch.start != null ? Number(ch.start) : m.start, name: ch.name != null ? ch.name : m.name, comment: ch.comment != null ? ch.comment : m.comment, color: ch.color != null ? Number(ch.color) : m.color };
+        const len = m.end - m.start; next.end = ch.end != null ? Number(ch.end) : len > 0 ? next.start + len : null;
+        if (!R.removeMarkers(o.owner, [o.guid])) continue;
+        let g;
+        try { g = R.addMarkers(o.owner, [next], o.toFrame, o.fps)[0]; } catch (e) { R.addMarkers(o.owner, [m], o.toFrame, o.fps); throw e; }   // put the old one back
+        out.done++; out.guids[ch.guid] = o.prefix + g;
+      }
+      return out;
+    },
     removeSequenceMarkers(a) {
       const plain = [], byItem = new Map();
       let n = 0;

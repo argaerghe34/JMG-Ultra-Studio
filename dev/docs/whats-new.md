@@ -1,3 +1,7 @@
+## What's new in 1.3.21
+
+- **Markers** (Finish & deliver): a new tab for making and managing markers on the open sequence or on clips. Every marker in one list – search, filter by colour, rename, recolour, comment, move and delete them, one at a time or ticked together (rename with a pattern like *Shot {n}*). Add them at the playhead, every so often, at every cut or clip, from the clips' own markers, or from a client's notes or a review tool's CSV export. Copy them as a list or YouTube chapters, save them as a spreadsheet, and remove duplicates. Premiere and Resolve. Ask: *add a marker every 30 seconds*.
+
 ## What's new in 1.3.20
 
 - **Punch in on the jump cuts** (Silence Cut): a switch on the cut copy – every other piece of a shot that was cut is pushed in a little (110 %, or what you choose), so the cuts read as changes of framing, like FireCut's and AutoCut's zoom cuts. B-roll above is left alone; a new shot starts at 100 %. Works in Premiere and Resolve. Ask: *punch in on the jump cuts*.

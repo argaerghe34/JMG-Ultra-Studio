@@ -31,7 +31,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -277,6 +277,25 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       Array.from(wt.el.querySelectorAll('.seg')).find(b => b.textContent === 'Cloud').click();
       checks.push(`word cloud: ${words.length} words, “${words[0].textContent}” ${rows.length} mentions`);
     }
+  }
+  // Markers: the open sequence's markers listed with colour chips; searching filters; ticking shows the bulk bar
+  {
+    SEQ.markers = [{ guid: 'm1', start: 1, end: 1, name: 'Fix colour', comment: 'too warm', color: 1 }, { guid: 'm2', start: 5, end: 7, name: 'Music up', comment: '', color: 6 }];
+    const mt = US.tools.get('markers').create();
+    w.document.body.appendChild(mt.el);
+    mt.onShow(); await new Promise(r => setTimeout(r, 40));
+    const rows = mt.el.querySelectorAll('.marker-row');
+    if (rows.length !== 2) errors.push(`markers: ${rows.length} rows`);
+    if (mt.el.querySelectorAll('.marker-chip').length !== 2) errors.push('markers: no colour chips');
+    const box = mt.el.querySelector('.marker-row input[type=checkbox]');
+    if (box) { box.click(); await new Promise(r => setTimeout(r, 10)); if (!/1 ticked/.test(mt.el.querySelector('.marker-bulk').textContent)) errors.push('markers: no bulk bar after ticking'); }
+    const search = mt.el.querySelector('input[placeholder^="Search names"]');
+    search.value = 'music'; search.dispatchEvent(new w.Event('input')); await new Promise(r => setTimeout(r, 10));
+    if (mt.el.querySelectorAll('.marker-row').length !== 1) errors.push('markers: search did not filter');
+    const notes = mt.el.querySelector('textarea');
+    if (US.markerKit.fromText('00:01 a\n00:02 b', { fps: 25 }).length !== 2 || !notes) errors.push('markers: notes box');
+    SEQ.markers = [];
+    checks.push(`markers: ${rows.length} rows, search, bulk bar`);
   }
   if (errors.length) { console.log('✗ UI smoke test\n  ' + errors.join('\n  ')); process.exit(1); }
   console.log('✓ UI smoke test · ' + checks.join(' · '));

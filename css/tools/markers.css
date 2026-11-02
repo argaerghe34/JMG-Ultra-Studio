@@ -1,0 +1,19 @@
+/* Markers: one row per marker – tick, colour, time, name and comment, delete */
+.marker-list { display: flex; flex-direction: column; gap: 3px; max-height: 480px; overflow-y: auto; margin-top: 6px; }
+.marker-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: var(--radius-s); border: 1px solid transparent; }
+.marker-row:hover { background: var(--surface-2); }
+.marker-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.marker-row select.marker-colour, .marker-add select.marker-colour, .marker-bulk select.marker-colour { width: 86px; flex: none; }
+.marker-tc { font-family: var(--mono); font-variant-numeric: tabular-nums; flex: none; }
+.marker-texts { display: flex; gap: 4px; min-width: 0; flex-wrap: wrap; }
+.marker-texts .field-hint { flex-basis: 100%; }
+.marker-name { flex: 1 1 120px; min-width: 80px; font-weight: 600; }
+.marker-comment { flex: 2 1 160px; min-width: 100px; }
+.marker-bulk { flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; }
+.marker-chips { gap: 4px; flex-wrap: wrap; margin: 6px 0 2px; }
+.marker-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 1px 8px 1px 4px; color: var(--text-2); cursor: pointer; opacity: .45; font-family: var(--font); }
+.marker-chip.on { opacity: 1; }
+.marker-chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.marker-add, .marker-out { gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+.marker-add .marker-every { width: 70px; flex: none; }
+.marker-add select.input { width: auto; flex: none; }

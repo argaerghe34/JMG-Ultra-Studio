@@ -6,7 +6,7 @@ const { test } = require('./harness');
 const Fake = require('./resolve-fake');
 const HOST = require('../../resolve/host');
 
-const NAMES = ['ping', 'context', 'listBins', 'listSequences', 'selectionSummary', 'selectionList', 'binList', 'selectedItems', 'binSummary', 'binItems', 'itemInfo', 'itemsInfo', 'sequenceInfo', 'openSequence', 'setPlayhead', 'showInSource', 'revealItem', 'ensureBin', 'moveItems', 'setLabels', 'renameItem', 'addClipMarkers', 'addSequenceMarkers', 'removeClipMarkers', 'removeSequenceMarkers', 'clipMarkers', 'createSubclips', 'newSequence', 'placeClips', 'cloneSequence', 'extractRanges', 'muteTrack', 'setClipsDisabled', 'importFiles', 'sampleItems', 'deleteSequence', 'saveProject', 'audioClipRange', 'clipRanges'];
+const NAMES = ['ping', 'context', 'listBins', 'listSequences', 'selectionSummary', 'selectionList', 'binList', 'selectedItems', 'binSummary', 'binItems', 'itemInfo', 'itemsInfo', 'sequenceInfo', 'openSequence', 'setPlayhead', 'showInSource', 'revealItem', 'ensureBin', 'moveItems', 'setLabels', 'renameItem', 'addClipMarkers', 'addSequenceMarkers', 'removeClipMarkers', 'removeSequenceMarkers', 'updateMarkers', 'clipMarkers', 'createSubclips', 'newSequence', 'placeClips', 'cloneSequence', 'extractRanges', 'muteTrack', 'setClipsDisabled', 'importFiles', 'sampleItems', 'deleteSequence', 'saveProject', 'audioClipRange', 'clipRanges'];
 
 function setup(opts) {
   const F = Fake.make(opts);
@@ -186,6 +186,22 @@ test('resolve core: sequence markers “Timeline” (the default) stay on the ti
   assert.deepStrictEqual(info.markers, [{ guid: g[0], start: 2, end: 3, name: 'one', comment: '', color: 1 }]);
   assert.strictEqual(await run('removeSequenceMarkers', { seqId, guids: g }), 1);
   assert.deepStrictEqual(tl._markers, {});
+});
+
+test('resolve core: updateMarkers changes a timeline marker (taken off and added again) and a clip marker shown on the timeline', async () => {
+  const { run, tl, A, seqId } = markerTimeline();
+  const [g] = await run('addSequenceMarkers', { seqId, markers: [{ start: 2, end: 3, name: 'one', comment: 'c', color: 1 }] });
+  const r = await run('updateMarkers', { seqId, markers: [{ guid: g, name: 'renamed', color: 6 }] });
+  assert.strictEqual(r.done, 1);
+  const ng = r.guids[g];
+  assert.deepStrictEqual(Object.values(tl._markers).map(m => [m.name, m.note, m.color, m.duration, m.customData]), [['renamed', 'c', 'Blue', 25, ng]], 'comment and length kept');
+  await run('updateMarkers', { seqId, markers: [{ guid: ng, start: 4 }] });
+  assert.deepStrictEqual(Object.keys(tl._markers).map(Number), [100], 'moved to 4 s, still 1 s long');
+  const [cg] = await run('addSequenceMarkers', { seqId, where: 'clips', markers: [{ start: 2, name: 'in A' }] });
+  const r2 = await run('updateMarkers', { seqId, markers: [{ guid: cg, comment: 'note' }] });
+  assert.ok(r2.guids[cg].startsWith(cg.split(':').slice(0, 2).join(':') + ':'), 'still a clip marker id');
+  assert.deepStrictEqual(Object.values(A._markers).map(m => [m.name, m.note]), [['in A', 'note']]);
+  assert.strictEqual((await run('updateMarkers', { seqId, markers: [{ guid: 'nope', name: 'x' }] })).done, 0);
 });
 
 test('resolve core: sequence markers “Clips” go on the clip under them, at its own time and length', async () => {

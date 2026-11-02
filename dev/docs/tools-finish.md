@@ -53,3 +53,16 @@ Switch a layer off (Enable, in its right-click menu) to skip it. An empty adjust
 **Chapters** – builds a YouTube chapter list from your named markers (`0:00 Intro`, `1:23 Family`…). It starts at 0:00 and warns about YouTube's rules (at least 3 chapters, each 10 seconds or longer). **Copy** it into the video description.
 
 **Episode text** – titles, a description, show notes with times, YouTube chapters, pull quotes, social posts and keywords, written from what is said in the open sequence (Story's transcripts of the clips in it; only that text goes to the AI). Add **Notes for the writer** – the show's name, tone, links – then **Write the episode text**. Each part has **Copy**; **Save as a text file** keeps them all; **Add the chapters as markers** puts them on the sequence. Quotes the AI returns are checked against the transcript, and chapters follow YouTube's rules (first at 0:00, each at least 10 seconds). Without AI it gives chapters from your named markers and the strongest lines as quotes.
+
+### Markers – make and manage them
+
+Every marker on the **open sequence** – or on the **clips selected** in the Project panel (Media Pool in Resolve) – in one list. Press **Read again** after changing markers in the editor.
+
+- **Find them**: search names and comments, and click the colour chips to show only some colours. Click a marker's time to move the playhead there (a clip's: to show it in the Source Monitor).
+- **Change them**: type a new name or comment, or pick a colour, right in the list. Tick several (or **Tick all shown**) to **recolour**, **Rename…** with a pattern (*Shot {n}*, *{name} – fixed*, *{tc}*), **Move…** earlier or later by some seconds, **Copy as text**, copy them **Onto the clips** under them (so they travel with the clips), or **Delete**.
+- **Add markers** in the colour chosen: **At the playhead**, **Every … seconds**, **At every cut** or **At every clip** on a track (named after the clip), or **Show the clips' own markers** – markers made on the source clips added to the sequence where those parts are used.
+- **From notes or a review export**: paste a client's notes – one per line with a time, like *01:23 Fix the colour*, *02:10–02:25 Too long*, *[red] 03:05 Wrong name* – or load a CSV export from a review tool (a *Timecode* column, plus comment, name, colour and who wrote it). Times written from 01:00:00:00 are counted from the sequence's start.
+- **Export**: the markers shown **Copy as a list**, **Copy as YouTube chapters** (first at 0:00, at least 10 s apart) or **Save as spreadsheet**. **Remove duplicates** (same time, same name) or **Remove the ones shown**.
+- In Resolve, changing a marker takes it off and adds it again with the change – the same marker, shown the same way.
+- Ask: *add a red marker here called fix the sound*, *add a marker every 30 seconds*, *put a marker at every cut*, *copy the markers as YouTube chapters*, *remove duplicate markers*.
+

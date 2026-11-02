@@ -31,7 +31,7 @@ function premiere() {
     videoTracks: tracks([[clip(a, 0, 10, 5), clip(b, 10, 20, 0, { speed: 2 })], [clip(b, 4, 6, 50, { disabled: true })]], 'numTracks'),
     audioTracks: tracks([[clip(music, 0, 30, 0)]], 'numTracks') };
   const root = { nodeId: 'root', type: 3, children: coll([a, b, music], 'numItems') };
-  const ctx = { app: { project: { rootItem: root, sequences: coll([seq], 'numSequences'), activeSequence: seq } }, JSON };
+  const ctx = { app: { project: { rootItem: root, sequences: coll([seq], 'numSequences'), activeSequence: seq } }, JSON, Time: function () { this.seconds = 0; } };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'jsx', 'host.jsx'), 'utf8') + '\n;this.UStudio = UStudio;', ctx);
   const call = (fn, args) => { const r = JSON.parse(ctx.UStudio.run(fn, JSON.stringify(args))); if (!r.ok) throw new Error(JSON.stringify(r.error)); return r.data; };
@@ -91,4 +91,19 @@ test('markers: the panel sends the Settings choice with every sequence marker re
     assert.ok(sent[0].includes('\\"where\\":\\"clips\\"'), sent[0]);
     assert.ok(sent[1].includes('\\"where\\":\\"sequence\\"'), 'a tool can still ask for the timeline');
   } finally { US.settings.set('markers.where', 'sequence'); delete window.__adobe_cep__; US.host.rawEval = keep; }
+});
+
+test('markers: updateMarkers renames, recolours, comments and moves in place – on the sequence and on a clip shown on it', () => {
+  const P = premiere();
+  const [g] = P.call('addSequenceMarkers', { seqId: 's1', markers: [{ start: 2, end: 3, name: 'one', color: 1 }] });
+  const r = P.call('updateMarkers', { seqId: 's1', markers: [{ guid: g, name: 'renamed', comment: 'note', color: 6 }] });
+  assert.deepStrictEqual([r.done, r.guids[g]], [1, g], 'Premiere keeps the id');
+  const m = P.seq.markers._list[0];
+  assert.deepStrictEqual([m.name, m.comments, m.color], ['renamed', 'note', 6]);
+  P.call('updateMarkers', { seqId: 's1', markers: [{ guid: g, start: 10 }] });
+  assert.deepStrictEqual([m.start.seconds, m.end.seconds], [10, 11], 'moved later, still 1 s long');
+  const [cg] = P.call('addSequenceMarkers', { seqId: 's1', where: 'clips', markers: [{ start: 2, name: 'in A' }] });
+  P.call('updateMarkers', { seqId: 's1', markers: [{ guid: cg, name: 'A again' }] });
+  assert.strictEqual(P.a._m._list[0].name, 'A again');
+  assert.strictEqual(P.call('updateMarkers', { seqId: 's1', markers: [{ guid: 'nope', name: 'x' }] }).done, 0);
 });

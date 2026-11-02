@@ -475,6 +475,33 @@ var UStudio = (function () {
         if (plain.length) n += removeMarkers(needSeq(a.seqId).markers, plain);
         return n;
     };
+    /**
+     * Change markers in place: a.markers [{guid, name?, comment?, color?, start?, end?}] on the sequence (a.seqId), a
+     * clip (a.id), or a clip marker shown on a timeline ("clip:<item id>:<guid>"). -> {done, guids: {old: new}}
+     */
+    fn.updateMarkers = function (a) {
+        var out = { done: 0, guids: {} }, list = a.markers || [];
+        for (var i = 0; i < list.length; i++) {
+            var ch = list[i], cm = /^clip:(.+):([^:]+)$/.exec(ch.guid);
+            var coll = cm ? needItem(cm[1]).getMarkers() : a.seqId ? needSeq(a.seqId).markers : needItem(a.id).getMarkers(), want = cm ? cm[2] : ch.guid;
+            var m = coll.getFirstMarker();
+            while (m && m.guid !== want) m = coll.getNextMarker(m);
+            if (!m) continue;
+            if (ch.name != null) m.name = String(ch.name);
+            if (ch.comment != null) m.comments = String(ch.comment);
+            if (ch.color != null) { try { m.setColorByIndex(Number(ch.color)); } catch (e) { } }
+            if (ch.start != null || ch.end != null) {
+                var s0 = m.start.seconds, e0 = m.end.seconds, ns = ch.start != null ? Number(ch.start) : s0;
+                var ne = ch.end != null ? Number(ch.end) : ns + (e0 - s0);
+                if (ne < ns) ne = ns;
+                // later: the end moves first, so the start never passes it
+                var ts = new Time(); ts.seconds = ns;
+                if (ns > s0) { m.end = ne; m.start = ts; } else { m.start = ts; m.end = ne; }
+            }
+            out.done++; out.guids[ch.guid] = ch.guid;
+        }
+        return out;
+    };
     fn.clipMarkers = function (a) {
         var c = needItem(a.id).getMarkers(), out = [], m = c.getFirstMarker();
         while (m) { out.push({ guid: m.guid, start: m.start.seconds, end: m.end.seconds, name: m.name, comment: m.comments, color: m.getColorByIndex() }); m = c.getNextMarker(m); }
