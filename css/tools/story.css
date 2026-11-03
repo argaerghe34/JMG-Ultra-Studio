@@ -245,3 +245,9 @@
 /* Find: a line can be dragged onto the timeline */
 .story-row.story-drag[draggable=true] { cursor: grab; }
 .story-row.story-drag[draggable=true]:active { cursor: grabbing; }
+
+/* Interviews and speakers › voices told apart */
+.story-voices { display: flex; flex-direction: column; gap: 6px; }
+.story-voice { padding: 6px 8px; border-radius: 6px; background: var(--surface-2); }
+.story-voice-sub { margin-top: 4px; gap: 6px; flex-wrap: wrap; }
+.story-voice-sub select { max-width: 160px; }

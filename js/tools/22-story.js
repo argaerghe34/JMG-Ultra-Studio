@@ -2372,7 +2372,7 @@
         el.appendChild(glossaryCard());
         // the technical part: which clip each transcript belongs to, and speaker names
         const unlinked = state.transcripts.filter(t => !(t.path || t.itemId));
-        const details = ui.section('Interviews and speakers', [interviewList(), speakerNames(speakers, lines)], { open: unlinked.length > 0, hint: unlinked.length ? `${unlinked.length} not linked to a clip` : 'link clips, name speakers' });
+        const details = ui.section('Interviews and speakers', [interviewList(), US.storyVoices ? US.storyVoices.card({ render, speakerColor, speakerName, list: speakerNames(speakers, lines) }) : speakerNames(speakers, lines)], { open: unlinked.length > 0, hint: unlinked.length ? `${unlinked.length} not linked to a clip` : 'link clips, name speakers' });
         if (unlinked.length) el.appendChild(ui.note(`${US.plural(unlinked.length, 'transcript')} ${unlinked.length === 1 ? 'isn’t' : 'aren’t'} linked to a clip yet, so ${unlinked.length === 1 ? 'its lines' : 'their lines'} can’t be played or built. Link ${unlinked.length === 1 ? 'it' : 'them'} below.`, 'warn'));
         el.appendChild(details);
         el.appendChild(nextBar('transcripts'));

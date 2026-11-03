@@ -1,3 +1,9 @@
+## What's new in 1.3.27
+
+- **Tell the voices apart** (Story › 1 Interviews › Interviews and speakers): Premiere's transcripts don't say who speaks, so Ultra Studio now listens to each interview on this computer – nothing is sent anywhere – and gives every line its voice, from its pitch and the sound of the voice. The interviewer is found by their questions in every interview. Name each voice once and every line of it follows; play a line to check, join two voices that are the same person, listen again for new interviews (names stay), or put the speakers back.
+- **Quick effects** (new tab, in Finish): one click adds a transition, effect, move or sound change to the selected clips – or every clip. Dissolve every cut in the sequence at once, punch in, slow zooms, slow motion, black & white, stabilise, sound fades and more; set the transition length once, star your favourites, or add anything from the Effects panel by name. In Resolve, the moves and opacity (add-ons can't add transitions or effects there).
+- Ask: *tell the voices apart*, *who is speaking*.
+
 ## What's new in 1.3.26.1
 
 - **Story wiki** works on big projects: the wiki is now made in pieces (the overview and interviews a few at a time, then people, places and dates, things), so 20+ interviews no longer run past the length limit. A piece that's still too long is split again instead of failing, and an answer cut off for length is no longer sent a second time.

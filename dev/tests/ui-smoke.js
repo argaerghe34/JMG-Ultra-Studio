@@ -32,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '37-producer', '38-wiki']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '37-producer', '38-wiki']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -89,6 +89,20 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   // What to work on: some interviews – Find and Themes read only those
   tool.onShow({ tab: 'transcripts', section: 'scope' }); await new Promise(r => setTimeout(r, 20));
   if (!/Names and terms/.test(tool.el.textContent)) errors.push('transcripts: no Names and terms');
+  // voices: the button first; once voices are given, a row each with a name, Same person as…, and Undo
+  {
+    if (!/Tell the voices apart/.test(tool.el.textContent)) errors.push('voices: no Tell the voices apart button');
+    const t0 = st.transcripts[0], ls = t0.lines;
+    US.storyVoices.apply(st, [t0], { voices: [{ key: 'Voice 1' }, { key: 'Voice 2' }], lines: Object.fromEntries(ls.map((l, i) => [l.id, { voice: i % 2 ? 'Voice 2' : 'Voice 1', sure: 0.8 }])) });
+    st.voiceID = { at: 1, voices: [{ key: 'Voice 1', asks: true, interviews: [t0.key], centre: [1, 0] }, { key: 'Voice 2', interviews: [t0.key], centre: [0, 1] }], skipped: [] };
+    tool.onShow({ tab: 'transcripts', section: 'scope' }); await new Promise(r => setTimeout(r, 20));
+    const rows = tool.el.querySelectorAll('.story-voice');
+    if (rows.length !== 2 || !/Asks the questions/.test(rows[0].textContent)) errors.push(`voices: ${rows.length} voice rows`);
+    US.storyVoices.undo();
+    tool.onShow({ tab: 'transcripts', section: 'scope' }); await new Promise(r => setTimeout(r, 20));
+    if (tool.el.querySelectorAll('.story-voice').length || !/Tell the voices apart/.test(tool.el.textContent)) errors.push('voices: undo left voices');
+    checks.push(`voices: ${rows.length} rows, undo`);
+  }
   const some = Array.from(tool.el.querySelectorAll('[data-section="scope"] .seg')).find(b => /Some interviews/.test(b.textContent));
   some.click(); await new Promise(r => setTimeout(r, 20));
   const boxes = tool.el.querySelectorAll('[data-section="scope"] .story-scope-item input');
@@ -395,6 +409,29 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     } finally { US.host.call = wasCall; }
     SEQ.markers = [];
     checks.push(`markers: ${rows.length} rows, search, bulk bar · pad: ${pads.length} buttons, start/stop, colour, keys`);
+  }
+  // Quick effects: a click adds a transition at the cuts between the selected clips, with the length chosen
+  {
+    const qt = US.tools.get('quickfx').create();
+    w.document.body.appendChild(qt.el);
+    const tiles = qt.el.querySelectorAll('.qfx-btn');
+    if (tiles.length < 25) errors.push(`quick effects: ${tiles.length} buttons`);
+    const wasCall = US.host.call, applied = [];
+    const READ = { fps: 25, video: [{ index: 0, clips: [{ start: 0, end: 4 }, { start: 4, end: 9 }, { start: 9, end: 12 }] }], audio: [{ index: 0, clips: [{ start: 0, end: 4 }, { start: 4, end: 9 }] }] };
+    US.host.call = async (fn, a) => { if (fn === 'editRead') return READ; if (fn === 'editSelection') return [{ kind: 'video', track: 0, start: 0, end: 4 }, { kind: 'video', track: 0, start: 4, end: 9 }, { kind: 'video', track: 0, start: 9, end: 12 }]; if (fn === 'editApply') { applied.push(a); return { done: a.targets.length, skipped: [] }; } return wasCall(fn, a); };
+    try {
+      Array.from(qt.el.querySelectorAll('.seg')).find(b => b.textContent === '1 s').click();
+      const dis = Array.from(qt.el.querySelectorAll('.qfx-btn')).find(b => b.querySelector('.pad-label').textContent === 'Cross Dissolve');
+      dis.click(); await new Promise(r => setTimeout(r, 30));
+      if (applied.length !== 1 || applied[0].op !== 'transition' || applied[0].params.frames !== 25 || applied[0].params.at !== 'start' || applied[0].targets.length !== 2) errors.push('quick effects: dissolve not at the 2 cuts, 1 s ' + JSON.stringify(applied));
+      if (!/Cross Dissolve: 2 transitions added/.test(qt.el.textContent)) errors.push('quick effects: no report');
+      const louder = Array.from(qt.el.querySelectorAll('.qfx-btn')).find(b => b.querySelector('.pad-label').textContent === 'Louder');
+      louder.click(); await new Promise(r => setTimeout(r, 30));
+      if (!applied[1] || applied[1].op !== 'volume' || applied[1].targets.some(t => t.kind !== 'audio') || applied[1].targets.length !== 2) errors.push('quick effects: Louder not on the sound of the selected clips ' + JSON.stringify(applied[1]));
+      const star = qt.el.querySelector('.qfx-btn .qfx-star:not(.on)'); star.click();
+      if (!/Favourites/.test(qt.el.textContent)) errors.push('quick effects: no favourites');
+    } finally { US.host.call = wasCall; US.settings.set('quickfx.favs', undefined); US.settings.set('quickfx.seconds', undefined); }
+    checks.push(`quick effects: ${tiles.length} buttons, dissolve at cuts, louder on the sound`);
   }
   if (errors.length) { console.log('✗ UI smoke test\n  ' + errors.join('\n  ')); process.exit(1); }
   console.log('✓ UI smoke test · ' + checks.join(' · '));

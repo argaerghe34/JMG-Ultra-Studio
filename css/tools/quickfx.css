@@ -1,0 +1,7 @@
+/* Quick effects – the same pad buttons, with a star for favourites */
+.qfx-btn { min-height: 64px; }
+.qfx-btn.off { filter: grayscale(1) opacity(.45); }
+.qfx-btn.busy { animation: pad-pulse 1s ease-in-out infinite; }
+.qfx-star { position: absolute; top: 3px; right: 6px; font-size: 13px; opacity: .45; line-height: 1; }
+.qfx-star.on, .qfx-btn:hover .qfx-star { opacity: .9; }
+.qfx-title { font-size: 12px; font-weight: 600; color: var(--text-2); margin: 8px 0 0; }
