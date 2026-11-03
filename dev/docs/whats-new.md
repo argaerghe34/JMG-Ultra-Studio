@@ -1,3 +1,9 @@
+## What's new in 1.3.25
+
+- **Lines straight into the timeline, from everywhere** (Story): besides dragging from Find, each line now has two buttons – **At the playhead** (insert or overwrite; the playhead moves past it, so the next one follows on) and **Source Monitor** (the clip opens with In and Out set to the line, to drag with Premiere's own preview). Ticked lines go **At the playhead** together.
+- **Drag and place from more places**: Questions (a whole answer as one clip), a theme's lines, board cards (by their ⋮⋮ handle) and the Word cloud's mentions.
+- **Dragging and placing lines** options: a little extra either side, **Colour by theme**, and insert or overwrite. Premiere and Resolve (in Resolve, lines at the playhead go on the first free tracks, and the clip is selected in the Media Pool with In and Out marked).
+
 ## What's new in 1.3.24
 
 - **Drag lines from Find onto the timeline** (Story › 3 Find): any line in Search, Find more or Moments can be dragged straight onto the sequence – it lands where you drop it with its video and audio, cut to the line's own In and Out. Drag a ticked line to bring all the ticked lines, one after another. Premiere and Resolve.

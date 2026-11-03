@@ -50,6 +50,7 @@ The words and phrases said most in your interviews, drawn as a cloud: the bigger
 - **Word forms together** counts *community* and *communities* as one word; **Phrases** adds two- and three-word phrases said in at least two lines (*local community*, *peace of mind*). Small words and fillers (*the*, *um*, *you know*) are left out. **Hide this word** takes one out of the cloud; **Show hidden words again** brings them back.
 - **Click a word** to list every time it's said: the words around it, who said it, the interview and the time. **▶** plays it (in Premiere's Source Monitor; in Resolve, in the panel). Shift-click to pick several words. **Find** looks up any word or phrase, even one not in the cloud.
 - **Build a sequence of the mentions**: **Just the words** (a supercut – each mention with a little air either side), the **Whole line**, or the **Full sentence**. Untick any you don't want. With several words picked, each gets its own group and colour. Each clip has a marker with the word and its line.
+- **Drag a mention** onto the timeline to place its whole line (video and audio, cut to the line), or press its playhead button to put the line at the playhead – as in Story › 3 Find.
 - **List** shows the words ranked with their counts; **How many words** sets the size. **Copy the counts** or **Save as spreadsheet** for a document or a report.
 - **Order**: **As said**, or **Mix the voices** – taking turns between the people saying it, so one voice doesn't run on.
 - **Add to Story as a theme** puts every line it's said in into a theme of yours.

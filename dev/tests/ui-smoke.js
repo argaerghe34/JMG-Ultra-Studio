@@ -274,6 +274,13 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   const why = tool.el.querySelectorAll('.story-why').length;
   if (!more.length || !why) errors.push(`find more showed ${why} reasons for ${more.length} results`);
   checks.push(`find more: ${more.length} results, ${why} with reasons`);
+  // every line can be dragged or put at the playhead, with the options to set how
+  {
+    const drag = tool.el.querySelectorAll('.story-row[draggable=true]').length, ph = tool.el.querySelectorAll('.story-row .icon-btn[title*="playhead"]').length;
+    if (!/Dragging and placing lines/.test(tool.el.textContent)) errors.push('Find: no “Dragging and placing lines” options');
+    if (drag && ph < drag) errors.push(`Find: ${drag} draggable rows but ${ph} playhead buttons`);
+    checks.push(`placing: ${drag} draggable rows, ${ph} playhead buttons`);
+  }
   // Word cloud: words sized by count; clicking one lists every mention with play and a build button
   {
     const wt = US.tools.get('words').create();

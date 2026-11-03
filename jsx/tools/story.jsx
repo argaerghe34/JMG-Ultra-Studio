@@ -146,13 +146,57 @@
         hit.remove(false, false);
         // the stand-in leaves the project again (a bin of its own, then the bin goes)
         try { var bin = U.ensureBin('JMG Ultra Studio/.dropped'); item.moveBin(bin); bin.deleteBin(); } catch (e) { }
-        var clips = [], cursor = at, i;
-        for (i = 0; i < a.clips.length; i++) {
-            clips.push({ id: a.clips[i].id, 'in': a.clips[i]['in'], out: a.clips[i].out, at: cursor, v: track, a: track });
-            cursor += a.clips[i].out - a.clips[i]['in'];
+        var r = placeRun(seq, a.clips, at, track, track, 'overwrite');
+        return { found: true, seqId: seq.sequenceID, start: at, end: r.end, track: track, placed: r.placed };
+    };
+    /**
+     * Lay ranges one after another from a time on a video/audio track pair – overwriting, or inserting (later clips
+     * move along). A clip with a label is placed in that colour (the source clip keeps its own). -> {end, placed}
+     */
+    function placeRun(seq, clips, at, v, au, mode) {
+        var cursor = at, placed = [], i;
+        for (i = 0; i < clips.length; i++) {
+            var c = clips[i], it = U.needItem(c.id), orig = null, changed = false, len = c.out - c['in'];
+            if (c.label != null) { try { orig = it.getColorLabel(); if (orig !== c.label) { it.setColorLabel(c.label); changed = true; } } catch (e) { } }
+            try {
+                if (mode === 'insert') {
+                    var hadIn = 0, hadOut = 0;
+                    try { hadIn = it.getInPoint().seconds; hadOut = it.getOutPoint().seconds; } catch (e) { }
+                    it.setInPoint(c['in'], 4); it.setOutPoint(c.out, 4);
+                    try { seq.videoTracks[v].insertClip(it, cursor); }
+                    finally { try { it.clearInPoint(); it.clearOutPoint(); if (hadIn > 0.0001) it.setInPoint(hadIn, 4); if (hadOut > 0) it.setOutPoint(hadOut, 4); } catch (e) { } }
+                    var got = clipAt(seq.videoTracks[v], cursor);
+                    placed.push(got ? { start: got.start.seconds, end: got.end.seconds } : null);
+                } else {
+                    placed.push(fn.placeClips({ seqId: seq.sequenceID, clips: [{ id: c.id, 'in': c['in'], out: c.out, at: cursor, v: v, a: au }] }).placed[0]);
+                }
+            } finally { if (changed) { try { it.setColorLabel(orig); } catch (e) { } } }
+            cursor = placed[i] ? placed[i].end : cursor + len;
         }
-        var r = fn.placeClips({ seqId: seq.sequenceID, clips: clips });
-        return { found: true, seqId: seq.sequenceID, start: at, end: cursor, track: track, placed: r.placed };
+        return { end: cursor, placed: placed };
+    }
+    function firstTargeted(tracks) {
+        for (var t = 0; t < tracks.numTracks; t++) { try { if (tracks[t].isTargeted()) return t; } catch (e) { } }
+        return 0;
+    }
+    /**
+     * Lines at the playhead of the open sequence, on the targeted tracks (V1/A1 when none), inserting or overwriting;
+     * the playhead then moves to the end, so the next press follows on.
+     * a: {clips:[{id, in, out, label?}], mode:'insert'|'overwrite'} -> {seqId, start, end, track, mode}
+     */
+    fn.storyPlaceAtPlayhead = function (a) {
+        var seq = U.needSeq(null), at = seq.getPlayerPosition().seconds;
+        var v = firstTargeted(seq.videoTracks), au = firstTargeted(seq.audioTracks), mode = a.mode === 'insert' ? 'insert' : 'overwrite';
+        var r = placeRun(seq, a.clips || [], at, v, au, mode);
+        try { seq.setPlayerPosition(U.secToTicks(r.end)); } catch (e) { }
+        return { seqId: seq.sequenceID, start: at, end: r.end, track: v, mode: mode, placed: r.placed };
+    };
+    /** A line in the Source Monitor with its In and Out set, ready to drag or edit in. a: {id, in, out} */
+    fn.storySourceRange = function (a) {
+        var it = U.needItem(a.id);
+        it.setInPoint(a['in'], 4); it.setOutPoint(a.out, 4);
+        app.sourceMonitor.openProjectItem(it);
+        return { opened: true, name: it.name };
     };
 
     /* ---------- placing lines with a colour label ----------

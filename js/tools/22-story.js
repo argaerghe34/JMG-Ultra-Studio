@@ -1975,6 +1975,71 @@
       await US.host.cue(id, Math.max(0, at - 0.2), { play: true });
     } catch (err) { ui.showError(err); }
   }
+  /* ---------- placing lines straight into the timeline: drag, at the playhead, the Source Monitor ---------- */
+  /** How lines are placed: extra either side (s), colour by theme, insert or overwrite at the playhead. */
+  function placeOpts() {
+    return { handles: Number(US.settings.get('story.placeHandles', 0)) || 0, colour: US.settings.get('story.placeColour', true) !== false, mode: RES ? 'overwrite' : US.settings.get('story.placeMode', 'insert') === 'overwrite' ? 'overwrite' : 'insert' };
+  }
+  /** A line's colour: the first theme it's in that has one. */
+  function labelOfLine(l) {
+    const th = (state.themes || []).find(t => t.label != null && t.lineIds.includes(l.id));
+    return th ? th.label : null;
+  }
+  /** lines -> what gets placed (with the handles and colours chosen) */
+  function placePieces(lines, labelOf = labelOfLine) {
+    const o = placeOpts();
+    return US.storyDrag.spans(lines, { handles: o.handles, labelOf: o.colour ? labelOf : () => null });
+  }
+  /** pieces -> the clips to place [{id, in, out, label?}] (finds each interview's clip and its length) */
+  async function placeClipsFor(ps) {
+    const ts = Array.from(new Set(ps.map(p => clipOfLine.get(p.lineId)).filter(Boolean)));
+    const items = await resolveItems(ts);
+    const ids = Array.from(new Set(Array.from(items.values())));
+    const infos = ids.length ? await US.host.call('itemsInfo', { ids }) : [];
+    const dur = new Map((infos || []).filter(Boolean).map(i => [i.id, i.duration]));
+    const clips = US.storyDrag.ranges(ps, p => { const t = clipOfLine.get(p.lineId); return t ? items.get(t.key) : null; }, id => dur.get(id));
+    if (!clips.length) throw new US.UserError('NOT_FOUND', { title: 'This interview isn’t linked to a clip in the project.', action: 'Link it in Story › 1 Interviews › Interviews and speakers, then try again.' });
+    return clips;
+  }
+  /** Start dragging lines onto the timeline (see 22-story-drag.js). */
+  function dragLines(e, lines, { labelOf = labelOfLine } = {}) {
+    const l = lines[0], t = l && clipOfLine.get(l.id);
+    US.storyDrag.begin(e, { pieces: lines.length ? placePieces(lines, labelOf) : [], itemsFor: placeClipsFor,
+      name: l ? `${speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : (t ? t.name : 'Line')} ${US.fmtDur(l.start)}`.replace(/:/g, '.') : 'Line' });
+  }
+  /** Lines at the playhead of the open sequence (insert or overwrite, as chosen); the playhead moves past them. */
+  async function placeAtPlayhead(lines, { labelOf = labelOfLine } = {}) {
+    try {
+      if (!lines.length) return;
+      const o = placeOpts(), clips = await placeClipsFor(placePieces(lines, labelOf));
+      const r = await US.host.call('storyPlaceAtPlayhead', { clips, mode: o.mode });
+      ui.toast({ type: 'ok', title: `${US.plural(clips.length, 'line')} ${r.mode === 'insert' ? 'inserted' : 'placed'} at ${US.fmtDur(r.start)}`, text: 'The playhead is now after them.', timeout: 3000 });
+    } catch (err) { ui.showError(err); }
+  }
+  /** A line in the Source Monitor with its In and Out set (Resolve: selected in the Media Pool with them marked). */
+  async function openInSource(l) {
+    try {
+      const [c] = await placeClipsFor(placePieces([l], () => null));
+      const r = await US.host.call('storySourceRange', c);
+      if (!r.opened) ui.toast({ type: 'info', title: 'Selected in the Media Pool with In and Out marked', text: 'Resolve can’t open clips in the Source Viewer by script: double-click it to open the line there.', timeout: 5000 });
+    } catch (err) { ui.showError(err); }
+  }
+  /** The two buttons on a line: Source Monitor with In/Out, and at the playhead. lines() -> the lines to place. */
+  function placeButtons(l, lines = () => [l], labelOf = labelOfLine) {
+    return [iconBtn('source', RES ? 'Select it in the Media Pool with the line’s In and Out marked' : 'Open in the Source Monitor with the line’s In and Out set', () => openInSource(l)),
+      iconBtn('playhead', RES ? 'Put it at the playhead' : `Put it at the playhead (${placeOpts().mode === 'insert' ? 'insert' : 'overwrite'})`, () => placeAtPlayhead(lines(), { labelOf }))];
+  }
+  /** Options for dragging and placing lines (Find, Questions, the board). */
+  function placeOptionsSection() {
+    const o = placeOpts();
+    return ui.section('Dragging and placing lines', [
+      h('div.field-hint', 'Drag a line onto the timeline, or press its playhead button to put it at the playhead – video and audio, cut to the line. The other button opens it in the Source Monitor with its In and Out set.'),
+      ui.field('Extra either side', ui.select({ options: [['0', 'None – exactly the line'], ['0.25', '¼ second'], ['0.5', '½ second'], ['1', '1 second']].map(([value, label]) => ({ value, label })), value: String(o.handles), onChange: v => US.settings.set('story.placeHandles', Number(v)) })),
+      ui.toggle({ label: 'Colour by theme', hint: 'A line in a theme is placed in its theme’s colour (answers in their question’s, moments in their type’s, board cards in their group’s).', value: o.colour, onChange: x => US.settings.set('story.placeColour', x) }),
+      RES ? h('div.field-hint', 'At the playhead, lines go on the first video and audio tracks that are free there (a new pair if none is): Resolve has no insert by script.')
+        : ui.field('At the playhead', ui.select({ options: [{ value: 'insert', label: 'Insert – later clips move along' }, { value: 'overwrite', label: 'Overwrite' }], value: o.mode, onChange: v => US.settings.set('story.placeMode', v) }))
+    ], { open: false });
+  }
   /**
    * The answer to an ask, to check before anything happens: the reply, then each group's clips (play, move, take out),
    * group names and colours to change, and how it lands – a new sequence, markers on a sequence, themes, Word or text.
@@ -2456,8 +2521,8 @@
           ui.button('Find more', { kind: moreMode && !momentsMode && !questionsMode ? 'primary' : 'secondary', icon: 'spark', title: 'Anything that touches on this topic and isn’t selected yet', onClick: () => { moreMode = true; momentsMode = questionsMode = false; lastQuery = input.value; runFindMore(input.value); } }),
           ui.button('Moments', { kind: momentsMode ? 'primary' : 'secondary', icon: 'star', title: 'Bloopers, funny bits, off-camera voices and poignant moments', onClick: () => { momentsMode = true; questionsMode = false; render(); } }),
           ui.button('Questions', { kind: questionsMode ? 'primary' : 'secondary', icon: 'note', title: 'Type your interview questions – find every full answer to each, labelled by question', onClick: () => { questionsMode = true; momentsMode = false; render(); } })));
-        if (questionsMode) { el.appendChild(questionsView()); el.appendChild(nextBar('search')); return; }
-        if (momentsMode) { el.appendChild(momentsView()); el.appendChild(pickedBar()); el.appendChild(nextBar('search')); return; }
+        if (questionsMode) { el.appendChild(questionsView()); el.appendChild(placeOptionsSection()); el.appendChild(nextBar('search')); return; }
+        if (momentsMode) { el.appendChild(momentsView()); el.appendChild(pickedBar()); el.appendChild(placeOptionsSection()); el.appendChild(nextBar('search')); return; }
         if (moreMode) {
           const aiOn = US.ai && US.ai.available();
           const seqSel = ui.select({ options: [], placeholder: 'Choose your cut…', onChange: v => { cutSeq = v; } });
@@ -2475,6 +2540,7 @@
         const list = h('div.story-results');
         el.appendChild(list);
         el.appendChild(pickedBar());
+        el.appendChild(placeOptionsSection());
         if (moreMode) drawMore(list); else drawResults(list);
         el.appendChild(nextBar('search'));
         setTimeout(() => input.focus(), 30);
@@ -2537,11 +2603,13 @@
         const text = h('div.story-text.story-q-text.clamp', { title: 'Click to show it all', onclick: () => text.classList.toggle('clamp') },
           ls.map(l => h('span' + (l.id === a.asked ? '.story-q-asked' : ''), (multi ? `${speakerName(l.speaker)}: ` : '') + l.text + ' ')));
         const who = speakerName(first.speaker) !== speakerName('') ? speakerName(a.asked && qAsked && ls[1] ? ls[1].speaker : first.speaker) : '';
-        return h('div.story-row.story-q-row',
+        // the whole answer as one clip, from where they start answering to where they move on
+        const whole = () => [Object.assign({}, first, { end: last.end })], qLabel = () => questionLabel(r.q);
+        return h('div.story-row.story-q-row.story-drag', { draggable: t && t.path ? 'true' : 'false', title: t && t.path ? 'Drag the whole answer onto the timeline' : '', ondragstart: e => dragLines(e, whole(), { labelOf: qLabel }) },
           h('span.story-bar', { style: { background: labelHex(questionLabel(r.q)) } }),
           h('div.story-main', text, a.summary ? h('div.story-why', a.summary) : null,
             h('div.story-meta', `${[who, t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(first.start)}–${US.fmtDur(last.end)} · ${US.fmtDur(last.end - first.start)}`, a.by === 'basic' ? ui.pill('basic', 'var(--text-2)') : null)),
-          playButton(first),
+          playButton(first), t && t.path ? placeButtons(Object.assign({}, first, { end: last.end }), whole, qLabel) : null,
           iconBtn('close', 'Not an answer – take it out', () => { r.answers = r.answers.filter(x => x !== a); saveNow(); render(); }));
       }
 
@@ -2589,7 +2657,7 @@
         if (!shown.length) lst.appendChild(ui.empty({ icon: 'star', title: list.length ? 'Nothing at this setting' : 'No moments found', text: list.length ? 'Choose a less picky setting or another type.' : 'Nothing stood out in the words or timing. With an AI key, each line can be checked more closely.' }));
         for (const m of shown.slice(0, 300)) {
           const l = lineById.get(m.lineId), ty = M.TYPES[m.type];
-          lst.appendChild(lineRow(l, { reasons: m.reasons, checked: p.has(l.id), onCheck: on => togglePick(l.id, on), tag: ui.pill(ty.name, labelHex(ty.label)),
+          lst.appendChild(lineRow(l, { reasons: m.reasons, checked: p.has(l.id), onCheck: on => togglePick(l.id, on), tag: ui.pill(ty.name, labelHex(ty.label)), labelOf: () => ty.label,
             extra: BOARD ? iconBtn('plus', 'Add to board', () => { const n = addMomentsToBoard([m]); ui.toast({ type: 'ok', title: n ? `Added to “Moments · ${ty.plural}”` : 'It’s on the board already', timeout: 2500 }); }) : null }));
         }
         if (shown.length > 300) lst.appendChild(h('div.field-hint', `…and ${shown.length - 300} more – choose a pickier setting.`));
@@ -2655,6 +2723,7 @@
             const ok = await ui.modal({ title: `New sequence of ${US.plural(n, 'line')}`, body: h('div', ui.field('Name', nameIn), orderToggle(), h('div.field-hint', 'Off: in the order you ticked them.')), buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: 'Build it', value: true, kind: 'primary' }] });
             if (ok && nameIn.value.trim()) US.actions.run('story.build', { source: 'picked', name: nameIn.value.trim() });
           } }),
+          ui.button('At the playhead', { small: true, icon: 'playhead', title: 'Put the ticked lines at the playhead of the open sequence, in the order you ticked them', onClick: () => placeAtPlayhead(ids.map(id => lineById.get(id))) }),
           ui.button('Clear', { small: true, kind: 'ghost', onClick: () => { state.picked = []; save(); render(); } }));
       }
       async function addPickedToTheme(ids) {
@@ -2670,7 +2739,7 @@
         render();
       }
       /** One line: text with highlighted hits, speaker/clip/time, play, optional checkbox / remove button. */
-      function lineRow(l, { hits = [], checked, onCheck, onRemove, reasons = null, tag = null, extra = null } = {}) {
+      function lineRow(l, { hits = [], checked, onCheck, onRemove, reasons = null, tag = null, extra = null, labelOf = labelOfLine } = {}) {
         const t = clipOfLine.get(l.id);
         const q = T.quality(l);
         const textEl = h('div.story-text');
@@ -2678,17 +2747,11 @@
         textEl.innerHTML = highlight(l.text, terms);
         const box = onCheck ? h('input', { type: 'checkbox', checked: !!checked, onchange: e => onCheck(e.target.checked) }) : null;
         return h('div.story-row.story-drag' + (checked ? '.on' : ''), { draggable: t && t.path ? 'true' : 'false', title: t && t.path ? `Drag onto the timeline – video and audio, cut to the line${(state.picked || []).length > 1 && (state.picked || []).includes(l.id) ? ' (with the other ticked lines)' : ''}` : '',
-          ondragstart: e => dragLines(e, l), onclick: e => { if (box && e.target === textEl) { box.checked = !box.checked; onCheck(box.checked); e.currentTarget.classList.toggle('on', box.checked); } } },
+          ondragstart: e => dragLines(e, US.storyDrag.linesFor(l, state.picked || [], id => lineById.get(id)), { labelOf }), onclick: e => { if (box && e.target === textEl) { box.checked = !box.checked; onCheck(box.checked); e.currentTarget.classList.toggle('on', box.checked); } } },
           box, h('span.story-bar', { style: { background: speakerColor(l.speaker) } }),
           h('div.story-main', textEl, reasons && reasons.length ? h('div.story-why', 'Why: ' + reasons.join(' · ')) : null, h('div.story-meta', tag, `${[speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(l.start)} · ${(l.end - l.start).toFixed(1)} s`, q.score >= STRONG ? ui.pill('★ strong', 'var(--ok)') : null, hits.some(x => x.how === 'sounds like') ? ui.pill('sounds like', 'var(--info)') : null, hits.some(x => x.how === 'related') && !terms.length ? ui.pill('related', 'var(--text-2)') : null)),
-          playButton(l), extra,
+          playButton(l), t && t.path ? placeButtons(l, () => US.storyDrag.linesFor(l, state.picked || [], id => lineById.get(id)), labelOf) : null, extra,
           onRemove ? iconBtn('close', 'Take this line out of the theme', onRemove) : null);
-      }
-      /** Drag a line (or the ticked lines, if it's one of them) onto the timeline: see 22-story-drag.js. */
-      function dragLines(e, l) {
-        const D = US.storyDrag, lines = D.linesFor(l, state.picked || [], id => lineById.get(id)), t = clipOfLine.get(l.id);
-        D.begin(e, { lines, name: `${speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : (t ? t.name : 'Line')} ${US.fmtDur(l.start)}`.replace(/:/g, '.'),
-          itemsFor: async ls => { const items = await resolveItems(Array.from(new Set(ls.map(x => clipOfLine.get(x.id))))); return D.ranges(ls, x => items.get(clipOfLine.get(x.id).key)); } });
       }
       function highlight(text, terms) {
         let s = US.esc(text);
@@ -2773,7 +2836,7 @@
           const isOpen = openThemes.has(th.id);
           const strongN = lines.filter(isStrong).length;
           const lv = th.picky && th.picky.s != null ? (pickyLevel(th.picky.s) ? PICKY_TEXT[pickyLevel(th.picky.s)][0] : 'custom') : null;
-          const more = isOpen ? h('div.story-theme-lines', lines.slice(0, 80).map(l => lineRow(l, { onRemove: () => { removeLineFromTheme(th, l.id); render(); } })),
+          const more = isOpen ? h('div.story-theme-lines', lines.slice(0, 80).map(l => lineRow(l, { labelOf: () => th.label, onRemove: () => { removeLineFromTheme(th, l.id); render(); } })),
             lines.length > 80 ? h('div.field-hint', `…and ${lines.length - 80} more`) : null,
             all.length > ids.length ? h('div.field-hint', `${US.plural(all.length - ids.length, 'more line')} at a less picky setting.`) : null) : null;
           el.appendChild(h('div.card.story-theme', { style: { borderLeftColor: labelHex(th.label) } },
@@ -3005,6 +3068,8 @@
         const l = isIdea ? null : lineById.get(k.lineId), t = isIdea ? null : clipOfLine.get(k.lineId);
         const strong = !isIdea && isStrong(l), tr = isIdea ? null : trimOf(k);
         const i = c ? c.cards.indexOf(k) : -1;
+        // a trimmed card places its trimmed words
+        const cardLine = () => Object.assign({}, l, tr ? { start: tr.start, end: tr.end } : {});
         const style = { '--tilt': tilt(B().keyOf(k)) + 'deg' };
         if (!isIdea && label != null) style.background = pastel(labelHex(label));
         const el = h('div.wall-card.postit' + (isIdea ? '.idea' : '') + (k.pinned ? '.pinned' : '') + (k.hidden ? '.is-hidden' : '') + (strong ? '.strong' : '') + (selected.has(k) ? '.selected' : ''), { dataset: { key: B().keyOf(k) }, style },
@@ -3015,6 +3080,8 @@
             h('span', strong ? h('b.wall-star', { title: 'One of the strongest lines' }, '★ ') : null, isIdea ? 'not built – becomes a marker' : `${l.speaker ? speakerName(l.speaker) + ' · ' : ''}${((tr || l).end - (tr || l).start).toFixed(0)} s${tr ? ' · trimmed' : ''}`),
             h('span.wall-btns',
               isIdea ? null : playButton(l, (tr || l).start),
+              isIdea || !(t && t.path) ? null : h('button.icon-btn.wall-drag', { draggable: 'true', title: 'Drag onto the timeline', onclick: e => e.stopPropagation(), ondragstart: e => dragLines(e, [cardLine()], { labelOf: () => label }) }, US.icon('grip', 14)),
+              isIdea || !(t && t.path) ? null : iconBtn('playhead', 'Put it at the playhead', () => placeAtPlayhead([cardLine()], { labelOf: () => label })),
               free || !c || c.loose ? null : iconBtn('up', 'Move up', () => { if (moveCard(c, k, 'up')) { saveNow(); render(); } }, i === 0 ? '.dim' : ''),
               free || !c || c.loose ? null : iconBtn('down', 'Move down', () => { if (moveCard(c, k, 'down')) { saveNow(); render(); } }, i === c.cards.length - 1 ? '.dim' : ''),
               iconBtn('more', 'More', e => cardMenu(e.currentTarget, k, c)))));
@@ -4063,7 +4130,7 @@
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' }, script: { tab: 'build', section: 'script' } };
   US.story = {
     /** for other tabs (Word cloud): play a line, who said it, which interview, and the lines to work on */
-    readReference, matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
+    readReference, matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), dragLines: (e, lines) => dragLines(e, lines), placeAtPlayhead: lines => placeAtPlayhead(lines), openInSource: l => openInSource(l), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
     scoreBeats, boardGroups, findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },

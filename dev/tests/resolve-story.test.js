@@ -92,7 +92,7 @@ const touch = f => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writ
 
 test('resolve story: every Story command is there', () => {
   const { host } = setup();
-  for (const n of ['storyClips', 'storyTiming', 'storyCue', 'storyStop', 'storyPlace', 'storyThemeLayers', 'storyHighlights', 'storyRemoveHighlights', 'storySequenceTiming', 'storyProjectFile', 'storyCaptions', 'storyTranscribe', 'storyDropSwap'])
+  for (const n of ['storyClips', 'storyTiming', 'storyCue', 'storyStop', 'storyPlace', 'storyThemeLayers', 'storyHighlights', 'storyRemoveHighlights', 'storySequenceTiming', 'storyProjectFile', 'storyCaptions', 'storyTranscribe', 'storyDropSwap', 'storyPlaceAtPlayhead', 'storySourceRange'])
     assert.strictEqual(typeof host.fns[n], 'function', n);
 });
 
@@ -208,6 +208,27 @@ test('resolve story: storyDropSwap – the dragged stand-in becomes the lines, v
   assert.deepStrictEqual(v.map(i => [i._start - tl._start, i._end - tl._start, i._srcStart]), [[250, 350, 300], [350, 400, 1000]], 'the picture, cut to each line');
   assert.deepStrictEqual(au.map(i => i.GetMediaPoolItem()), [a, a], 'its sound, and the stand-in is gone');
   assert.ok(stand._dead, 'the stand-in left the Media Pool');
+});
+
+test('resolve story: lines at the playhead (overwrite, in their colour, playhead moves on) and the Source Viewer stand-in', async () => {
+  const { F, run } = setup();
+  const a = F.addMedia('/m/A.mp4', { frames: 2500 });
+  const tl = F.addTimeline('Cut', [{ item: a, in: 0, out: 500 }]);
+  const TC = f => { const n = f, fr = n % 25, sec = Math.floor(n / 25); return [Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60, fr].map(x => String(x).padStart(2, '0')).join(':'); };
+  let tc = TC(tl._start + 200);
+  tl.GetCurrentTimecode = () => tc; tl.SetCurrentTimecode = x => { tc = x; return true; };
+  const r = await run('storyPlaceAtPlayhead', { clips: [{ id: a.GetUniqueId(), in: 30, out: 32, label: 7 }, { id: a.GetUniqueId(), in: 50, out: 51 }], mode: 'insert' });
+  assert.strictEqual(r.mode, 'overwrite', 'Resolve has no insert by script');
+  near(r.start, 8); near(r.end, 11);
+  assert.strictEqual(r.track, 1, 'V1/A1 are taken at the playhead: the next free pair');
+  const v = tl.GetItemListInTrack('video', 2);
+  assert.deepStrictEqual(v.map(i => [i._start - tl._start, i._srcStart, i._color]), [[200, 750, 'Orange'], [250, 1250, '']], 'one after another from the playhead, the first in its colour');
+  assert.strictEqual(tl.GetItemListInTrack('video', 1).length, 1, 'the clip underneath is left alone');
+  assert.strictEqual(tc, TC(tl._start + 275), 'the playhead is after them');
+  const s = await run('storySourceRange', { id: a.GetUniqueId(), in: 12, out: 16 });
+  assert.strictEqual(s.selected, true);
+  assert.deepStrictEqual(a.GetMarkInOut().video, { in: 300, out: 400 }, 'In and Out marked on the clip');
+  assert.deepStrictEqual(F.selected, [a]);
 });
 
 test('resolve story: theme names and highlights are range markers – replaced on re-run, others left alone', async () => {

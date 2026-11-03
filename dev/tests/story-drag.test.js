@@ -27,3 +27,13 @@ test('a drag carries the line – or every ticked line, in the order ticked, whe
   assert.strictEqual(D.seconds([L.a, L.b]), 5);
   assert.deepStrictEqual(D.ranges([L.a, L.b, L.c], l => (l.id === 'b' ? null : 'item-' + l.id)), [{ id: 'item-a', in: 1, out: 4 }, { id: 'item-c', in: 20, out: 21 }], 'the line’s own In and Out; unlinked lines left out');
 });
+
+test('what gets placed: extra either side (never before the start, never past the end) and the colour', () => {
+  const ls = [{ id: 'a', start: 0.2, end: 4 }, { id: 'b', start: 10, end: 12 }];
+  const ps = D.spans(ls, { handles: 0.5, labelOf: l => (l.id === 'b' ? 7 : null) });
+  assert.deepStrictEqual(ps, [{ lineId: 'a', start: 0, end: 4.5, label: null }, { lineId: 'b', start: 9.5, end: 12.5, label: 7 }]);
+  assert.deepStrictEqual(D.spans(ls).map(p => [p.start, p.end]), [[0.2, 4], [10, 12]], 'no handles: exactly the line');
+  const r = D.ranges(ps, () => 'clip', () => 12.2);
+  assert.deepStrictEqual(r, [{ id: 'clip', in: 0, out: 4.5 }, { id: 'clip', in: 9.5, out: 12.2, label: 7 }], 'stops at the end of the media; label only when there is one');
+  assert.strictEqual(D.seconds(ps), 7.5);
+});

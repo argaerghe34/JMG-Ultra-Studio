@@ -25,29 +25,54 @@
     const ids = picked.includes(line.id) && picked.length > 1 ? picked : [line.id];
     return ids.map(id => (id === line.id ? line : lineOf(id))).filter(l => l && Number.isFinite(+l.start) && Number.isFinite(+l.end) && l.end > l.start);
   }
-  const seconds = lines => lines.reduce((k, l) => k + (l.end - l.start), 0);
-  /** The ranges to place, once each line's project item is known: [{id, in, out}] (lines without one left out). */
-  function ranges(lines, itemOf) {
-    return lines.map(l => ({ id: itemOf(l), in: l.start, out: l.end })).filter(r => r.id);
+  /**
+   * What gets placed for some lines: each line's range with a little extra either side (handles, never before the
+   * media's start) and the colour it's placed in (labelOf(line) -> label 0–15 or null).
+   * -> [{lineId, start, end, label}]
+   */
+  function spans(lines, { handles = 0, labelOf = () => null } = {}) {
+    const hd = Math.max(0, +handles || 0);
+    return lines.map(l => { const lb = labelOf(l); return { lineId: l.id, start: Math.max(0, l.start - hd), end: l.end + hd, label: lb == null ? null : lb }; });
+  }
+  const seconds = ps => ps.reduce((k, p) => k + (p.end - p.start), 0);
+  /**
+   * The ranges to place, once each line's project item (and its length) is known: [{id, in, out, label?}] – lines
+   * without a clip left out, never past the end of the media.
+   */
+  function ranges(ps, itemOf, durOf = () => Infinity) {
+    return ps.map(p => {
+      const id = itemOf(p);
+      if (!id) return null;
+      const d = durOf(id), out = d > 0 ? Math.min(d, p.end) : p.end, r = { id, in: p.start, out };
+      if (p.label != null) r.label = p.label;
+      return r.out > r.in ? r : null;
+    }).filter(Boolean);
+  }
+  // icons for the line buttons: the Source Monitor with In/Out, and "at the playhead"
+  if (US.addIcon) {
+    US.addIcon('source', 'M3 4.5h14v9H3zM7 16.5h6M7.5 7v4M7.5 7h1.2M7.5 11h1.2M12.5 7v4M12.5 7h-1.2M12.5 11h-1.2');
+    US.addIcon('playhead', 'M10 2.5v15M7 2.5h6l-3 3.5zM3 12h4M13 12h4M4.5 10.5 3 12l1.5 1.5M15.5 10.5 17 12l-1.5 1.5');
+    US.addIcon('grip', 'M7.5 5h.01M12.5 5h.01M7.5 10h.01M12.5 10h.01M7.5 15h.01M12.5 15h.01');
   }
 
   let pending = null;
   function tidy(p) { try { require('fs').unlinkSync(p.file); } catch (e) { /* already gone */ } }
 
   /**
-   * Start a drag from a row. lines: what it carries; itemsFor(lines) -> Promise<[{id, in, out}]> (the clips to place);
-   * name: what the stand-in is called while it's dragged.
+   * Start a drag from a row. pieces: what it carries (spans()); itemsFor(pieces) -> Promise<[{id, in, out, label?}]>
+   * (the clips to place); name: what the stand-in is called while it's dragged.
    */
-  function begin(e, { lines, itemsFor, name = 'Ultra Studio line' }) {
-    if (!lines.length) { e.preventDefault(); return; }
+  function begin(e, { pieces, itemsFor, name = 'Ultra Studio line' }) {
+    e.stopPropagation();
+    if (!pieces.length) { e.preventDefault(); return; }
     const fs = require('fs'), path = require('path'), os = require('os');
     const dir = path.join(os.tmpdir(), 'JMG Ultra Studio', 'drag');
     try { fs.mkdirSync(dir, { recursive: true }); } catch (er) { /* exists */ }
     const safe = String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').slice(0, 60).trim() || 'Ultra Studio line';
     const file = path.join(dir, `${safe} ${Date.now().toString(36)}.wav`);
-    fs.writeFileSync(file, wav(seconds(lines)));
+    fs.writeFileSync(file, wav(seconds(pieces)));
     if (pending) { clearTimeout(pending.timer); tidy(pending); }
-    const p = pending = { file, lines, clips: itemsFor(lines), timer: null, tries: 0 };
+    const p = pending = { file, clips: itemsFor(pieces), timer: null, tries: 0 };
     p.clips.catch(() => {});
     if (US.app.is('resolve')) {
       // a real file drag from Electron; the page gets no dragend, so watch for the drop straight away
@@ -57,7 +82,6 @@
     } else {
       e.dataTransfer.effectAllowed = 'copy';
       e.dataTransfer.setData('com.adobe.cep.dnd.file.0', file);
-      e.dataTransfer.setData('text/plain', lines.map(l => l.text).join(' '));
       e.target.addEventListener('dragend', () => watch(p, 15), { once: true });
     }
   }
@@ -82,5 +106,5 @@
     p.timer = setTimeout(look, 500);
   }
 
-  US.storyDrag = { wav, linesFor, seconds, ranges, begin };
+  US.storyDrag = { wav, linesFor, spans, seconds, ranges, begin };
 })();

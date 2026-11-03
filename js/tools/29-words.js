@@ -279,11 +279,13 @@
           sets.length > 1 ? h('div.field-label', `“${s.text}” · ${US.plural(s.mentions.length, 'time')}`) : null,
           s.mentions.length ? h('div.list.word-mentions', s.mentions.slice(0, 300).map(m => {
             const iv = S().interviewOf(m.lineId) || {}, who = S().speakerName(m.line.speaker);
-            return h('label.list-row.word-mention',
+            const canPlace = !!(S().dragLines && iv.path);
+            return h('label.list-row.word-mention' + (canPlace ? '.story-drag' : ''), { draggable: canPlace ? 'true' : 'false', title: canPlace ? 'Drag its line onto the timeline' : '', ondragstart: e => S().dragLines(e, [m.line]) },
               h('input', { type: 'checkbox', checked: !off.has(m.id), onchange: e => { if (e.target.checked) off.delete(m.id); else off.add(m.id); } }),
               h('div.list-main', h('div.word-context', m.before ? '…' + m.before + ' ' : '', h('mark', m.hit), m.after ? ' ' + m.after + '…' : ''),
                 h('div.list-sub', `${US.keep(iv.name || '')} · ${who} · ${US.fmtDur(m.start)}${m.exact ? '' : ' · word times estimated'}`)),
-              h('button.btn.small.ghost', { title: 'Play from here', onclick: e => { e.preventDefault(); S().cueLine(m.line, m.start - 1); } }, '▶'));
+              h('button.btn.small.ghost', { title: 'Play from here', onclick: e => { e.preventDefault(); S().cueLine(m.line, m.start - 1); } }, '▶'),
+              canPlace ? h('button.btn.small.ghost', { title: 'Put its line at the playhead', onclick: e => { e.preventDefault(); S().placeAtPlayhead([m.line]); } }, US.icon('playhead', 14)) : null);
           })) : ui.empty(`“${s.text}” isn’t said in these lines.`),
           s.mentions.length > 300 ? h('div.field-hint', `Showing the first 300 of ${s.mentions.length} – all are built.`) : null));
         const tickRow = total > 1 ? h('div.row.word-tick', ui.button('Tick all', { small: true, kind: 'ghost', onClick: () => tickAll(true) }), ui.button('Untick all', { small: true, kind: 'ghost', onClick: () => tickAll(false) })) : null;

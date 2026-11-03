@@ -37,6 +37,24 @@ module.exports = (R, fns) => {
   /** The timeline item to report for a placement: the picture when there is one. */
   const mainItem = got => got.find(ti => trackOf(ti)[0] === 'video') || got[0] || null;
   function ensureTracks(tl, type, n) { while (tl.GetTrackCount(type) < n) if (!(type === 'audio' ? tl.AddTrack('audio', 'stereo') : tl.AddTrack(type))) throw R.err('HOST_SCRIPT', `Resolve would not add ${type} track ${n}`); }
+  const tryCall = (fn, dflt) => { try { return fn(); } catch (e) { return dflt; } };
+  /**
+   * Lay ranges one after another from a time on a video/audio track pair (overwriting), each in its label's clip
+   * colour when it has one. -> {end, placed}
+   */
+  function placeRun(tl, clips, at, v, au) {
+    let cursor = at;
+    const list = clips.map(c => { const o = { id: c.id, in: c.in, out: c.out, at: cursor, v, a: au }; cursor += R.num(c.out) - R.num(c.in); return o; });
+    const r = list.length ? fns.placeClips({ seqId: R.id(tl), clips: list }) : { placed: [] };
+    clips.forEach((c, k) => {
+      const p = r.placed[k];
+      if (c.label == null || !p) return;
+      const s = R.tlFrame(tl, p.start), mpi = R.needItem(c.id);
+      colourItems(R.trackItems(tl, 'video').concat(R.trackItems(tl, 'audio')).filter(x => Math.abs(x.ti.GetStart() - s) < 1 && tryCall(() => R.id(x.ti.GetMediaPoolItem()), '') === R.id(mpi)).map(x => x.ti), c.label);
+    });
+    const last = r.placed.filter(Boolean).pop();
+    return { end: last ? Math.max(cursor, last.end) : cursor, placed: r.placed };
+  }
   /** Lay a media range on a timeline at a time (seconds from its start). extra: trackIndex, mediaType. -> [TimelineItem] */
   function placeRange(tl, item, inSec, outSec, at, extra) {
     if (R.num(at) == null) throw R.err('BAD_INPUT', `No time to place ${item.GetName()} at (${at})`);
@@ -229,10 +247,35 @@ module.exports = (R, fns) => {
       tl.DeleteClips([hit.ti], false);
       try { R.pool().DeleteClips([mpi]); } catch (e) { /* the stand-in stays in the Media Pool */ }
       R.forget();
-      let cursor = at;
-      const clips = (a.clips || []).map(c => { const o = { id: c.id, in: c.in, out: c.out, at: cursor, v: track, a: track }; cursor += R.num(c.out) - R.num(c.in); return o; });
-      const r = fns.placeClips({ seqId: R.id(tl), clips });
-      return { found: true, seqId: R.id(tl), start: at, end: cursor, track, placed: r.placed };
+      const r = placeRun(tl, a.clips || [], at, track, track);
+      return { found: true, seqId: R.id(tl), start: at, end: r.end, track, placed: r.placed };
+    },
+    /**
+     * Lines at the playhead of the open timeline. Resolve has no insert by script, doesn't say which tracks are
+     * targeted, and a clip laid over another is pushed to that one's end (measured, Resolve 21) – so they go on the
+     * first track pair that's free there (a new one when none is); the playhead then moves past them.
+     * a: {clips:[{id, in, out, label?}], mode} -> {seqId, start, end, track, mode:'overwrite'}
+     */
+    storyPlaceAtPlayhead(a) {
+      const tl = R.needSeq(null), fps = R.fps(tl);
+      const f = R.tcToFrames(String(tryCall(() => tl.GetCurrentTimecode(), '') || ''), fps), at = isFinite(f) ? Math.max(0, R.tlSec(tl, f)) : R.tlDuration(tl);
+      const len = (a.clips || []).reduce((k, c) => k + (R.num(c.out) - R.num(c.in)), 0), s = R.tlFrame(tl, at), e = R.tlFrame(tl, at + len);
+      const busy = (type, t) => R.list(t <= tl.GetTrackCount(type) ? tl.GetItemListInTrack(type, t) : []).some(ti => ti && ti.GetStart() < e && ti.GetEnd() > s);
+      let track = 1;
+      while (busy('video', track) || busy('audio', track)) track++;
+      const r = placeRun(tl, a.clips || [], at, track - 1, track - 1);
+      tryCall(() => tl.SetCurrentTimecode(R.framesToTC(R.tlFrame(tl, r.end), fps, R.dropFrame(tl))));
+      return { seqId: R.id(tl), start: at, end: r.end, track: track - 1, mode: 'overwrite', placed: r.placed };
+    },
+    /**
+     * Resolve can't load a clip into the Source Viewer by script: the clip is selected in the Media Pool with the
+     * line's In and Out marked, so opening it shows the line ready to drag. a: {id, in, out}
+     */
+    storySourceRange(a) {
+      const it = R.needItem(a.id), fps = R.clipFps(it), i = Math.max(0, Math.round(R.num(a.in) * fps)), o = Math.max(i + 1, Math.round(R.num(a.out) * fps));
+      tryCall(() => it.SetMarkInOut(i, o));
+      tryCall(() => R.pool().SetSelectedClip(it));
+      return { opened: false, selected: true, name: String(it.GetName()) };
     },
 
     /**
