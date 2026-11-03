@@ -120,9 +120,31 @@ test('wiki answers: sources known and best first; the document has every section
   assert.deepStrictEqual(doc.blocks.filter(b => b.heading).map(b => b.heading), ['Overview', 'Interviews', 'People', 'Places', 'Dates']);
 });
 
+test('wiki pieces: the story a few interviews at a time, then people, places and dates, things; a cut-off piece asks for less', () => {
+  const ps = W.pieces(Array.from({ length: 26 }, (_, i) => i + 1));
+  assert.deepStrictEqual(ps.map(W.pieceName), ['Interviews 1–8', 'Interviews 9–16', 'Interviews 17–24', 'Interviews 25–26', 'People', 'Places and dates', 'Things']);
+  assert.deepStrictEqual(ps.map(p => !!p.first), [true, false, false, false, false, false, false]);
+  assert.ok(/overview/.test(W.task(ps[0])) && /“answer”: ""/.test(W.task(ps[1])) && /Interview 9, Interview 10/.test(W.task(ps[1])));
+  const half = W.smaller(ps[0]);
+  assert.deepStrictEqual(half.map(o => o.nums), [[1, 2, 3, 4], [5, 6, 7, 8]]);
+  assert.deepStrictEqual(half.map(o => !!o.first), [true, false]);
+  const tight = W.smaller(ps[4]);
+  assert.ok(tight.length === 1 && tight[0].tight && /at most 20/.test(W.task(tight[0])) && /at most 40/.test(W.task(ps[4])));
+  assert.deepStrictEqual(W.smaller(tight[0]), []);
+  assert.ok(W.smaller({ kind: 'story', nums: [3] })[0].tight);
+  assert.deepStrictEqual(W.pieces([1, 2], false).map(p => !!p.first), [false, false, false, false]);
+});
+
+test('an answer cut off for length isn’t paid for twice', async () => {
+  const was = US.ai; let n = 0;
+  US.ai = Object.assign({}, was, { json: async () => { n++; throw new US.UserError('AI_FAILED', { detail: 'stop_reason max_tokens' }); } });
+  try { const info = {}; assert.strictEqual(await US.storyAI.ask({}, info), null); assert.strictEqual(n, 1); assert.ok(/max_tokens/.test(info.error.detail)); }
+  finally { US.ai = was; }
+});
+
 test('the requests share the cached transcript: same system, same answer format, the transcript first', () => {
   const ts = [{ key: 'r', name: 'Ruth', n: 1, lines: [{ id: 'a1', start: 0, end: 4, speaker: 'Ruth', text: 'I grew up in Leeds.' }] }];
-  const a = US.storyContext.requests(ts, { task: W.task }), b = US.storyContext.requests(ts, { task: (k, n) => P.notesTask({ name: 'x', seconds: 1, cut: 'C' }, k, n) });
+  const a = US.storyContext.requests(ts, { task: (k, n) => W.task(W.pieces([1])[0], k, n) }), b = US.storyContext.requests(ts, { task: (k, n) => P.notesTask({ name: 'x', seconds: 1, cut: 'C' }, k, n) });
   assert.strictEqual(a[0].req.system, b[0].req.system);
   assert.strictEqual(a[0].req.schema, b[0].req.schema);
   assert.strictEqual(a[0].req.user[0].text, b[0].req.user[0].text);

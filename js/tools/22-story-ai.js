@@ -75,11 +75,13 @@
 
   /* ---------- asking, with one retry ---------- */
   const NO_RETRY = new Set(['CANCELLED', 'AI_KEY', 'AI_REFUSED']);
-  /** One request; a failure is tried once more. -> answer, or null if it failed twice (err in out.error). */
+  /** One request; a failure is tried once more (not one cut off for length). -> answer, or null if it failed twice (err in out.error). */
   async function ask(req, out = {}) {
     for (let i = 0; i < 2; i++) {
       try { return await US.ai.json(req); }
       catch (e) { out.error = e; if (NO_RETRY.has(e && e.code) || /over your monthly AI limit/.test(e && e.title || '')) throw e; }
+      // an answer cut off for length would be cut off again: no point paying for the same request twice
+      if (/max_tokens/.test(out.error && out.error.detail || '')) return null;
     }
     return null;
   }

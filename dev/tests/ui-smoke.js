@@ -307,10 +307,13 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   {
     const ls = S.state().transcripts.flatMap(t => t.lines), id = i => ls[Math.min(i, ls.length - 1)].id;
     const job = { set() { return this; }, progress() {}, check() {}, log() {} };
-    const wasAI = US.ai;
+    const wasAI = US.ai, wikiAsks = [];
     US.ai = { available: () => true, label: () => 'Test AI', provider: () => 'gemini', approveTotal: async () => {}, json: async req => {
       const t = typeof req.user === 'string' ? req.user : req.user.map(b => b.text || b).join('\n');
-      if (/Make a wiki/.test(t)) return { answer: 'The story.\n\nIt goes on.', groups: [
+      if (/Make part of a wiki/.test(t)) wikiAsks.push(t);
+      // the People piece is cut off the first time (as a big project's was): it must be asked again for less, not the same
+      if (/key "person" .* at most 40/.test(t)) throw new US.UserError('AI_FAILED', { title: 'The AI’s answer was too long and got cut off.', detail: 'stop_reason max_tokens' });
+      if (/Make part of a wiki/.test(t)) return { answer: 'The story.\n\nIt goes on.', groups: [
         { key: 'interview', name: 'Interview 1 – Someone', summary: 'They talk.', items: [{ from: id(0), to: id(1), lead: '', note: 'start', score: 1, tag: '' }] },
         { key: 'person', name: 'Ruth Cohen', summary: 'The baker.', items: [{ from: id(2), to: id(2), lead: '', note: 'grew up in Leeds', score: 0.9, tag: '' }] },
         { key: 'place', name: 'Leeds', summary: 'A city.', items: [{ from: id(2), to: id(2), lead: '', note: 'home town', score: 0.5, tag: '' }] },
@@ -320,7 +323,9 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       return { answer: '', groups: [] };
     } };
     try {
-      await US.storyWiki.build(job);
+      const built = await US.storyWiki.build(job);
+      if (wikiAsks.length !== 5 || !/at most 20/.test(wikiAsks[2]) || built.wiki.missing) errors.push(`wiki: pieces ${wikiAsks.length}, a cut-off piece not asked for less (${built.wiki.missing})`);
+      if (built.wiki.data.overview.split('The story.').length !== 2) errors.push('wiki: the overview came more than once');
       const wk = US.tools.get('wiki').create();
       w.document.body.appendChild(wk.el);
       wk.onShow(); await new Promise(r => setTimeout(r, 20));

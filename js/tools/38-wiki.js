@@ -17,18 +17,42 @@
   const SECTION_NAMES = { overview: 'Overview', interviews: 'Interviews', person: 'People', place: 'Places', date: 'Dates', thing: 'Things' };
 
   /* ---------- building ---------- */
+  /* A big project's wiki doesn't fit one answer (26 interviews ran past 24,000 tokens), so it's made in pieces over the
+     same cached transcripts: the overview and the interviews a few at a time, then people, places and dates, things.
+     A piece that's still cut off is split again (fewer interviews) or asked for less. */
   const RULES = [
-    'Make a wiki of the story told in these interviews: a quick reference the editor checks while cutting (“where did Ruth grow up?”, “who is Uncle Max?”, “when did the bakery open?”).',
-    '- “answer”: the overview – what the story is, who is in it and how it unfolds, in 2–4 short paragraphs separated by a blank line.',
-    '- “groups”, each with a “key” saying what it is:',
-    '  · key "interview": one for every interview, named “Interview N – <who is interviewed>”; “summary”: what they talk about, in 3–5 sentences; items: their 2–5 key moments (“note”: what it is).',
-    '  · key "person": everyone who matters to the story – interviewed or only talked about (family, friends, officials). “name”: their name as they’re known (“Ruth Cohen”, “Uncle Max”, “the mayor”); “summary”: who they are and how they connect to the others, in 1–2 sentences.',
-    '  · key "place": towns, countries, streets, buildings, rooms that matter. key "date": things that happened at a time – “name” is the time as it’s said (“1987”, “the winter of 2003”, “after the war”), “summary” is what happened. key "thing": organisations, events, objects, projects and words that need explaining.',
-    '  · For person, place, date and thing: items are the facts, each from the line that says it – “note” is the fact in a few words (“grew up in Leeds”, “opened in 1987”), “from”/“to” the line(s) that say it, “tag”: for a date its sortable form (YYYY, YYYY-MM or YYYY-MM-DD, or "" when it can’t be placed), otherwise "". Give the most useful facts – up to 8 each.',
-    '- Order each kind most important first. Be thorough: the editor will look things up. “score”: how central it is to the story, 0–1. “lead”: "".',
-    '- Never invent anything – only what the interviews say. When people disagree, give both and say who said what. Use names, never line ids or interview numbers, in the text (except the interview groups’ names).'
+    'Make part of a wiki of the story told in these interviews: a quick reference the editor checks while cutting (“where did Ruth grow up?”, “who is Uncle Max?”, “when did the bakery open?”).',
+    '- Never invent anything – only what the interviews say. When people disagree, give both and say who said what. Use names, never line ids or interview numbers, in the text (except the interview groups’ names).',
+    '- “score”: how central it is to the story, 0–1. “lead”: "". Order each kind most important first.'
   ].join('\n');
-  function task(k = 0, n = 1) { return RULES + (CTX() ? CTX().partNote(k, n) : ''); }
+  const FACTS = '“name” as it’s known; items are the facts, each from the line that says it – “note” is the fact in a few words (“grew up in Leeds”, “opened in 1987”), “from”/“to” the line(s) that say it, “tag”: ""';
+  const PIECES = {
+    story: (o, tight) => [
+      o.first ? '- “answer”: the overview – what the story is, who is in it and how it unfolds, in 2–4 short paragraphs separated by a blank line.' : '- “answer”: "" (the overview is made separately).',
+      `- “groups”: one with key "interview" for each of ${o.nums.length === 1 ? `Interview ${o.nums[0]}` : `these interviews: ${o.nums.map(n => `Interview ${n}`).join(', ')}`} – no others. Named “Interview N – <who is interviewed>”; “summary”: what they talk about, in ${tight ? '2–3' : '3–5'} sentences; items: their ${tight ? '2–3' : '2–5'} key moments (“note”: what it is; “tag”: "").`
+    ],
+    person: (o, tight) => ['- “answer”: "".', `- “groups”: key "person" – everyone who matters to the story, interviewed or only talked about (family, friends, officials), at most ${tight ? 20 : 40}. ${FACTS}; up to ${tight ? 3 : 5} facts each. “summary”: who they are and how they connect to the others, in 1–2 sentences.`],
+    placeDate: (o, tight) => ['- “answer”: "".', `- “groups”: key "place" – towns, countries, streets, buildings, rooms that matter, at most ${tight ? 15 : 30}; and key "date" – things that happened at a time, at most ${tight ? 20 : 40}: “name” is the time as it’s said (“1987”, “the winter of 2003”, “after the war”), “summary” is what happened, and a date’s facts have “tag” its sortable form (YYYY, YYYY-MM or YYYY-MM-DD, or "" when it can’t be placed). For both: ${FACTS} unless it’s a date; up to ${tight ? 2 : 4} facts each; “summary” in 1 sentence.`],
+    thing: (o, tight) => ['- “answer”: "".', `- “groups”: key "thing" – organisations, events, objects, projects and words that need explaining, at most ${tight ? 15 : 30}. ${FACTS}; up to ${tight ? 2 : 4} facts each; “summary”: what it is, in 1–2 sentences.`]
+  };
+  /** The instruction for one piece: {kind: story|person|placeDate|thing, nums (story), first (story), tight}. */
+  function task(o = { kind: 'story', nums: [1], first: true }, k = 0, n = 1) {
+    return [RULES, ...PIECES[o.kind](o, !!o.tight)].join('\n') + (CTX() ? CTX().partNote(k, n) : '');
+  }
+  const PER = 8; // interviews per story piece
+  /** The pieces for one part of the transcripts (its interview numbers): the story in batches of PER, then the rest. */
+  function pieces(nums, firstPart = true) {
+    const out = [];
+    for (let i = 0; i < nums.length; i += PER) out.push({ kind: 'story', nums: nums.slice(i, i + PER), first: firstPart && i === 0 });
+    return out.concat([{ kind: 'person' }, { kind: 'placeDate' }, { kind: 'thing' }]);
+  }
+  /** A piece that was cut off -> smaller ones (half the interviews, or the same asked for less) or [] when it can't shrink. */
+  function smaller(o) {
+    if (o.kind === 'story' && o.nums.length > 1) { const h = Math.ceil(o.nums.length / 2); return [Object.assign({}, o, { nums: o.nums.slice(0, h) }), Object.assign({}, o, { nums: o.nums.slice(h), first: false })]; }
+    return o.tight ? [] : [Object.assign({}, o, { tight: true })];
+  }
+  const PIECE_NAMES = { person: 'People', placeDate: 'Places and dates', thing: 'Things' };
+  const pieceName = o => (o.kind === 'story' ? (o.nums.length === 1 ? `Interview ${o.nums[0]}` : `Interviews ${o.nums[0]}–${o.nums[o.nums.length - 1]}`) : PIECE_NAMES[o.kind]);
 
   /**
    * The answers of every part -> {overview, interviews: [{key, n, title, summary, moments}], person|place|date|thing:
@@ -175,16 +199,33 @@
     if (missing.length === reqs.length) throw missing[0].error || new US.UserError('AI_FAILED');
     return { out, missing: SAI().missingNote(missing) };
   }
-  /** Build (or rebuild) the wiki from every interview. -> {wiki, summary}; kept with the project. */
+  const cutOff = e => !!(e && /max_tokens/.test(e.detail || ''));
+  /** Build (or rebuild) the wiki from every interview, piece by piece. -> {wiki, summary}; kept with the project. */
   async function build(job) {
     need();
-    const ts = allTranscripts(), lines = ts.reduce((n, t) => n + t.lines.length, 0);
-    const reqs = CTX().requests(ts, { feature: 'Wiki', maxTokens: 24000, effort: 'medium', task });
-    if (reqs.length === 1 && US.ai.approveTotal) await US.ai.approveTotal(SAI().cost(reqs.map(b => b.req)).usd, 'Story wiki');
-    const sent = await sendAll(job, reqs, 'Story wiki', `${US.ai.label()} is reading ${US.plural(lines, 'line')} and writing the wiki`);
-    const data = organise(sent.out, whereIndex());
+    const C = CTX(), ts = allTranscripts(), lines = ts.reduce((n, t) => n + t.lines.length, 0), parts = C.parts(ts);
+    const reqOf = (part, o, k) => ({ system: C.SYSTEM, user: [{ text: C.listing(part), cache: '1h' }, task(o, k, parts.length)], schema: C.SCHEMA, maxTokens: 20000, effort: 'low', feature: 'Wiki' });
+    const queue = [];
+    parts.forEach((part, k) => pieces(Array.from(new Set(part.map(p => p.n))), k === 0).forEach(o => queue.push({ part, k, o })));
+    if (US.ai.approveTotal) await US.ai.approveTotal(SAI().cost(queue.map(q => reqOf(q.part, q.o, q.k))).usd, queue.length > 1 ? `Story wiki (${queue.length} parts)` : 'Story wiki');
+    const out = [], missing = [];
+    let done = 0;
+    while (queue.length) {
+      const q = queue.shift();
+      job.check();
+      job.set({ who: 'ai', msg: `${US.ai.label()} is writing the wiki – ${pieceName(q.o)}${parts.length > 1 ? ` (part ${q.k + 1} of ${parts.length})` : ''}` });
+      job.progress(0.05 + 0.9 * done / (done + queue.length + 1));
+      const info = {}, ans = await SAI().ask(reqOf(q.part, q.o, q.k), info);
+      done++;
+      if (ans) { out.push(q.o.first ? ans : Object.assign({}, ans, { answer: '' })); continue; }
+      const less = cutOff(info.error) ? smaller(q.o) : [];
+      if (less.length) { queue.unshift(...less.map(o => ({ part: q.part, k: q.k, o }))); continue; }
+      missing.push({ name: pieceName(q.o), error: info.error });
+    }
+    if (!out.length) throw (missing[0] && missing[0].error) || new US.UserError('AI_FAILED');
+    const data = organise(out, whereIndex());
     const st = S().state(), old = st.wiki || {};
-    st.wiki = { at: Date.now(), by: US.ai.label(), sig: signature(ts), lines, data, missing: sent.missing, asks: old.asks || [] };
+    st.wiki = { at: Date.now(), by: US.ai.label(), sig: signature(ts), lines, data, missing: missing.length ? `${missing.map(m => m.name).join(', ')} couldn’t be made – Update the wiki later to fill ${missing.length > 1 ? 'them' : 'it'} in.` : '', asks: old.asks || [] };
     S().save();
     const c = counts(data);
     return { wiki: st.wiki, summary: `${US.plural(c.interviews, 'interview')} · ${US.plural(c.person, 'person', 'people')} · ${US.plural(c.place, 'place')} · ${US.plural(c.date, 'date')}` };
@@ -344,5 +385,5 @@
     }
   });
 
-  US.storyWiki = { RULES, task, organise, yearIn, signature, search, askTask, organiseAnswer, toDoc, counts, build, ask, SECTIONS };
+  US.storyWiki = { RULES, task, pieces, smaller, pieceName, organise, yearIn, signature, search, askTask, organiseAnswer, toDoc, counts, build, ask, SECTIONS };
 })();

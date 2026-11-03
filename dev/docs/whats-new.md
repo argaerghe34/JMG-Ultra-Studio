@@ -1,3 +1,7 @@
+## What's new in 1.3.26.1
+
+- **Story wiki** works on big projects: the wiki is now made in pieces (the overview and interviews a few at a time, then people, places and dates, things), so 20+ interviews no longer run past the length limit. A piece that's still too long is split again instead of failing, and an answer cut off for length is no longer sent a second time.
+
 ## What's new in 1.3.26
 
 - **Story wiki** (new tab): a quick reference to your story from every interview – the overview, each interview in brief, and pages for the people, places, dates and things in it, every fact with the line that says it (play, drag or place it). Type to look something up at once; press Return and the AI answers from the interviews (“where did Ruth grow up?”) with the lines that say so. **Save as Word** for the whole wiki.
