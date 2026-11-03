@@ -9,6 +9,7 @@ const dom = new JSDOM('<!doctype html><html><body><div id="app"></div><div id="t
 const w = dom.window;
 w.require = require; w.process = process; w.Buffer = Buffer; w.console = console;
 w.ResizeObserver = function () { return { observe() {}, disconnect() {} }; };
+w.IntersectionObserver = function () { return { observe() {}, disconnect() {} }; };
 w.HTMLCanvasElement.prototype.getContext = () => null;
 w.document.elementsFromPoint = () => [];
 w.Element.prototype.scrollIntoView = function () {}; // not in jsdom
@@ -31,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '37-producer', '38-wiki']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -301,6 +302,55 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       Array.from(wt.el.querySelectorAll('.seg')).find(b => b.textContent === 'Cloud').click();
       checks.push(`word cloud: ${words.length} words, “${words[0].textContent}” ${rows.length} mentions`);
     }
+  }
+  // Producer and the Story wiki, with a stand-in AI that answers in the shared format using real line ids
+  {
+    const ls = S.state().transcripts.flatMap(t => t.lines), id = i => ls[Math.min(i, ls.length - 1)].id;
+    const job = { set() { return this; }, progress() {}, check() {}, log() {} };
+    const wasAI = US.ai;
+    US.ai = { available: () => true, label: () => 'Test AI', provider: () => 'gemini', approveTotal: async () => {}, json: async req => {
+      const t = typeof req.user === 'string' ? req.user : req.user.map(b => b.text || b).join('\n');
+      if (/Make a wiki/.test(t)) return { answer: 'The story.\n\nIt goes on.', groups: [
+        { key: 'interview', name: 'Interview 1 – Someone', summary: 'They talk.', items: [{ from: id(0), to: id(1), lead: '', note: 'start', score: 1, tag: '' }] },
+        { key: 'person', name: 'Ruth Cohen', summary: 'The baker.', items: [{ from: id(2), to: id(2), lead: '', note: 'grew up in Leeds', score: 0.9, tag: '' }] },
+        { key: 'place', name: 'Leeds', summary: 'A city.', items: [{ from: id(2), to: id(2), lead: '', note: 'home town', score: 0.5, tag: '' }] },
+        { key: 'date', name: '1987', summary: 'It opened.', items: [{ from: id(3), to: id(3), lead: '', note: 'opened', score: 0.5, tag: '1987' }] }] };
+      if (/looks something up/.test(t)) return { answer: 'In Leeds.', groups: [{ key: 'sources', name: 'Sources', summary: '', items: [{ from: id(2), to: id(2), lead: '', note: 'says so', score: 1, tag: '' }] }] };
+      if (/pick-up interview/.test(t)) return { answer: 'Gaps.', groups: [{ key: 'gap', name: 'Why it closed', summary: 'Never said.', items: [{ from: id(2), to: id(2), lead: '', note: 'What happened when it closed?', score: 0.9, tag: 'ask' }, { from: id(4), to: id(4), lead: '', note: 'close', score: 0.9, tag: 'near' }] }] };
+      return { answer: '', groups: [] };
+    } };
+    try {
+      await US.storyWiki.build(job);
+      const wk = US.tools.get('wiki').create();
+      w.document.body.appendChild(wk.el);
+      wk.onShow(); await new Promise(r => setTimeout(r, 20));
+      if (!/Ruth Cohen|People 1/.test(wk.el.textContent)) errors.push('wiki: no sections after building');
+      const people = Array.from(wk.el.querySelectorAll('.seg')).find(b => /^People/.test(b.textContent));
+      people.click(); await new Promise(r => setTimeout(r, 10));
+      const head = wk.el.querySelector('.wiki-entry-head');
+      if (!head || !/Ruth Cohen/.test(head.textContent)) errors.push('wiki: People page empty');
+      else { head.click(); await new Promise(r => setTimeout(r, 10)); if (!wk.el.querySelector('.wiki-entry.open .wiki-fact')) errors.push('wiki: an opened entry shows no facts'); }
+      const box = wk.el.querySelector('.wiki-search');
+      box.value = 'where did ruth grow up'; box.dispatchEvent(new w.Event('input')); await new Promise(r => setTimeout(r, 10));
+      if (!/In the wiki · 1 match/.test(wk.el.textContent)) errors.push('wiki: typing did not find Ruth');
+      const a = await US.storyWiki.ask(job, 'where did Ruth grow up?');
+      wk.onShow({ ask: a.ask }); await new Promise(r => setTimeout(r, 10));
+      if (!/In Leeds\./.test(wk.el.textContent) || !wk.el.querySelector('.wiki-answer')) errors.push('wiki: answer not shown');
+      checks.push(`wiki: ${wk.el.querySelectorAll('.wiki-entry').length} entries, answer with ${a.ask.sources.length} source`);
+
+      const st = S.state();
+      st.producer = { notes: [{ id: 'pn1', name: 'Cut', seqId: 's1', at: 1, updated: 1, by: 'Test AI', ask: {}, rounds: [], cut: [{ lineId: id(0), start: 3, end: 6 }],
+        result: { verdict: 'Too slow.', notes: [{ kind: 'buried', title: 'Best line at 6:40', text: 'Open with it.', severity: 0.9, items: [{ from: id(0), to: id(0), tag: 'cut', note: '' }, { from: id(5), to: id(6), tag: 'unused', note: 'better' }] }] } }], pickups: [], markers: {} };
+      const pt = US.tools.get('producer').create();
+      w.document.body.appendChild(pt.el);
+      pt.onShow({ page: 'notes' }); await new Promise(r => setTimeout(r, 20));
+      if (!/Too slow\./.test(pt.el.textContent) || pt.el.querySelectorAll('.producer-note .producer-line').length !== 2) errors.push('producer: notes not shown with their lines');
+      if (!/In the cut at 0:03/.test(pt.el.textContent) || !/Not in the cut/.test(pt.el.textContent)) errors.push('producer: lines not placed in or out of the cut');
+      const plan = await US.producer.planPickups(job, { brief: 'for donors' });
+      pt.onShow({ page: 'pickups', id: plan.plan.id }); await new Promise(r => setTimeout(r, 20));
+      if (!pt.el.querySelector('.producer-questions li') || !/What happened when it closed\?/.test(pt.el.textContent)) errors.push('producer: pick-up questions not shown');
+      checks.push(`producer: notes + ${plan.summary}`);
+    } catch (e) { errors.push('producer/wiki: ' + (e.stack || e.title || e)); } finally { US.ai = wasAI; }
   }
   // Markers: the open sequence's markers listed with colour chips; searching filters; ticking shows the bulk bar
   {

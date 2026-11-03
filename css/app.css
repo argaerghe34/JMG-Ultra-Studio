@@ -314,3 +314,9 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 .pod-row { display: grid; grid-template-columns: 36px 1fr 1.2fr; gap: 8px; align-items: center; margin: 4px 0; }
 .pod-track { font-weight: 600; font-variant-numeric: tabular-nums; }
 .pod-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Home › What's new: folded into one line, with Got it beside it */
+.news-card { display: flex; align-items: flex-start; gap: 8px; }
+.news-card > .section { flex: 1; border-top: 0; padding-top: 0; }
+.news-card > .section > .section-head { color: var(--text); }
+.news-version .news { margin-top: 2px; }

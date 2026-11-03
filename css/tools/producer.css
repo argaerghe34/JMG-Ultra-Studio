@@ -1,0 +1,33 @@
+/* Producer (notes on the cut, pick-up interview) and the Story wiki */
+.producer-verdict, .wiki-answer { font-size: 13px; line-height: 1.5; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 4px; white-space: pre-line; }
+.producer-note { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.producer-note-head { display: flex; align-items: baseline; gap: 8px; }
+.producer-note-text { color: var(--text-2); line-height: 1.45; }
+.producer-note.kind-strong .pill { --pill: var(--ok); }
+.producer-note.kind-buried .pill, .producer-note.kind-unused .pill { --pill: var(--warn); }
+.producer-note.kind-repeat .pill { --pill: var(--tier-ok); }
+.producer-note.kind-missing .pill { --pill: var(--accent); }
+.producer-note.kind-slow .pill, .producer-note.kind-cut .pill, .producer-note.kind-start .pill, .producer-note.kind-ending .pill { --pill: var(--err); }
+.producer-note.kind-order .pill { --pill: var(--info); }
+.producer-note.kind-unclear .pill { --pill: var(--text-3); }
+.producer-history { flex-wrap: wrap; gap: 6px; }
+.producer-questions { margin: 2px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; line-height: 1.4; }
+.producer-person { border-top: 1px solid var(--border); padding-top: 8px; }
+.producer-reply .input { width: 100%; }
+.story-drag[draggable=true] { cursor: grab; }
+
+.wiki-search { width: 100%; font-size: 14px; padding: 8px 10px; }
+.wiki-nav .segmented { flex-wrap: wrap; }
+.wiki-entry { border-top: 1px solid var(--border); }
+.wiki-entry:first-child { border-top: 0; }
+.wiki-entry-head { background: none; border: 0; width: 100%; text-align: left; cursor: pointer; padding: 7px 0; display: flex; align-items: baseline; gap: 6px; color: var(--text); }
+.wiki-entry-head .icon { transition: transform .15s; flex: none; }
+.wiki-entry.open > .wiki-entry-head .icon { transform: rotate(90deg); }
+.wiki-entry-head b { flex: none; }
+.wiki-sub { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wiki-entry-body { padding: 0 0 10px 18px; display: flex; flex-direction: column; gap: 8px; line-height: 1.45; }
+.wiki-note { font-weight: 600; }
+.wiki-para { margin: 0 0 8px; line-height: 1.55; }
+.wiki-timeline { display: flex; flex-direction: column; gap: 6px; }
+.wiki-tl-row { display: flex; gap: 10px; line-height: 1.4; }
+.wiki-when { flex: none; width: 74px; color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 600; }

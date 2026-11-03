@@ -31,6 +31,7 @@ node('dev/docs/make-guide.js');
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(OUT, 'Read me first.html'));
 fs.mkdirSync(path.join(EXT, 'docs'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(EXT, 'docs', 'guide.html')); // Home › Guide opens it
+fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'whats-new.md'), path.join(EXT, 'docs', 'whats-new.md')); // Home › What's new reads it
 
 // sanity: everything index.html and the manifest point at exists
 for (const f of ['index.html', 'jsx/host.jsx', 'css/app.css', 'assets/icon-dark.png']) if (!fs.existsSync(path.join(EXT, f))) die('Missing ' + f);

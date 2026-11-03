@@ -42,6 +42,38 @@ For pieces to camera, interviews with do-overs and podcast reads. Pick the seque
 - **Make a copy with the chosen takes** cuts the others out of a copy of the sequence, on every track together so nothing goes out of sync, and puts a marker on each kept take. Words from two takes are never stitched together. The original isn't changed.
 - Takes are found from Story's transcripts of the clips in the sequence (only their text goes to the AI). Ask: *keep the best takes*.
 
+### Story wiki – look anything up in the story
+
+A quick reference to your story, made from every interview's transcript – for the moment you're cutting and think *where did Ruth grow up?* or *who is Uncle Max?*
+
+- **Make the wiki** once: the AI reads every interview (as text – never the footage) and writes it. It's kept with the project, and **Update** brings in interviews added since (it tells you when they have been).
+- **Overview**: what the story is, who's in it and how it unfolds, with a timeline of the dates that can be placed.
+- **Interviews**: a summary of each interview, with its key moments.
+- **People**, **Places**, **Dates** and **Things** (organisations, events, objects, words that need explaining): each with who or what it is, and its facts – every fact with the line that says it. Click an entry to open it.
+- **Look something up**: typing searches the wiki at once, on this computer. Press **Return** (or **Ask**) and the AI answers from the interviews themselves in a sentence or two, with the lines that say so. Your recent questions stay as chips.
+- Every fact and source can be played (▶), dragged onto the timeline or put at the playhead – as in Story › 3 Find.
+- **Save as Word** makes a document of the whole wiki – handy for a producer or a client.
+- It reads Story's shared transcript, so questions are cheap once it's been read in the last hour.
+- Ask: *where did Ruth grow up?*, *who is Max?*, *make a story wiki*.
+
+### Producer – notes on your cut, and a pick-up interview
+
+A producer who has read every interview, as a second opinion. Two pages:
+
+**Notes on the cut** – choose the sequence. The producer reads the interview lines heard in it, in order and with their times, next to everything in the interviews, and argues with it: your strongest line buried at 6:40, the same point made three times, a turn nobody explains, a slow middle, a better line you left out, and – at most twice – what really works.
+- **What it's for** (optional) and the client's notes from Story › 4 Build are read with it.
+- **Tone**: **Blunt** (argues against the cut, no softening) or **Supportive**. **Look hardest at**: everything, pace, clarity, structure, emotion or what's missing.
+- Each note says why it matters and what to do, with the lines it's about: a line **in the cut** – ▶ jumps there in the sequence; a line **not in the cut** – play it, drag it onto the timeline or put it at the playhead.
+- **Mark them on the sequence** puts a range marker where each note points, in the note's colour (only markers – nothing else changes; doing it again replaces them).
+- **Answer back**: tell it the repetition is on purpose, or ask what it would open with – it reads the cut again and gives its notes again.
+- **Copy** or **Save as text**.
+
+**Pick-up interview** – what the story still needs that nobody has said (or not well enough to use), and the questions to get it, for a reshoot or a phone call.
+- Give it **what the film needs to say**; it can also **check against your cut**, and **only ask some people**.
+- **By person**: a question sheet for each person. **By gap**: what's missing, why it matters, the questions for it, and the closest anyone has come so far (to play or drag).
+- The questions are open and one thing at a time, never leading. **Change it** (for example *Ruth can't be reached – give her questions to David*). **Copy** or **Save as Word**.
+- Ask: *give me notes on my cut*, *play devil's advocate on this sequence*, *what should I ask in the pick-up interview*.
+
 ### Word cloud – the words said most
 
 The words and phrases said most in your interviews, drawn as a cloud: the bigger the word, the more it's said. It reads Story's transcripts – the interviews (or the sequence) chosen in **Story › 1 Interviews › What to work on** – and counts on this computer; nothing is sent anywhere.

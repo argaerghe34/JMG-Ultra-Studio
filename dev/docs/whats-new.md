@@ -1,3 +1,10 @@
+## What's new in 1.3.26
+
+- **Story wiki** (new tab): a quick reference to your story from every interview – the overview, each interview in brief, and pages for the people, places, dates and things in it, every fact with the line that says it (play, drag or place it). Type to look something up at once; press Return and the AI answers from the interviews (“where did Ruth grow up?”) with the lines that say so. **Save as Word** for the whole wiki.
+- **Producer** (new tab): **Notes on the cut** – a devil's-advocate producer reads the lines in your sequence next to every interview and argues with it: what's buried, said twice, missing, slow or unclear, and better lines you left out; jump to each place, mark them on the sequence, and answer back. **Pick-up interview** – what the story still needs and the questions to ask each person to get it, as a question sheet (copy or Word).
+- **Home**: What's new is folded into one line – open it to read, **Got it** hides it until the next version.
+- Text only, as always: the AI reads the transcripts, never the footage. Premiere and Resolve.
+
 ## What's new in 1.3.25
 
 - **Lines straight into the timeline, from everywhere** (Story): besides dragging from Find, each line now has two buttons – **At the playhead** (insert or overwrite; the playhead moves past it, so the next one follows on) and **Source Monitor** (the clip opens with In and Out set to the line, to drag with Premiere's own preview). Ticked lines go **At the playhead** together.

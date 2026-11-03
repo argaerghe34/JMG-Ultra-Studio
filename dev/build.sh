@@ -25,6 +25,7 @@ chmod +x "$OUT"/*.command
 node dev/docs/make-guide.js > /dev/null
 cp "dev/docs/Read me first.html" "$OUT/"
 mkdir -p "$EXT/docs" && cp "dev/docs/Read me first.html" "$EXT/docs/guide.html"   # Home › Guide opens it
+cp dev/docs/whats-new.md "$EXT/docs/whats-new.md"   # Home › What's new reads it
 
 # sanity: everything index.html and the manifest point at exists
 for f in index.html jsx/host.jsx css/app.css assets/icon-dark.png; do [ -f "$EXT/$f" ] || { echo "Missing $f"; exit 1; }; done

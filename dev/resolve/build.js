@@ -50,6 +50,7 @@ for (const f of ['manifest.xml', 'package.json']) fs.writeFileSync(path.join(PLU
 node('dev/docs/make-guide.js');
 fs.mkdirSync(path.join(PLUG, 'docs'));
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(PLUG, 'docs', 'guide.html'));
+fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'whats-new.md'), path.join(PLUG, 'docs', 'whats-new.md')); // Home › What's new reads it
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(OUT, 'Read me first.html'));
 const INST = path.join(ROOT, 'dev', 'resolve', 'installer');
 for (const f of fs.readdirSync(INST)) if (/\.(command|bat)$/.test(f)) {

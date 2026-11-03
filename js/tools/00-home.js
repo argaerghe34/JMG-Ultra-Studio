@@ -39,6 +39,33 @@
     US.app.openUrl(url);
   }
 
+  /**
+   * The latest versions from the shipped “What's new” (docs/whats-new.md, or dev/docs in the development copy), as
+   * plain text. -> [{version, items}] newest first; [] when the file isn't there.
+   */
+  function latestNews(n = 3) {
+    try {
+      const path = require('path'), fs = require('fs'), dir = US.host.extensionDir();
+      const f = [path.join(dir, 'docs', 'whats-new.md'), path.join(dir, 'dev', 'docs', 'whats-new.md')].find(x => fs.existsSync(x));
+      return f ? parseNews(fs.readFileSync(f, 'utf8'), n) : [];
+    } catch (e) { return []; }
+  }
+  /** whats-new.md -> [{version, items}] (bullets, or the paragraph when a version has none), markdown taken out. */
+  function parseNews(md, n = 3) {
+    const plain = x => x.replace(/\*\*|__|`/g, '').replace(/(^|\W)[*_]([^*_]+)[*_](?=\W|$)/g, '$1$2').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').trim();
+    const out = [];
+    for (const part of String(md).split(/^## /m).slice(1)) {
+      const lines = part.split('\n'), m = /(\d+(?:\.\d+)+)/.exec(lines[0]);
+      if (!m) continue;
+      const body = lines.slice(1), items = body.filter(l => /^\s*[-*] /.test(l)).map(l => plain(l.replace(/^\s*[-*] /, '')));
+      const para = body.filter(l => l.trim() && !/^\s*[-*] /.test(l) && !/^#/.test(l)).map(plain);
+      out.push({ version: m[1], items: items.length ? items : para.slice(0, 2) });
+      if (out.length >= n) break;
+    }
+    return out;
+  }
+  US.homeNews = { parseNews };
+
   US.tools.register({
     id: 'home', name: 'Home', short: 'Home', icon: 'home', order: 0,
     create() {
@@ -46,11 +73,15 @@
       const ctxLine = h('p');
       const hero = h('div.hero', h('h2', 'Welcome to JMG Ultra Studio'), ctxLine,
         h('div.row', ui.button('Check my setup', { kind: 'primary', icon: 'check', onClick: () => selfTest() }), ui.button('Guide', { kind: 'ghost', icon: 'info', onClick: openGuide }), ui.button('Activity log', { kind: 'ghost', icon: 'log', onClick: () => US.toggleLog(true) })));
-      // once per version: what changed since the last one
+      // once per version: what changed, folded away so it doesn't push the tools down (open it to read)
+      const notes = latestNews(3), fallback = US.app.is('resolve') ? WHATS_NEW_RESOLVE.map(US.keep) : WHATS_NEW;
+      const newsBody = notes.length
+        ? notes.map(n => h('div.news-version', h('div.field-label', US.keep(`New in ${n.version}`)), h('ul.news', n.items.map(x => h('li', US.keep(x))))))
+        : [h('ul.news', fallback.map(x => h('li', x)) /* the Resolve list is in Resolve's words already (it names Premiere on purpose) */)];
+      const newsCount = notes.reduce((k, n) => k + n.items.length, 0) || fallback.length;
       const news = US.settings.get('seenVersion') === US.version ? h('div') : ui.card(
-        h('div.card-title', `What's new in ${US.version}`),
-        h('ul.news', (US.app.is('resolve') ? WHATS_NEW_RESOLVE.map(US.keep) : WHATS_NEW).map(x => h('li', x)) /* the Resolve list is in Resolve's words already (it names Premiere on purpose) */),
-        h('div.row', ui.button('Read the guide', { small: true, icon: 'info', onClick: openGuide }), ui.button('Got it', { small: true, kind: 'ghost', onClick: () => { US.settings.set('seenVersion', US.version); news.remove(); } })));
+        h('div.news-card', ui.section(`What's new in ${US.version}`, newsBody.concat([h('div.row', ui.button('Read the guide', { small: true, icon: 'info', onClick: openGuide }))]), { open: false, hint: US.plural(newsCount, 'change') }),
+          ui.button('Got it', { small: true, kind: 'ghost', title: 'Hide this until the next version', onClick: () => { US.settings.set('seenVersion', US.version); news.remove(); } })));
       const results = h('div');
       const groups = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } });
       // Story is the heart of the app: what's in this project so far, and one click to each step
