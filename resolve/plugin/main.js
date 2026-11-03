@@ -1,7 +1,7 @@
 // JMG Ultra Studio – the window Resolve opens from Workspace › Workflow Integrations › JMG Ultra Studio.
 // The panel is the same one Premiere uses (index.html, js/, css/); it needs Node in the page, so this follows
 // Blackmagic's "compatibility mode" sample (nodeIntegration on, contextIsolation off).
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('electron');
 const path = require('path'), fs = require('fs');
 
 // Development: with a file called "debug" next to this one, the panel can be driven by dev/cep.js on port 8892.
@@ -47,6 +47,15 @@ app.on('will-quit', () => { if (cleanUp) cleanUp(); });
 // file dialogs for the panel (US.app.pickFiles): answers the chosen paths, or [] when cancelled
 ipcMain.on('ultra-studio:open-dialog', (e, opts) => {
   try { e.returnValue = dialog.showOpenDialogSync(win, opts) || []; } catch (err) { e.returnValue = []; }
+});
+
+// dragging a line out of the panel (Story › Find): a real file drag, so Resolve's timeline takes the drop
+ipcMain.on('ultra-studio:start-drag', (e, file) => {
+  try {
+    let icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon-dark.png'));
+    icon = icon.isEmpty() ? nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==') : icon.resize({ width: 32, height: 32 });
+    e.sender.startDrag({ file, icon });
+  } catch (err) { /* the drag just doesn't start */ }
 });
 
 app.whenReady().then(createWindow);

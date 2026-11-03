@@ -30,7 +30,7 @@ function withSubtitles(F) {
     const count = tl.GetTrackCount, list = tl.GetItemListInTrack, add = tl.AddTrack, del = tl.DeleteTrack, delClips = tl.DeleteClips;
     tl.GetTrackCount = t => (t === 'subtitle' ? tl._s.length : count(t));
     tl.GetItemListInTrack = (t, i) => (t === 'subtitle' ? (tl._s[i - 1] || []).slice().sort((a, b) => a._start - b._start) : list(t, i));
-    tl.AddTrack = (t, x) => (t === 'subtitle' ? (tl._s.push([]), true) : add(t, x));
+    tl.AddTrack = (t, ...x) => (t === 'subtitle' ? (tl._s.push([]), true) : add(t, ...x));
     tl.DeleteTrack = (t, i) => (t === 'subtitle' ? (tl._s.splice(i - 1, 1), true) : del(t, i));
     tl.SetTrackName = ((orig) => (t, i, n) => { if (t === 'subtitle') { tl._sName = Object.assign(tl._sName || {}, { [i]: n }); return true; } return orig(t, i, n); })(tl.SetTrackName);
     tl.DeleteClips = (items, ripple) => {
@@ -92,7 +92,7 @@ const touch = f => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writ
 
 test('resolve story: every Story command is there', () => {
   const { host } = setup();
-  for (const n of ['storyClips', 'storyTiming', 'storyCue', 'storyStop', 'storyPlace', 'storyThemeLayers', 'storyHighlights', 'storyRemoveHighlights', 'storySequenceTiming', 'storyProjectFile', 'storyCaptions', 'storyTranscribe'])
+  for (const n of ['storyClips', 'storyTiming', 'storyCue', 'storyStop', 'storyPlace', 'storyThemeLayers', 'storyHighlights', 'storyRemoveHighlights', 'storySequenceTiming', 'storyProjectFile', 'storyCaptions', 'storyTranscribe', 'storyDropSwap'])
     assert.strictEqual(typeof host.fns[n], 'function', n);
 });
 
@@ -192,6 +192,22 @@ test('resolve story: storyPlace – lines one after another, coloured on the tim
   // from the end when no cursor
   const r2 = await run('storyPlace', { seqId: tl.GetUniqueId(), clips: [{ id: b.GetUniqueId(), in: 0, out: 1 }] });
   assert.deepStrictEqual(r2.placed, [{ start: 7.6, end: 8.6 }]);
+});
+
+test('resolve story: storyDropSwap – the dragged stand-in becomes the lines, video and audio, where it landed', async () => {
+  const { F, run } = setup();
+  const a = F.addMedia('/m/A.mp4', { frames: 2500 }), stand = F.addMedia('/tmp/JMG Ultra Studio/drag/Ruth 0.12 x1.wav', { type: 'Audio', frames: 150 });
+  const tl = F.addTimeline('Cut', [{ item: a, in: 0, out: 100 }]);
+  assert.deepStrictEqual(await run('storyDropSwap', { path: '/tmp/other.wav', clips: [{ id: a.GetUniqueId(), in: 1, out: 2 }] }), { found: false }, 'nothing dropped yet');
+  // dropped on A2 at 10 s
+  tl.AddTrack('audio', 'stereo');
+  F.pool.AppendToTimeline([{ mediaPoolItem: stand, startFrame: 0, endFrame: 150, trackIndex: 2, recordFrame: tl._start + 250, mediaType: 2 }]);
+  const r = await run('storyDropSwap', { path: '/tmp/JMG Ultra Studio/drag/Ruth 0.12 x1.wav', clips: [{ id: a.GetUniqueId(), in: 12, out: 16 }, { id: a.GetUniqueId(), in: 40, out: 42 }] });
+  assert.strictEqual(r.found, true); near(r.start, 10); near(r.end, 16); assert.strictEqual(r.track, 1);
+  const v = tl.GetItemListInTrack('video', 2), au = tl.GetItemListInTrack('audio', 2);
+  assert.deepStrictEqual(v.map(i => [i._start - tl._start, i._end - tl._start, i._srcStart]), [[250, 350, 300], [350, 400, 1000]], 'the picture, cut to each line');
+  assert.deepStrictEqual(au.map(i => i.GetMediaPoolItem()), [a, a], 'its sound, and the stand-in is gone');
+  assert.ok(stand._dead, 'the stand-in left the Media Pool');
 });
 
 test('resolve story: theme names and highlights are range markers – replaced on re-run, others left alone', async () => {

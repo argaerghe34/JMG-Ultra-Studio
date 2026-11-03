@@ -1,3 +1,7 @@
+## What's new in 1.3.24
+
+- **Drag lines from Find onto the timeline** (Story › 3 Find): any line in Search, Find more or Moments can be dragged straight onto the sequence – it lands where you drop it with its video and audio, cut to the line's own In and Out. Drag a ticked line to bring all the ticked lines, one after another. Premiere and Resolve.
+
 ## What's new in 1.3.23
 
 The last pieces from the competitor research, in one update:

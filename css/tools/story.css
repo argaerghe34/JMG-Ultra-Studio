@@ -242,3 +242,6 @@
 /* Clips for social › Same crop per person */
 .crop-people { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 10px; }
 .crop-person { border: 1px solid var(--border); border-radius: var(--radius-s); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+/* Find: a line can be dragged onto the timeline */
+.story-row.story-drag[draggable=true] { cursor: grab; }
+.story-row.story-drag[draggable=true]:active { cursor: grabbing; }

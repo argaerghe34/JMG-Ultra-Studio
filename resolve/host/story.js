@@ -24,7 +24,7 @@ const safeName = s => String(s || 'Project').replace(/[\\/:*?"<>|\u0000-\u001f]/
 const P = p => (/^[A-Za-z]:[\\/]|^\\\\/.test(p) ? path.win32 : path.posix);
 const isWinPath = p => P(p) === path.win32;
 
-module.exports = (R) => {
+module.exports = (R, fns) => {
   /* ---------- small helpers ---------- */
   function clipTiming(item) {
     const p = R.props(item), fps = R.clipFps(item, p), tc = String(p['Start TC'] || '');
@@ -208,6 +208,31 @@ module.exports = (R) => {
     storyStop() {
       try { const US = global.US || (global.window && global.window.US); if (US && US.host && US.host.cue && US.host.cue.stop) US.host.cue.stop(); } catch (e) { /* nothing playing */ }
       return true;
+    },
+
+    /**
+     * A line dragged from the panel onto the timeline: the panel drags a silent stand-in as long as the line(s); once
+     * Resolve has it on a timeline, it's swapped for the interview clip itself – video and audio, cut to the line's
+     * In and Out – at the same time, on the matching tracks. a: {path, clips:[{id, in, out}]}
+     * -> {found:false} | {found:true, seqId, start, end, track}
+     */
+    storyDropSwap(a) {
+      let tl = null; try { tl = R.project().GetCurrentTimeline(); } catch (e) { /* no project */ }
+      if (!tl) return { found: false };
+      const same = (x, y) => String(x || '').replace(/\\/g, '/').toLowerCase() === String(y || '').replace(/\\/g, '/').toLowerCase();
+      const hit = R.trackItems(tl, 'audio').concat(R.trackItems(tl, 'video')).find(o => {
+        const mpi = (() => { try { return o.ti.GetMediaPoolItem(); } catch (e) { return null; } })();
+        return mpi && same(R.prop(mpi, 'File Path'), a.path);
+      });
+      if (!hit) return { found: false };
+      const at = R.tlSec(tl, hit.ti.GetStart()), mpi = hit.ti.GetMediaPoolItem(), track = hit.track - 1;
+      tl.DeleteClips([hit.ti], false);
+      try { R.pool().DeleteClips([mpi]); } catch (e) { /* the stand-in stays in the Media Pool */ }
+      R.forget();
+      let cursor = at;
+      const clips = (a.clips || []).map(c => { const o = { id: c.id, in: c.in, out: c.out, at: cursor, v: track, a: track }; cursor += R.num(c.out) - R.num(c.in); return o; });
+      const r = fns.placeClips({ seqId: R.id(tl), clips });
+      return { found: true, seqId: R.id(tl), start: at, end: cursor, track, placed: r.placed };
     },
 
     /**

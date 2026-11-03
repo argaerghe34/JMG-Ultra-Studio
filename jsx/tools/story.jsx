@@ -124,6 +124,37 @@
     };
     fn.storyStop = function () { try { app.enableQE(); qe.source.player.stop(); } catch (e) { } return true; };
 
+    /* ---------- a line dragged from the panel onto the timeline ----------
+       A panel can only hand Premiere a file to drop, so the panel drags a silent stand-in exactly as long as the
+       line(s). Once it lands, this swaps it for the interview clip itself – its video and audio, cut to the line's In
+       and Out – at the same time, on the matching tracks. */
+    function samePath(a, b) { return String(a || '').replace(/\\/g, '/').toLowerCase() === String(b || '').replace(/\\/g, '/').toLowerCase(); }
+    /** a: {path (the stand-in), clips:[{id, in, out}]} -> {found:false} | {found:true, seqId, start, end, track} */
+    fn.storyDropSwap = function (a) {
+        var seq = app.project.activeSequence;
+        if (!seq) return { found: false };
+        var hit = null, track = 0, t, k, c, p;
+        for (t = 0; t < seq.audioTracks.numTracks && !hit; t++) {
+            for (k = 0; k < seq.audioTracks[t].clips.numItems; k++) {
+                c = seq.audioTracks[t].clips[k]; p = '';
+                try { p = c.projectItem ? c.projectItem.getMediaPath() : ''; } catch (e) { }
+                if (samePath(p, a.path)) { hit = c; track = t; break; }
+            }
+        }
+        if (!hit) return { found: false };
+        var at = hit.start.seconds, item = hit.projectItem;
+        hit.remove(false, false);
+        // the stand-in leaves the project again (a bin of its own, then the bin goes)
+        try { var bin = U.ensureBin('JMG Ultra Studio/.dropped'); item.moveBin(bin); bin.deleteBin(); } catch (e) { }
+        var clips = [], cursor = at, i;
+        for (i = 0; i < a.clips.length; i++) {
+            clips.push({ id: a.clips[i].id, 'in': a.clips[i]['in'], out: a.clips[i].out, at: cursor, v: track, a: track });
+            cursor += a.clips[i].out - a.clips[i]['in'];
+        }
+        var r = fn.placeClips({ seqId: seq.sequenceID, clips: clips });
+        return { found: true, seqId: seq.sequenceID, start: at, end: cursor, track: track, placed: r.placed };
+    };
+
     /* ---------- placing lines with a colour label ----------
        A timeline clip takes the label of its project item when it is placed.
        "relabel" (default): give the source clip the theme colour, place it, then put the clip's own label back (no clutter).

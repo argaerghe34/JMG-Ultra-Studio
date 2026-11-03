@@ -2218,7 +2218,7 @@
   US.tools.register({
     id: 'story', name: 'Story', short: 'Story', icon: 'story', group: 'cut', order: 22,
     blurb: 'Step by step from your interviews to a cut: themes, specific lines and moments, a sequence or a narrative, and documents to share.',
-    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe'] : []),
+    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyDropSwap', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe'] : []),
     create() {
       const v = ui.toolView({
         icon: 'story', title: 'Story', blurb: 'From your interviews to a cut, step by step: themes, the lines you need, a sequence or narrative, and documents to share.',
@@ -2677,11 +2677,18 @@
         const terms = hits.filter(x => x.how === 'word' || x.how === 'root' || x.how === 'phrase').map(x => x.term);
         textEl.innerHTML = highlight(l.text, terms);
         const box = onCheck ? h('input', { type: 'checkbox', checked: !!checked, onchange: e => onCheck(e.target.checked) }) : null;
-        return h('div.story-row' + (checked ? '.on' : ''), { onclick: e => { if (box && e.target === textEl) { box.checked = !box.checked; onCheck(box.checked); e.currentTarget.classList.toggle('on', box.checked); } } },
+        return h('div.story-row.story-drag' + (checked ? '.on' : ''), { draggable: t && t.path ? 'true' : 'false', title: t && t.path ? `Drag onto the timeline – video and audio, cut to the line${(state.picked || []).length > 1 && (state.picked || []).includes(l.id) ? ' (with the other ticked lines)' : ''}` : '',
+          ondragstart: e => dragLines(e, l), onclick: e => { if (box && e.target === textEl) { box.checked = !box.checked; onCheck(box.checked); e.currentTarget.classList.toggle('on', box.checked); } } },
           box, h('span.story-bar', { style: { background: speakerColor(l.speaker) } }),
           h('div.story-main', textEl, reasons && reasons.length ? h('div.story-why', 'Why: ' + reasons.join(' · ')) : null, h('div.story-meta', tag, `${[speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(l.start)} · ${(l.end - l.start).toFixed(1)} s`, q.score >= STRONG ? ui.pill('★ strong', 'var(--ok)') : null, hits.some(x => x.how === 'sounds like') ? ui.pill('sounds like', 'var(--info)') : null, hits.some(x => x.how === 'related') && !terms.length ? ui.pill('related', 'var(--text-2)') : null)),
           playButton(l), extra,
           onRemove ? iconBtn('close', 'Take this line out of the theme', onRemove) : null);
+      }
+      /** Drag a line (or the ticked lines, if it's one of them) onto the timeline: see 22-story-drag.js. */
+      function dragLines(e, l) {
+        const D = US.storyDrag, lines = D.linesFor(l, state.picked || [], id => lineById.get(id)), t = clipOfLine.get(l.id);
+        D.begin(e, { lines, name: `${speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : (t ? t.name : 'Line')} ${US.fmtDur(l.start)}`.replace(/:/g, '.'),
+          itemsFor: async ls => { const items = await resolveItems(Array.from(new Set(ls.map(x => clipOfLine.get(x.id))))); return D.ranges(ls, x => items.get(clipOfLine.get(x.id).key)); } });
       }
       function highlight(text, terms) {
         let s = US.esc(text);
