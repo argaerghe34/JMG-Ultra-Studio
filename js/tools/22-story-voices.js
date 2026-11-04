@@ -477,14 +477,14 @@
       res ? null : ui.button('Open in Source', { small: true, kind: 'ghost', title: 'Opens this interview in the Source Monitor, ready for the Text panel', onClick: () => { const l = (f.t.lines || [])[0]; if (l) S().openInSource(l); } })));
     const steps = res
       ? h('ol', h('li', 'In Resolve: File › Import › Subtitle…, and choose the interview’s “– speakers.srt” file from the folder that opens.'), h('li', 'Drag it onto the timeline over the interview: every subtitle starts with who is speaking.'))
-      : h('ol', h('li', 'Press “Open in Source” next to an interview.'), h('li', 'In Premiere’s Text panel › Transcript, open the … menu › Import (“Import Static Transcript” in some versions) and choose that interview’s “– speakers.json” file from the folder that opens.'), h('li', 'The transcript is the same words and times as before, now with the names – Captions made from it, and Text-Based Editing, show them too. The “um”s and “uh”s Story leaves out aren’t in it, so Premiere’s filler-word removal won’t find them in that interview.'));
+      : h('ol', h('li', 'Press “Open in Source” next to an interview.'), h('li', 'In Premiere’s Text panel › Transcript, open the … menu › Import › Import transcript… and choose that interview’s “– speakers.json” file from the folder that opens.'), h('li', 'The transcript is the same words and times as before, now with the names – Captions made from it, and Text-Based Editing, show them too. The “um”s and “uh”s Story leaves out aren’t in it, so Premiere’s filler-word removal won’t find them in that interview.'));
     US.app.reveal(r.dir);
     await ui.modal({ title: title || (res ? 'Subtitles with the speakers’ names are ready' : 'The names are ready for Premiere’s transcripts'), wide: true,
       body: h('div', h('p', `${US.plural(r.files.length, 'file')} saved in ${path.basename(path.dirname(r.dir)) === 'JMG Ultra Studio' ? 'the “JMG Ultra Studio / Transcripts with speakers” folder next to your project' : r.dir}. ${res ? 'Resolve doesn’t let add-ons change its transcripts, so they’re subtitles with the names.' : 'Add-ons can’t write into Premiere’s transcripts directly, so bring each one in from the Text panel – two clicks per interview.'}`),
         unnamed.length ? ui.note(`Some voices still have no name (${[...new Set(unnamed.flatMap(f => f.speakers.filter(n => /^(Voice|Speaker) \d+$/.test(n))))].slice(0, 4).join(', ')}). Name them above and press this again first.`, 'warn') : null,
         steps, h('div', ...rows)),
       buttons: [{ label: 'Done', value: true, kind: 'primary' }] });
-    return { summary: `${US.plural(r.files.length, 'transcript')} with speakers’ names saved – bring each in from ${res ? 'File › Import › Subtitle' : 'the Text panel › … › Import'}`, dir: r.dir };
+    return { summary: `${US.plural(r.files.length, 'transcript')} with speakers’ names saved – bring each in from ${res ? 'File › Import › Subtitle' : 'the Text panel › … › Import › Import transcript…'}`, dir: r.dir };
   }
 
   function card({ render, speakerColor, speakerName, list }) {

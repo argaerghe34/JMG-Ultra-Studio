@@ -656,7 +656,8 @@ var UStudio = (function () {
         walk(bin, function (c) { before[c.nodeId] = true; });
         project().importFiles(paths, true, bin, !!a.asNumberedStills);
         var out = [];
-        walk(bin, function (c) { if (!before[c.nodeId] && c.type !== 2) out.push({ id: c.nodeId, name: c.name, path: (function () { try { return c.getMediaPath(); } catch (e) { return ''; } })() }); });
+        // each new clip with the same details as a bin listing (duration, size, fps…) – a test or tool that places it right away needs them
+        walk(bin, function (c) { if (!before[c.nodeId] && c.type !== 2) { var o = null; try { o = itemInfo(c); } catch (e) { o = null; } out.push(o || { id: c.nodeId, name: c.name, path: (function () { try { return c.getMediaPath(); } catch (e2) { return ''; } })() }); } });
         return out;
     };
 

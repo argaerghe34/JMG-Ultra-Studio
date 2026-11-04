@@ -1,5 +1,9 @@
 // Overnight prep in real Premiere: themes, moments, the interview log and Selects analysis of all the footage, one after
 // another, with a report.
+// works in a brand-new project too: some footage and an interview transcript to prepare
+await T.importOnce(['C001_sharp_static.mp4', 'C002_blurry.mp4', 'C009_slow_pan_good.mp4'].map(f => T.media('concert', f)), 'Test – Overnight footage');
+US.story.loadState();
+if (!US.story.state().transcripts.length) await US.story.importFiles(US.jobs.testJob('story'), [T.media('transcripts', 'I001_interview.srt')]);
 const before = US.settings.get('overnight.report');
 const r = await US.overnight.run(US.jobs.testJob('overnight'), { steps: ['themes', 'moments', 'log', 'selects'], useAI: false, footage: 'concert' });
 const rep = r.report;

@@ -1,6 +1,6 @@
-## What's new in 1.3.28.8
+## What's new in 1.3.28.9
 
-Tested end to end in real Premiere (a fresh run of every test, plus new ones for the Agent, voice ID, Check the words, Quick effects and the panel's fit), and fixed what that found:
+Tested end to end in real Premiere – in the test project and in a brand-new empty project (a fresh run of every test, plus new ones for the Agent, voice ID, Check the words, Quick effects and the panel's fit), and fixed what that found:
 
 - **Premiere's own transcript files import properly.** A transcript exported from Premiere's Text panel (.json) came in as only its last few lines; now every word comes in, in sentences, with the speakers' names.
 - **Questions stay their own lines.** With Premiere's transcripts (where everyone is “Unknown”), a short question – or a prompt like *“So tell me where you grew up.”* – was joined to the answer after it. Now it's always its own line, so Find, soundbites and Tell the voices apart keep the interviewer out of the answers; a short prompt counts as the interviewer, like a question.
@@ -11,6 +11,8 @@ Tested end to end in real Premiere (a fresh run of every test, plus new ones for
 - **Tell the voices apart:** a question the sound can't place for sure now goes to the interviewer (the voice asking the questions).
 - **Spending limits** (the Agent, Overnight prep) count what each AI request really cost, not its cautious estimate – the Agent was stopping after about 10 steps of a $1 limit having spent 12¢. When it does reach the limit, it now says so and keeps what it made.
 - The line on what a request is about now finds an interview by a name in its title (*Rishi* in “Interview Rishi”).
+- **Importing clips** gives back their full details straight away (duration and so on) in both editors – placing a clip you'd only just imported could fail in a new project.
+- The steps for bringing named or corrected transcripts into Premiere now use its exact menu: Text panel › … › Import › Import transcript….
 - Also tested end to end in DaVinci Resolve Studio 21: every test passes, Quick effects' moves work and the buttons Resolve can't do say so.
 - The **\` key** to maximise the panel (1.3.28.7) is taken out: macOS couldn't do it reliably (it could hang for half a minute). Instead: click the panel's tab, then press \` with the mouse over the panel – or Window › Maximize Frame.
 

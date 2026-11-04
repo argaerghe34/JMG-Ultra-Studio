@@ -542,7 +542,8 @@ module.exports = (R) => {
       for (const p of a.paths || []) (R.exists(p) ? paths : missing).push(p);
       if (!paths.length) throw R.err('NOTHING_FOUND', 'Not on disk: ' + missing.join(', '), missing.length > 1 ? 'Those files aren’t there any more.' : 'That file isn’t there any more.', 'Check the drive is connected, then try again.');
       const got = R.inFolder(folder, () => R.list(R.pool().ImportMedia(paths)).filter(Boolean));
-      return got.map(it => ({ id: R.id(it), name: String(it.GetName() || ''), path: String(R.prop(it, 'File Path') || '') }));
+      // the same details as a bin listing (duration, size, fps…), so a clip can be placed straight away
+      return got.map(it => { const base = { id: R.id(it), name: String(it.GetName() || ''), path: String(R.prop(it, 'File Path') || '') }; try { return Object.assign(base, R.itemInfo(it) || {}); } catch (e) { return base; } });
     },
 
     /** Up to a.max (default 200) clips from anywhere in the project, for self-tests and pickers. */
