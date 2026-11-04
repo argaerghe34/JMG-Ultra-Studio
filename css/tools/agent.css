@@ -1,0 +1,14 @@
+/* Agent – a goal, its plan, and each step as it runs */
+.agent-log { margin-top: 10px; gap: 6px; min-height: 0; }
+.agent-limits { align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.bubble.agent-say { background: transparent; border: none; padding: 2px 4px; color: var(--text); }
+.bubble.agent-tool { background: var(--surface-2); border: 1px solid var(--border); padding: 6px 10px; display: block; font-size: 12px; }
+.agent-step { font-weight: 600; color: var(--text); }
+.agent-res { color: var(--text-2); }
+.bubble.agent-warn { border-color: var(--warn); color: var(--text); }
+.bubble.agent-cost { background: transparent; border: none; padding: 2px 4px; color: var(--text-3); font-size: 12px; }
+.bubble.agent-plan { max-width: 100%; align-self: stretch; border-color: var(--accent); }
+.bubble.agent-plan.agent-plan-done { border-color: var(--border); opacity: 0.85; }
+.bubble.agent-plan.agent-plan-done textarea, .bubble.agent-plan.agent-plan-done .row { display: none; }
+.agent-plan-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
+.agent-seqs { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }

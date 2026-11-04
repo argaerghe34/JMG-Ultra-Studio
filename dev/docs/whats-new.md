@@ -1,3 +1,9 @@
+## What's new in 1.3.28
+
+- **Agent** (new tab, in Cut faster): give it a goal – *“a 2-minute film for the donors about the bakery, ending on hope”* – and it shows its plan, then works on its own: searching your interviews, reading the best lines, building a new sequence, reading it back, tidying it with Ultra Studio's own tools (dissolves, punch-ins, pauses, captions, Final Check) and fixing what's off. You see every step; at the end it lists what it made and what to check, and you can ask for changes (*“30 seconds shorter”*) and it carries on. It never changes your own sequences, stops at the step and spending limits you set, and only ever sends text to the AI – never footage. Six starting goals for interview films, string-outs, topics, tightening, social clips and review polish.
+- **Going back:** Settings › Agent › *Show the Agent* off removes the tab and its command (everything else as in 1.3.27). Or install 1.3.27 from GitHub › Releases.
+- Ask: *agent: …*, *make me a rough cut about …*.
+
 ## What's new in 1.3.27
 
 - **Tell the voices apart** (Story › 1 Interviews › Interviews and speakers): Premiere's transcripts don't say who speaks, so Ultra Studio now listens to each interview on this computer – nothing is sent anywhere – and gives every line its voice, from its pitch and the sound of the voice. The interviewer is found by their questions in every interview. Name each voice once and every line of it follows; play a line to check, join two voices that are the same person, listen again for new interviews (names stay), or put the speakers back.

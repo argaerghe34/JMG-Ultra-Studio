@@ -32,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '37-producer', '38-wiki']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -432,6 +432,31 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       if (!/Favourites/.test(qt.el.textContent)) errors.push('quick effects: no favourites');
     } finally { US.host.call = wasCall; US.settings.set('quickfx.favs', undefined); US.settings.set('quickfx.seconds', undefined); }
     checks.push(`quick effects: ${tiles.length} buttons, dissolve at cuts, louder on the sound`);
+  }
+  // Agent: a goal → its plan shown → Go → steps listed → what it made, with the sequences to open; then a follow-up
+  {
+    const at = US.tools.get('agent').create();
+    w.document.body.appendChild(at.el);
+    if (at.el.querySelectorAll('.chat-chips .chip').length !== US.agent.GOALS.length) errors.push('agent: no starting goals');
+    const wasAI = US.ai, wasCall = US.host.call, turns = [];
+    const T = (tool, args = {}, say = '', plan = []) => ({ say, plan, tool, argsJson: JSON.stringify(args) });
+    const script = [T('plan', {}, 'My plan.', ['Search', 'Build', 'Finish']), T('themes'), T('version', { name: 'v1' }), T('finish', { summary: 'Made it.', check: ['Look at the ending'] }), T('finish', { summary: 'Shorter.' })];
+    US.ai = Object.assign({}, wasAI, { available: () => true, label: () => 'Claude', provider: () => 'gemini', spending: () => ({ cost: 0 }), json: async req => { turns.push(req); return script[turns.length - 1]; } });
+    US.host.call = async (fn, a) => (fn === 'cloneSequence' ? { id: 'v1', name: a.name } : fn === 'editRead' ? { id: 's1', name: 'Cut', duration: 30, video: [], audio: [] } : wasCall(fn, a));
+    try {
+      at.onShow({ goal: 'A 2-minute film about the bakery' });
+      Array.from(at.el.querySelectorAll('.btn')).find(b => b.textContent === 'Make plan').click(); await new Promise(r => setTimeout(r, 50));
+      const plan = at.el.querySelector('.agent-plan');
+      if (!plan || plan.querySelectorAll('li').length !== 3) errors.push('agent: plan not shown');
+      else { Array.from(plan.querySelectorAll('.btn')).find(b => b.textContent === 'Go').click(); await new Promise(r => setTimeout(r, 80)); }
+      if (at.el.querySelectorAll('.agent-tool').length < 2) errors.push('agent: steps not listed');
+      if (!/What it made/.test(at.el.textContent) || !/Made it\./.test(at.el.textContent) || !/Look at the ending/.test(at.el.textContent)) errors.push('agent: no report');
+      if (!Array.from(at.el.querySelectorAll('.agent-seqs .btn')).some(b => b.textContent === 'Open')) errors.push('agent: the version to open is missing');
+      at.el.querySelector('#agent-follow').value = 'shorter';
+      Array.from(at.el.querySelectorAll('.btn')).find(b => b.textContent === 'Carry on').click(); await new Promise(r => setTimeout(r, 60));
+      if (turns.length !== 5 || !/The editor follows up: “shorter”/.test(turns[4].turns[turns[4].turns.length - 1].user) || !/Shorter\./.test(at.el.textContent)) errors.push('agent: follow-up not carried on');
+    } finally { US.ai = wasAI; US.host.call = wasCall; }
+    checks.push(`agent: ${US.agent.GOALS.length} goals, plan → Go → ${at.el.querySelectorAll('.agent-tool').length} steps → report → follow-up`);
   }
   if (errors.length) { console.log('✗ UI smoke test\n  ' + errors.join('\n  ')); process.exit(1); }
   console.log('✓ UI smoke test · ' + checks.join(' · '));

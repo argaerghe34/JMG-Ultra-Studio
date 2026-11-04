@@ -80,6 +80,21 @@ Checking never changes your sequence. When the loudness is off, **Make a copy at
 
 **Duck the music under speech** makes a copy of the active sequence with the music lowered while people speak (**Duck by**, 6–24 dB), fading down just before each sentence and back up after. It suggests the music tracks (audio-only files such as WAV or MP3, never a track with transcribed speech – check them in **Music on**, especially if you record interview sound separately) and the speech from the transcripts, or from the sound when there are none.
 
+### Agent – give it a goal, it makes the cut
+
+Write what you want made – *“a 2-minute film for the donors about the bakery: open on Ruth’s first day, end on hope”*, *“everything they say about faith, strongest first”*, *“tighten this cut and keep it under 3 minutes”* – or pick one of the starting goals (charity film, best-answers string-out, everything on a topic, tighten this cut, social clip, polish for review). Press **Make plan**: the Agent shows its plan in a few steps; add a note if you like (*“keep the oven line”*) and press **Go**.
+
+It then works on its own, a step at a time, and you see each step as it happens: it **searches the interviews** (often several times, with different words), **reads the strongest lines** with what was said around them, **builds a new sequence** from them (interviewer questions left out, thoughts finished, aiming for your length), **reads the sequence back** and checks it against the goal, then **tidies it** with Ultra Studio's own tools – dissolves where the speaker changes, punch-ins, cutting the pauses, captions, safe zones, chapters, Final Check – and fixes what's off. It can **keep a version** before a big change so you can compare.
+
+At the end it says what it made, the choices it took and **what's worth checking**, and lists every sequence it made with an **Open** button. Ask for changes underneath – *“30 seconds shorter”*, *“open on Sam instead”*, *“fewer dissolves”* – and it carries on from where it was, remembering what it did.
+
+- **Your own sequences are never changed.** It builds new ones, or works on a copy (“… – Agent”). Versions go in *JMG Ultra Studio/Agent/Versions*.
+- **Limits:** at most 6–30 steps and $0.50–$5 of AI per go, set next to the goal; Stop works at any time. A typical go is 8–15 steps.
+- **Footage never leaves the computer:** the AI reads only text – transcript lines, the timeline as a list of clips, and what each tool reports.
+- It can't render, export, move project items or run Overnight prep or recipes – those stay your call. In Resolve it can't add transitions, effects or text (Resolve doesn't let add-ons).
+- Needs Claude or Gemini (Opus gives the best story judgement). From the Assistant: *“agent: a 2-minute film about …”*.
+- **Don't want it?** Settings › Agent › Show the Agent off – the tab and its command go, and everything else works as in 1.3.27.
+
 ### Assistant – just ask
 
 Type what you want: *“cut the silences”*, *“markers on every beat”*, *“check the cut”*, *“safe zones for Reels”*, *“export the master and a vertical version”*, *“what changed between v1 and v2”*. It shows a **plan** first – each step in plain words, with the ones that change your project marked – and only acts when you press **Run**.
