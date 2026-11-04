@@ -113,3 +113,39 @@ test('the Assistant: “tell the voices apart”, “who is speaking”', () => 
   assert.strictEqual(m('who is speaking in each line?'), 'story.voices');
   assert.strictEqual(m('identify the speakers'), 'story.voices');
 });
+
+test('the names into Premiere’s transcripts: Premiere’s own format (as its Text panel exports it), word times kept, one id per name', () => {
+  const t = { key: 'a', name: 'Ruth', language: 'en-US', lines: [
+    { id: 'x2', start: 3, end: 5, speaker: 'Voice 2', text: 'In Leeds. We moved.', w: [0, 50, 50, 100, 100, 150, 150, 200] },
+    { id: 'x1', start: 0, end: 2, speaker: 'Voice 1', text: 'Where did you grow up?' }] };
+  const names = { 'Voice 1': 'Jacob', 'Voice 2': 'Ruth' };
+  const j = V.premiereTranscript(t, l => names[l.speaker]);
+  assert.deepStrictEqual(Object.keys(j), ['language', 'segments', 'speakers']);
+  assert.deepStrictEqual(j.speakers.map(s => s.name), ['Jacob', 'Ruth']);
+  assert.ok(j.speakers.every(s => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/.test(s.id)));
+  assert.strictEqual(V.speakerId('Ruth'), j.speakers[1].id, 'the same name always gets the same id');
+  const [q, a] = j.segments;
+  assert.deepStrictEqual(Object.keys(q).sort(), ['duration', 'language', 'speaker', 'start', 'words']);
+  assert.deepStrictEqual([q.speaker, q.start, q.duration, q.language], [j.speakers[0].id, 0, 2, 'en-us']);
+  assert.deepStrictEqual(Object.keys(q.words[0]).sort(), ['confidence', 'duration', 'eos', 'start', 'tags', 'text', 'type']);
+  assert.deepStrictEqual(a.words.map(w => [w.text, w.start, w.duration, w.eos]), [['In', 3, 0.5, false], ['Leeds.', 3.5, 0.5, true], ['We', 4, 0.5, false], ['moved.', 4.5, 0.5, true]], 'Premiere’s own word times');
+  assert.strictEqual(q.words[q.words.length - 1].eos, true);
+  const srt = V.namedSRT(t, l => names[l.speaker]);
+  assert.strictEqual(srt.split('\n\n')[0], '1\n00:00:00,000 --> 00:00:02,000\nJACOB: Where did you grow up?');
+});
+
+test('the names saved for every interview; asking for it in the Assistant', () => {
+  const S = US.story, fs = require('fs'), os = require('os'), path = require('path');
+  S._useState({ transcripts: [{ key: 'a', name: 'Ruth / take 2', lines: [{ id: 'y1', start: 0, end: 2, speaker: 'Voice 1', text: 'Hello there.' }] }, { key: 'b', name: 'Empty', lines: [] }], speakers: { 'Voice 1': { name: 'Ruth' } } });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'us-named-'));
+  const r = V.exportNamed({ dir, resolve: false });
+  assert.deepStrictEqual(r.files.map(f => path.basename(f.file)), ['Ruth  take 2 – speakers.json']);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(r.files[0].file, 'utf8')).speakers.map(s => s.name), ['Ruth']);
+  const rs = V.exportNamed({ dir, resolve: true });
+  assert.ok(/RUTH: Hello there\./.test(fs.readFileSync(rs.files[0].file, 'utf8')));
+  const m = t => (US.assistant.matchOffline(t).steps[0] || {}).action;
+  assert.strictEqual(m('Yes, then can you add speaker names to the transcript in premiere'), 'story.speakerNames');
+  assert.strictEqual(m('put the speakers names into Premiere’s transcripts'), 'story.speakerNames');
+  assert.strictEqual(m('tell the voices apart'), 'story.voices');
+  assert.strictEqual(m('identify the speakers'), 'story.voices');
+});

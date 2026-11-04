@@ -1,3 +1,8 @@
+## What's new in 1.3.28.1
+
+- **Speakers' names into Premiere's transcripts** (Story › 1 Interviews › Interviews and speakers): after telling the voices apart and naming them, one button saves every interview's transcript with the names, in Premiere's own format – bring each in from the Text panel › … › Import, and captions and Text-Based Editing show who's speaking. In Resolve: subtitles that start with the speaker's name.
+- Ask: *add the speaker names to the transcripts in Premiere*.
+
 ## What's new in 1.3.28
 
 - **Agent** (new tab, in Cut faster): give it a goal – *“a 2-minute film for the donors about the bakery, ending on hope”* – and it shows its plan, then works on its own: searching your interviews, reading the best lines, building a new sequence, reading it back, tidying it with Ultra Studio's own tools (dissolves, punch-ins, pauses, captions, Final Check) and fixing what's off. You see every step; at the end it lists what it made and what to check, and you can ask for changes (*“30 seconds shorter”*) and it carries on. It never changes your own sequences, stops at the step and spending limits you set, and only ever sends text to the AI – never footage. Six starting goals for interview films, string-outs, topics, tightening, social clips and review polish.

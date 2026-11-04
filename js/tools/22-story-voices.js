@@ -405,6 +405,79 @@
    * The button that tells voices apart and, once it has, every voice: its name, a line to hear it by, how many lines,
    * “Same person as…” and Undo. o: {render, speakerColor, speakerName, list (Story's own speaker list, shown before)}.
    */
+  /* ---------- the names into Premiere's own transcripts ---------- */
+  // Add-ons can't write Premiere's transcripts (only Premiere's newer UXP plug-ins can), but its Text panel imports a
+  // transcript file (Text panel › Transcript › … › Import). So each interview is written in Premiere's own transcript
+  // format – the words and their times as they are, now with the speakers' names – to bring in with two clicks. Resolve
+  // gets subtitles with the names (“RUTH: …”).
+  /** A steady id for a speaker's name, in the form Premiere uses (8-4-4-4-12 hex). */
+  function speakerId(name) {
+    const hex = require('crypto').createHash('md5').update('us-speaker:' + String(name)).digest('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  }
+  const r2 = x => Math.round(x * 100) / 100;
+  /**
+   * An interview as Premiere's transcript JSON: {language, segments:[{start, duration, speaker, language, words:[…]}],
+   * speakers:[{id, name}]}. One segment per line; word times from the line (exact when Premiere gave them, else spread
+   * over the line). nameOf(line) -> the speaker's name.
+   */
+  function premiereTranscript(t, nameOf) {
+    const T = US.transcript, language = String(t.language || 'en-us').toLowerCase(), speakers = new Map(), segments = [];
+    for (const l of (t.lines || []).slice().sort((a, b) => a.start - b.start)) {
+      const words = T.wordTimes(l).words.filter(w => String(w.text).trim());
+      if (!words.length) continue;
+      const name = String(nameOf(l) || 'Unknown').trim() || 'Unknown';
+      if (!speakers.has(name)) speakers.set(name, speakerId(name));
+      const ws = words.map((w, i) => ({ confidence: 1, duration: r2(Math.max(0.01, w.e - w.s)), eos: i === words.length - 1 || /[.?!…]["”’)]?$/.test(w.text), start: r2(w.s), tags: [], text: String(w.text).replace(/ /g, ' '), type: 'word' }));
+      segments.push({ duration: r2(ws[ws.length - 1].start + ws[ws.length - 1].duration - ws[0].start), language, speaker: speakers.get(name), start: ws[0].start, words: ws });
+    }
+    return { language, segments, speakers: Array.from(speakers, ([name, id]) => ({ id, name })) };
+  }
+  /** Subtitles with the speaker's name before each line (“RUTH: …”), for Resolve's subtitle track. */
+  function namedSRT(t, nameOf) {
+    const ts = x => { const ms = Math.max(0, Math.round(x * 1000)), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`; };
+    return (t.lines || []).slice().sort((a, b) => a.start - b.start).filter(l => String(l.text || '').trim())
+      .map((l, i) => `${i + 1}\n${ts(l.start)} --> ${ts(l.end)}\n${String(nameOf(l) || '').trim() ? String(nameOf(l)).trim().toUpperCase() + ': ' : ''}${String(l.text).trim()}\n`).join('\n');
+  }
+  /** Where the files go: next to the project (“JMG Ultra Studio/Transcripts with speakers”), else Ultra Studio's own folder. */
+  function namedDir() {
+    const path = require('path'), proj = S().sharedProjectPath ? S().sharedProjectPath() : '';
+    return US.fsx.ensureDir(proj ? path.join(path.dirname(proj), 'JMG Ultra Studio', 'Transcripts with speakers') : path.join(US.fsx.dataDir, 'Transcripts with speakers'));
+  }
+  /** Write every interview's file (Premiere: .json; Resolve: .srt). -> {dir, files:[{t, file, speakers}]} */
+  function exportNamed({ dir = namedDir(), resolve = US.app && US.app.is && US.app.is('resolve') } = {}) {
+    const path = require('path'), fs = require('fs'), st = S().state(), out = [];
+    const nameOf = l => (l.speaker ? S().speakerName(l.speaker) : '');
+    for (const t of st.transcripts || []) {
+      if (!(t.lines || []).length) continue;
+      const base = String(t.name || t.key).replace(/[\\/:*?"<>|]/g, '').slice(0, 80) || t.key;
+      const file = path.join(dir, base + (resolve ? ' – speakers.srt' : ' – speakers.json'));
+      const body = resolve ? namedSRT(t, nameOf) : JSON.stringify(premiereTranscript(t, nameOf));
+      fs.writeFileSync(file, body, 'utf8');
+      out.push({ t, file, speakers: [...new Set(t.lines.map(nameOf).filter(Boolean))] });
+    }
+    if (!out.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no transcripts yet.', action: 'Read or add the transcripts in Story › 1 Interviews first.' });
+    return { dir, files: out };
+  }
+  /** Write the files, then show how to bring each one in (with a button that opens the interview in the Source Monitor). */
+  async function namesToEditor() {
+    const h = US.h, ui = US.ui, path = require('path'), res = US.app && US.app.is && US.app.is('resolve');
+    const r = exportNamed();
+    const unnamed = r.files.filter(f => f.speakers.some(n => /^(Voice|Speaker) \d+$/.test(n)));
+    const rows = r.files.map(f => h('div.row.story-named', h('span.grow', h('b', f.t.name), h('span.field-hint', ` – ${f.speakers.join(', ') || 'no speakers'}`)),
+      res ? null : ui.button('Open in Source', { small: true, kind: 'ghost', title: 'Opens this interview in the Source Monitor, ready for the Text panel', onClick: () => { const l = (f.t.lines || [])[0]; if (l) S().openInSource(l); } })));
+    const steps = res
+      ? h('ol', h('li', 'In Resolve: File › Import › Subtitle…, and choose the interview’s “– speakers.srt” file from the folder that opens.'), h('li', 'Drag it onto the timeline over the interview: every subtitle starts with who is speaking.'))
+      : h('ol', h('li', 'Press “Open in Source” next to an interview.'), h('li', 'In Premiere’s Text panel › Transcript, open the … menu › Import (“Import Static Transcript” in some versions) and choose that interview’s “– speakers.json” file from the folder that opens.'), h('li', 'The transcript is the same words and times as before, now with the names – Captions made from it, and Text-Based Editing, show them too. The “um”s and “uh”s Story leaves out aren’t in it, so Premiere’s filler-word removal won’t find them in that interview.'));
+    US.app.reveal(r.dir);
+    await ui.modal({ title: res ? 'Subtitles with the speakers’ names are ready' : 'The names are ready for Premiere’s transcripts', wide: true,
+      body: h('div', h('p', `${US.plural(r.files.length, 'file')} saved in ${path.basename(path.dirname(r.dir)) === 'JMG Ultra Studio' ? 'the “JMG Ultra Studio / Transcripts with speakers” folder next to your project' : r.dir}. ${res ? 'Resolve doesn’t let add-ons change its transcripts, so they’re subtitles with the names.' : 'Add-ons can’t write into Premiere’s transcripts directly, so bring each one in from the Text panel – two clicks per interview.'}`),
+        unnamed.length ? ui.note(`Some voices still have no name (${[...new Set(unnamed.flatMap(f => f.speakers.filter(n => /^(Voice|Speaker) \d+$/.test(n))))].slice(0, 4).join(', ')}). Name them above and press this again first.`, 'warn') : null,
+        steps, h('div', ...rows)),
+      buttons: [{ label: 'Done', value: true, kind: 'primary' }] });
+    return { summary: `${US.plural(r.files.length, 'transcript')} with speakers’ names saved – bring each in from ${res ? 'File › Import › Subtitle' : 'the Text panel › … › Import'}`, dir: r.dir };
+  }
+
   function card({ render, speakerColor, speakerName, list }) {
     const h = US.h, ui = US.ui, st = S().state(), vid = st.voiceID;
     const go = () => US.jobs.run({ title: 'Telling the voices apart', tool: 'story' }, job => listen(job)).then(r => { if (r) { ui.toast({ type: 'ok', title: r.summary, text: 'Name each voice once – every line of it follows.', timeout: 4000 }); render(); } });
@@ -435,7 +508,9 @@
       vid.skipped && vid.skipped.length ? ui.note(`Not heard (not linked to a clip, or the sound couldn’t be read): ${vid.skipped.join(', ')}`, 'warn') : null,
       h('div.row', { style: { marginTop: '8px' } },
         ui.button('Listen again', { small: true, kind: 'ghost', icon: 'refresh', title: 'For new interviews – names you gave stay with their voices', onClick: go }),
-        ui.button('Put the speakers back', { small: true, kind: 'ghost', title: 'Every line gets the speaker it had before', onClick: () => { undo(); render(); } })));
+        ui.button('Put the speakers back', { small: true, kind: 'ghost', title: 'Every line gets the speaker it had before', onClick: () => { undo(); render(); } })),
+      h('div.row', { style: { marginTop: '6px' } },
+        ui.button(US.app && US.app.is && US.app.is('resolve') ? 'Subtitles with the names' : 'Names into Premiere’s transcripts', { small: true, kind: 'secondary', icon: 'voices', title: US.app && US.app.is && US.app.is('resolve') ? 'Subtitles that start with who is speaking, for each interview' : 'A transcript file per interview with the speakers’ names, to bring in from the Text panel', onClick: () => namesToEditor().catch(e => ui.showError(e)) })));
   }
 
   if (US.actions) US.actions.register({
@@ -447,5 +522,14 @@
     run: async (p, job) => { const r = await listen(job); S().open('transcripts'); return { summary: r.summary }; }
   });
 
-  US.storyVoices = { card, stats, pitch, prints, scaler, scaled, kmeans, silhouette, voicesIn, assign, across, interviewer, solve, soundsLike, listen, apply, undo, merge, setLine, samples, isQuestion, SR, MIN_FRAMES };
+  if (US.actions) US.actions.register({
+    id: 'story.speakerNames', tool: 'story', title: 'Put the speakers’ names into the transcripts', changes: false,
+    describe: 'Saves each interview’s transcript with the speakers’ names (from Story) in Premiere’s own transcript format, to bring in from the Text panel › … › Import – or, in Resolve, subtitles that start with who is speaking. Tell the voices apart and name them first.',
+    params: {},
+    examples: ['add the speaker names to the transcripts in Premiere', 'put the names in Premiere’s transcript'],
+    match: t => (/\b(speaker'?s?'? names?|names? of (the )?speakers?|who'?s speaking|speakers?)\b.*\b(premiere'?s?|text panel|transcripts?|captions?)\b/i.test(t) && /\b(add|put|write|send|into|to|in|update|show)\b/i.test(t) && !/\b(tell|identify|separate)\b/i.test(t) ? { _score: 3.2 } : null),
+    run: async () => namesToEditor()
+  });
+
+  US.storyVoices = { card, speakerId, premiereTranscript, namedSRT, exportNamed, namesToEditor, stats, pitch, prints, scaler, scaled, kmeans, silhouette, voicesIn, assign, across, interviewer, solve, soundsLike, listen, apply, undo, merge, setLine, samples, isQuestion, SR, MIN_FRAMES };
 })();
