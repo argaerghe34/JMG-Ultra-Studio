@@ -38,6 +38,9 @@ T.assert(p.steps.length === 1 && p.rejected[0] === 'format.drive', 'unknown acti
 US.tools.open('assistant');
 const view = document.querySelector('.chat').closest('.tool');
 const input = view.querySelector('.chat-input');
+// the plan cards are Anything mode's (the editor's own mode may be My interviews or Edit – the runner puts it back)
+const anything = Array.from(view.querySelectorAll('.chat-mode .seg')).find(b => b.textContent === 'Anything'); if (anything) anything.click();
+await T.sleep(50);
 input.value = 'lines about family';
 input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 await T.sleep(100);

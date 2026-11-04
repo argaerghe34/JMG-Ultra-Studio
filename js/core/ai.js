@@ -127,6 +127,12 @@
     unattended.set(key, left - usd);
     return true;
   }
+  /** After an answer: a job with a budget is charged what the request really cost, not the (cautious) estimate. */
+  function settleBudget(estUsd, actualUsd) {
+    const job = US.jobs.current, key = job ? job.id : 'none';
+    if (!unattended.has(key) || !(estUsd > 0) || !(actualUsd >= 0)) return;
+    unattended.set(key, unattended.get(key) + Math.max(0, estUsd - actualUsd));
+  }
   async function checkSpend(est, feature) {
     const cap = +US.settings.get('aiMonthlyCap', 0);
     const spent = thisMonth().cost;
@@ -357,6 +363,7 @@
     const msg = r.json;
     const usedModel = msg.model && MODELS[msg.model] ? msg.model : model;
     if (msg.usage) record(usedModel, msg.usage, feature, costOf(usedModel, msg.usage), key);
+    if (msg.usage) settleBudget(est.usd, costOf(usedModel, msg.usage));
     sentLog.end(logged, { ok: true, model: usedModel, usd: msg.usage ? costOf(usedModel, msg.usage) : 0, tokensIn: msg.usage ? msg.usage.input_tokens + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0) : 0, cacheRead: msg.usage ? msg.usage.cache_read_input_tokens || 0 : 0, tokensOut: msg.usage ? msg.usage.output_tokens : 0 });
     if (msg.usage && (msg.usage.cache_read_input_tokens || msg.usage.cache_creation_input_tokens)) noteWarm([].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []), usedModel, startedAt);
     if (msg.stop_reason === 'refusal') throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(msg.stop_details || {}) });

@@ -199,7 +199,10 @@
     }
     return out;
   }
-  const SAME = 0.55; // voices from different interviews this close are taken to be the same person
+  const SAME = 0.55; // voices from different interviews this close sound like the same person (offered as “Same as…?”)
+  // Joined across interviews without asking: only the interviewer (found by the questions). Two interviewees with
+  // similar voices were joined in real tests, so the editor joins those with one click (“Same as…?”) instead.
+  const AUTO_SAME = 0;
   /**
    * Voices from all interviews -> people: [{centre, members: [{iv, j}]}]. The closest pairs are joined first; two voices
    * of the same interview are never joined (they were told apart there).
@@ -245,7 +248,7 @@
    * that are very close are joined – and the one asking the questions in each interview is the interviewer, joined
    * by that. old: an earlier result's voices, so a voice keeps its key (and its name).
    */
-  function solve(interviews, { old = [], same = SAME } = {}) {
+  function solve(interviews, { old = [], same = AUTO_SAME } = {}) {
     const flat = [];
     interviews.forEach(t => Object.values(t.prints).forEach(p => flat.push(p.v)));
     if (!flat.length) return { voices: [], lines: {}, scale: null, interviewer: null };
@@ -268,7 +271,8 @@
     let next = Math.max(0, ...old.map(v => +(/(\d+)$/.exec(v.key) || [0, 0])[1])) + 1;
     const voices = people.map(p => {
       const near = old.filter(o => !used.has(o.key) && o.centre && o.centre.length === p.centre.length && !!o.asks === !!p.asks).map(o => ({ o, d: dist(o.centre, p.centre) })).sort((a, b) => a.d - b.d)[0];
-      const key = near && (near.d < same || (p.asks && near.o.asks)) ? near.o.key : `Voice ${next++}`;
+      // the voice heard before keeps its key (and so its name) – recognised at the “sounds like” distance
+      const key = near && (near.d < SAME || (p.asks && near.o.asks)) ? near.o.key : `Voice ${next++}`;
       used.add(key);
       return { key, centre: p.centre, asks: !!p.asks, interviews: Array.from(new Set(p.members.map(m => interviews[m.iv].key))), members: p.members };
     });
@@ -310,7 +314,7 @@
     try { fs.writeFileSync(file, JSON.stringify(out)); } catch (e) { /* the cache is a convenience */ }
     return out;
   }
-  const isQuestion = text => /\?\s*["”')]*\s*$/.test(String(text || '')) || (US.transcript && !!US.transcript.askedQuestion(text));
+  const isQuestion = text => /\?\s*["”')]*\s*$/.test(String(text || '')) || (US.transcript && (!!US.transcript.askedQuestion(text) || (US.transcript.asks && US.transcript.asks(text))));
 
   /**
    * Listen to every linked interview and give each line its voice. The lines' old speakers are kept (undo puts them

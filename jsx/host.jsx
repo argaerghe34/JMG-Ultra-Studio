@@ -573,6 +573,12 @@ var UStudio = (function () {
             // find what we placed: the clip starting at "at" on that track
             var got = null, best = 1e9;
             for (var k = 0; k < track.clips.numItems; k++) { var d = Math.abs(track.clips[k].start.seconds - at); if (d < best) { best = d; got = track.clips[k]; } }
+            // a sound-only clip (an .m4a or .wav interview) lands on the audio track: find it there – else it counts as not
+            // placed, and the next clip's place is guessed (a frame's gap)
+            if (!(got && best < 0.02) && c.video !== false) {
+                var atr = seq.audioTracks[c.a || 0];
+                for (var k2 = 0; k2 < atr.clips.numItems; k2++) { var d2 = Math.abs(atr.clips[k2].start.seconds - at); if (d2 < best) { best = d2; got = atr.clips[k2]; } }
+            }
             if (got && best < 0.02) { placed.push({ start: got.start.seconds, end: got.end.seconds }); if (c.at == null) cursor = got.end.seconds; }
             else { placed.push(null); if (c.at == null) cursor = at + (c.out - c['in']); }
             if (c.video === false || c.audio === false) {

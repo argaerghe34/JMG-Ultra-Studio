@@ -111,14 +111,17 @@
     const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const said = x => { const w = String(x || '').trim(); return w.length >= 3 && new RegExp(`(^|[^\\p{L}])${esc(w)}(?![\\p{L}])`, 'iu').test(text); };
     // an interview is named by its title, or by its first word when that's a name (“Ruth” for “Ruth Cohen 2”)
-    const ivs = (n.interviews || []).filter(t => said(t) || (/^\p{Lu}\p{Ll}{2,}/u.test(t) && said(t.split(/[\s_–-]+/)[0])));
+    // an interview is named by its title, or by a name in it (“Rishi” for “Interview Rishi”, “Ruth” for “Ruth Cohen 2”)
+    const GENERIC = /^(interview|interviews|session|part|take|clip|pod|podcast|audio|video|final|copy|camera|cam|day|transcript|recording|the|and|with)$/i;
+    const nameWords = t => String(t).replace(/\.[a-z0-9]{2,4}$/i, '').split(/[\s_–\-.,()]+/).filter(w => /^\p{Lu}\p{Ll}{2,}/u.test(w) && !GENERIC.test(w));
+    const ivs = (n.interviews || []).filter(t => said(t) || nameWords(t).some(said));
     const people = (n.people || []).filter(p => said(p) || said(String(p).split(' ')[0])).filter(p => !ivs.some(t => t.toLowerCase().startsWith(String(p).split(' ')[0].toLowerCase())));
     const themes = (n.themes || []).filter(said);
     const list = xs => (xs.length <= 2 ? xs.join(' and ') : `${xs.slice(0, 2).join(', ')} and ${xs.length - 2} more`);
     const poss = x => (/s$/i.test(x) ? `${x}’` : `${x}’s`);
     const short = text.length > 70 ? text.slice(0, 68).replace(/\s+\S*$/, '') + '…' : text;
     const bits = [];
-    const ivName = t => (/interview/i.test(t) ? t : `${poss(t)} interview`);
+    const ivName = t => { t = String(t).replace(/\.[a-z0-9]{2,4}$/i, ''); return /interview/i.test(t) ? t : `${poss(t)} interview`; };
     if (ivs.length) bits.push(`Asking about ${ivs.length === 1 ? ivName(ivs[0]) : list(ivs.map(t => t.replace(/\s*interview\s*/i, ' ').trim())) + ' interviews'}`);
     if (people.length) bits.push(`${bits.length ? 'and' : 'About'} ${list(people)}`);
     if (themes.length) bits.push(`${bits.length ? 'on' : 'On'} ${themes.length === 1 ? `the theme “${themes[0]}”` : 'the themes ' + list(themes.map(t => `“${t}”`))}`);

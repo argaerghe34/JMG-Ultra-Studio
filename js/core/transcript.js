@@ -224,7 +224,28 @@
   }
 
   /** Any JSON transcript: walk for arrays of {text, start/end/duration} (segments) or words. */
+  /**
+   * Premiere's own transcript JSON (Text panel › Export, or the panel's “Names into Premiere’s transcripts”):
+   * {language, segments:[{start, duration, speaker, words:[{start, duration, text, tags}]}], speakers:[{id, name}]} –
+   * read word by word, like the transcripts Story reads from the project. -> segments, or null when it isn't that format
+   */
+  function premiereJSON(obj) {
+    if (!obj || !Array.isArray(obj.segments) || !obj.segments.length || !obj.segments.every(g => g && Array.isArray(g.words))) return null;
+    const names = {}; for (const sp of Array.isArray(obj.speakers) ? obj.speakers : []) if (sp && sp.id != null) names[sp.id] = /^unknown$/i.test(String(sp.name || '')) ? '' : String(sp.name || '');
+    const words = [];
+    for (const g of obj.segments) for (const w of g.words) {
+      const t = +w.start, text = String(w.text == null ? '' : w.text).trim();
+      if (!isFinite(t) || !text || w.type === 'punctuation') continue;
+      words.push({ t, d: isFinite(+w.duration) ? +w.duration : 0.3, w: text, speaker: names[g.speaker] != null ? names[g.speaker] : '' });
+    }
+    if (!words.length) return null;
+    // two or more speakers with no names (“Unknown”): Speaker 1, 2… so they aren't one voice
+    const ids = Array.from(new Set(obj.segments.map(g => g.speaker))), unnamed = ids.filter(id => !names[id]);
+    if (unnamed.length > 1) { const n = {}; unnamed.forEach((id, i) => { n[id] = `Speaker ${i + 1}`; }); let k = 0; for (const g of obj.segments) for (const w of g.words) { if (!String(w.text || '').trim() || !isFinite(+w.start) || w.type === 'punctuation') continue; if (n[g.speaker]) words[k].speaker = n[g.speaker]; k++; } }
+    return wordsToSentences(words.sort((a, b) => a.t - b.t));
+  }
   function parseJSONTranscript(obj) {
+    const pr = premiereJSON(obj); if (pr) return pr;
     let best = null;
     const speakersById = {};
     const TEXT = ['text', 'transcript', 'content', 'word', 'value', 'caption', 'utterance', 'punctuated_word', 'w'];
@@ -529,7 +550,9 @@
     for (let i = 0; i < merged.length; i++) {
       const m = merged[i];
       const prev = out[out.length - 1];
-      if (prev && prev.speaker === m.speaker && (prev.end - prev.start) < 3 && m.start - prev.end < 1.2 && (m.end - prev.start) < 25) { join(prev, m); continue; }
+      // …but never a question with its answer (either way round): with no speakers known (Premiere's “Unknown”) that would make the
+      // interviewer's question part of the answer – for search, soundbites and telling the voices apart
+      if (prev && prev.speaker === m.speaker && (prev.end - prev.start) < 3 && m.start - prev.end < 1.2 && (m.end - prev.start) < 25 && !asks(prev.text) && !asks(m.text)) { join(prev, m); continue; }
       out.push(Object.assign({}, m));
     }
     return out.map(l => {
@@ -548,6 +571,10 @@
   // the speaker's own rhetorical questions (“Can you imagine?”) are often the line the editor wants
   const RHETORICAL = /\b(can|could) you (imagine|believe)\b|\bwould you believe\b|\byou know what i mean\b/i;
   const ASK_YOU = /\b(what|how|why|which|who|is there|are there)\b[^?]*\b(you|your|yourself|you'(d|re|ve|ll))\b|\b(are|were|do|did|does|have|has|can|could|would|will|should)\s+(you|your)\b|\btell (me|us)\b/i;
+  // an interviewer's prompt that isn't phrased as a question: “So tell me where you grew up.”, “Talk me through that day.”
+  const PROMPT = /^\s*(?:(?:so|and|now|ok(?:ay)?|right|well)[,\s]+)?(?:tell (?:me|us)|talk (?:me |us )?(?:about|through)|describe|walk (?:me|us) through|explain|take (?:me|us) (?:back|through)|remind (?:me|us))\b/i;
+  /** A line that asks: a question, or a prompt (“So tell me…”). */
+  function asks(text) { const t = String(text || '').trim(); return /\?["”')\]]?$/.test(t) || PROMPT.test(t); }
   function askedQuestion(text) {
     const sents = (String(text || '').replace(/’/g, "'").match(/[^.?!…]+[.?!…]+["”')]*|[^.?!…]+$/g) || []).map(x => x.trim()).filter(Boolean);
     const isQ = x => /\?["”')]*$/.test(x), asked = x => isQ(x) && ASK_YOU.test(x) && !TAG_Q.test(x) && !RHETORICAL.test(x);
@@ -593,7 +620,8 @@
     const restarts = RESTARTS.test(line.text);
     if (restarts) reasons.push('starts again');
     const asked = askedQuestion(line.text);
-    if (isInterviewerLabel(line.speaker) || asked === 'whole') { s -= 0.25; reasons.push('interviewer'); }
+    // the interviewer: labelled so, a question to the interviewee, or a short prompt (“So tell me where you grew up.”)
+    if (isInterviewerLabel(line.speaker) || asked === 'whole' || (PROMPT.test(line.text) && line.text.trim().split(/\s+/).length <= 14)) { s -= 0.25; reasons.push('interviewer'); }
     else if (asked === 'starts' || asked === 'ends') { s -= 0.15; reasons.push(asked === 'starts' ? 'starts with a question' : 'ends with a question'); }
     else if (/\?["”')]?$/.test(line.text.trim())) { s -= 0.1; reasons.push('question'); }
     if (restarts) s = Math.min(s - 0.15, 0.6); // usable once trimmed, never one of the strongest as it stands
@@ -777,7 +805,7 @@
   }
 
   US.transcript = {
-    TICKS, parseTime, parseSRT, parseVTT, parseCSV, parseTimedText, parseJSONTranscript, parseText, parseFile,
+    TICKS, premiereJSON, asks, parseTime, parseSRT, parseVTT, parseCSV, parseTimedText, parseJSONTranscript, parseText, parseFile,
     decodePremiereTranscript, readProjectTranscripts, fromSubtitles, wordsToSentences, toLines, quality, askedQuestion, isInterviewerLabel, search, parseQuery,
     themesOffline, themesAI, AI_THEME_SCHEMA, aiRow, inOrder, aiUser, matchClip, stem, tokens, STOP, levenshtein, SYNONYMS, indexLine, lineWords, wordTimes
   };

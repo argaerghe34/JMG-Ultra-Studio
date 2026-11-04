@@ -35,13 +35,14 @@ try {
   T.assert(fam.label !== faith.label, 'two theme colours');
   // the stub: hook, two build lines (the second trimmed by two words), payoff – only Ruth's lines, from the list it was sent
   let sent = '';
-  US.ai = { available: () => true, label: () => 'Claude', provider: () => 'claude', json: async req => {
+  // the real AI client with its answer replaced (the screens still ask it for the model, cache times and prices)
+  US.ai = Object.assign({}, realAI, { available: () => true, label: () => 'Claude', provider: () => 'claude', json: async req => {
     sent = [].concat(req.user).map(b => (typeof b === 'string' ? b : b.text)).join('\n');
     T.assert(req.feature === 'Narrative cut' && req.user[0].cache, 'cached listing first, billed to the narrative');
     const ids = Array.from(req.user[0].text.matchAll(/^(\S+)\t/gm)).map(m => m[1]).filter(id => ruthIds.has(id));
     const pick = [ids.find(id => /grew up/.test(L.find(l => l.id === id).text)), ids.find(id => /grandmother/.test(L.find(l => l.id === id).text)), ids.find(id => /candles|Shabbat/.test(L.find(l => l.id === id).text) && !/grandmother/.test(L.find(l => l.id === id).text)), ids.find(id => /door is open/.test(L.find(l => l.id === id).text))].filter(Boolean);
     return { title: 'An open door', logline: 'Ruth on the home she grew up in.', beats: pick.map((id, i) => ({ lineId: id, purpose: ['Who she is', 'What was handed down', 'Faith at home', 'What it all meant'][i], dropStartWords: i === 2 ? 2 : 0, dropEndWords: 0 })) };
-  } };
+  } });
   const r = await T.action('story.narrative', { brief: 'Make a 30-second video about family', useAI: true });
   T.assert(/Length: 30 seconds/.test(sent) && !/\.mp4|\/Users\//.test(sent), 'only the brief and line text were sent');
   const col = st.wall.columns.find(c => c.id === r.column.id);
@@ -51,18 +52,22 @@ try {
   const old = await T.seqByName(SEQ); if (old) await US.host.call('deleteSequence', { seqId: old.id });
   const b = await T.action('story.build', { source: 'narrative', name: SEQ });
   const info = await US.host.call('sequenceInfo', { seqId: b.seq.id });
-  const clips = info.video[0].clips, handles = S.lookOptions().handles;
-  T.assert(clips.length === 4, 'four clips: ' + clips.length);
+  // the four beats first; after them, the narrative's alternatives (“Alternative selects”) to swap in
+  const all = info.video[0].clips, clips = all.slice(0, 4), handles = S.lookOptions().handles;
+  const altAt = (info.markers.find(m => m.name === 'Alternative selects') || {}).start;
+  T.assert(all.length >= 4 && (all.length === 4 || (altAt != null && Math.abs(altAt - clips[3].end) < info.frame * 1.5)), `four beats, then the alternatives: ${all.length} clips, alternatives at ${altAt}`);
   col.cards.forEach((k, i) => {
     const x = S.trimOf(k) || L.find(l => l.id === k.lineId);
     T.near(clips[i].in, Math.max(0, x.start - handles), info.frame * 1.5, `beat ${i + 1} in-point`);
     T.near(clips[i].out, x.end + handles, info.frame * 1.5, `beat ${i + 1} out-point`);
   });
   T.assert(S.trimOf(col.cards[2]).start > L.find(l => l.id === col.cards[2].lineId).start + 0.3, 'the trim moved the in-point later');
-  const names = info.markers.map(m => m.name);
-  T.assert(names.join('|') === 'Hook|Build|Payoff', 'section markers: ' + names.join('|'));
-  T.near(info.markers[1].start, clips[1].start, info.frame * 1.01, 'Build starts at the second clip');
-  const labels = await xmlLabels(b.seq.id), LN = i => US.ui.LABELS[i].name;
+  // the sections, each beat's purpose, then the alternatives
+  const sections = info.markers.filter(m => /^(Hook|Build|Payoff)$/.test(m.name));
+  T.assert(sections.map(m => m.name).join('|') === 'Hook|Build|Payoff', 'section markers: ' + info.markers.map(m => m.name).join('|'));
+  T.near(sections[1].start, clips[1].start, info.frame * 1.01, 'Build starts at the second clip');
+  T.assert(info.markers.some(m => m.name === 'Hook: Who she is'), 'each beat’s purpose marked');
+  const labels = (await xmlLabels(b.seq.id)).slice(0, 4), LN = i => US.ui.LABELS[i].name;
   const sel = S.selectionMap({ themes: true, board: false, builds: false });
   const want = col.cards.map(k => LN(sel.has(k.lineId) ? sel.get(k.lineId).label : S.columnLabel(col)));
   T.assert(labels.join('|') === want.join('|'), `colours ${labels.join('|')} (wanted ${want.join('|')})`);
@@ -71,7 +76,7 @@ try {
   US.ai = realAI;
   const basic = await T.action('story.narrative', { brief: 'half a minute on family', useAI: false });
   T.assert(basic.narrative.by === 'basic' && /basic version/.test(basic.summary) && basic.column.name.startsWith('Narrative · 30 s · family'), basic.summary);
-  return { built: clips.length, length: US.fmtDur(info.duration || clips[clips.length - 1].end), basic: basic.summary.slice(0, 80) };
+  return { built: `${clips.length} beats + ${all.length - clips.length} alternatives`, length: US.fmtDur(info.duration || clips[clips.length - 1].end), basic: basic.summary.slice(0, 80) };
 } finally {
   US.ai = realAI;
   Object.assign(st, saved); S.save();

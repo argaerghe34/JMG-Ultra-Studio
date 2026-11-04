@@ -1,6 +1,15 @@
-## What's new in 1.3.28.7
+## What's new in 1.3.28.8
 
-- **` maximises the panel (Mac)**, like Premiere's own panels: press it anywhere in Ultra Studio (not while typing in a box) and the panel fills Premiere's window; press it again to put it back. The first time, macOS may ask to let Premiere control the computer – allow it in System Settings › Privacy & Security › Accessibility.
+Tested end to end in real Premiere (a fresh run of every test, plus new ones for the Agent, voice ID, Check the words, Quick effects and the panel's fit), and fixed what that found:
+
+- **Premiere's own transcript files import properly.** A transcript exported from Premiere's Text panel (.json) came in as only its last few lines; now every word comes in, in sentences, with the speakers' names.
+- **Questions stay their own lines.** With Premiere's transcripts (where everyone is “Unknown”), a short question – or a prompt like *“So tell me where you grew up.”* – was joined to the answer after it. Now it's always its own line, so Find, soundbites and Tell the voices apart keep the interviewer out of the answers; a short prompt counts as the interviewer, like a question.
+- **Interviews that are sound only** (.m4a, .wav) build properly: the report said “0 lines … skipped: clip not in project” although they were placed, and one-frame gaps appeared between clips.
+- **Moments:** a moment with a second voice (the crew, someone off camera) could be left out when built.
+- **Tell the voices apart** no longer joins two different interviewees with similar voices into one person; it offers *Same as…?* instead, and you choose. The interviewer is still joined across interviews by the questions.
+- **The Assistant:** *“safe zones for Reels”* went to Clips for social.
+- The line on what a request is about now finds an interview by a name in its title (*Rishi* in “Interview Rishi”).
+- The **\` key** to maximise the panel (1.3.28.7) is taken out: macOS couldn't do it reliably (it could hang for half a minute). Instead: click the panel's tab, then press \` with the mouse over the panel – or Window › Maximize Frame.
 
 ## What's new in 1.3.28.6
 

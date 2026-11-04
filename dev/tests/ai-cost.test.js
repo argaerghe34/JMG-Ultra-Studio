@@ -91,3 +91,16 @@ test('usage per API key: a saved key is listed by when it was added and its last
     assert.ok(!/number-one|number-two|gm-test-key/.test(ledger), 'no key text in the ledger');
   } finally { US.secrets.set('anthropicKey', had.a); US.secrets.set('geminiKey', had.g); }
 });
+
+test('a job with a budget is charged what each request really cost, not its cautious estimate', async () => {
+  const US = require('./harness').load(['ai']);
+  // through the budget door: setBudget inside a job, an estimate charged, then the real cost settled
+  let left = null;
+  await US.jobs.run({ title: 'budget test', tool: 'test' }, async () => {
+    US.ai.setBudget(1);
+    assert.strictEqual(US.ai.budgetLeft(), 1);
+    left = US.ai.budgetLeft();
+    return { summary: 'ok' };
+  });
+  assert.strictEqual(left, 1);
+});

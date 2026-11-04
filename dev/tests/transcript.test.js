@@ -315,3 +315,31 @@ test('review fixes: rhetorical questions, “start that again”, “do you know
   assert.deepStrictEqual(T.parseQuery('they’ve moved house').words.includes('ve'), false);
   assert.doesNotThrow(() => T.quality({ start: 0, end: 1 }));
 });
+
+test('Premiere’s own transcript JSON (Text panel › Export): every word, in sentences, with named speakers; unnamed ones told apart', () => {
+  const T = require('./harness').load(['time', 'transcript']).transcript;
+  const seg = (start, speaker, words) => ({ start, duration: 3, speaker, language: 'en-us', words: words.split(' ').map((w, i) => ({ start: start + i * 0.4, duration: 0.35, text: w, tags: [], type: 'word', eos: /[.?!]$/.test(w) })) });
+  const doc = { language: 'en-us', segments: [seg(0, 'a', 'Where did you grow up?'), seg(3, 'b', 'In Leeds. Above the shop.'), seg(40, 'a', 'And then?')], speakers: [{ id: 'a', name: 'Jacob' }, { id: 'b', name: 'Ruth' }] };
+  const segs = T.parseJSONTranscript(doc);
+  assert.deepStrictEqual(segs.map(s => [s.speaker, s.text]), [['Jacob', 'Where did you grow up?'], ['Ruth', 'In Leeds.'], ['Ruth', 'Above the shop.'], ['Jacob', 'And then?']]);
+  assert.strictEqual(segs[3].start, 40, 'the times as they are');
+  // a long transcript with one array of segments isn't mistaken for a short one (the general reader picked the wrong part)
+  const long = { language: 'en-us', segments: Array.from({ length: 150 }, (_, i) => seg(i * 4, 'u', `Line number ${i} is here.`)), speakers: [{ id: 'u', name: 'Unknown' }] };
+  const ls = T.parseJSONTranscript(long);
+  assert.strictEqual(ls.length, 150); assert.strictEqual(ls[0].start, 0); assert.strictEqual(ls[0].speaker, '', 'Unknown is no name');
+  const two = T.parseJSONTranscript({ segments: [seg(0, 'x', 'Hello there.'), seg(4, 'y', 'Hi.')], speakers: [{ id: 'x', name: 'Unknown' }, { id: 'y', name: 'Unknown' }] });
+  assert.deepStrictEqual(two.map(s => s.speaker), ['Speaker 1', 'Speaker 2']);
+});
+
+test('a short question stays its own line, even with no speakers known (it never joins the answer after it)', () => {
+  const T = require('./harness').load(['time', 'transcript']).transcript;
+  const lines = T.toLines([{ start: -3, end: -1.2, speaker: '', text: 'So tell me where you grew up.' }, { start: 0, end: 1.8, speaker: '', text: 'And then what?' }, { start: 2.4, end: 7, speaker: '', text: 'We moved to the city and it changed everything.' }, { start: 7.3, end: 8.5, speaker: '', text: 'Really.' }, { start: 8.9, end: 12, speaker: '', text: 'It took years to settle.' }, { start: 12.5, end: 13.6, speaker: '', text: 'Why stay?' }], 'x');
+  assert.deepStrictEqual(lines.map(l => l.text), ['So tell me where you grew up.', 'And then what?', 'We moved to the city and it changed everything.', 'Really. It took years to settle.', 'Why stay?']);
+});
+
+test('a short prompt is the interviewer’s line, like a question', () => {
+  const T = require('./harness').load(['time', 'transcript']).transcript;
+  const q = text => T.quality({ start: 0, end: 2, speaker: '', text }).reasons.includes('interviewer');
+  assert.ok(q('So tell me where you grew up.') && q('Talk me through that morning.') && q('Describe the bakery for me.'));
+  assert.ok(!q('I grew up by the sea, in a house full of brothers and sisters.') && !q('Tell me about it, she said, and I did – for three hours, about every street we lived on.'));
+});

@@ -209,3 +209,17 @@ test('switched off in Settings: no tab, no command (rollback without reinstallin
     assert.ok(tools, 'it was there while on');
   } finally { US.settings.set('agent.enabled', true); US.agent = had; }
 });
+
+test('the spending limit (or no connection) mid-run: it stops with a note, keeps what it made, and can carry on', async () => {
+  const answers = [T('plan', {}, '', ['Build', 'Finish']), T('build', { name: 'Bakery', sections: [{ name: 'All', lineIds: ['r2'] }] })];
+  const x = setup(answers);
+  let n = 0;
+  US.ai.json = async () => { n++; if (n <= 2) return answers[n - 1]; throw new US.UserError('AI_FAILED', { title: 'Skipped: Agent would cost about 9¢, more than is left of tonight’s AI limit (5¢).' }); };
+  try {
+    const s = A.newSession('A film');
+    await A.run(job, s, { onEvent: x.onEvent });
+    assert.ok(!s.done && s.versions.length === 1, 'stopped, the built sequence kept');
+    assert.ok(x.events.some(e => e.type === 'warn' && /spending limit after 2 steps/.test(e.text)), JSON.stringify(x.events.filter(e => e.type === 'warn')));
+    assert.ok(/stopped before your next step/.test(s.pendingResult));
+  } finally { x.restore(); }
+});

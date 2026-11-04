@@ -30,12 +30,13 @@ test('a request remembers the job it was part of', () => {
 });
 
 test('what a request is about: the interviews, people and themes it names; else the request, shortened', () => {
-  const names = { interviews: ['Ruth Cohen', 'Sam interview', 'Leeds group'], people: ['Max'], themes: ['Family', 'Faith'] };
+  const names = { interviews: ['Ruth Cohen', 'Sam interview', 'Leeds group', 'Interview Rishi.m4a'], people: ['Max'], themes: ['Family', 'Faith'] };
   const about = t => US.storyContext.about(t, { names });
   assert.strictEqual(about('Where did Ruth grow up?'), 'Asking about Ruth Cohen’s interview · “Where did Ruth grow up?”');
   assert.strictEqual(about('what does Sam say about faith'), 'Asking about Sam interview on the theme “Faith” · “what does Sam say about faith”');
   assert.strictEqual(about('who is Max?'), 'About Max · “who is Max?”');
   assert.strictEqual(about('Ruth and Sam on family'), 'Asking about Ruth Cohen and Sam interviews on the theme “Family” · “Ruth and Sam on family”');
   assert.strictEqual(about('a two minute film for the donors that ends on a hopeful note about the future of the street and the bakery'), '“a two minute film for the donors that ends on a hopeful note about…”');
+  assert.strictEqual(about('Where did Rishi grow up?'), 'Asking about Interview Rishi · “Where did Rishi grow up?”');
   assert.strictEqual(about(''), '');
 });

@@ -712,7 +712,8 @@
       for (const id of g.lineIds) {
         const l = lineById.get(id);
         if (!l || seen.has(id)) continue;
-        if (r.noInterviewer && isInterviewer(l)) { dropped++; continue; }
+        // a group of lines picked for who says them (Moments: the crew, a second voice) keeps them all
+        if (r.noInterviewer && !g.anyVoice && isInterviewer(l)) { dropped++; continue; }
         const t = clipOfLine.get(id), ls = t.lines, i = linesIndex.has(id) ? linesIndex.get(id) : ls.indexOf(l);
         // a neighbour that can join: same speaker, and close to the line it joins (j: the line already in the bite)
         const joins = (k, j) => k >= 0 && k < ls.length && ls[k].speaker === l.speaker && Math.abs(k < j ? ls[j].start - ls[k].end : ls[k].start - ls[j].end) < 4;
@@ -1645,7 +1646,7 @@
     for (const ty of MO().ORDER) {
       const ms = list.filter(m => m.type === ty && lineById.has(m.lineId));
       if (!ms.length) continue;
-      groups.push({ name: T5[ty].plural, label: T5[ty].label, lineIds: ms.map(m => m.lineId), pinned: new Set(), ideas: [], trims: {},
+      groups.push({ name: T5[ty].plural, label: T5[ty].label, lineIds: ms.map(m => m.lineId), pinned: new Set(), ideas: [], trims: {}, anyVoice: true,
         lineMarks: labels ? Object.fromEntries(ms.map(m => [m.lineId, { name: `${T5[ty].name}${m.reasons && m.reasons[0] ? ' – ' + m.reasons[0].replace(/\s*\(.*$/, '') : ''}`.slice(0, 60), comment: (m.reasons || []).join(' · ') }])) : null });
     }
     if (!groups.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no moments to build.', action: 'Find moments first, or choose another type.' });
@@ -4097,7 +4098,7 @@
     describe: 'Finds short clips that stand on their own in the interviews (or the lines heard in a timeline, e.g. a podcast episode) – each with a hook, title, scores and why it works. Only line text is sent to the AI. Build them in Story › Build › Clips for social (each its own sequence, with a vertical version and captions).',
     params: { source: { type: 'enum', options: ['interviews', 'timeline'], default: 'interviews', desc: 'From the interviews in scope, or a timeline' }, seqId: { type: 'string', default: '', desc: 'The timeline when source is timeline (empty = the open one)' }, length: { type: 'enum', options: ['short', 'standard', 'long'], default: 'standard', desc: '15–30, 30–60 or 60–90 seconds' }, count: { type: 'number', default: 8, desc: 'How many clips' }, brief: { type: 'string', default: '', desc: 'What the clips are for' } },
     examples: ['find clips for TikTok', 'find 5 short clips from this podcast episode', 'find social clips about family'],
-    match: t => (/\b(clips?|shorts|reels?|tiktoks?)\b/i.test(t) && /\b(find|social|tiktok|reels?|shorts|instagram|linkedin|viral)\b/i.test(t) && !/\bsub-?clips?\b/i.test(t) ? Object.assign({ _score: 2.3 }, /podcast|episode|this (sequence|timeline|cut)/i.test(t) ? { source: 'timeline' } : {}, /\bshort\b/i.test(t) ? { length: 'short' } : {}) : null),
+    match: t => (/\b(clips?|shorts|reels?|tiktoks?)\b/i.test(t) && /\b(find|social|tiktok|reels?|shorts|instagram|linkedin|viral)\b/i.test(t) && !/\bsub-?clips?\b/i.test(t) && !/\b(safe[- ]?zones?|guides?|letterbox|overlays?)\b/i.test(t) ? Object.assign({ _score: 2.3 }, /podcast|episode|this (sequence|timeline|cut)/i.test(t) ? { source: 'timeline' } : {}, /\bshort\b/i.test(t) ? { length: 'short' } : {}) : null),
     run: async (p, job) => {
       const L = { short: [15, 30], standard: [30, 60], long: [60, 90] }[p.length] || [30, 60];
       const seqId = p.source === 'timeline' ? (p.seqId || (US.ctx.sequence && US.ctx.sequence.id) || '') : '';

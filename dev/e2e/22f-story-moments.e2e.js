@@ -84,11 +84,12 @@ try {
   T.assert(info3.markers.length === 0 && info3.video[0].clips.length === 1, 'markers removed, the interview untouched');
   // the AI route: only the text around each moment is sent
   let sent = '';
-  US.ai = { available: () => true, label: () => 'Claude', provider: () => 'claude', json: async req => { sent += [].concat(req.user).map(b => (typeof b === 'string' ? b : b.text)).join('\n'); return { moments: Array.from(req.user[0].text.matchAll(/^(\S+)\t/gm)).map(x => ({ lineId: x[1], type: /taxi/.test(L.find(l => l.id === x[1]) ? L.find(l => l.id === x[1]).text : '') ? 'funny' : 'none', reason: 'Lily interrupts', score: 0.9 })) }; } };
+  US.ai = Object.assign({}, realAI, { available: () => true, label: () => 'Claude', provider: () => 'claude', json: async req => { sent += [].concat(req.user).map(b => (typeof b === 'string' ? b : b.text)).join('\n'); return { moments: Array.from(req.user[0].text.matchAll(/^(\S+)\t/gm)).map(x => ({ lineId: x[1], type: /taxi/.test(L.find(l => l.id === x[1]) ? L.find(l => l.id === x[1]).text : '') ? 'funny' : 'none', reason: 'Lily interrupts', score: 0.9 })) }; } });
   const ai = await T.action('story.moments', { type: 'all', useAI: true });
   US.ai = realAI;
   const aiMine = ai.moments.filter(m => L.some(l => l.id === m.lineId));
-  T.assert(!/\.mp4|\/Users\//.test(sent) && / \|\| /.test(sent), 'text with context only');
+  // (since 1.3.5 the lines go as the shared transcript listing – id, time, speaker, text – not file names or paths)
+T.assert(!/\.mp4|\.m4a|\/Users\/|\/Volumes\//.test(sent) && /^\S+\t/m.test(sent), 'line text only: ' + sent.slice(0, 200));
   T.assert(aiMine.length === 1 && aiMine[0].type === 'funny' && aiMine[0].by === 'ai' && aiMine[0].reasons[0] === 'Lily interrupts', 'AI classification applied: ' + JSON.stringify(aiMine));
   return { moments: mine.length, marked: info.markers.length, types: M.counts(mine) };
 } finally {

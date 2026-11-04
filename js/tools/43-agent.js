@@ -177,7 +177,16 @@
       job.check();
       if (s.steps - startSteps >= maxSteps) { onEvent({ type: 'warn', text: `Stopped after ${maxSteps} steps – the most for one go. Ask it to carry on if you want more.` }); break; }
       job.set({ who: 'ai', msg: `${US.ai.label()} is deciding the next step` });
-      const r = await US.ai.json({ system, user: [{ text: s.context, cache: '1h' }, s.first], turns: compact(s.turns), schema: STEP_SCHEMA, maxTokens: 5000, effort: 'medium', feature: 'Agent' });
+      let r;
+      try { r = await US.ai.json({ system, user: [{ text: s.context, cache: '1h' }, s.first], turns: compact(s.turns), schema: STEP_SCHEMA, maxTokens: 5000, effort: 'medium', feature: 'Agent' }); }
+      catch (e) {
+        // the AI couldn't be asked (the spending limit, the monthly cap, no connection): stop here, keeping what was made
+        if (e instanceof US.UserError && (e.code === 'CANCELLED' || e.code === 'STOPPED')) throw e;
+        const x = US.errors && US.errors.explain ? US.errors.explain(e) : { title: String(e && e.message || e), action: '' };
+        onEvent({ type: 'warn', text: /limit/i.test(x.title) ? `Stopped at the spending limit after ${US.plural(s.steps - startSteps, 'step')} – what it made so far is kept. Raise the limit and press Carry on to let it finish.` : `Stopped: ${x.title} ${x.action || ''}`.trim() });
+        s.pendingResult = 'You were stopped before your next step (' + x.title + '). Carry on from where you were.';
+        break;
+      }
       s.last = JSON.stringify(r || {});
       const st = parseStep(r);
       s.steps++;

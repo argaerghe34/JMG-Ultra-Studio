@@ -289,37 +289,6 @@
         : h('div.spinner'))));
   }
 
-  /* ---------- ` maximises the panel, like Premiere's own panels (Mac) ----------
-     Premiere doesn't get the keys typed into an add-on panel on the Mac, so ` would do nothing here. The panel chooses
-     Premiere's own Window › Maximize Frame (Restore Frame Size when it's maximised) through macOS instead – the same as
-     ` does. macOS asks once to let Premiere control the computer (Accessibility); without it, a note says where to allow it. */
-  const MAXIMISE = `tell application "System Events"
-  set p to first application process whose name starts with "Adobe Premiere Pro"
-  set its_items to (menu items of menu "Window" of menu bar 1 of p whose name starts with "Maximize" or name starts with "Maximise" or name starts with "Restore Frame")
-  if (count of its_items) is 0 then error "no Maximize Frame item"
-  click item 1 of its_items
-end tell`;
-  let maxBusy = false, maxWarned = false;
-  /** Whether a key press is the ` that maximises (not while typing in a box, nor with ⌘/Ctrl/⌥). */
-  const isMaximiseKey = e => (e.code === 'Backquote' || e.key === '`') && !e.metaKey && !e.ctrlKey && !e.altKey &&
-    !(e.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable));
-  function maximiseFrame() {
-    if (maxBusy) return;
-    maxBusy = true;
-    require('child_process').execFile('osascript', ['-e', MAXIMISE], { timeout: 5000 }, err => {
-      maxBusy = false;
-      if (!err) return;
-      US.log('warn', 'Couldn’t maximise the panel with `', String(err.message || err));
-      if (maxWarned) return; maxWarned = true;
-      const denied = /not allowed|assistive|-1719|-25211|1002|-1743/i.test(String(err.message));
-      US.ui.toast({ type: 'info', title: denied ? 'Let Premiere maximise the panel' : 'Couldn’t maximise the panel', text: denied ? 'In System Settings › Privacy & Security › Accessibility, switch on Adobe Premiere Pro, then press ` again. (Or use Window › Maximize Frame.)' : 'Use Window › Maximize Frame in Premiere instead.', timeout: 12000 });
-    });
-  }
-  if (!US.fsx.isWin && !US.app.is('resolve') && typeof document !== 'undefined' && document.addEventListener) {
-    document.addEventListener('keydown', e => { if (isMaximiseKey(e)) { e.preventDefault(); maximiseFrame(); } }, true);
-  }
-  US.maximise = { isKey: isMaximiseKey, frame: maximiseFrame, SCRIPT: MAXIMISE };
-
   async function boot() {
     applySkin();
     try { window.__adobe_cep__.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applySkin); } catch (e) { /* older CEP, or Resolve */ }
