@@ -11,6 +11,27 @@ if not exist "%SRC%\CSXS\manifest.xml" (
   echo Unzip the whole download first ^(right-click the zip, Extract All^), then run this again.
   pause & exit /b 1
 )
+:inplace
+rem An update while Premiere is open: only the panel's files change, so they're replaced where they are and the panel's
+rem Reload button picks them up. If the manifest changed (anything but the version), Premiere has to be quit after all.
+tasklist /FI "IMAGENAME eq Adobe Premiere Pro.exe" 2>nul | find /I "Adobe Premiere Pro.exe" >nul
+if errorlevel 1 goto waitppro
+if not exist "%DEST%\CSXS\manifest.xml" goto waitppro
+powershell -NoProfile -Command "$a=(Get-Content -Raw '%SRC%\CSXS\manifest.xml') -replace 'Version=\"[^\"]*\"',''; $b=(Get-Content -Raw '%DEST%\CSXS\manifest.xml') -replace 'Version=\"[^\"]*\"',''; if ($a -eq $b) { exit 0 } else { exit 1 }"
+if errorlevel 1 goto waitppro
+robocopy "%SRC%" "%DEST%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 (
+  echo Couldn't update in place - quit Premiere and run this again.
+  goto waitppro
+)
+del /S /Q /F "%DEST%\._*" >nul 2>&1
+echo.
+echo JMG Ultra Studio is installed ^(updated while Premiere is open^).
+echo.
+echo Next: in the panel, press the Reload button in the top bar - no need to quit Premiere.
+echo.
+pause
+exit /b 0
 :waitppro
 tasklist /FI "IMAGENAME eq Adobe Premiere Pro.exe" 2>nul | find /I "Adobe Premiere Pro.exe" >nul
 if not errorlevel 1 (

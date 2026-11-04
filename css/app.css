@@ -330,3 +330,37 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 .sent-about { font-style: italic; color: var(--text-2); }
 .sent-group > .sent-about { margin: -4px 0 4px 26px; }
 .wiki-about { font-style: italic; }
+
+/* ---------- the panel at any size ----------
+   The panel is the whole window, so its width is the viewport's (Premiere's Chrome 99 has no container queries).
+   Narrow: the top bar gives way first (version, then the name, then the project chip), the rail and padding tighten,
+   rows of fields stack. Wide: the reading width grows so grids get more columns instead of a wide empty margin. */
+.header { min-width: 0; }
+.brand { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.brand-name { overflow: hidden; text-overflow: ellipsis; }
+.ai-chip { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }   /* keeps its few words; the project and sequence chips give way first */
+.header .icon-btn { flex: none; }
+.mono, .field-hint, .list-sub { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .brand-name small, .unpublished-tag { display: none; }
+  .header { gap: 6px; padding: 6px 8px; }
+}
+@media (max-width: 460px) {
+  .brand-name { display: none; }
+  .ai-chip { max-width: 110px; }
+  .ctx-chip svg { display: none; }
+  .tool { padding: 12px 10px 36px; gap: 12px; }
+}
+@media (max-width: 380px) {
+  .ctx-chip:first-child { display: none; }
+  .main { grid-template-columns: 46px minmax(0, 1fr); }
+  .rail-btn { font-size: 8.5px; }
+  .status { padding: 5px 8px; gap: 6px; }
+  .status-right { font-size: 10.5px; }
+}
+@media (max-height: 520px) {
+  .rail-btn { padding: 5px 0 3px; gap: 1px; }
+  .rail-btn span { display: none; }
+}
+@media (min-width: 1100px) { .tool { max-width: 1040px; } }
+@media (min-width: 1500px) { .tool { max-width: 1280px; } }

@@ -1,3 +1,8 @@
+## What's new in 1.3.28.6
+
+- **Fits any panel size.** Narrow panels: the top bar gives way bit by bit (version, then the name, then the project) instead of running off the edge, the rail and spacing tighten, and rows of fields stack. Short panels: the rail drops its labels. Wide panels: tools use the extra width (more columns) instead of a narrow column.
+- **Updating without quitting Premiere.** The installer now updates the panel in place while Premiere is open – then press ↻ in the panel's top bar. (It only asks you to quit Premiere when the panel's set-up file itself changed.)
+
 ## What's new in 1.3.28.5
 
 - **What was sent to AI is tidier** (Settings): one row per thing you did – an Agent run, a wiki, Find themes in batches – with how many requests, the cost and when; click it to open the requests underneath, and a request to read exactly what was sent.

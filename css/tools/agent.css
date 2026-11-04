@@ -13,3 +13,5 @@
 .agent-plan-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
 .agent-seqs { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .bubble.agent-about { background: transparent; border: none; padding: 0 4px; color: var(--text-2); font-size: 12px; font-style: italic; }
+.agent-limits select.input { width: auto; flex: 0 0 auto; }
+@media (max-width: 460px) { .agent-limits > .grow { flex-basis: 100%; height: 0; } .agent-limits > .btn { margin-left: auto; } }

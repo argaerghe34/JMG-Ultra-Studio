@@ -267,3 +267,15 @@
 .proof-person { display: grid; grid-template-columns: auto minmax(110px, 1fr) minmax(110px, 1.3fr) auto auto; gap: 6px; align-items: center; font-size: 12px; }
 .proof-person.off .proof-person-name, .proof-person.off .proof-person-title { opacity: 0.5; }
 .proof-person .field-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+
+/* narrow panels: rows of several fields stack */
+@media (max-width: 520px) {
+  .glossary-row { grid-template-columns: 1fr 1fr; }
+  .glossary-row > :nth-child(n+3) { grid-column: auto; }
+  .proof-person { grid-template-columns: auto 1fr; }
+  .proof-person > .proof-person-title, .proof-person > .chip, .proof-person > .field-hint { grid-column: 2; }
+  .proof-right { width: 100%; }
+  .proof-group > .row:first-child { flex-wrap: wrap; }
+  .heat-row { grid-template-columns: 80px 1fr 40px; }
+  .story-tl-row { grid-template-columns: 64px 1fr; }
+}

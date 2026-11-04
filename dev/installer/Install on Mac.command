@@ -15,6 +15,22 @@ fi
 # the app itself: its own program inside the .app (macOS shortens process names, and Premiere's many helper
 # programs live in the same folder, so match the full path of the main one)
 ppro_running() { ps -axo comm= | grep -Eq '/Contents/MacOS/Adobe Premiere Pro( [0-9]{4})?$'; }
+# an update while Premiere is open: only the panel's files change, so they're replaced where they are and the panel's
+# ↻ (Reload) picks them up – no need to quit. Premiere reads the manifest only when it starts, so if that changed
+# (anything but the version number), Premiere has to be quit after all.
+same_manifest() { diff -q <(sed -E 's/Version="[^"]*"//g' "$SRC/CSXS/manifest.xml") <(sed -E 's/Version="[^"]*"//g' "$DEST/CSXS/manifest.xml") >/dev/null 2>&1; }
+if ppro_running && [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -f "$DEST/CSXS/manifest.xml" ] && same_manifest; then
+  if rsync -a --delete "$SRC/" "$DEST/"; then
+    xattr -dr com.apple.quarantine "$DEST" 2>/dev/null
+    VER=$(grep -o 'ExtensionBundleVersion="[^"]*"' "$DEST/CSXS/manifest.xml" | cut -d'"' -f2)
+    echo "✓ JMG Ultra Studio $VER is installed (updated while Premiere is open)."
+    echo
+    echo "Next: in the panel, press ↻ (Reload) in the top bar – no need to quit Premiere."
+    echo
+    read -n 1 -s -r -p "Press any key to close."; exit 0
+  fi
+  echo "Couldn't update in place – quit Premiere and the installer will finish."
+fi
 if ppro_running; then
   echo "Premiere Pro is open. Please save your work and quit Premiere, then press any key."
   read -n 1 -s -r
