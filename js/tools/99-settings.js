@@ -146,6 +146,8 @@
           ], { open: true })),
         sentCard(),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
+        US.app.is('resolve') ? null : ui.card(h('div.card-title', 'Listening to sound'),
+          ui.toggle({ label: 'Render sound in the background (Media Encoder)', value: US.settings.get('audio.background', true) !== false, onChange: x => US.settings.set('audio.background', !!x), hint: 'When a tool needs to hear a clip or sequence that isn’t a plain WAV – Tell the voices apart, Silence Cut, Beat Cut, Song Splitter, Podcast – Media Encoder renders its sound while you carry on editing in Premiere. Off (or if Media Encoder isn’t there): Premiere renders it itself, and is busy until it’s done.' })),
         ui.card(h('div.card-title', 'Markers'),
           ui.field('Markers go on', ui.segmented({ options: [{ value: 'sequence', label: 'Timeline' }, { value: 'clips', label: 'Clips' }, { value: 'both', label: 'Both' }], value: US.settings.get('markers.where', 'sequence'), onChange: x => US.settings.set('markers.where', x) }),
             'For every tool that marks a sequence (Story, Selects, Beats, Songs, Silence Cut, Final Check, Deliver notes). Clips: each marker goes on the source clip under it, so it shows wherever that clip is used. A marker with no clip under it stays on the timeline. Remove buttons take them off either way.')),

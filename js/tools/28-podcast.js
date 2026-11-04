@@ -160,8 +160,8 @@
     for (let k = 0; k < mics.length; k++) {
       job.check();
       const out = require('path').join(US.fsx.tempDir(), `pod-${US.fsx.hash(target.id + '|' + mics[k].track + '|' + Date.now())}.wav`);
-      job.range(k / mics.length, (k + 1) / mics.length).set({ who: 'premiere', msg: `Rendering mic ${k + 1} of ${mics.length} (${mics[k].name}) on its own` });
-      await kit().retry(() => US.host.call('renderAudio', { seqId: target.id, out, soloAudio: mics[k].track }), job);
+      job.range(k / mics.length, (k + 1) / mics.length);
+      await US.audio.render({ seqId: target.id, out, soloAudio: mics[k].track }, { job, name: `mic ${k + 1} of ${mics.length} (${mics[k].name}) on its own` });
       const a = await US.audio.readWav(out, { targetRate: 16000, check: () => job.check() });
       try { require('fs').unlinkSync(out); } catch (e) { /* temp */ }
       envs.push(US.audio.envelope(a.data, a.sr, 0.02).db);

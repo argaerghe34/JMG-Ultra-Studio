@@ -745,6 +745,31 @@ var UStudio = (function () {
         return id;
     };
     fn.startEncoderBatch = function () { app.encoder.startBatch(); return true; };
+    /**
+     * Queue the sound of a clip or a sequence in Media Encoder, so Premiere stays free while it renders (the panel follows
+     * the job's events). a: {id | seqId, out, preset, soloAudio?: track index heard alone}. A clip renders between its
+     * In and Out (all of it when none are set). Muting for soloAudio is undone straight after queueing – Media Encoder
+     * takes its own copy of the project when the job is queued. -> job id
+     */
+    fn.queueAudioExport = function (a) {
+        var preset = a.preset || findPreset('Settings/EncoderPresets/WAV_Mono_16bit_16kHz.epr');
+        if (!preset) throw err('PRESET_MISSING', 'WAV_Mono_16bit_16kHz.epr not found under ' + app.path);
+        var f = new File(a.out); if (f.exists) f.remove();
+        app.encoder.launchEncoder();
+        if (!a.seqId) {
+            var it = needItem(a.id);
+            try { if (it.isOffline()) throw err('OFFLINE', it.getMediaPath()); } catch (e) { if (e.usCode) throw e; }
+            return app.encoder.encodeProjectItem(it, a.out, preset, 1 /* in to out */, 1);
+        }
+        var seq = needSeq(a.seqId), was = null, id;
+        if (a.soloAudio != null) {
+            was = [];
+            for (var t = 0; t < seq.audioTracks.numTracks; t++) { var m = false; try { m = seq.audioTracks[t].isMuted(); } catch (e) { } was.push(m); seq.audioTracks[t].setMute(t === a.soloAudio ? 0 : 1); }
+        }
+        try { id = app.encoder.encodeSequence(seq, a.out, preset, 0 /* entire */, 1); }
+        finally { if (was) for (var k = 0; k < was.length; k++) { try { seq.audioTracks[k].setMute(was[k] ? 1 : 0); } catch (e) { } } }
+        return id;
+    };
 
     fn.autoReframe = function (a) {
         var seq = needSeq(a.seqId);

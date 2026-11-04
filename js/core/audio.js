@@ -1,6 +1,8 @@
 /* JMG Ultra Studio – getting sound out of Premiere for analysis.
-   WAV files are read straight from disk; anything else (MP4, MOV, MXF, merged clips, sequences…) is rendered by
-   Premiere itself to a small 16 kHz mono WAV, so every format Premiere can play works. */
+   WAV files are read straight from disk; anything else (MP4, MOV, MXF, merged clips, sequences…) is rendered to a small
+   16 kHz mono WAV, so every format Premiere can play works. In Premiere that render runs in Media Encoder, in the
+   background – Premiere stays free to edit in – and only if Media Encoder can't is Premiere asked to render it itself
+   (which keeps Premiere busy until it's done). Resolve renders through its own Render Queue. */
 (function () {
   'use strict';
   const US = window.US;
@@ -98,6 +100,34 @@
   }
 
   /**
+   * Render sound to a WAV file, in the background where possible. a: {id | seqId, out, soloAudio?}; name: for the status
+   * bar. -> {background: true when Media Encoder did it}
+   */
+  async function render(a, { job, name = '' } = {}) {
+    // a: {id | seqId, out, soloAudio?, preset?} – preset: a WAV preset of the caller's (e.g. stereo 48 kHz for loudness)
+    const premiere = !(US.app && US.app.is && US.app.is('resolve'));
+    if (premiere && US.encoder && US.settings.get('audio.background', true) !== false) {
+      try {
+        let preset = a.preset || '';
+        if (!preset) { try { const p = await US.host.call('presets'); preset = (p && p.wav16k) || ''; } catch (e) { /* Media Encoder's own WAV preset below */ } }
+        if (!preset) { try { preset = ((await US.host.call('encoderPresets')) || {}).wav || ''; } catch (e) { /* none */ } }
+        if (preset) {
+          const [t] = await US.encoder.run([{ audio: true, itemId: a.id, seqId: a.seqId, soloAudio: a.soloAudio, out: a.out, preset, overwrite: true, name }], job, { label: `Media Encoder is rendering the sound${name ? ' of ' + name : ''} in the background`, keepProgress: true, quietMinutes: 10 });
+          if (t && t.ok && US.fsx.exists(a.out) && US.fsx.size(a.out) > 44) return { background: true };
+          US.log('warn', 'Media Encoder didn’t render the sound – Premiere renders it instead', (t && t.error) || 'no file');
+        }
+      } catch (e) {
+        if (e && e.code === 'CANCELLED') throw e;
+        US.log('warn', 'Media Encoder couldn’t render the sound – Premiere renders it instead', String(e && (e.detail || e.title || e.message) || e));
+      }
+    }
+    job && job.set({ who: 'premiere', msg: premiere ? `Premiere is rendering the sound${name ? ' of ' + name : ''} (Media Encoder wasn’t available)` : `Resolve is rendering the sound${name ? ' of ' + name : ''}` });
+    const b = Object.assign({}, a); delete b.background;
+    await retry(() => US.host.call('renderAudio', b), job);
+    return { background: false };
+  }
+
+  /**
    * Mono audio for a project item ({id, path, name, offline}). Uses the WAV directly when possible,
    * otherwise asks Premiere to render it. Premiere renders a clip between its In and Out points (or a subclip's
    * range), so the result carries `offset`: where in the source file the analysed sound starts.
@@ -111,20 +141,19 @@
       return Object.assign(await readWav(item.path, { targetRate, check: job && (() => job.check()) }), { offset: 0 });
     }
     const out = path.join(US.fsx.tempDir(), `aud-${US.fsx.hash((item.path || item.id) + '|' + US.fsx.mediaKey(item.path || '') + '|' + range['in'] + '|' + range.out)}.wav`);
-    if (!US.fsx.exists(out) || US.fsx.size(out) < 100) {
-      job && job.set({ who: 'premiere', msg: `Premiere is rendering the sound of ${item.name}` });
-      await retry(() => US.host.call('renderAudio', { id: item.id, out }), job);
-    }
+    if (!US.fsx.exists(out) || US.fsx.size(out) < 100) await render({ id: item.id, out }, { job, name: item.name });
     job && job.set({ who: 'computer', msg: `Reading the sound of ${item.name}` });
-    const offset = range['in'] > 0.001 ? range['in'] : 0;
-    return Object.assign(await readWav(out, { targetRate, check: job && (() => job.check()) }), { offset, partial: offset > 0 || (range.duration && range.out < range.duration - 0.05) });
+    const r = await readWav(out, { targetRate, check: job && (() => job.check()) });
+    // between In and Out, as asked – unless the whole clip came back (then the sound starts at the clip's start)
+    const want = range.out - range['in'], whole = range.duration && Math.abs(r.duration - range.duration) < 0.5 && Math.abs(want - range.duration) > 0.5;
+    const offset = !whole && range['in'] > 0.001 ? range['in'] : 0;
+    return Object.assign(r, { offset, partial: !whole && (offset > 0 || (range.duration && range.out < range.duration - 0.05)) });
   }
 
   /** Mono audio for a whole sequence (always re-rendered: sequences change). */
   async function forSequence(seqId, { job, targetRate = 16000, label = 'the sequence' } = {}) {
     const out = path.join(US.fsx.tempDir(), `seq-${US.fsx.hash(seqId)}-${Date.now()}.wav`);
-    job && job.set({ who: 'premiere', msg: `Premiere is rendering the sound of ${label}` });
-    await retry(() => US.host.call('renderAudio', { seqId, out }), job);
+    await render({ seqId, out }, { job, name: label });
     job && job.set({ who: 'computer', msg: `Reading the sound of ${label}` });
     const r = await readWav(out, { targetRate, check: job && (() => job.check()) });
     try { fs.unlinkSync(out); } catch (e) { /* ignore */ }
@@ -151,5 +180,5 @@
     return out;
   }
 
-  US.audio = { readWav, wavInfo, isPlainWav, forItem, forSequence, envelope, peaks, retry };
+  US.audio = { readWav, wavInfo, isPlainWav, forItem, forSequence, render, envelope, peaks, retry };
 })();

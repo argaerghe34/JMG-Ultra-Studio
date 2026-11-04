@@ -60,15 +60,14 @@
       const a = await US.audio.readWav(it.path, { targetRate: 16000, onProgress: f => job && job.progress(f * 0.3), check: job && (() => job.check()) });
       return Object.assign(a, { offset: 0 });
     }
-    const offset = range['in'] > 0.001 ? range['in'] : 0;
     const out = path.join(US.fsx.tempDir(), `snd-${US.fsx.hash(it.path + '|' + US.fsx.mediaKey(it.path || '') + '|' + range['in'] + '|' + range.out)}.wav`);
-    if (!US.fsx.exists(out) || US.fsx.size(out) < 100) {
-      job && job.set({ who: 'premiere', msg: `Premiere is rendering the sound of ${it.name}` });
-      await kit.retry(() => US.host.call('renderAudio', { id: it.id, out }), job);
-    }
+    if (!US.fsx.exists(out) || US.fsx.size(out) < 100) await US.audio.render({ id: it.id, out }, { job, name: it.name });   // in the background (Media Encoder)
     job && job.set({ who: 'computer', msg: `Reading the sound of ${it.name}` });
     const a = await US.audio.readWav(out, { targetRate: 16000, check: job && (() => job.check()) });
-    return Object.assign(a, { offset, partial: offset > 0 || range.out < range.duration - 0.05 });
+    // between In and Out – unless the whole clip came back
+    const whole = range.duration && Math.abs(a.duration - range.duration) < 0.5 && Math.abs(range.out - range['in'] - range.duration) > 0.5;
+    const offset = !whole && range['in'] > 0.001 ? range['in'] : 0;
+    return Object.assign(a, { offset, partial: !whole && (offset > 0 || range.out < range.duration - 0.05) });
   };
 
   /** Jump Premiere to a time: the playhead for sequences, the Source Monitor for clips. */
@@ -142,8 +141,7 @@
   kit.measure = async function (target, job, { from = 0, to = 1 } = {}) {
     const preset = await kit.stereoPreset();
     const out = path.join(US.fsx.tempDir(), `measure-${US.fsx.hash(target.id)}-${Date.now()}.wav`);
-    job.set({ who: 'premiere', msg: `Premiere is rendering the sound of “${target.name}”` });
-    await kit.retry(() => US.host.call('renderAudio', target.kind === 'sequence' ? { seqId: target.id, out, preset: preset.path } : { id: target.id, out, preset: preset.path }), job);
+    await US.audio.render(target.kind === 'sequence' ? { seqId: target.id, out, preset: preset.path } : { id: target.id, out, preset: preset.path }, { job, name: `“${target.name}”` });
     job.set({ who: 'computer', msg: `Measuring “${target.name}”` });
     const fd = fs.openSync(out, 'r');
     try {

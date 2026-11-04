@@ -1,3 +1,7 @@
+## What's new in 1.3.28.3
+
+- **Listening happens in the background.** When a tool needs to hear a clip or sequence that isn't a plain WAV – Tell the voices apart, Silence Cut, Beat Cut, Song Splitter, Podcast, Home's check – its sound is now rendered by Media Encoder while you carry on editing, instead of Premiere showing an “Exporting” box and making a temporary sequence. Only if Media Encoder can't does Premiere render it itself. Switch: Settings › Listening to sound.
+
 ## What's new in 1.3.28.2
 
 - **Check the words** (Story › 1 Interviews): finds words the transcription probably got wrong – mis-heard names, places and short forms (*FTL* or *FJell* for *FJL*), letters said one by one, odd capitals, names spelt two ways – with the AI's look too if you like (only the unusual words are sent). Play each line, untick the ones that are right, type the correction: it keeps every word's timing. Then **Update Premiere's transcripts** puts the corrections back into Premiere, still in sync with the footage.

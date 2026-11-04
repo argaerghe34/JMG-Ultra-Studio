@@ -45,6 +45,8 @@
       const all = Array.from(byJob.values());
       const frac = all.reduce((s, x) => s + (x.progress || 0), 0) / tasks.length;
       const cur = all.find(x => !x.done);
+      // keepProgress: the caller's own progress bar stays as it is (a sound render inside a bigger job) – only the words change
+      if (opts.keepProgress) { job.set({ who: 'encoder', msg: cur ? `${label}${cur.name ? ' · ' + cur.name : ''}${cur.progress ? ` (${Math.round(cur.progress * 100)}%)` : ''}` : 'Finishing' }); return; }
       job.set({ who: 'encoder' }).progress(from + (to - from) * frac, cur ? `${label} ${state.done + 1} of ${tasks.length} · ${cur.name || path.basename(cur.out)}` : 'Finishing');
     };
     const onEvent = d => {
@@ -58,7 +60,7 @@
     };
     listeners.add(onEvent);
     try {
-      job.set({ who: 'encoder', msg: 'Starting Media Encoder (it opens in its own window)' });
+      job.set({ who: 'encoder', msg: opts.keepProgress ? `${label} – starting Media Encoder` : 'Starting Media Encoder (it opens in its own window)' });
       for (const t of tasks) {
         job.check();
         const id = await queue(t);
@@ -85,7 +87,9 @@
     if (!t.overwrite) t.out = unique(t.out);
     else { try { require('fs').unlinkSync(t.out); } catch (e) { /* not there */ } }
     US.fsx.ensureDir(path.dirname(t.out));
-    let id = t.range
+    let id = t.audio
+      ? await US.host.call('queueAudioExport', { id: t.itemId, seqId: t.seqId, out: t.out, preset: t.preset, soloAudio: t.soloAudio })
+      : t.range
       ? await US.host.call('queueRangeExport', { seqId: t.seqId, out: t.out, preset: t.preset, start: t.range.start, end: t.range.end })
       : t.seqId
         ? await US.host.call('queueExport', { seqId: t.seqId, out: t.out, preset: t.preset, workArea: 0 })
