@@ -1,4 +1,4 @@
-// premiere-only
+// both editors (Mac: the interviews from 50-voices-names-proof)
 // costs-ai – real Claude requests (about 20–60¢): run with `node dev/e2e/run.js 52-ai` or E2E_AI=1
 // The AI features in real Premiere, on the three interviews 50-voices-names-proof makes (run that first):
 //  1. names in the interviews suggested by the AI, with titles – FJL among them;

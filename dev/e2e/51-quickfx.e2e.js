@@ -1,4 +1,4 @@
-// premiere-only – transitions and effects (Resolve's moves are covered by 05-resolve-basics)
+// In Resolve: the moves and opacity work, and the buttons Resolve can't do (transitions, effects, speed) say so plainly
 // Quick effects in real Premiere: three clips in a fresh sequence; then, on every clip: a cross dissolve at the cuts
 // (read back from Premiere's Final Cut XML), a punch-in, black & white, half speed, a slow zoom, a sound fade and
 // louder sound. Each button's report must match what Premiere did.
@@ -11,6 +11,17 @@ await US.host.call('placeClips', { seqId: seq.id, cursor: 0, clips: items.map(it
 await T.open(seq.id);
 const p = id => Q.PRESETS.find(x => x.id === id) || (() => { throw new Error('no preset ' + id); })();
 const notes = [];
+if (US.app.is('resolve')) {
+  let refused = '';
+  try { await Q.apply(p('dissolve'), { scope: 'all', seconds: 0.5, where: 'cuts' }); } catch (e) { refused = e.title || e.message; }
+  T.assert(/Resolve doesn’t let add-ons/.test(refused), 'transitions refused plainly: ' + refused);
+  const r = await Q.apply(p('punch110'), { scope: 'all' });
+  notes.push('punch110: ' + r.summary, 'dissolve: ' + refused);
+  const info = await US.host.call('editRead', { seqId: seq.id });
+  T.assert(info.video[0].clips.every(c => Math.abs(c.scale - 110) < 0.6), 'every clip at 110% in Resolve: ' + info.video[0].clips.map(c => c.scale));
+  const h = await Q.apply(p('half'), { scope: 'all' }); notes.push('half: ' + h.summary);
+  return notes;
+}
 async function hit(id, opts = {}) {
   const r = await Q.apply(p(id), Object.assign({ scope: 'all', seconds: 0.5, where: 'cuts', ends: false }, opts));
   notes.push(`${id}: ${r.summary}`);

@@ -8,7 +8,10 @@ Tested end to end in real Premiere (a fresh run of every test, plus new ones for
 - **Moments:** a moment with a second voice (the crew, someone off camera) could be left out when built.
 - **Tell the voices apart** no longer joins two different interviewees with similar voices into one person; it offers *Same as…?* instead, and you choose. The interviewer is still joined across interviews by the questions.
 - **The Assistant:** *“safe zones for Reels”* went to Clips for social.
+- **Tell the voices apart:** a question the sound can't place for sure now goes to the interviewer (the voice asking the questions).
+- **Spending limits** (the Agent, Overnight prep) count what each AI request really cost, not its cautious estimate – the Agent was stopping after about 10 steps of a $1 limit having spent 12¢. When it does reach the limit, it now says so and keeps what it made.
 - The line on what a request is about now finds an interview by a name in its title (*Rishi* in “Interview Rishi”).
+- Also tested end to end in DaVinci Resolve Studio 21: every test passes, Quick effects' moves work and the buttons Resolve can't do say so.
 - The **\` key** to maximise the panel (1.3.28.7) is taken out: macOS couldn't do it reliably (it could hang for half a minute). Instead: click the panel's tab, then press \` with the mouse over the panel – or Window › Maximize Frame.
 
 ## What's new in 1.3.28.6

@@ -281,7 +281,12 @@
       const mine = voices.map(v => ({ v, m: v.members.find(m => m.iv === iv) })).filter(x => x.m);
       if (!mine.length) return;
       const got = assign(f.ps, mine.map(x => f.vs[x.m.j].centre));
-      for (const [id, a] of Object.entries(got)) lines[id] = { voice: mine[a.voice].v.key, sure: Math.round(a.sure * 100) / 100 };
+      const asker = mine.find(x => x.v.asks);
+      for (const [id, a] of Object.entries(got)) {
+        // a question the sound can't place (unsure) goes to the voice asking the questions in this interview
+        if (asker && f.ps[id] && f.ps[id].q && a.sure < 0.3 && mine[a.voice].v !== asker.v) { lines[id] = { voice: asker.v.key, sure: 0.3 }; continue; }
+        lines[id] = { voice: mine[a.voice].v.key, sure: Math.round(a.sure * 100) / 100 };
+      }
     });
     const ask = voices.find(v => v.asks);
     return { voices: voices.map(v => ({ key: v.key, asks: v.asks, centre: v.centre.map(x => Math.round(x * 1e4) / 1e4), interviews: v.interviews })), lines, scale: sc, interviewer: ask ? ask.key : null };

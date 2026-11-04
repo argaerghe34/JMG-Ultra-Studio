@@ -1,4 +1,4 @@
-// premiere-only – the interviews are made with the Mac's own voices (say) and AAC, so the sound comes through Media Encoder
+// Mac only (the interviews are made with the Mac's voices); in Premiere the sound comes through Media Encoder, in Resolve its Render Queue
 // Telling the voices apart, the names into Premiere's transcripts and Check the words, in real Premiere:
 //  1. three made-up interviews (with transcripts in Premiere's own JSON, as its Text panel exports them) (the same interviewer asking, a different person answering in each), as .m4a – not a
 //     plain WAV, so the panel has to have their sound rendered: by Media Encoder, in the background;
@@ -49,8 +49,8 @@ T.assert(items.every(Boolean), 'the interviews imported');
 
 const st = S.loadState(), saved = JSON.parse(JSON.stringify({ transcripts: st.transcripts, speakers: st.speakers, glossary: st.glossary, proof: st.proof, voiceID: st.voiceID, scope: st.scope }));
 // the sound of each: rendered by Media Encoder (watched), not by Premiere
-const runs = [], realRun = US.encoder.run;
-US.encoder.run = async (tasks, job, opts) => { runs.push(tasks.map(t => ({ audio: t.audio, item: t.itemId }))); return realRun(tasks, job, opts); };
+const runs = [], realRun = US.encoder && US.encoder.run;
+if (US.encoder) US.encoder.run = async (tasks, job, opts) => { runs.push(tasks.map(t => ({ audio: t.audio, item: t.itemId }))); return realRun(tasks, job, opts); };
 const cache = [], notes = []; const note = (...a) => notes.push(a.join(' '));
 try {
   st.transcripts = []; st.speakers = {}; st.glossary = []; st.proof = {}; delete st.voiceID; st.scope = { kind: 'all' };
@@ -68,7 +68,7 @@ try {
   const t0 = Date.now();
   const r = await V.listen(US.jobs.testJob('voices'));
   note('listen:', r.summary, `${Math.round((Date.now() - t0) / 1000)} s`, 'Media Encoder renders:', JSON.stringify(runs));
-  T.assert(runs.length === 3 && runs.every(x => x[0].audio), 'each interview’s sound rendered by Media Encoder (in the background): ' + JSON.stringify(runs));
+  if (!US.app.is('resolve')) T.assert(runs.length === 3 && runs.every(x => x[0].audio), 'each interview’s sound rendered by Media Encoder (in the background): ' + JSON.stringify(runs));
 
   // questions vs answers, in each; the interviewer the same voice across all three
   const all = S.state().transcripts;
@@ -78,6 +78,7 @@ try {
     if (truth === 'asker') askers.add(l.speaker); else { if (!answers.has(truth)) answers.set(truth, new Set()); answers.get(truth).add(l.speaker); }
   }));
   const asker = [...askers][0];
+  note('by line:', all.map((t, i) => `${t.name}: ` + t.lines.map(l => `${whoSays(i, l)[0]}=${l.speaker.replace('Voice ', 'V')}${l.voiceSure != null ? '(' + l.voiceSure.toFixed(2) + ')' : ''}`).join(' ')).join(' | '));
   all.forEach((t, i) => t.lines.forEach(l => { if ((whoSays(i, l) === 'asker') !== (l.speaker === asker)) wrong++; }));
   note('voices: askers', [...askers], 'answers', JSON.stringify([...answers].map(([w, s]) => [w, [...s]])), 'lines wrong', wrong);
   T.assert(askers.size === 1, 'the interviewer is one voice in every interview: ' + [...askers]);
@@ -116,7 +117,7 @@ try {
   T.assert(ex2.files.length === 1 && /FJL/.test(said) && !/FTL/.test(said), 'the corrected interview saved again for Premiere');
   note('saved for Premiere:', ex.files.map(f => path.basename(f.file)).join(', '), '→', out);
   return notes;
-} finally {
-  US.encoder.run = realRun;
+} catch (e) { throw new Error(e.message + '\n      NOTES: ' + notes.join('\n      ')); } finally {
+  if (US.encoder) US.encoder.run = realRun;
   const s = S.state(); Object.assign(s, saved); if (!saved.voiceID) delete s.voiceID; if (!saved.proof) delete s.proof; S.reindex(); S.save();
 }
