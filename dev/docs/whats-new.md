@@ -1,3 +1,7 @@
+## What's new in 1.3.28.7
+
+- **` maximises the panel (Mac)**, like Premiere's own panels: press it anywhere in Ultra Studio (not while typing in a box) and the panel fills Premiere's window; press it again to put it back. The first time, macOS may ask to let Premiere control the computer – allow it in System Settings › Privacy & Security › Accessibility.
+
 ## What's new in 1.3.28.6
 
 - **Fits any panel size.** Narrow panels: the top bar gives way bit by bit (version, then the name, then the project) instead of running off the edge, the rail and spacing tighten, and rows of fields stack. Short panels: the rail drops its labels. Wide panels: tools use the extra width (more columns) instead of a narrow column.
