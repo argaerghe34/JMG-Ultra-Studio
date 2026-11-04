@@ -32,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -102,6 +102,24 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     tool.onShow({ tab: 'transcripts', section: 'scope' }); await new Promise(r => setTimeout(r, 20));
     if (tool.el.querySelectorAll('.story-voice').length || !/Tell the voices apart/.test(tool.el.textContent)) errors.push('voices: undo left voices');
     checks.push(`voices: ${rows.length} rows, undo`);
+  }
+  // check the words: a mis-heard short form found, corrected in the ticked line only, then offered to go back into Premiere
+  {
+    const t0 = st.transcripts[0], l0 = t0.lines[0], l1 = t0.lines[1], was0 = l0.text, was1 = l1.text, wasG = st.glossary;
+    l0.text = 'We set up FJL with FJL money and FJL people.'; l1.text = 'The FTL crew came.'; S.reindex();
+    tool.onShow({ tab: 'transcripts', section: 'scope' }); await new Promise(r => setTimeout(r, 20));
+    if (!/Check the words/.test(tool.el.textContent)) errors.push('proof: no Check the words');
+    const findBtn = Array.from(tool.el.querySelectorAll('.btn')).find(b => b.textContent === 'Find likely mistakes');
+    findBtn.click(); await new Promise(r => setTimeout(r, 40));
+    const grp = Array.from(tool.el.querySelectorAll('.proof-group')).find(g => /FTL/.test(g.textContent));
+    if (!grp) errors.push('proof: FTL not found');
+    else {
+      Array.from(grp.querySelectorAll('.btn')).find(b => b.textContent === 'Correct the ticked ones').click(); await new Promise(r => setTimeout(r, 30));
+      if (S.lineOf(l1.id).text !== 'The FJL crew came.') errors.push('proof: not corrected – ' + S.lineOf(l1.id).text);
+      if (!/Update Premiere’s transcripts/.test(tool.el.textContent)) errors.push('proof: no Update Premiere’s transcripts');
+    }
+    st.glossary = wasG || []; US.storyGlossary.apply(st.transcripts.flatMap(t => t.lines), st.glossary); l0.text = was0; l1.text = was1; delete l0.orig; delete l1.orig; st.proof = {}; S.reindex();
+    checks.push('proof: FTL → FJL, update Premiere offered');
   }
   const some = Array.from(tool.el.querySelectorAll('[data-section="scope"] .seg')).find(b => /Some interviews/.test(b.textContent));
   some.click(); await new Promise(r => setTimeout(r, 20));

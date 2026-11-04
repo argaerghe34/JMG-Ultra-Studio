@@ -2369,6 +2369,7 @@
         el.appendChild(ui.stats(ui.stat(state.transcripts.length, one(state.transcripts.length, 'interview')), ui.stat(US.fmtDur(secs), 'of speech'), ui.stat(lines.length, one(lines.length, 'line')),
           named ? ui.stat(named, one(named, 'speaker')) : ui.stat('No', 'speaker names')));
         el.appendChild(scopeCard());
+        if (US.storyProof) el.appendChild(US.storyProof.card({ render }));
         el.appendChild(glossaryCard());
         // the technical part: which clip each transcript belongs to, and speaker names
         const unlinked = state.transcripts.filter(t => !(t.path || t.itemId));
@@ -2388,6 +2389,7 @@
             ui.input({ value: e.right, placeholder: 'Spelt like this', onInput: x => { e.right = x; store(); } }),
             ui.input({ value: e.heard, placeholder: 'Heard as (commas between)', onInput: x => { e.heard = x; store(); } }),
             h('label.glossary-hide', { title: 'Replaced by “[Name 1]” in everything sent to AI, and put back in its answers' }, h('input', { type: 'checkbox', checked: !!e.hide, onchange: ev => { e.hide = ev.target.checked; store(); } }), ' Keep out of AI'),
+            e.lines ? h('span.field-hint', { title: 'Corrected only where you ticked it in Check the words' }, `only ${US.plural(e.lines.length, 'line')}`) : null,
             h('button.btn.small.ghost', { title: 'Remove', onclick: () => { list.splice(i, 1); store(); draw(); } }, '×'))));
           if (!list.length) rows.appendChild(h('div.field-hint', 'No names yet. Add the ones the transcription gets wrong – people, places, brands, jargon.'));
         }

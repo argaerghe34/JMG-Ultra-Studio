@@ -16,13 +16,14 @@
     return (list || []).map(e => {
       const right = String(e.right || '').replace(/\s+/g, ' ').trim();
       const heard = (Array.isArray(e.heard) ? e.heard : String(e.heard || '').split(/[,;\n]/)).map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x && x !== right);   // a different case counts too: “jacob” → “Jacob”
-      return { right, heard: Array.from(new Set(heard)), hide: !!e.hide };
+      const lines = Array.isArray(e.lines) && e.lines.length ? Array.from(new Set(e.lines.map(String))) : null;   // only these lines (a word that's right elsewhere)
+      return Object.assign({ right, heard: Array.from(new Set(heard)), hide: !!e.hide }, lines ? { lines } : {});
     }).filter(e => e.right);
   }
   /** The spellings to replace, longest first so "Jacob Gersh" wins over "Jacob". */
   function rules(entries) {
     const out = [];
-    for (const e of clean(entries)) for (const h of e.heard) { const toks = split(h).map(bare).filter(Boolean); if (toks.length) out.push({ toks, right: e.right }); }
+    for (const e of clean(entries)) for (const h of e.heard) { const toks = split(h).map(bare).filter(Boolean); if (toks.length) out.push({ toks, right: e.right, lines: e.lines ? new Set(e.lines) : null }); }
     return out.sort((a, b) => b.toks.length - a.toks.length);
   }
   /**
@@ -55,7 +56,8 @@
     for (const l of lines || []) {
       const base = l.orig != null ? l.orig : l.text, baseW = l.orig != null ? l.origW : l.w;
       const words = T().lineWords(base), w = Array.isArray(baseW) && baseW.length === 2 * words.length ? baseW : null;
-      const r = rs.length ? fixWords(words, w, rs) : { changed: false }, before = l.text;
+      const mine = rs.filter(x => !x.lines || x.lines.has(String(l.id)));
+      const r = mine.length ? fixWords(words, w, mine) : { changed: false }, before = l.text;
       if (r.changed) {
         const text = r.words.join(' ');
         if (l.orig == null) { l.orig = l.text; if (l.w) l.origW = l.w; }

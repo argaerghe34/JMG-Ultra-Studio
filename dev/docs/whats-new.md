@@ -1,3 +1,8 @@
+## What's new in 1.3.28.2
+
+- **Check the words** (Story › 1 Interviews): finds words the transcription probably got wrong – mis-heard names, places and short forms (*FTL* or *FJell* for *FJL*), letters said one by one, odd capitals, names spelt two ways – with the AI's look too if you like (only the unusual words are sent). Play each line, untick the ones that are right, type the correction: it keeps every word's timing. Then **Update Premiere's transcripts** puts the corrections back into Premiere, still in sync with the footage.
+- Ask: *find words the transcript got wrong*.
+
 ## What's new in 1.3.28.1
 
 - **Speakers' names into Premiere's transcripts** (Story › 1 Interviews › Interviews and speakers): after telling the voices apart and naming them, one button saves every interview's transcript with the names, in Premiere's own format – bring each in from the Text panel › … › Import, and captions and Text-Based Editing show who's speaking. In Resolve: subtitles that start with the speaker's name.

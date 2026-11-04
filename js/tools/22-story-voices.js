@@ -445,11 +445,11 @@
     return US.fsx.ensureDir(proj ? path.join(path.dirname(proj), 'JMG Ultra Studio', 'Transcripts with speakers') : path.join(US.fsx.dataDir, 'Transcripts with speakers'));
   }
   /** Write every interview's file (Premiere: .json; Resolve: .srt). -> {dir, files:[{t, file, speakers}]} */
-  function exportNamed({ dir = namedDir(), resolve = US.app && US.app.is && US.app.is('resolve') } = {}) {
+  function exportNamed({ dir = namedDir(), resolve = US.app && US.app.is && US.app.is('resolve'), keys = null } = {}) {
     const path = require('path'), fs = require('fs'), st = S().state(), out = [];
     const nameOf = l => (l.speaker ? S().speakerName(l.speaker) : '');
     for (const t of st.transcripts || []) {
-      if (!(t.lines || []).length) continue;
+      if (!(t.lines || []).length || (keys && !keys.includes(t.key))) continue;
       const base = String(t.name || t.key).replace(/[\\/:*?"<>|]/g, '').slice(0, 80) || t.key;
       const file = path.join(dir, base + (resolve ? ' – speakers.srt' : ' – speakers.json'));
       const body = resolve ? namedSRT(t, nameOf) : JSON.stringify(premiereTranscript(t, nameOf));
@@ -460,9 +460,9 @@
     return { dir, files: out };
   }
   /** Write the files, then show how to bring each one in (with a button that opens the interview in the Source Monitor). */
-  async function namesToEditor() {
+  async function namesToEditor({ keys = null, title = '' } = {}) {
     const h = US.h, ui = US.ui, path = require('path'), res = US.app && US.app.is && US.app.is('resolve');
-    const r = exportNamed();
+    const r = exportNamed({ keys });
     const unnamed = r.files.filter(f => f.speakers.some(n => /^(Voice|Speaker) \d+$/.test(n)));
     const rows = r.files.map(f => h('div.row.story-named', h('span.grow', h('b', f.t.name), h('span.field-hint', ` – ${f.speakers.join(', ') || 'no speakers'}`)),
       res ? null : ui.button('Open in Source', { small: true, kind: 'ghost', title: 'Opens this interview in the Source Monitor, ready for the Text panel', onClick: () => { const l = (f.t.lines || [])[0]; if (l) S().openInSource(l); } })));
@@ -470,7 +470,7 @@
       ? h('ol', h('li', 'In Resolve: File › Import › Subtitle…, and choose the interview’s “– speakers.srt” file from the folder that opens.'), h('li', 'Drag it onto the timeline over the interview: every subtitle starts with who is speaking.'))
       : h('ol', h('li', 'Press “Open in Source” next to an interview.'), h('li', 'In Premiere’s Text panel › Transcript, open the … menu › Import (“Import Static Transcript” in some versions) and choose that interview’s “– speakers.json” file from the folder that opens.'), h('li', 'The transcript is the same words and times as before, now with the names – Captions made from it, and Text-Based Editing, show them too. The “um”s and “uh”s Story leaves out aren’t in it, so Premiere’s filler-word removal won’t find them in that interview.'));
     US.app.reveal(r.dir);
-    await ui.modal({ title: res ? 'Subtitles with the speakers’ names are ready' : 'The names are ready for Premiere’s transcripts', wide: true,
+    await ui.modal({ title: title || (res ? 'Subtitles with the speakers’ names are ready' : 'The names are ready for Premiere’s transcripts'), wide: true,
       body: h('div', h('p', `${US.plural(r.files.length, 'file')} saved in ${path.basename(path.dirname(r.dir)) === 'JMG Ultra Studio' ? 'the “JMG Ultra Studio / Transcripts with speakers” folder next to your project' : r.dir}. ${res ? 'Resolve doesn’t let add-ons change its transcripts, so they’re subtitles with the names.' : 'Add-ons can’t write into Premiere’s transcripts directly, so bring each one in from the Text panel – two clicks per interview.'}`),
         unnamed.length ? ui.note(`Some voices still have no name (${[...new Set(unnamed.flatMap(f => f.speakers.filter(n => /^(Voice|Speaker) \d+$/.test(n))))].slice(0, 4).join(', ')}). Name them above and press this again first.`, 'warn') : null,
         steps, h('div', ...rows)),

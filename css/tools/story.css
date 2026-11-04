@@ -251,3 +251,14 @@
 .story-voice { padding: 6px 8px; border-radius: 6px; background: var(--surface-2); }
 .story-voice-sub { margin-top: 4px; gap: 6px; flex-wrap: wrap; }
 .story-voice-sub select { max-width: 160px; }
+/* Check the words: a group of likely mistakes, each place it's heard, and what it should say */
+.proof-groups { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.proof-group { border: 1px solid var(--border); border-radius: var(--radius-s); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.proof-heard { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.proof-arrow { color: var(--text-3); }
+.proof-right { width: 140px; }
+.proof-hits { display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto; }
+.proof-hit { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; }
+.proof-hit input[type=checkbox] { margin-top: 3px; }
+.proof-ctx mark { background: var(--accent-soft); color: var(--text); border-radius: 3px; padding: 0 2px; }
+.proof-send { margin-top: 8px; align-items: center; gap: 8px; }
