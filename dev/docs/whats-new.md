@@ -1,3 +1,8 @@
+## What's new in 1.3.28.4
+
+- **Check the words – names suggested by the AI:** press *Suggest names from the interviews* (or just Find with the names box empty) and the AI lists the people, organisations and places the interviews mention, spelt correctly, with each person's title or role (*Rabbi*, *founder of FJL*). They go into the names box by default and are listed below it: untick any that are wrong, correct a spelling or a title. Only the capitalised words and a few around each are sent.
+- **Tick all / Untick all** for each group of words to correct, and for every group at once.
+
 ## What's new in 1.3.28.3
 
 - **Listening happens in the background.** When a tool needs to hear a clip or sequence that isn't a plain WAV – Tell the voices apart, Silence Cut, Beat Cut, Song Splitter, Podcast, Home's check – its sound is now rendered by Media Encoder while you carry on editing, instead of Premiere showing an “Exporting” box and making a temporary sequence. Only if Media Encoder can't does Premiere render it itself. Switch: Settings › Listening to sound.

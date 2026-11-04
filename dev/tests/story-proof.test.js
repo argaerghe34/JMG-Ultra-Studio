@@ -88,3 +88,25 @@ test('asking the Assistant', () => {
   assert.strictEqual(m('find words the transcript got wrong'), 'story.proof');
   assert.strictEqual(m('check the transcripts for spelling mistakes'), 'story.proof');
 });
+
+test('names from the AI: only capitalised words and short forms with a little around them are sent; one name each, with title, people first', () => {
+  const c = P.nameCandidates(LINES);
+  assert.ok(c.some(x => x.w === 'Gersch' && /Everyone at FJL knows Jacob Gersch/.test(x.ctx[0])));
+  assert.strictEqual(c.find(x => x.w === 'FJL').n, 3, 'how often it’s mentioned');
+  assert.ok(!c.some(x => /^(team|said|report)$/i.test(x.w)));
+  const req = P.namesRequest(c, { known: ['FJL'] });
+  assert.ok(req.schema === P.NAMES_SCHEMA && /Names the editor already gave: FJL/.test(req.user) && /title or role/.test(req.system));
+  const got = P.namesFrom({ names: [
+    { name: 'FJL', title: 'a youth charity', kind: 'organisation', heard: ['FTL', 'FJell', 'FJL'], why: '' },
+    { name: 'Jacob Gersch', title: 'Rabbi', kind: 'person', heard: ['Gersh'], why: 'runs it' },
+    { name: 'jacob gersch', title: '', kind: 'person', heard: ['Gersh.'], why: '' },
+    { name: 'Odessa', title: '', kind: 'nowhere', heard: [], why: '' }, { name: '', title: '', kind: 'person', heard: [], why: '' }] }, LINES);
+  assert.deepStrictEqual(got.map(p => [p.name, p.title, p.kind, p.ok]), [['Jacob Gersch', 'Rabbi', 'person', true], ['FJL', 'a youth charity', 'organisation', true], ['Odessa', '', 'other', true]]);
+  assert.deepStrictEqual(got[1].heard, ['FTL', 'FJell'], 'the right spelling isn’t listed as heard');
+  assert.ok(got[0].n >= 2, 'Gersch and Gersh both counted');
+});
+
+test('the names box: ticked names in, unticked out, a re-spelt name replaces its old spelling, the editor’s own words kept', () => {
+  const ps = [{ name: 'FJL', ok: true }, { name: 'Odessa', ok: false }, { name: 'Jacob Gersch', was: 'Jakob Gersch', ok: true }];
+  assert.deepStrictEqual(P.termsWith(['Leeds', 'Odessa', 'Jakob Gersch'], ps), ['FJL', 'Jacob Gersch', 'Leeds']);
+});

@@ -168,6 +168,59 @@
     return out;
   }
 
+  /* ---------- names (and titles) the interviews mention, suggested by the AI from what's said around them ---------- */
+  const KINDS = ['person', 'organisation', 'place', 'other'];
+  const NAMES_SCHEMA = { type: 'object', additionalProperties: false, required: ['names'], properties: { names: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['name', 'title', 'kind', 'heard', 'why'], properties: { name: { type: 'string' }, title: { type: 'string' }, kind: { type: 'string', enum: KINDS }, heard: { type: 'array', items: { type: 'string' } }, why: { type: 'string' } } } } } };
+  /** The capitalised words and short forms, each once, with more around them than for the spelling check (titles and roles are often a few words away). */
+  function nameCandidates(lines, { limit = 320, around = 12 } = {}) {
+    const seen = new Map();
+    for (const l of lines || []) {
+      const ws = T().lineWords(l.text);
+      ws.forEach((w, i) => {
+        const c = core(w);
+        if (c.length < 2 || c === 'I' || /^I'/.test(c)) return;
+        const cap = /^\p{Lu}/u.test(c) && i > 0 && !/[.!?]$/.test(ws[i - 1]);
+        if (!(cap || isAcronym(c))) return;
+        const n = (seen.get(c) || { n: 0, ctx: [] });
+        n.n++;
+        if (n.ctx.length < 2) n.ctx.push(ws.slice(Math.max(0, i - around), i + around + 1).join(' '));
+        seen.set(c, n);
+      });
+    }
+    // the most mentioned first, so a long project still sends its main people
+    return Array.from(seen.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, limit).map(([w, x]) => ({ w, n: x.n, ctx: x.ctx }));
+  }
+  function namesRequest(cands, { brief = '', known = [] } = {}) {
+    return {
+      system: 'You read speech-to-text transcripts of documentary interviews and list the names they mention – people, organisations, places and other proper names (events, projects, brands) – spelt correctly, with each person’s title or role as the interviews give it (“Rabbi”, “Dr”, “head teacher at Leeds Grammar”, “founder of FJL”) and for an organisation what it is. The transcription often mis-hears names: when several spellings are clearly the same name, give one correct spelling and list the transcript’s spellings in “heard”. Only names really there; no ordinary words. Answer as JSON.',
+      user: `${brief ? `About the film: ${brief}\n` : ''}${known.length ? `Names the editor already gave: ${known.join(', ')}\n` : ''}\nWORDS (word<TAB>times mentioned<TAB>context):\n${cands.map(c => `${c.w}\t${c.n}\t${c.ctx.join(' | ')}`).join('\n')}\n\nList the names: "name" spelt correctly, "title" (a title or role, or a few words on what it is; "" when not said), "kind", "heard" (the spellings in the words above that mean this name), "why" (a few words).`,
+      schema: NAMES_SCHEMA, maxTokens: 6000, effort: 'low', feature: 'Names in the interviews'
+    };
+  }
+  /** The AI's names, tidied: one per name, how often each is heard, people first. -> [{name, title, kind, heard, why, n, ok}] */
+  function namesFrom(r, lines) {
+    const count = new Map(); for (const w of words(lines)) if (w.core) count.set(bare(w.core), (count.get(bare(w.core)) || 0) + 1);
+    const out = [], by = new Map();
+    for (const x of (r && r.names) || []) {
+      const name = String(x.name || '').replace(/\s+/g, ' ').trim();
+      if (!name || name.length > 60) continue;
+      const k = bare(name);
+      const heard = Array.from(new Set((Array.isArray(x.heard) ? x.heard : []).map(h => String(h).trim()).filter(h => h && bare(h) !== k)));
+      if (by.has(k)) { const e = by.get(k); e.heard = Array.from(new Set(e.heard.concat(heard))); if (!e.title && x.title) e.title = String(x.title).trim(); continue; }
+      const n = [name].concat(heard).reduce((m, h) => m + (count.get(bare(h.split(/\s+/).pop())) || 0), 0);
+      const e = { name, title: String(x.title || '').trim(), kind: KINDS.includes(x.kind) ? x.kind : 'other', heard, why: String(x.why || '').trim(), n, ok: true };
+      by.set(k, e); out.push(e);
+    }
+    const rank = { person: 0, organisation: 1, place: 2, other: 3 };
+    return out.sort((a, b) => rank[a.kind] - rank[b.kind] || b.n - a.n);
+  }
+  /** The names box from the suggestions ticked, keeping anything the editor typed that isn't one of them. */
+  function termsWith(terms, people) {
+    const names = new Set((people || []).map(p => bare(p.name)).concat((people || []).flatMap(p => (p.was ? [bare(p.was)] : []))));
+    const own = (terms || []).filter(t => !names.has(bare(t)));
+    return Array.from(new Set((people || []).filter(p => p.ok).map(p => p.name).concat(own)));
+  }
+
   /* ---------- the card (Story › 1 Interviews) ---------- */
   function card({ render }) {
     const h = US.h, ui = US.ui, st = S().state();
@@ -175,6 +228,7 @@
     const termsIn = ui.input({ value: (st.proof.terms || []).join(', '), placeholder: 'Names and terms that should appear, e.g. FJL, Gersch, Odessa' });
     const box = h('div.proof-groups'), status = h('div.field-hint');
     let groups = st.proof.lastFound || null, sent = null;
+    const setters = [];   // each group's Tick all / Untick all
     const termsNow = () => String(termsIn.value || '').split(/[,;\n]/).map(x => x.trim()).filter(Boolean);
     const saveTerms = () => { st.proof.terms = termsNow(); S().save(); };
     termsIn.addEventListener('change', saveTerms);
@@ -187,18 +241,28 @@
       US.clear(box);
       if (!groups) return;
       if (!groups.length) { box.appendChild(ui.note('Nothing looks wrong. Add the names and terms that should appear above, and look again – that finds the most.', 'info')); return; }
+      setters.length = 0;
+      if (groups.length > 1) box.appendChild(h('div.row.proof-ticks', h('span.field-hint', 'Every group:'), ui.button('Tick all', { small: true, kind: 'ghost', onClick: () => setters.forEach(f => f(true)) }), ui.button('Untick all', { small: true, kind: 'ghost', onClick: () => setters.forEach(f => f(false)) })));
       for (const g of groups) {
-        const ticked = new Set(g.hits.map(x => x.lineId + ':' + x.i));
+        const ticked = new Set(g.hits.map(x => x.lineId + ':' + x.i)), boxes = [];
         const right = ui.input({ value: g.right, placeholder: 'Should be…' });
+        const count = h('span.field-hint');
+        const showCount = () => { count.textContent = `${ticked.size} of ${g.hits.length} ticked`; };
+        // every one, including any not listed (over 40)
+        const setAll = on => { ticked.clear(); if (on) g.hits.forEach(x => ticked.add(x.lineId + ':' + x.i)); boxes.forEach(b => { b.checked = on; }); showCount(); };
+        setters.push(setAll);
         const rows = g.hits.slice(0, 40).map(hit => {
           const l = S().lineOf(hit.lineId), t = l && S().interviewOf(hit.lineId), k = hit.lineId + ':' + hit.i;
-          return h('div.proof-hit', h('input', { type: 'checkbox', checked: true, title: 'Correct this one', onchange: e => { if (e.target.checked) ticked.add(k); else ticked.delete(k); } }),
+          const cb = h('input', { type: 'checkbox', checked: true, title: 'Correct this one', onchange: e => { if (e.target.checked) ticked.add(k); else ticked.delete(k); showCount(); } });
+          boxes.push(cb);
+          return h('div.proof-hit', cb,
             l ? h('button.icon-btn', { title: 'Hear the line', onclick: async () => { try { await S().cueLine(l); } catch (e) { ui.showError(e); } } }, US.icon('play', 13)) : null,
             h('div.grow', lineText(hit), h('span.field-hint', ` – ${t ? t.name : ''}${l ? ' ' + US.fmtDur(l.start) : ''}`)));
         });
         const el = h('div.proof-group',
           h('div.row', h('div.proof-heard', g.heard.slice(0, 6).map(x => h('span.chip', x)), h('span.field-hint', ` ${US.plural(g.hits.length, 'time')} · ${g.why}`)), h('span.grow'), h('span.proof-arrow', '→'), h('div.proof-right', right)),
-          h('div.proof-hits', rows, g.hits.length > 40 ? h('div.field-hint', `…and ${g.hits.length - 40} more (all corrected when all are ticked)`) : null),
+          h('div.row.proof-ticks', ui.button('Tick all', { small: true, kind: 'ghost', onClick: () => setAll(true) }), ui.button('Untick all', { small: true, kind: 'ghost', onClick: () => setAll(false) }), count),
+          h('div.proof-hits', rows, g.hits.length > 40 ? h('div.field-hint', `…and ${g.hits.length - 40} more (ticked or unticked with Tick all / Untick all)`) : null),
           h('div.row', ui.button('Correct the ticked ones', { small: true, kind: 'primary', onClick: () => {
             const e = entryFor(g, right.value, ticked);
             if (!e) { ui.toast({ type: 'warn', title: right.value.trim() ? 'Tick at least one.' : 'Type what it should say first.' }); return; }
@@ -212,6 +276,7 @@
             draw(); drawSend();
           } }),
           ui.button('It’s right', { small: true, kind: 'ghost', title: 'Don’t show these words again', onClick: () => { st.proof.ignore = Array.from(new Set((st.proof.ignore || []).concat(g.heard))); groups = groups.filter(x => x !== g); st.proof.lastFound = groups; S().save(); draw(); } })));
+        showCount();
         box.appendChild(el);
       }
     }
@@ -224,7 +289,45 @@
       sendBox.appendChild(h('div.row.proof-send', h('span.field-hint.grow', `${US.plural(keys.length, 'interview')} corrected. ${res ? 'Save subtitles with the corrections for Resolve.' : 'Put the corrections into Premiere’s transcripts – same times, so they stay in sync with the footage.'}`),
         ui.button(res ? 'Save corrected subtitles' : 'Update Premiere’s transcripts', { small: true, kind: 'primary', onClick: async () => { try { await US.storyVoices.namesToEditor({ keys, title: res ? 'Corrected subtitles are ready' : 'The corrected transcripts are ready for Premiere' }); st.proof.changed = []; S().save(); drawSend(); } catch (e) { ui.showError(e); } } })));
     }
+    /* the names the AI found, with their titles: ticked ones go into the names box; untick, re-spell or add a title */
+    const peopleBox = h('div.proof-people');
+    const fillTerms = () => { termsIn.value = termsWith(termsNow(), st.proof.people || []).join(', '); saveTerms(); };
+    function drawPeople() {
+      US.clear(peopleBox);
+      const ps = st.proof.people || [];
+      if (!ps.length) return;
+      const all = on => { ps.forEach(p => { p.ok = on; }); fillTerms(); S().save(); drawPeople(); };
+      peopleBox.appendChild(h('div.row.proof-ticks', h('span.field-label.grow', `Names found in the interviews (${ps.filter(p => p.ok).length} of ${ps.length} in the box)`),
+        ui.button('Tick all', { small: true, kind: 'ghost', onClick: () => all(true) }), ui.button('Untick all', { small: true, kind: 'ghost', onClick: () => all(false) })));
+      peopleBox.appendChild(h('div.field-hint', 'Suggested by the AI from what’s said around each name. Untick any that are wrong, correct a spelling or a title – the ticked names are what the check looks for.'));
+      const KIND = { person: 'Person', organisation: 'Organisation', place: 'Place', other: 'Name' };
+      for (const p of ps) {
+        const name = ui.input({ value: p.name, placeholder: 'Name', onInput: v => { if (p.was == null) p.was = p.name; p.name = v.trim() || p.name; fillTerms(); S().save(); } });
+        const title = ui.input({ value: p.title, placeholder: p.kind === 'person' ? 'Title or role' : 'What it is', onInput: v => { p.title = v.trim(); S().save(); } });
+        peopleBox.appendChild(h('div.proof-person' + (p.ok ? '' : '.off'),
+          h('input', { type: 'checkbox', checked: p.ok, title: 'In the names box', onchange: e => { p.ok = e.target.checked; fillTerms(); S().save(); drawPeople(); } }),
+          h('div.proof-person-name', name), h('div.proof-person-title', title),
+          h('span.chip', { title: p.why || '' }, KIND[p.kind] || 'Name'),
+          h('span.field-hint', `${p.n ? US.plural(p.n, 'mention') : ''}${p.heard.length ? ` · heard as ${p.heard.slice(0, 3).join(', ')}` : ''}`)));
+      }
+    }
+    async function suggestNames() {
+      if (!US.ai || !US.ai.available()) { ui.toast({ type: 'warn', title: 'This needs AI.', text: 'Add a Claude or Gemini key in Settings.' }); return false; }
+      const lines = st.transcripts.flatMap(t => t.lines);
+      if (!lines.length) return false;
+      const req = namesRequest(nameCandidates(lines), { brief: String(US.settings.get('story.brief', '') || ''), known: termsNow() });
+      const r = await US.jobs.run({ title: 'Finding the names in the interviews', tool: 'story' }, job => { job.set({ who: 'ai', msg: `${US.ai.label()} is reading the names and what’s said around them` }); return US.ai.json(req); });
+      if (r === undefined) return false;
+      // a name already reviewed keeps the editor's spelling, title and tick
+      const old = new Map((st.proof.people || []).map(p => [bare(p.was || p.name), p]));
+      st.proof.people = namesFrom(r, lines).map(p => { const o = old.get(bare(p.name)); return o ? Object.assign(p, { name: o.name, title: o.title || p.title, ok: o.ok, was: o.was }) : p; });
+      fillTerms(); S().save(); drawPeople();
+      status.textContent = `${US.plural(st.proof.people.length, 'name')} found – check them below, then find the likely mistakes.`;
+      return true;
+    }
     async function look() {
+      // nothing in the names box yet: the AI suggests them first (they're filled in, to check)
+      if (!termsNow().length && !(st.proof.people || []).length && US.ai && US.ai.available() && st.transcripts.length) { try { await suggestNames(); } catch (e) { if (!(e instanceof US.UserError && e.code === 'CANCELLED')) status.textContent = `(The AI couldn’t suggest names: ${e.title || e.message}.)`; } }
       saveTerms();
       const lines = st.transcripts.flatMap(t => t.lines);
       groups = find(lines, { terms: st.proof.terms, entries: st.glossary, ignore: st.proof.ignore || [] });
@@ -244,11 +347,13 @@
     }
     const aiBox = h('input', { type: 'checkbox', checked: US.settings.get('story.proofAI', false), onchange: e => US.settings.set('story.proofAI', e.target.checked) });
     sent = h('label.field-hint', aiBox, ' Ask the AI to look too (only the unusual words and a few around each are sent)');
-    draw(); drawSend();
+    draw(); drawSend(); drawPeople();
     const n = groups ? groups.reduce((k, g) => k + g.hits.length, 0) : 0;
     return ui.section('Check the words', [
       h('div.field-hint', 'Finds words the transcription probably got wrong – names, places, short forms (“FTL” or “FJell” for FJL). Play the line, untick any that are right, type what it should say, and correct. Corrections keep every word’s timing, so the transcript stays in sync with the footage – and can go back into Premiere.'),
       h('div.field-label', 'Names and terms that should appear'), termsIn,
+      US.ai && US.ai.available() ? h('div.row', { style: { marginTop: '4px' } }, ui.button((st.proof.people || []).length ? 'Suggest names again (AI)' : 'Suggest names from the interviews (AI)', { small: true, kind: 'ghost', icon: 'spark', title: 'The AI lists the people, organisations and places the interviews mention, with titles – from the capitalised words and a few words around each (never whole transcripts or footage)', onClick: () => suggestNames().catch(e => ui.showError(e)) })) : null,
+      peopleBox,
       h('div.row', { style: { marginTop: '6px' } }, ui.button('Find likely mistakes', { small: true, kind: 'secondary', icon: 'check', onClick: () => look().catch(e => ui.showError(e)) }), US.ai && US.ai.available() ? sent : null),
       status, box, sendBox
     ], { open: !!(groups && groups.length), hint: groups ? (n ? `${US.plural(n, 'word')} to check` : 'nothing to check') : 'mis-heard names and short forms' });
@@ -270,5 +375,5 @@
     }
   });
 
-  US.storyProof = { find, spelled, words, entryFor, merge, aiCandidates, aiRequest, aiGroups, card, isAcronym, AI_SCHEMA };
+  US.storyProof = { nameCandidates, namesRequest, namesFrom, termsWith, NAMES_SCHEMA, find, spelled, words, entryFor, merge, aiCandidates, aiRequest, aiGroups, card, isAcronym, AI_SCHEMA };
 })();

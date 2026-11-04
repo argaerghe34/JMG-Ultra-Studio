@@ -109,17 +109,30 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     l0.text = 'We set up FJL with FJL money and FJL people.'; l1.text = 'The FTL crew came.'; S.reindex();
     tool.onShow({ tab: 'transcripts', section: 'scope' }); await new Promise(r => setTimeout(r, 20));
     if (!/Check the words/.test(tool.el.textContent)) errors.push('proof: no Check the words');
-    const findBtn = Array.from(tool.el.querySelectorAll('.btn')).find(b => b.textContent === 'Find likely mistakes');
-    findBtn.click(); await new Promise(r => setTimeout(r, 40));
+    // no names typed: the AI suggests them first (with titles), filled into the box to check
+    const wasAI = US.ai;
+    US.ai = Object.assign({}, wasAI, { available: () => true, label: () => 'Claude', json: async () => ({ names: [{ name: 'FJL', title: 'a youth charity', kind: 'organisation', heard: ['FTL'], why: '' }, { name: 'Ruth Cohen', title: 'Volunteer', kind: 'person', heard: [], why: '' }] }) });
+    try {
+      st.proof = {};
+      tool.onShow({ tab: 'transcripts', section: 'scope' }); await new Promise(r => setTimeout(r, 20));
+      Array.from(tool.el.querySelectorAll('.btn')).find(b => b.textContent === 'Find likely mistakes').click(); await new Promise(r => setTimeout(r, 80));
+    } finally { US.ai = wasAI; }
+    const people = tool.el.querySelectorAll('.proof-person');
+    if (people.length !== 2 || !/Volunteer/.test(Array.from(people[0].querySelectorAll('input')).map(i => i.value).join(' '))) errors.push(`proof: ${people.length} names suggested`);
+    if (!/FJL/.test((st.proof.terms || []).join(','))) errors.push('proof: suggested names not in the box ' + JSON.stringify(st.proof.terms));
     const grp = Array.from(tool.el.querySelectorAll('.proof-group')).find(g => /FTL/.test(g.textContent));
     if (!grp) errors.push('proof: FTL not found');
     else {
+      Array.from(grp.querySelectorAll('.btn')).find(b => b.textContent === 'Untick all').click();
+      if (Array.from(grp.querySelectorAll('.proof-hit input')).some(b => b.checked) || !/0 of/.test(grp.textContent)) errors.push('proof: Untick all left ticks');
+      Array.from(grp.querySelectorAll('.btn')).find(b => b.textContent === 'Tick all').click();
+      if (!Array.from(grp.querySelectorAll('.proof-hit input')).every(b => b.checked)) errors.push('proof: Tick all missed some');
       Array.from(grp.querySelectorAll('.btn')).find(b => b.textContent === 'Correct the ticked ones').click(); await new Promise(r => setTimeout(r, 30));
       if (S.lineOf(l1.id).text !== 'The FJL crew came.') errors.push('proof: not corrected – ' + S.lineOf(l1.id).text);
       if (!/Update Premiere’s transcripts/.test(tool.el.textContent)) errors.push('proof: no Update Premiere’s transcripts');
     }
     st.glossary = wasG || []; US.storyGlossary.apply(st.transcripts.flatMap(t => t.lines), st.glossary); l0.text = was0; l1.text = was1; delete l0.orig; delete l1.orig; st.proof = {}; S.reindex();
-    checks.push('proof: FTL → FJL, update Premiere offered');
+    checks.push('proof: AI names with titles, tick all / untick all, FTL → FJL, update Premiere offered');
   }
   const some = Array.from(tool.el.querySelectorAll('[data-section="scope"] .seg')).find(b => /Some interviews/.test(b.textContent));
   some.click(); await new Promise(r => setTimeout(r, 20));

@@ -262,3 +262,8 @@
 .proof-hit input[type=checkbox] { margin-top: 3px; }
 .proof-ctx mark { background: var(--accent-soft); color: var(--text); border-radius: 3px; padding: 0 2px; }
 .proof-send { margin-top: 8px; align-items: center; gap: 8px; }
+.proof-ticks { gap: 6px; align-items: center; }
+.proof-people { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.proof-person { display: grid; grid-template-columns: auto minmax(110px, 1fr) minmax(110px, 1.3fr) auto auto; gap: 6px; align-items: center; font-size: 12px; }
+.proof-person.off .proof-person-name, .proof-person.off .proof-person-title { opacity: 0.5; }
+.proof-person .field-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
