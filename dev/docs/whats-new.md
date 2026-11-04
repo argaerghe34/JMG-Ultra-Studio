@@ -1,3 +1,8 @@
+## What's new in 1.3.28.5
+
+- **What was sent to AI is tidier** (Settings): one row per thing you did – an Agent run, a wiki, Find themes in batches – with how many requests, the cost and when; click it to open the requests underneath, and a request to read exactly what was sent.
+- **Says what it's about:** the Agent, the Wiki and the Assistant show a line on what you asked about – *Asking about Ruth's interview · “where did she grow up?”* – while they work (and in the status bar's tooltip), and it's kept with the requests in Settings.
+
 ## What's new in 1.3.28.4
 
 - **Check the words – names suggested by the AI:** press *Suggest names from the interviews* (or just Find with the names box empty) and the AI lists the people, organisations and places the interviews mention, spelt correctly, with each person's title or role (*Rabbi*, *founder of FJL*). They go into the names box by default and are listed below it: untick any that are wrong, correct a spelling or a title. Only the capitalised words and a few around each are sent.

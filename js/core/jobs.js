@@ -29,6 +29,7 @@
       this.tool = opts.tool || '';
       this.who = opts.who || WHO.studio;
       this.msg = opts.msg || 'Starting…';
+      this.about = opts.about || '';   // what it's about, from the editor's request ("Asking about Ruth’s interview") – kept with each AI request it sends
       this.frac = 0;
       this.indeterminate = true;
       this.started = performance.now();
@@ -37,7 +38,7 @@
       this._range = [0, 1];
     }
     /** Update who/what without changing progress. */
-    set(o) { if (o.who) this.who = WHO[o.who] || o.who; if (o.msg != null) this.msg = o.msg; this._emit(); return this; }
+    set(o) { if (o.who) this.who = WHO[o.who] || o.who; if (o.msg != null) this.msg = o.msg; if (o.about != null) this.about = o.about; this._emit(); return this; }
     /** progress(0..1, message?) – fraction of the whole job (or of the current sub-range). */
     progress(f, msg) {
       const [a, b] = this._range;

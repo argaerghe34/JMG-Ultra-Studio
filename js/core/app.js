@@ -226,6 +226,7 @@
     els.status.className = 'status running';
     els.statusWho.textContent = US.say(job.who);
     els.statusMsg.textContent = US.say('· ' + job.title + (job.msg ? ' — ' + job.msg : ''));
+    els.statusMsg.title = job.about || '';
     els.statusBar.classList.toggle('indeterminate', job.indeterminate);
     els.statusFill.style.width = (job.frac * 100).toFixed(1) + '%';
     renderTime(job);

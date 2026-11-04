@@ -177,7 +177,8 @@
       const pr = projectOf(), parts = partsOf(req), id = US.uid('s');
       try {
         for (const p of parts) { p.block = US.fsx.hash(p.text); const f = path.join(blockDir(), p.block + '.txt'); if (!fs.existsSync(f)) fs.writeFileSync(f, p.text); }
-        const e = { id, at: Date.now(), project: pr.name, feature: feature || '', provider, model, chars: parts.reduce((n, p) => n + p.text.length, 0), parts: parts.map(p => ({ role: p.role, block: p.block, chars: p.text.length, cached: p.cached })), estTokens: est ? est.inputTokens : 0, estUsd: est ? est.usd : 0 };
+        const j = US.jobs && US.jobs.current;
+        const e = { id, at: Date.now(), project: pr.name, feature: feature || '', job: j ? { id: j.id, title: j.title || '', about: j.about || '' } : null, provider, model, chars: parts.reduce((n, p) => n + p.text.length, 0), parts: parts.map(p => ({ role: p.role, block: p.block, chars: p.text.length, cached: p.cached })), estTokens: est ? est.inputTokens : 0, estUsd: est ? est.usd : 0 };
         fs.appendFileSync(path.join(sentDir(), pr.key + '.jsonl'), JSON.stringify(e) + '\n');
         return { id, key: pr.key };
       } catch (err) { console.error('sent log', err); return null; }
@@ -196,6 +197,28 @@
       // a request line carries its parts; a line without them says how one ended (after pruning they're merged in one)
       for (const line of raw.split('\n')) { if (!line.trim()) continue; let o; try { o = JSON.parse(line); } catch (e) { continue; } if (!o.parts) { if (byId.has(o.id)) Object.assign(byId.get(o.id), o); } else if (!byId.has(o.id)) { byId.set(o.id, o); order.push(o); } }
       return order.reverse();
+    },
+    /**
+     * Requests gathered into what the editor did: one group per job (an Agent run, a wiki, Find themes in batches), and
+     * requests made outside a job grouped by feature when they come within a few minutes of each other. items: newest
+     * first (as list() gives them). -> [{key, title, about, features, items, from, to, usd, estUsd, chars, failed, provider}]
+     */
+    groups(items, { gapMin = 3 } = {}) {
+      const out = [], open = new Map();
+      for (const e of items || []) {
+        let g = e.job && e.job.id ? open.get('job:' + e.job.id) : null;
+        if (!g && !(e.job && e.job.id)) { const prev = open.get('f:' + e.feature); if (prev && prev.from - e.at <= gapMin * 60000) g = prev; }
+        if (!g) {
+          g = { key: e.job && e.job.id ? 'job:' + e.job.id : 'f:' + e.feature + ':' + e.id, title: (e.job && e.job.title) || e.feature || 'AI request', about: (e.job && e.job.about) || '', features: [], items: [], from: e.at, to: e.at, usd: 0, estUsd: 0, chars: 0, failed: 0, provider: e.provider };
+          out.push(g);
+          open.set(e.job && e.job.id ? 'job:' + e.job.id : 'f:' + e.feature, g);
+        }
+        g.items.push(e); g.from = Math.min(g.from, e.at); g.to = Math.max(g.to, e.at);
+        g.usd += e.usd || 0; g.estUsd += e.estUsd || 0; g.chars += e.chars || 0; if (e.ok === false) g.failed++;
+        if (e.feature && !g.features.includes(e.feature)) g.features.push(e.feature);
+        if (!g.about && e.job && e.job.about) g.about = e.job.about;
+      }
+      return out;
     },
     /** The full text of a request, as sent, with a heading for each part. */
     text(e) {

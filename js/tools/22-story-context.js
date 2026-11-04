@@ -90,5 +90,40 @@
   /** As single-line picks (Find more, your own theme, the narrative shortlist): {picks:[{lineId, reason, score}]} */
   function asPicks(r, known) { return { picks: items(r, known).map(x => ({ lineId: x.from, reason: x.note, score: x.score })) }; }
 
-  US.storyContext = { SYSTEM, SCHEMA, on, row, LIMIT, parts, listing, requests, partNote, items, asPicks };
+  /**
+   * A few words on what a request is about, for the status bar and Settings › What was sent to AI: the interviews,
+   * people and themes it names (“Asking about Ruth’s interview”), else the request itself, shortened. names: optional
+   * {interviews, people, themes} (tests); otherwise from Story.
+   */
+  function about(request, { names = null } = {}) {
+    const text = String(request || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    let n = names;
+    if (!n) {
+      n = { interviews: [], people: [], themes: [] };
+      try {
+        const S = US.story; S.loadState && S.loadState(); const st = S.state();
+        n.interviews = (st.transcripts || []).map(t => t.name);
+        n.people = Array.from(new Set(Object.keys(st.speakers || {}).map(k => S.speakerName(k)).filter(x => x && !/^(Voice|Speaker) \d+$|^Unknown/i.test(x)))).concat(((st.proof && st.proof.people) || []).filter(p => p.ok && p.kind === 'person').map(p => p.name));
+        n.themes = (st.themes || []).map(t => t.name).filter(x => x && x !== 'Other');
+      } catch (e) { /* no Story here */ }
+    }
+    const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const said = x => { const w = String(x || '').trim(); return w.length >= 3 && new RegExp(`(^|[^\\p{L}])${esc(w)}(?![\\p{L}])`, 'iu').test(text); };
+    // an interview is named by its title, or by its first word when that's a name (“Ruth” for “Ruth Cohen 2”)
+    const ivs = (n.interviews || []).filter(t => said(t) || (/^\p{Lu}\p{Ll}{2,}/u.test(t) && said(t.split(/[\s_–-]+/)[0])));
+    const people = (n.people || []).filter(p => said(p) || said(String(p).split(' ')[0])).filter(p => !ivs.some(t => t.toLowerCase().startsWith(String(p).split(' ')[0].toLowerCase())));
+    const themes = (n.themes || []).filter(said);
+    const list = xs => (xs.length <= 2 ? xs.join(' and ') : `${xs.slice(0, 2).join(', ')} and ${xs.length - 2} more`);
+    const poss = x => (/s$/i.test(x) ? `${x}’` : `${x}’s`);
+    const short = text.length > 70 ? text.slice(0, 68).replace(/\s+\S*$/, '') + '…' : text;
+    const bits = [];
+    const ivName = t => (/interview/i.test(t) ? t : `${poss(t)} interview`);
+    if (ivs.length) bits.push(`Asking about ${ivs.length === 1 ? ivName(ivs[0]) : list(ivs.map(t => t.replace(/\s*interview\s*/i, ' ').trim())) + ' interviews'}`);
+    if (people.length) bits.push(`${bits.length ? 'and' : 'About'} ${list(people)}`);
+    if (themes.length) bits.push(`${bits.length ? 'on' : 'On'} ${themes.length === 1 ? `the theme “${themes[0]}”` : 'the themes ' + list(themes.map(t => `“${t}”`))}`);
+    return bits.length ? `${bits.join(' ')} · “${short}”` : `“${short}”`;
+  }
+
+  US.storyContext = { about, SYSTEM, SCHEMA, on, row, LIMIT, parts, listing, requests, partNote, items, asPicks };
 })();

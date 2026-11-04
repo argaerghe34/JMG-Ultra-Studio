@@ -195,6 +195,7 @@
 
       /* what was sent to AI: the exact text of every request, kept on this computer per project */
       function sentCard() {
+        const openGroups = new Set();   // jobs opened to show their requests
         const S = US.ai.sent, list = h('div'), projSel = ui.select({ options: [], onChange: () => draw() });
         const when = t => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
         const kChars = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? Math.round(n / 1000) + 'k' : String(n));
@@ -220,12 +221,26 @@
           const items = S.list(projSel.get() || S.project().key);
           if (!items.length) { list.appendChild(h('div.field-hint', S.on() ? 'Nothing sent from this project yet.' : 'The log is off.')); return; }
           const total = items.reduce((n, e) => n + (e.usd || 0), 0), chars = items.reduce((n, e) => n + e.chars, 0);
-          list.append(h('div.field-hint', `${US.plural(items.length, 'request')} · ${kChars(chars)} characters of text${total ? ` · $${total.toFixed(2)}` : ''}. Click one to read exactly what was sent.`),
-            h('div.list.sent-list', items.slice(0, 60).map(e => h('div.list-row.clickable', { onclick: () => show(e) },
-              h('span.swatch', { style: { background: e.ok === false ? 'var(--err)' : e.ok ? 'var(--ok)' : 'var(--text-3)' }, title: e.ok === false ? 'Failed' : e.ok ? 'Answered' : 'No answer recorded' }),
-              h('div.list-main', h('div.list-title', e.feature || 'AI request'), h('div.list-sub', `${when(e.at)} · ${e.provider === 'gemini' ? 'Gemini' : 'Claude'} · ${kChars(e.chars)} characters${e.parts && e.parts.some(p => p.cached) ? ' (part cached)' : ''}`)),
-              h('span.list-right', e.usd ? `$${e.usd.toFixed(3)}` : e.provider === 'gemini' ? 'free' : e.estUsd ? `~$${e.estUsd.toFixed(3)}` : '')))),
-            items.length > 60 ? h('div.field-hint', `…and ${items.length - 60} older ones (kept for ${90} days).`) : null);
+          const groups = S.groups(items), cost = (usd, est, prov) => (usd ? `$${usd.toFixed(usd < 0.1 ? 3 : 2)}` : prov === 'gemini' ? 'free' : est ? `~$${est.toFixed(3)}` : '');
+          const span = g => { const a = when(g.from), b = new Date(g.to).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); return g.to - g.from > 60000 ? `${a}–${b}` : a; };
+          const reqRow = e => h('div.list-row.clickable.sent-req', { onclick: () => show(e) },
+            h('span.swatch', { style: { background: e.ok === false ? 'var(--err)' : e.ok ? 'var(--ok)' : 'var(--text-3)' }, title: e.ok === false ? 'Failed' : e.ok ? 'Answered' : 'No answer recorded' }),
+            h('div.list-main', h('div.list-title', e.feature || 'AI request'), h('div.list-sub', `${new Date(e.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · ${e.provider === 'gemini' ? 'Gemini' : 'Claude'} · ${kChars(e.chars)} characters${e.parts && e.parts.some(p => p.cached) ? ' (part cached)' : ''}${e.ok === false && e.error ? ' · failed: ' + e.error : ''}`)),
+            h('span.list-right', cost(e.usd, e.estUsd, e.provider)));
+          const groupRow = g => {
+            if (g.items.length === 1) return h('div.sent-group', reqRow(Object.assign({}, g.items[0], { feature: g.about ? `${g.title}` : g.items[0].feature })), g.about ? h('div.list-sub.sent-about', g.about) : null);
+            const kids = h('div.sent-kids' + (openGroups.has(g.key) ? '' : '.hidden'), g.items.map(reqRow));
+            const chev = h('span.sent-chev', openGroups.has(g.key) ? '▾' : '▸');
+            const head = h('div.list-row.clickable.sent-head', { title: 'Show each request', onclick: () => { const on = !openGroups.has(g.key); if (on) openGroups.add(g.key); else openGroups.delete(g.key); kids.classList.toggle('hidden', !on); chev.textContent = on ? '▾' : '▸'; } },
+              chev,
+              h('div.list-main', h('div.list-title', g.title), g.about ? h('div.list-sub.sent-about', g.about) : null,
+                h('div.list-sub', `${span(g)} · ${US.plural(g.items.length, 'request')}${g.features.length > 1 ? ` (${g.features.join(', ')})` : g.features[0] && g.features[0] !== g.title ? ` (${g.features[0]})` : ''} · ${kChars(g.chars)} characters${g.failed ? ` · ${g.failed} failed` : ''}`)),
+              h('span.list-right', cost(g.usd, g.estUsd, g.provider)));
+            return h('div.sent-group', head, kids);
+          };
+          list.append(h('div.field-hint', `${US.plural(items.length, 'request')} in ${US.plural(groups.length, 'job')} · ${kChars(chars)} characters of text${total ? ` · $${total.toFixed(2)}` : ''}. Click a job to see its requests, and a request to read exactly what was sent.`),
+            h('div.list.sent-list', groups.slice(0, 40).map(groupRow)),
+            groups.length > 40 ? h('div.field-hint', `…and ${groups.length - 40} older jobs (kept for ${90} days).`) : null);
         }
         const keepToggle = ui.toggle({ label: 'Keep a copy of everything sent to AI', hint: 'On this computer only, per project, for 90 days. Large parts sent again and again (the shared transcript) are kept once.', value: S.on(), onChange: x => { US.settings.set('ai.sentLog', x); draw(); } });
         const previewSeg = ui.segmented({ options: [{ value: 'cost', label: 'Only when it costs more than the limit above' }, { value: 'always', label: 'Always show me first' }], value: US.settings.get('ai.preview', 'cost'), onChange: x => US.settings.set('ai.preview', x) });

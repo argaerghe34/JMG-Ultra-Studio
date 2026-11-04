@@ -339,7 +339,10 @@
       }
       function runAsk(x) {
         if (!String(x || '').trim()) return;
-        US.jobs.run({ title: 'Looking it up', tool: 'wiki' }, async job => { const r = await ask(job, x); answer = r.ask; drawAsk(); drawFound(); return { summary: r.summary }; });
+        const about = CTX() && CTX().about ? CTX().about(x) : '';
+        // while it looks: what it's doing, from the question (“Asking about Ruth’s interview · …”)
+        US.clear(found); found.appendChild(ui.card(h('div.card-title', 'Looking it up…'), about ? h('div.field-hint.wiki-about', about) : null));
+        US.jobs.run({ title: 'Looking it up', tool: 'wiki', about }, async job => { const r = await ask(job, x); answer = r.ask; drawAsk(); drawFound(); return { summary: r.summary }; }).catch(() => drawFound());
       }
       function drawFound() {
         US.clear(found);

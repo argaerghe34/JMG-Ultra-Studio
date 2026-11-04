@@ -320,3 +320,13 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 .news-card > .section { flex: 1; border-top: 0; padding-top: 0; }
 .news-card > .section > .section-head { color: var(--text); }
 .news-version .news { margin-top: 2px; }
+/* What was sent to AI: one row per job, its requests in a drop-down */
+.sent-group { display: flex; flex-direction: column; }
+.sent-head { align-items: flex-start; }
+.sent-chev { width: 14px; color: var(--text-3); flex: none; margin-top: 1px; }
+.sent-kids { display: flex; flex-direction: column; margin-left: 20px; border-left: 1px solid var(--border); padding-left: 6px; }
+.sent-kids.hidden { display: none; }
+.sent-req .list-title { font-size: 12px; }
+.sent-about { font-style: italic; color: var(--text-2); }
+.sent-group > .sent-about { margin: -4px 0 4px 26px; }
+.wiki-about { font-style: italic; }

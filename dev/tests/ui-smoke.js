@@ -285,6 +285,16 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     if (!set.el.querySelector('.settings-code input')) errors.push('Settings: no code box');
     if (!set.el.querySelector('[data-section="sent"]') || !/What was sent to AI/.test(set.el.textContent)) errors.push('Settings: no “What was sent to AI”');
     set.el.remove();
+    // two requests of one job: one row with what it was about, opening to show both
+    US.settings.set('ai.sentLog', true);
+    await US.jobs.run({ title: 'Agent', tool: 'agent', about: 'Asking about Ruth’s interview · “a film”' }, async () => { for (const f of ['Agent', 'Agent']) US.ai.sent.begin({ provider: 'claude', model: 'm', feature: f, req: { system: 's', user: 'u' }, est: { inputTokens: 1, usd: 0.01 } }); return { summary: 'ok' }; });
+    const set2 = US.tools.get('settings').create(); w.document.body.appendChild(set2.el);
+    await new Promise(r => setTimeout(r, 30));
+    const head = set2.el.querySelector('.sent-head');
+    if (!head || !/Asking about Ruth’s interview/.test(head.textContent) || !/2 requests/.test(head.textContent)) errors.push('Settings: requests not grouped by job – ' + (head ? head.textContent : 'no group'));
+    else { head.click(); if (set2.el.querySelectorAll('.sent-kids:not(.hidden) .sent-req').length !== 2) errors.push('Settings: the group didn’t open to its requests'); }
+    set2.el.remove();
+    checks.push('sent to AI: grouped by job, with what it was about, opens to each request');
   }
   // the Ask tab in My interviews mode: the welcome, examples and earlier asks
   {

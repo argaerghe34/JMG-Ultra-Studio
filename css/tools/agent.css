@@ -12,3 +12,4 @@
 .bubble.agent-plan.agent-plan-done textarea, .bubble.agent-plan.agent-plan-done .row { display: none; }
 .agent-plan-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
 .agent-seqs { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.bubble.agent-about { background: transparent; border: none; padding: 0 4px; color: var(--text-2); font-size: 12px; font-style: italic; }

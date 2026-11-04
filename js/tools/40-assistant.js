@@ -205,7 +205,7 @@
         }
         if (US.ai && US.ai.available()) {
           const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai.label()} is thinking…`)));
-          const plan = await US.jobs.run({ title: 'Planning your request', tool: 'assistant', who: US.jobs.WHO.ai }, job => planWithAI(text, job));
+          const plan = await US.jobs.run({ title: 'Planning your request', tool: 'assistant', who: US.jobs.WHO.ai, about: US.storyContext && US.storyContext.about ? US.storyContext.about(text) : '' }, job => planWithAI(text, job));
           thinking.remove();
           if (!plan) { bubble('bot', h('div', 'I couldn’t reach the AI just now. The built-in commands still work:'), chips(exampleChips(6))); return; }
           if (!plan.steps.length) { bubble('bot', h('div', plan.reply || 'I can’t do that with the tools I have.'), suggest(text).length ? chips(suggest(text).map(x => x.ex)) : null); return; }
@@ -289,7 +289,7 @@
       /** Ask the interviews (or follow up an earlier answer) and show the answer card. */
       async function runAsk(text, askId = null) {
         const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai && US.ai.available() ? US.ai.label() : 'The AI'} is reading your interviews…`)));
-        const r = await US.jobs.run({ title: askId ? 'Changing the answer' : 'Asking your interviews', tool: 'assistant', who: US.jobs.WHO.ai }, job => US.story.askInterviews(job, { request: text, askId }));
+        const r = await US.jobs.run({ title: askId ? 'Changing the answer' : 'Asking your interviews', tool: 'assistant', who: US.jobs.WHO.ai, about: US.storyContext && US.storyContext.about ? US.storyContext.about(text) : '' }, job => US.story.askInterviews(job, { request: text, askId }));
         thinking.remove();
         if (r && r.ask) showAsk(r.ask);
       }
@@ -297,7 +297,7 @@
       async function runEdit(text, over = null, onDone = null) {
         const scope = Object.assign(scopeNow(), over || {});
         const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai && US.ai.available() ? US.ai.label() : 'The AI'} is reading ${scope.where === 'bin' ? 'the bin' : scope.where === 'project' ? 'the project' : 'the sequence'} and planning…`)));
-        const r = await US.jobs.run({ title: editConv ? 'Changing the edit plan' : 'Planning the edit', tool: 'assistant', who: US.jobs.WHO.ai }, job => E.plan(job, { request: text, scope, conv: editConv }));
+        const r = await US.jobs.run({ title: editConv ? 'Changing the edit plan' : 'Planning the edit', tool: 'assistant', who: US.jobs.WHO.ai, about: US.storyContext && US.storyContext.about ? US.storyContext.about(text) : '' }, job => E.plan(job, { request: text, scope, conv: editConv }));
         thinking.remove();
         if (!r) { if (onDone) onDone(false); return; }
         editConv = r.conv;

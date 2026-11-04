@@ -383,13 +383,15 @@
         const goal = goalIn.value.trim();
         if (!follow && !goal) { ui.toast({ type: 'warn', title: 'Write a goal first, or pick one above.' }); return; }
         if (follow && !session) { ui.toast({ type: 'warn', title: 'Start with a goal first.' }); return; }
+        const about = US.storyContext && US.storyContext.about ? US.storyContext.about(follow || goal) : '';
         if (!follow) { session = newSession(goal); US.clear(log); US.clear(endBox); row('me', goal); }
         else { row('me', follow); followIn.value = ''; US.clear(endBox); }
+        if (about) row('bot.agent-about', about);
         busy = true; go.disabled = true; followBtn.disabled = true;
         const limit = +get('budget', 1), maxSteps = +get('maxSteps', 12);
         const spentBefore = US.ai.spending ? US.ai.spending().cost : 0;
         try {
-          await US.jobs.run({ title: 'Agent', tool: 'agent' }, async job => {
+          await US.jobs.run({ title: 'Agent', tool: 'agent', about }, async job => {
             if (US.ai.provider() === 'claude') US.ai.setBudget(limit);
             try { await run(job, session, { maxSteps, followUp: follow, confirmPlan, onEvent: event }); }
             finally { if (US.ai.endBudget) US.ai.endBudget(); }
