@@ -35,37 +35,64 @@
         for (var i = 0; i < tries.length; i++) { var f = new File(tries[i]); if (f.exists) return f.fsName; }
         return null;
     }
-    /** The property holding the text's Source Text JSON (MGT component first, then any Text component). */
-    function textProperty(ti) {
-        var found = null;
-        function look(c) { try { for (var i = 0; i < c.properties.numItems && !found; i++) { var v = c.properties[i].getValue(); if (typeof v === 'string' && v.indexOf('textEditValue') >= 0) found = c.properties[i]; } } catch (e) { } }
-        try { var mgt = ti.getMGTComponent(); if (mgt) look(mgt); } catch (e) { }
-        try { for (var k = 0; k < ti.components.numItems && !found; k++) look(ti.components[k]); } catch (e2) { }
-        return found;
-    }
     /**
-     * Words, font, size and colour into a text layer's Source Text. Premiere keeps them as JSON ("textEditValue",
-     * "fontEditValue", "fontSizeEditValue", colours as arrays); only the keys this Premiere has are set, and what it had
-     * is reported, so the panel can scale the layer when the size can't be set.
+     * Premiere keeps a text layer's words and style as JSON in two places (both seen in Basic Title.mogrt and through
+     * the API): the Essential Graphics control ("textEditValue", with "fontEditValue" / "fontSizeEditValue" when the
+     * template allows them), and the Text component's Source Text ({"mTextParam": {"mStyleSheet": {"mText", "mFontName",
+     * "mFontSize", "mFillColor" (0xRRGGBB), "mTracking" (1/1000 em), "mFauxBold"}, "mAlignment"}}) – sometimes after a
+     * few binary bytes, which are kept. -> [{property, json, prefix, form}]
+     */
+    function textProperties(ti) {
+        var out = [], seen = [];
+        function look(c) {
+            if (U.contains(seen, c)) return;   // the Essential Graphics component is in the clip's components too
+            seen.push(c);
+            try {
+                for (var i = 0; i < c.properties.numItems; i++) {
+                    var v = c.properties[i].getValue();
+                    if (typeof v !== 'string') continue;
+                    var form = v.indexOf('textEditValue') >= 0 ? 'edit' : v.indexOf('mTextParam') >= 0 ? 'param' : '';
+                    if (!form) continue;
+                    var k = v.indexOf('{'), o = null; try { o = JSON.parse(v.slice(k)); } catch (e) { continue; }
+                    out.push({ property: c.properties[i], json: o, prefix: v.slice(0, k), form: form });
+                }
+            } catch (e2) { }
+        }
+        try { var mgt = ti.getMGTComponent(); if (mgt) look(mgt); } catch (e) { }
+        try { for (var k = 0; k < ti.components.numItems; k++) look(ti.components[k]); } catch (e3) { }
+        return out;
+    }
+    function setParam(sheet, key, val) { var p = sheet[key]; if (!p || !p.mParamValues || !p.mParamValues.length) return false; for (var i = 0; i < p.mParamValues.length; i++) p.mParamValues[i][1] = val; return true; }
+    /**
+     * Words, font, size, colour, tracking and bold into a text layer: every Source Text JSON it has, only the keys that
+     * exist. Reports what took (and the template's base size, so the panel can scale the layer when the size can't be set).
      */
     function setText(ti, L, log) {
-        var p = textProperty(ti), out = { words: false, font: false, size: false, colour: false, keys: [], baseSize: 0 };
-        if (!p) { log.push('no Source Text'); return out; }
-        var v = p.getValue(), i = v.indexOf('{'), o;
-        try { o = JSON.parse(v.slice(i)); } catch (e) { log.push('text JSON: ' + e); return out; }
-        for (var k in o) if (o.hasOwnProperty(k)) out.keys.push(k);
-        o.textEditValue = String(L.text); out.words = true;
-        if (o.hasOwnProperty('fontEditValue') && L.font) { o.fontEditValue = String(L.font); out.font = true; }
-        if (o.hasOwnProperty('fontSizeEditValue') && L.size) { out.baseSize = Number(o.fontSizeEditValue) || 0; o.fontSizeEditValue = Number(L.size); out.size = true; }
-        if (o.hasOwnProperty('fontFSBoldValue') && L.bold != null) o.fontFSBoldValue = !!L.bold;
-        if (L.colour) {
-            var rgb = hexRgb(L.colour);
-            for (var k2 in o) if (o.hasOwnProperty(k2) && /fill|textcolou?r|colou?r/i.test(k2) && !/stroke|shadow|background|box/i.test(k2)) {
-                var cv = o[k2];
-                if (cv && typeof cv === 'object' && cv.length >= 3) { var big = cv[0] > 1 || cv[1] > 1 || cv[2] > 1; o[k2] = big ? [rgb[0], rgb[1], rgb[2]].concat(cv.length > 3 ? [cv[3]] : []) : [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255].concat(cv.length > 3 ? [cv[3]] : []); out.colour = true; }
+        var list = textProperties(ti), out = { words: false, font: false, size: false, colour: false, keys: [], baseSize: 0, forms: [] };
+        if (!list.length) { log.push('no Source Text'); return out; }
+        var rgb = hexRgb(L.colour || '#ffffff');
+        for (var n = 0; n < list.length; n++) {
+            var e = list[n], o = e.json;
+            out.forms.push(e.form);
+            if (e.form === 'edit') {
+                for (var k in o) if (o.hasOwnProperty(k)) out.keys.push(k);
+                o.textEditValue = String(L.text); out.words = true;
+                if (o.hasOwnProperty('fontEditValue') && L.font) { o.fontEditValue = String(L.font); out.font = true; }
+                if (o.hasOwnProperty('fontSizeEditValue') && L.size) { out.baseSize = out.baseSize || Number(o.fontSizeEditValue) || 0; o.fontSizeEditValue = Number(L.size); out.size = true; }
+                if (o.hasOwnProperty('fontFSBoldValue') && L.bold != null) o.fontFSBoldValue = !!L.bold;
+            } else {
+                var tp = o.mTextParam || {}, sheet = tp.mStyleSheet || {};
+                for (var k2 in sheet) if (sheet.hasOwnProperty(k2)) out.keys.push(k2);
+                if (sheet.hasOwnProperty('mText')) { sheet.mText = String(L.text); out.words = true; }
+                if (L.font && setParam(sheet, 'mFontName', String(L.font))) out.font = true;
+                if (L.size) { var fs = sheet.mFontSize && sheet.mFontSize.mParamValues; out.baseSize = out.baseSize || (fs && fs.length ? Number(fs[0][1]) : 0) || 0; if (setParam(sheet, 'mFontSize', Number(L.size))) out.size = true; }
+                if (L.colour && setParam(sheet, 'mFillColor', (rgb[0] << 16) | (rgb[1] << 8) | rgb[2])) out.colour = true;
+                if (L.tracking != null) setParam(sheet, 'mTracking', Math.round(Number(L.tracking) * 1000));
+                if (L.bold != null) setParam(sheet, 'mFauxBold', !!L.bold && !/bold|black|heavy/i.test(String(L.font || '')));
+                if (tp.hasOwnProperty('mAlignment')) tp.mAlignment = 2;   // centred on its anchor: the layer is then placed by its centre
             }
+            try { e.property.setValue(e.prefix + JSON.stringify(o), true); } catch (e4) { log.push('setValue (' + e.form + '): ' + e4); }
         }
-        p.setValue(v.slice(0, i) + JSON.stringify(o), true);
         return out;
     }
     function hexRgb(hex) { var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || '')); return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [255, 255, 255]; }
@@ -226,5 +253,6 @@
     };
 
     /** Resolve's Fusion templates – nothing to install for Premiere. a: {write:[{name, kind, body}]} -> {dir, written, restart} */
+    U.mvfxText = { setText: setText, textProperties: textProperties };
     fn.mvfxTemplates = function (a) { return { dir: '', written: [], restart: false, note: 'Premiere needs no templates: titles are made with Basic Title.' }; };
 })(UStudio);
