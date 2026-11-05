@@ -9,7 +9,7 @@ for (const f of ['tools-cut.md', 'tools-find.md', 'tools-finish.md', 'tools-stor
   for (const part of text.split(/^(?=### )/m)) { const m = /^### ([^–\n]+?) –/.exec(part); if (m) sections[m[1].trim()] = part.trim(); }
 }
 const ORDER = [[null, ['Story']], ['Selects & clips', ['Selects', 'Subclip Maker', 'Take Sets', 'MC Selects']], ['Find the good bits', ['Story wiki', 'Word cloud', 'Producer', 'Song Splitter']], ['Cut faster', ['Agent', 'Podcast', 'Silence Cut', 'Beat Cut', 'B-roll', 'Camera Switch']],
-  ['Finish & deliver', ['Colour', 'Quick effects', 'Markers', 'Safe Zones', 'Sound Check', 'Final Check', 'Deliver']], ['Ask', ['Assistant']]];
+  ['Finish & deliver', ['Colour', 'Quick effects', 'mVFX', 'Markers', 'Safe Zones', 'Sound Check', 'Final Check', 'Deliver']], ['Ask', ['Assistant']]];
 const tools = ORDER.map(([group, names]) => (group ? `**${group}**\n\n` : '') + names.map(n => { if (!sections[n]) throw new Error('No guide section for ' + n); return sections[n]; }).join('\n\n')).join('\n\n');
 md = md.replace('{{TOOLS}}', tools);
 const aiCosts = fs.existsSync(path.join(dir, 'ai-costs.md')) ? fs.readFileSync(path.join(dir, 'ai-costs.md'), 'utf8') : '';

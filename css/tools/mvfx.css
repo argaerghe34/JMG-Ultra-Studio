@@ -1,0 +1,19 @@
+/* mVFX – the pack's grid of painted thumbnails, and the preset editor with its preview */
+.mvfx-groups { flex-wrap: wrap; }
+.mvfx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 8px 0 12px; }
+.mvfx-tile { position: relative; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 0 0 6px; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; gap: 2px; color: var(--text); font-family: var(--font); text-align: left; overflow: hidden; }
+.mvfx-tile canvas { width: 100%; height: auto; display: block; background: #16171a; border-radius: var(--radius) var(--radius) 0 0; }
+.mvfx-tile:hover { border-color: var(--border-2); }
+.mvfx-tile.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.mvfx-tile.off { opacity: .45; }
+.mvfx-tile-label { font-size: 12.5px; font-weight: 600; padding: 4px 8px 0; }
+.mvfx-tile-sub { font-size: 10.5px; color: var(--text-3); padding: 0 8px; }
+.mvfx-editor { display: flex; flex-direction: column; gap: var(--gap); }
+.mvfx-editor-head { display: flex; align-items: baseline; gap: 10px; }
+.mvfx-editor-title { font-size: 16px; font-weight: 700; }
+.mvfx-preview-wrap { position: relative; }
+.mvfx-preview { width: 100%; height: auto; display: block; border-radius: var(--radius); background: #16171a; }
+.mvfx-play { position: absolute; right: 8px; bottom: 8px; }
+.mvfx-colours { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 6px; }
+.mvfx-colour { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.mvfx-colour input[type=color] { width: 28px; height: 22px; border: 1px solid var(--border); border-radius: 4px; background: none; padding: 0; }

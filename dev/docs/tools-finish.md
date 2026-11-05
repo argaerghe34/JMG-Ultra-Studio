@@ -80,3 +80,22 @@ A pad of buttons: click one and it goes on the clips selected in the Timeline �
 - **Favourites**: star a button to keep it at the top.
 - **Any by name**: anything in Premiere's Effects panel, typed as it's named there.
 - In Resolve, add-ons can't add transitions, effects, speed or volume, so those buttons are greyed out; the moves and opacity work on the clip under the playhead (Resolve doesn't tell add-ons which clips are selected) or every clip.
+
+### mVFX – a documentary titles pack
+Nine groups of presets, each with a painted thumbnail and a live preview (press **Play** to see it animate). Click one, type the words, press the big button.
+
+- **Lower thirds** (Hairline, Tag, Block, Bracket, Stacked, Underline, Side bar, Typewriter): a name and a role. The name fields offer the people Story knows from the transcripts.
+- **Titles & cards**: Chapter, Section number, Opening title, Location & date, Time jump, Quote, Credits (role: name, one per line), Three names, End card, Caption.
+- **Timelines & dates**: Date ruler, Era bar, Typewriter stamp, Day counter.
+- **Overlays**: Film grain, Dust & scratches, Vignette, Warm and Cool light leaks, Letterbox 2.39, Film gate, Paper wash, Scan lines, Flicker – with a **Strength** slider.
+- **Backgrounds**: Dusty dark, Paper, Slate, Ink, Linen, Spotlight – plates to put a title on.
+- **Freeze frames**: the frame at the playhead held for a few seconds, with a spotlight, black & white, a name tag or an outline box (the spot's place is set with two sliders).
+- **Movements**: Push in, Pull out, Pan left/right, Tilt up/down, Handheld drift, Punch – on the selected clips (or every clip).
+- **Transitions**: Light leak, Flash, Film burn, Grain dip, Cross dissolve, Dip to black – at the cuts between the selected clips.
+- **Looks**: Faded memory, Warm archive, Cold night, Bleach, Sepia – a colour grade on the selected clips. The .cube files are also saved in Documents › JMG Ultra Studio › Looks.
+
+**Colours and fonts** (one set for the whole pack): text, accent, second-line and bar colours; a serif, a sans and a typewriter family from the fonts on this computer. **Size**, **Across / Up–down** and **Length on the timeline** are per preset.
+
+Everything is native and editable afterwards:
+- **Premiere:** titles go on tracks named **mVFX 1, 2, 3…** above the edit. Each line is its own text layer (Premiere's Basic Title) – change the words, font or colour in Essential Graphics; the rules and bars are PNG pictures underneath (kept in a “JMG Ultra Studio mVFX” folder next to the project); the in/out animations are keyframes on Opacity and Position. Movements are Motion keyframes; looks are a Lumetri Color effect with the look's settings; transitions are the real transition plus the wash over the cut.
+- **Resolve:** every preset is a Fusion title or generator in the Effects Library (Titles / Generators › **JMG Ultra Studio** – press **Install the whole pack** once; Resolve lists new templates after a restart). The button writes the preset with your words in it and inserts it at the playhead, 5 s long – trim it in the Timeline; words, colours, sizes and positions are Inspector controls. Resolve doesn't let add-ons keyframe or add transitions, so movements other than Punch (a still punch-in) are greyed out and a transition lays only its wash over the playhead. Looks go on the clip's first node as a LUT.

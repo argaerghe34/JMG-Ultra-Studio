@@ -32,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '39-mvfx-fusion', '39-mvfx-looks', '39-mvfx-pack', '39-mvfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -473,6 +473,46 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       if (!/Favourites/.test(qt.el.textContent)) errors.push('quick effects: no favourites');
     } finally { US.host.call = wasCall; US.settings.set('quickfx.favs', undefined); US.settings.set('quickfx.seconds', undefined); }
     checks.push(`quick effects: ${tiles.length} buttons, dissolve at cuts, louder on the sound`);
+  }
+  // mVFX: nine groups of thumbnails; choosing a lower third shows its fields (name, role), colours and the big button;
+  // Add at the playhead paints nothing here (no canvas) but asks Premiere for the text layers with the words typed
+  {
+    const mt = US.tools.get('mvfx').create();
+    w.document.body.appendChild(mt.el);
+    await new Promise(r => setTimeout(r, 30));
+    const tiles = mt.el.querySelectorAll('.mvfx-tile');
+    if (tiles.length !== 8) errors.push(`mvfx: ${tiles.length} lower thirds`);
+    const groups = mt.el.querySelectorAll('.mvfx-groups .seg');
+    if (groups.length !== 9) errors.push(`mvfx: ${groups.length} groups`);
+    Array.from(tiles).find(t => /Tag/.test(t.textContent)).click();   // Tag has no painted art (there is no canvas here), just two text layers
+    const inputs = mt.el.querySelectorAll('.mvfx-editor input.input');
+    if (inputs.length < 2) errors.push('mvfx: no name/role fields');
+    inputs[0].value = 'Mira Haddad'; inputs[0].dispatchEvent(new w.Event('input'));
+    const wasCall = US.host.call, calls = [];
+    US.host.call = async (fn, a) => { calls.push([fn, a]); if (fn === 'sequenceInfo') return { id: 's1', name: 'Cut', fps: 25, width: 1920, height: 1080, duration: 30 }; if (fn === 'findGuideItem') return 'png1'; if (fn === 'mvfxApply') return { placed: a.layers.length, track: 2, trackName: 'mVFX 1', tracks: [2, 3, 4] }; return wasCall(fn, a); };
+    try {
+      mt.el.querySelector('.btn.primary').click();
+      await new Promise(r => setTimeout(r, 120));
+      const ap = calls.find(c => c[0] === 'mvfxApply');
+      if (!ap) errors.push('mvfx: Premiere not asked ' + JSON.stringify(calls.map(c => c[0])));
+      else {
+        const texts = ap[1].layers.filter(l => l.kind === 'text');
+        const nm = texts.find(t => t.text === 'Mira Haddad');
+        if (texts.length !== 2 || !nm || !(nm.size > 50) || !texts.some(t => t.text === 'FOUNDER, RIVERSIDE TRUST')) errors.push('mvfx: text layers ' + JSON.stringify(texts));
+        if (ap[1].seconds !== 5 || ap[1].start !== 0) errors.push('mvfx: at the playhead for 5 s ' + ap[1].start + '/' + ap[1].seconds);
+      }
+      if (!/Tag added at/.test(mt.el.textContent)) errors.push('mvfx: no report: ' + mt.el.querySelector('.pad-status').textContent);
+      // a movement goes on the selected clips with keyframes
+      Array.from(groups).find(b => /Movements/.test(b.textContent)).click();
+      await new Promise(r => setTimeout(r, 30));
+      Array.from(mt.el.querySelectorAll('.mvfx-tile')).find(t => /Push in/.test(t.textContent)).click();
+      US.host.call = async (fn, a) => { calls.push([fn, a]); if (fn === 'sequenceInfo') return { id: 's1', name: 'Cut', fps: 25, width: 1920, height: 1080, duration: 30 }; if (fn === 'editRead') return { fps: 25, video: [{ index: 0, clips: [{ start: 0, end: 4 }, { start: 4, end: 9 }] }], audio: [] }; if (fn === 'editSelection') return [{ kind: 'video', track: 0, start: 4, end: 9 }]; if (fn === 'mvfxMove') return { done: 1, skipped: [] }; return wasCall(fn, a); };
+      mt.el.querySelector('.btn.primary').click();
+      await new Promise(r => setTimeout(r, 60));
+      const mv = calls.filter(c => c[0] === 'mvfxMove');
+      if (mv.length !== 1 || mv[0][1].keys.length !== 2 || mv[0][1].keys[1].scale !== 112 || mv[0][1].targets[0].start !== 4) errors.push('mvfx: push in keys ' + JSON.stringify(mv.map(c => c[1])));
+    } finally { US.host.call = wasCall; for (const k of Object.keys(US.settings.all()).filter(k => k.startsWith('mvfx.'))) US.settings.set(k, undefined); }
+    checks.push(`mvfx: ${tiles.length} lower thirds, ${groups.length} groups, Tag → 2 text layers, Push in → keyframes`);
   }
   // Agent: a goal → its plan shown → Go → steps listed → what it made, with the sequences to open; then a follow-up
   {

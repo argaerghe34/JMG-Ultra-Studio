@@ -160,6 +160,25 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     tl.SetMarkInOut = (a, b) => { tl._mark = { video: { in: a, out: b }, audio: { in: a, out: b } }; return true; };
     tl.ClearMarkInOut = () => { tl._mark = {}; return true; };
     tl.InsertGeneratorIntoTimeline = () => null;
+    // Fusion titles/generators from the Effects Library: laid at the playhead on the first video track with room, 5 s
+    // long (as Resolve does), with a Fusion comp whose tools take SetInput/GetInput. Any name is "installed" here;
+    // tl._inserted lists what was asked for.
+    tl._inserted = [];
+    const insertFusion = (kind) => (name) => {
+      tl._inserted.push([kind, name]);
+      if (!name || /no such/i.test(name)) return null;
+      const at = tl._playhead, len = 5 * fps; let track = 1;
+      while ((tl._v[track - 1] || []).some(o => o._start < at + len && o._end > at)) track++;
+      while (tl._v.length < track) tl.AddTrack('video');
+      const ti = timelineItem(tl, 'video', track, clip('', { type: 'Fusion Title', name, frames: len }), 0, len, at);
+      const tools = {};
+      const comp = strict({ GetToolList: () => Object.assign({}, tools), FindTool: n => tools[n] || null, _add: (n, inputs) => { tools[n] = strict({ _inputs: Object.assign({}, inputs), GetInput: k => tools[n]._inputs[k], SetInput: (k, v) => { tools[n]._inputs[k] = v; return true; }, GetAttrs: () => ({ TOOLS_Name: n }) }); return tools[n]; } });
+      ti._comp = comp; ti.GetFusionCompCount = () => 1; ti.GetFusionCompByIndex = i => (i === 1 ? comp : null); ti.GetFusionCompNameList = () => ['Composition 1'];
+      tl._v[track - 1].push(ti);
+      return ti;
+    };
+    tl.InsertFusionTitleIntoTimeline = insertFusion('title');
+    tl.InsertFusionGeneratorIntoTimeline = insertFusion('generator');
     tl.Export = (file) => { fs.writeFileSync(file, 'fake export of ' + tl._name); return true; };
     markerHost(tl, () => 'timeline:' + tl._name);
     // the timeline's own Media Pool entry
@@ -189,6 +208,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     ti.SetProperty = (k, v) => { if (typeof k === 'object') { Object.assign(ti._props, k); return true; } ti._props[k] = v; return true; };
     ti.GetLinkedItems = () => tl._v.concat(tl._a).flat().filter(o => o !== ti && o._mpi === mpi && o._start === ti._start);
     ti.SmartReframe = () => true;
+    ti._luts = {}; ti.SetLUT = (node, file) => { if (!(node >= 1) || !fs.existsSync(file)) return false; ti._luts[node] = file; return true; }; ti.GetLUT = node => ti._luts[node] || '';
     markerHost(ti, () => 'item:' + ti.GetName());
     return strict(ti);
   }
