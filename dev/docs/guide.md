@@ -2,7 +2,7 @@
 
 ## Install (2 minutes)
 
-**Mac:** unzip the download, then double-click **Install on Mac.command**. The first time, macOS may say it's from an unidentified developer: right-click the file › **Open** › **Open**. Quit Premiere first (the installer waits for you).
+**Mac:** unzip the download, then double-click **Install on Mac.command**. If macOS says it can't be opened, click **Done**, then **System Settings › Privacy & Security › Open Anyway** (macOS 15 Sequoia and later; on older macOS, right-click › **Open** › **Open**). Quit Premiere first (the installer waits for you).
 
 **Windows:** unzip the download (right-click › Extract All), then double-click **Install on Windows.bat**. If Windows SmartScreen appears, click **More info › Run anyway**.
 
@@ -19,7 +19,16 @@ Then open Premiere Pro and choose **Window › Extensions › JMG Ultra Studio**
 
 The same panel runs in **DaVinci Resolve Studio 19.1 or later** (20 recommended), on a Mac or a PC. The free DaVinci Resolve can't run plugins.
 
-**Install:** unzip `JMG-Ultra-Studio-Resolve-<version>.zip`, quit Resolve, then double-click **Install on Mac.command** or **Install on Windows.bat**. Resolve's plugin folder is shared by everyone on the computer, so the Mac may ask for your password and Windows for permission. Then open Resolve and choose **Workspace › Workflow Integrations › JMG Ultra Studio** – it opens in its own window. On **Home**, press **Check my setup**: it checks Resolve Studio, the plugin version and that every tool has what it needs.
+**Install:** unzip `JMG-Ultra-Studio-Resolve-<version>.zip` and open **START HERE - How to install.html** in the unzipped folder – it walks you through every step, on a Mac or a PC. In short:
+
+1. **Quit DaVinci Resolve.** It only looks for plugins when it starts.
+2. **Double-click Install on Mac.command** (Mac – if it says it can't be opened, click **Done**, then **System Settings › Privacy & Security › Open Anyway**; or in Terminal type `bash ` and drag the installer in) or **Install on Windows.bat** (PC – if SmartScreen appears, **More info › Run anyway**).
+3. The installer shows each step as it's done. Resolve's plugin folder is shared by everyone on the computer, so the Mac may ask for your password (nothing shows while you type) and Windows asks to allow changes – click **Yes**.
+4. When it says **Installed**, press **O** to open Resolve.
+5. **Open a project**, then choose **Workspace › Workflow Integrations › JMG Ultra Studio** – it opens in its own window.
+6. On **Home**, press **Check my setup**: it checks Resolve Studio, the plugin version and that every tool has what it needs.
+
+Not in the Workspace menu? Open a project, then quit Resolve completely and open it again; and check *DaVinci Resolve › About* says **Studio**, 19.1 or later.
 
 **Updating:** run the new installer (quit Resolve first). **Removing:** **Uninstall on Mac / Windows**. Settings, analysis results and logs are shared with the Premiere version.
 

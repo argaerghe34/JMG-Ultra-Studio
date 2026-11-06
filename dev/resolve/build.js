@@ -53,8 +53,9 @@ fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'whats-new.md'), path.join(PLUG, 'docs', 'whats-new.md')); // Home › What's new reads it
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(OUT, 'Read me first.html'));
 const INST = path.join(ROOT, 'dev', 'resolve', 'installer');
-for (const f of fs.readdirSync(INST)) if (/\.(command|bat)$/.test(f)) {
-  fs.copyFileSync(path.join(INST, f), path.join(OUT, f));
+for (const f of fs.readdirSync(INST)) if (/\.(command|bat|html)$/.test(f)) {
+  if (f.endsWith('.html')) fs.writeFileSync(path.join(OUT, f), fs.readFileSync(path.join(INST, f), 'utf8').replace(/__VERSION__/g, VER));   // "START HERE – How to install"
+  else fs.copyFileSync(path.join(INST, f), path.join(OUT, f));
   if (f.endsWith('.command')) fs.chmodSync(path.join(OUT, f), 0o755);
 }
 
@@ -70,6 +71,7 @@ const files = walk(PLUG).map(f => path.relative(PLUG, f).split(path.sep).join('/
 const stray = files.filter(f => /^(jsx|dev)\//.test(f) || f.split('/').some(skip) || f === 'resolve/plugin' || f.startsWith('resolve/plugin/'));
 if (stray.length) die('Development files got into the package: ' + stray.join(', '));
 if (!fs.readFileSync(path.join(OUT, 'Read me first.html'), 'utf8').includes(`version ${VER}`)) die(`Read me first.html doesn't say version ${VER}`);
+if (!fs.readFileSync(path.join(OUT, 'START HERE - How to install.html'), 'utf8').includes(`Version ${VER}`)) die('START HERE - How to install.html is missing or has the wrong version');
 
 /* ---------- the zip: "JMG Ultra Studio for Resolve <ver>/…" ---------- */
 if (process.platform === 'darwin') {

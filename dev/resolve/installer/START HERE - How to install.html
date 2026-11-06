@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install in DaVinci Resolve</title>
+<style>
+  :root { --bg: #f6f5f2; --card: #fff; --text: #1d1d1f; --text-2: #55555c; --line: #e2e0da; --accent: #d1452f; --ok: #2e7d4f; --warn-bg: #fff5e0; --code: #f0eee9; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #18181a; --card: #222225; --text: #f2f2f2; --text-2: #b0b0b6; --line: #38383d; --accent: #ff6a4f; --ok: #5cc98a; --warn-bg: #3a3020; --code: #2c2c30; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .sub { color: var(--text-2); margin: 0 0 24px; }
+  h2 { font-size: 20px; margin: 32px 0 12px; }
+  .tabs { display: flex; gap: 8px; margin: 0 0 16px; }
+  .tabs button { font: inherit; padding: 8px 18px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  .tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+  ol.steps > li { counter-increment: s; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 14px 60px; position: relative; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 16px; top: 14px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; display: grid; place-items: center; }
+  ol.steps b { font-weight: 650; }
+  .note { color: var(--text-2); font-size: 14px; margin-top: 4px; }
+  .menu { font-weight: 650; white-space: nowrap; }
+  code { background: var(--code); padding: 1px 6px; border-radius: 4px; font-size: 14px; }
+  .box { background: var(--warn-bg); border-radius: 12px; padding: 12px 16px; margin: 16px 0; }
+  .ok { color: var(--ok); font-weight: 650; }
+  dl { margin: 0; } dt { font-weight: 650; margin-top: 14px; } dd { margin: 4px 0 0; color: var(--text-2); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Install JMG Ultra Studio in DaVinci Resolve</h1>
+  <p class="sub">Version __VERSION__ · about 2 minutes · needs <b>DaVinci Resolve Studio 19.1 or later</b> (the free DaVinci Resolve can't run plugins)</p>
+
+  <div class="tabs" role="group" aria-label="Your computer">
+    <button id="b-mac" aria-pressed="true" onclick="show('mac')">Mac</button>
+    <button id="b-win" aria-pressed="false" onclick="show('win')">Windows</button>
+  </div>
+
+  <h2>1. Install</h2>
+  <ol class="steps" id="mac">
+    <li><b>Quit DaVinci Resolve</b> if it's open. Save your work first – Resolve only looks for plugins when it starts.</li>
+    <li>In this folder, <b>double-click <code>Install on Mac.command</code></b>.
+      <div class="note">If the Mac says it <b>“can't be opened”</b> or <b>“Apple could not verify…”</b>, click <b>Done</b> (not Move to Bin). Then open <b>System Settings › Privacy &amp; Security</b>, scroll down to <i>“Install on Mac.command was blocked…”</i> and click <b>Open Anyway</b>, type your Mac password, then <b>Open Anyway</b> again. This is how macOS Sequoia (15) and later work; on older macOS, right-click the file › <b>Open</b> › <b>Open</b>.</div>
+      <div class="note"><b>Or, from Terminal:</b> open <b>Terminal</b> (Applications › Utilities), type <code>bash&nbsp;</code> (with a space after it), drag <code>Install on Mac.command</code> into the Terminal window and press <b>Return</b>.</div></li>
+    <li>A <b>Terminal window</b> opens and shows each step with a ✓ as it's done.
+      <div class="note">If it asks for your <b>Mac password</b>, type it and press Return – nothing shows while you type, that's normal. It's needed because Resolve's plugin folder is shared by everyone on the Mac.</div></li>
+    <li>When you see <span class="ok">✓ Installed</span>, press <b>O</b> to open DaVinci Resolve straight away, or any other key to close the window.</li>
+  </ol>
+  <ol class="steps hidden" id="win">
+    <li><b>Unzip the download first:</b> right-click the zip › <b>Extract All</b> › <b>Extract</b>. Running the installer from inside the zip won't work.</li>
+    <li><b>Quit DaVinci Resolve</b> if it's open. Save your work first – Resolve only looks for plugins when it starts.</li>
+    <li>In the unzipped folder, <b>double-click <code>Install on Windows.bat</code></b>.
+      <div class="note">If a blue “Windows protected your PC” box appears: click <b>More info</b> › <b>Run anyway</b>.</div></li>
+    <li>A <b>black window</b> opens and shows each step as it's done. If Windows asks <b>“Do you want to allow this app to make changes?”</b>, click <b>Yes</b> – Resolve's plugin folder is shared by everyone on the PC. The installer carries on in a new window.</li>
+    <li>When you see <span class="ok">Installed</span>, press <b>O</b> to open DaVinci Resolve straight away, or any other key to close the window.</li>
+  </ol>
+
+  <h2>2. Open it in Resolve</h2>
+  <ol class="steps">
+    <li><b>Open DaVinci Resolve Studio</b> and <b>open a project</b> (any project – or make a new one). The plugin menu only appears with a project open.</li>
+    <li>In the menu bar at the top choose <span class="menu">Workspace › Workflow Integrations › JMG Ultra Studio</span>.</li>
+    <li>JMG Ultra Studio opens in <b>its own window</b>. Drag it beside Resolve, or onto a second screen.</li>
+    <li>On the <b>Home</b> tab press <b>Check my setup</b>. It checks Resolve Studio, the version and that every tool has what it needs, and says plainly how to fix anything that's missing.</li>
+  </ol>
+
+  <h2>3. Start using it</h2>
+  <ol class="steps">
+    <li><b>Open a timeline</b> in the Edit page (most tools work on the timeline that's open).</li>
+    <li>Pick a tool from the rail on the left. Good first tries: <b>Story</b> (interviews → themes, soundbites and a first cut), <b>Selects</b> (finds the usable shots), <b>Silence Cut</b>.</li>
+    <li>Most tools build a <b>new timeline</b> rather than changing the one you're cutting, so your edit stays as it was.</li>
+    <li>The <b>Guide</b> (Home › Guide) explains every tool. In Resolve a <i>sequence</i> is a <i>timeline</i> and the <i>Project panel</i> is the <i>Media Pool</i>.</li>
+  </ol>
+
+  <h2>If something's not right</h2>
+  <dl>
+    <dt>The Mac won't open the installer (“can't be opened”, “Apple could not verify…”)</dt>
+    <dd>Click <b>Done</b>, then <b>System Settings › Privacy &amp; Security</b> › scroll down › <b>Open Anyway</b> next to “Install on Mac.command was blocked”. Or use the Terminal way in step 2 above – it always works.</dd>
+    <dt>“Workflow Integrations” isn't in the Workspace menu, or JMG Ultra Studio isn't listed</dt>
+    <dd>Open a project first. Quit Resolve completely and open it again (it reads plugins only when it starts). Check it's <b>DaVinci Resolve Studio</b> – in Resolve choose <span class="menu">DaVinci Resolve › About DaVinci Resolve</span>: it must say <i>Studio</i>, version 19.1 or later.</dd>
+    <dt>The installer says Resolve Studio's plugin support is missing</dt>
+    <dd>Install or update <b>DaVinci Resolve Studio</b> from blackmagicdesign.com (the free version doesn't include it), then run the installer again.</dd>
+    <dt>The installer waits for Resolve to quit</dt>
+    <dd>Save, then quit Resolve (<span class="menu">DaVinci Resolve › Quit</span> on a Mac, <span class="menu">File › Quit</span> on Windows). The installer carries on by itself.</dd>
+    <dt>The window is blank or says it can't connect</dt>
+    <dd>Close the JMG Ultra Studio window and open it again from the Workspace menu. If it's still blank, run the installer again.</dd>
+    <dt>Updating to a new version</dt>
+    <dd>Quit Resolve and run the new installer. Your settings and analysis results are kept.</dd>
+    <dt>Removing it</dt>
+    <dd>Quit Resolve and double-click <code>Uninstall on Mac.command</code> or <code>Uninstall on Windows.bat</code>.</dd>
+  </dl>
+  <div class="box">More help: <b>Read me first.html</b> in this folder is the full guide to every tool.</div>
+</div>
+<script>
+  function show(os) {
+    document.getElementById('mac').classList.toggle('hidden', os !== 'mac');
+    document.getElementById('win').classList.toggle('hidden', os !== 'win');
+    document.getElementById('b-mac').setAttribute('aria-pressed', os === 'mac');
+    document.getElementById('b-win').setAttribute('aria-pressed', os === 'win');
+  }
+  if (/Win/i.test(navigator.platform || navigator.userAgent)) show('win');
+</script>
+</body>
+</html>

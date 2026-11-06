@@ -1,3 +1,10 @@
+## What's new in 1.3.29.2
+
+- **Installing in DaVinci Resolve is clearer.** The Resolve download now has a **START HERE - How to install.html** page with every step for a Mac or a PC, what to click, and what to do if JMG Ultra Studio doesn't show up in Resolve.
+- **The Resolve installers show their progress** – *Step 1 of 5 – Checking the download … ✓* – say plainly what to do if something's missing (with the help page one key away), tell you when to type your password or click Yes, and wait by themselves while you quit Resolve.
+- **When it's installed, they tell you how to find it:** open a project, then **Workspace › Workflow Integrations › JMG Ultra Studio**, and press **Check my setup** on Home. Press **O** to open Resolve straight away.
+- **macOS Sequoia (15) and later:** the instructions now say how to open an installer the Mac blocks (*System Settings › Privacy & Security › Open Anyway*, or run it from Terminal) – the old right-click › Open no longer works there.
+
 ## What's new in 1.3.29.1
 
 - **mVFX is hidden for now**, like Colour, Cameras, B-roll and Sound, while it's being finished. Settings › the code still shows it.
