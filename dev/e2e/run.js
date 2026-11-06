@@ -106,8 +106,8 @@ function evaluate(ws, expression) {
     if (r === 'not-resolve') { console.error(`The panel on port ${PORT} isn’t running in Resolve.`); ws.close(); process.exit(2); }
     if (r !== TEST_PROJECT) { console.error(`Resolve has “${r || 'no project'}” open. Open the test project “${TEST_PROJECT}” first – the tests never run in other projects.`); ws.close(); process.exit(2); }
   }
-  // Colour, Camera Switch, Sound and B-roll are paused (US.PAUSED_TOOLS): their tests run only when named, e.g. `run.js colour`
-  const paused = f => /^(24[b-d]?-(cameras|broll)|34[a-z]?-colour|23[a-z]?-sound)/.test(f);
+  // Colour, Camera Switch, Sound, B-roll and mVFX are paused (US.PAUSED_TOOLS): their tests run only when named, e.g. `run.js colour`
+  const paused = f => /^(24[b-d]?-(cameras|broll)|34[a-z]?-colour|23[a-z]?-sound|54[a-z]?-mvfx)/.test(f);
   // tests written for the other editor only
   const other = f => new RegExp('^\\s*// ' + (RESOLVE ? 'premiere' : 'resolve') + '-only\\b', 'm').test(fs.readFileSync(path.join(__dirname, f), 'utf8'));
   // tests that spend real AI money (a line `// costs-ai`) run only when named, or with E2E_AI=1

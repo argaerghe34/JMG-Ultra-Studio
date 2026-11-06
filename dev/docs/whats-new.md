@@ -1,3 +1,7 @@
+## What's new in 1.3.29.1
+
+- **mVFX is hidden for now**, like Colour, Cameras, B-roll and Sound, while it's being finished. Settings › the code still shows it.
+
 ## What's new in 1.3.29
 
 - **mVFX – a documentary titles pack** (Finish & deliver): 61 presets in nine groups – lower thirds, titles and cards (chapters, quotes, credits, time jumps, end cards), timelines and dates, overlays (grain, dust, light leaks, letterbox, film gate), backgrounds, freeze frames, camera movements, transitions and five colour looks. Painted thumbnails and a live preview; type the words (Story's speaker names are offered), set colours, fonts, size and position, and add it at the playhead – or apply a movement or look to the selected clips. In Premiere everything is native text layers, pictures and keyframes you can edit in Essential Graphics; in Resolve the pack is installed into the Effects Library as Fusion titles and generators (Titles / Generators › JMG Ultra Studio) and inserted at the playhead, editable in the Inspector. Where Resolve doesn't let add-ons do something (keyframed moves, transitions) the button says so.

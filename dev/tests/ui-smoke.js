@@ -476,7 +476,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
   }
   // mVFX: nine groups of thumbnails; choosing a lower third shows its fields (name, role), colours and the big button;
   // Add at the playhead paints nothing here (no canvas) but asks Premiere for the text layers with the words typed
-  {
+  if (US.tools.get('mvfx')) {   // paused (hidden) in the panel for now
     const mt = US.tools.get('mvfx').create();
     w.document.body.appendChild(mt.el);
     await new Promise(r => setTimeout(r, 30));
