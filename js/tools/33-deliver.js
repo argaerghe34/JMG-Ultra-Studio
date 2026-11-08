@@ -1,5 +1,5 @@
 /* JMG Ultra Studio – Deliver: every export in one go (with live Media Encoder progress), render ranges (one file
-   per adjustment layer on a chosen track), and YouTube chapters from markers. Client notes were taken out (29 Oct 2026);
+   per adjustment layer on a chosen track), every sequence in a bin (Bin export), and YouTube chapters from markers. Client notes were taken out (29 Oct 2026);
    parseNotes stays for now. */
 (function () {
   'use strict';
@@ -164,6 +164,47 @@
     if (o > i + 0.04 && !(i < 0.04 && o >= d - 0.04)) return { start: i, end: o };
     const start = Math.max(0, Math.min(playhead || 0, d - 1));
     return { start, end: Math.min(d, start + 10) };
+  }
+
+  /* ---------- bin export: every sequence in a bin, one file each ---------- */
+  /** File names for a bin's sequences: the sequence's name plus the ending, no two alike (Windows ignores case). */
+  function binPlan(seqs, ext, dir, o = {}) {
+    const taken = new Set(), suffix = cleanSuffix(o.suffix);
+    return seqs.map(s => {
+      const base = safeName(s.name + suffix);
+      let name = base;
+      for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})`;
+      taken.add(name.toLowerCase());
+      return { seqId: s.id, seqName: s.name, name, out: path.join(dir, `${name}.${ext}`) };
+    });
+  }
+  /** o: {binId, binName, recursive, skip:[seq ids], preset, folder, suffix, queueOnly, replace} */
+  async function exportBin(o, job) {
+    if (!o.binId) throw new US.UserError('BAD_INPUT', { title: 'Choose a bin first.' });
+    job.set({ who: 'premiere', msg: 'Reading the bin' });
+    const all = await US.host.call('binSequences', { binId: o.binId, recursive: !!o.recursive });
+    const seqs = all.filter(s => !(o.skip || []).includes(s.id));
+    if (!all.length) throw new US.UserError('NOTHING_FOUND', { title: US.say('There are no sequences in that bin.'), action: o.recursive ? 'Choose the bin that holds them.' : US.say('Choose the bin that holds them, or switch on “Include the bins inside it”.') });
+    if (!seqs.length) throw new US.UserError('NOTHING_FOUND', { title: US.say('Every sequence is switched off.'), action: 'Tick the ones to export.' });
+    const preset = o.preset || (await US.host.call('encoderPresets')).h264;
+    const isFile = !inResolve() || /\.(xml|epr)$/i.test(String(preset || ''));
+    if (!preset || (isFile && !fs.existsSync(preset))) throw new US.UserError('PRESET_MISSING', { title: 'The export preset isn’t there any more.', action: 'Choose the preset again in Deliver › Bin export.', detail: String(preset) });
+    const ext = (await US.host.call('presetExtension', { seqId: seqs[0].id, preset })) || 'mp4';
+    const dir = o.folder || defaultDir(String(o.binName || 'Bin').split(' / ').pop());
+    const plan = binPlan(seqs, ext, dir, o);
+    US.fsx.ensureDir(dir);
+    for (const s of seqs) { job.check(); await hideGuides(s.id, job); }
+    const tasks = plan.map(p => ({ seqId: p.seqId, out: p.out, preset, name: p.name, overwrite: !!o.replace }));
+    await US.encoder.run(tasks, job, { label: 'Exporting', from: 0.05, to: 1, queueOnly: !!o.queueOnly });
+    const list = tasks.map(t => `${t.queued ? '→' : t.ok ? '✓' : '✗'} ${path.basename(t.out)}${t.ok || t.queued ? '' : ' – ' + t.error}`).join('\n');
+    if (o.queueOnly) {
+      US.log('ok', `${US.plural(tasks.length, 'export')} queued for ${dir}`, list, 'deliver');
+      return { summary: inResolve() ? `${US.plural(tasks.length, 'render')} added to Resolve’s Render Queue – press Render All on the Deliver page` : `${US.plural(tasks.length, 'export')} queued in Media Encoder – press its green Start button`, dir, files: tasks.map(t => t.out) };
+    }
+    const failed = tasks.filter(t => !t.ok);
+    US.log(failed.length ? 'error' : 'ok', `Bin export in ${dir}`, list, 'deliver');
+    if (failed.length) throw new US.UserError('RENDER_FAILED', { title: `${failed.length} of ${tasks.length} exports failed.`, action: seeWhy(), detail: failed.map(t => `${path.basename(t.out)}: ${t.error}`).join('\n') });
+    return { summary: `${US.plural(tasks.length, 'sequence')} exported`, dir, files: tasks.map(t => t.out) };
   }
 
   async function exportRanges(o, job) {
@@ -340,12 +381,12 @@
   /* ---------- the tool ---------- */
   US.tools.register({
     id: 'deliver', name: 'Deliver', short: 'Deliver', icon: 'deliver', group: 'finish', order: 33,
-    blurb: 'Every export in one go, render ranges, YouTube chapters, episode text.',
-    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'rangeTrackOutput', 'addRangeTrack', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead'],
+    blurb: 'Every export in one go, render ranges, every sequence in a bin, YouTube chapters, episode text.',
+    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'rangeTrackOutput', 'addRangeTrack', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead', 'binSequences', 'listBins'],
     create() {
       const v = ui.toolView({ icon: 'deliver', title: 'Deliver', blurb: 'Export everything in one go, render the parts you mark, and make YouTube chapters.' });
-      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'chapters', label: 'Chapters' }, { value: 'text', label: 'Episode text' }], value: 'pack', onChange: t => showTab(t) });
-      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), chapters: h('div.tool-body'), text: h('div.tool-body') };
+      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'bin', label: 'Bin export' }, { value: 'chapters', label: 'Chapters' }, { value: 'text', label: 'Episode text' }], value: 'pack', onChange: t => showTab(t) });
+      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), bin: h('div.tool-body'), chapters: h('div.tool-body'), text: h('div.tool-body') };
       const seqLine = h('div.field-hint');
 
       /* export pack */
@@ -400,6 +441,11 @@
         opts.push({ value: '__pick', label: 'Choose a preset file…' });
         if (!ro.preset || !opts.some(x => x.value === ro.preset)) ro.preset = opts[0].value === '__pick' ? '' : opts[0].value;
         presetSel.setOptions(opts, ro.preset);
+        const binOpts = opts.filter(x => x.value !== '__pick');
+        if (bo.preset && !binOpts.some(x => x.value === bo.preset)) binOpts.push({ value: bo.preset, label: `${String(bo.preset).replace(/^preset:/, '').split(/[\\/]/).pop().replace(/\.(epr|xml)$/i, '')} (chosen file)` });
+        binOpts.push({ value: '__pick', label: 'Choose a preset file…' });
+        if (!bo.preset || !binOpts.some(x => x.value === bo.preset)) bo.preset = binOpts[0].value === '__pick' ? '' : binOpts[0].value;
+        binPresetSel.setOptions(binOpts, bo.preset);
       }
       // the sequence's start timecode, so times read as they do in the Timeline (Resolve starts at 01:00:00:00)
       const zeroOf = {};
@@ -550,6 +596,60 @@
       // refresh by the clock while Render ranges is on screen (layers added or changed in the Timeline show up)
       setInterval(() => { if (!panes.ranges.classList.contains('hidden') && !v.el.closest('.hidden') && !document.hidden && !US.jobs.current) showRanges(true); }, 3000);
 
+      /* bin export */
+      const bo = Object.assign({ binId: '', recursive: false, preset: '', skip: [], suffix: '', queueOnly: false, replace: false }, US.settings.get('deliver.bin', {}));
+      if (bo.preset && (inResolve() ? /\.epr$/i.test(bo.preset) : /^(preset|resolve):/.test(bo.preset))) bo.preset = '';
+      const saveBo = () => US.settings.set('deliver.bin', bo);
+      let bins = [], binSeqs = [];
+      const binSel = ui.select({ options: [], placeholder: 'Choose a bin…', onChange: x => { bo.binId = x; saveBo(); listBinSeqs(); } });
+      const binSeqList = h('div');
+      const binPresetSel = ui.select({ options: [], onChange: x => {
+        if (x === '__pick') {
+          try { const r = US.app.pickFiles({ title: inResolve() ? 'Choose a render preset (.xml)' : 'Choose an export preset (.epr)', start: bo.preset ? path.dirname(bo.preset) : path.dirname(US.fsx.exportsDir()), ext: [inResolve() ? 'xml' : 'epr'] }); if (r[0]) bo.preset = US.normPath(r[0]); } catch (e) { ui.showError(e); }
+          saveBo(); fillPresets(); return;
+        }
+        bo.preset = x; saveBo();
+      } });
+      const binSuffix = ui.input({ placeholder: 'e.g. _1 or _v2', value: bo.suffix || '' });
+      binSuffix.addEventListener('input', US.debounce(() => { bo.suffix = cleanSuffix(binSuffix.value); saveBo(); }, 300));
+      async function fillBins() {
+        try {
+          bins = await US.host.call('listBins');
+          binSel.setOptions(bins.map(b => ({ value: b.id, label: b.path })), bins.some(b => b.id === bo.binId) ? bo.binId : '');
+          listBinSeqs();
+        } catch (e) { ui.showError(e); }
+      }
+      async function listBinSeqs() {
+        US.clear(binSeqList); binSeqs = [];
+        if (!binSel.get()) return;
+        try { binSeqs = await US.host.call('binSequences', { binId: binSel.get(), recursive: !!bo.recursive }); } catch (e) { ui.showError(e); return; }
+        if (!binSeqs.length) { binSeqList.appendChild(ui.note(US.say(bo.recursive ? 'No sequences in this bin or the bins inside it.' : 'No sequences in this bin. If they’re in bins inside it, switch on “Include the bins inside it”.'), 'warn')); return; }
+        const count = h('div.grow.field-hint');
+        const showCount = () => { const n = binSeqs.filter(s => !bo.skip.includes(s.id)).length; count.textContent = US.say(`${n} of ${US.plural(binSeqs.length, 'sequence')} will export`); };
+        const setAll = on => { const ids = binSeqs.map(s => s.id); bo.skip = on ? bo.skip.filter(x => !ids.includes(x)) : [...new Set(bo.skip.concat(ids))]; saveBo(); listBinSeqs(); };
+        binSeqList.append(h('div.row', count, ui.button('Select all', { small: true, kind: 'ghost', onClick: () => setAll(true) }), ui.button('Unselect all', { small: true, kind: 'ghost', onClick: () => setAll(false) })),
+          ...binSeqs.map(s => ui.toggle({ label: s.name, hint: `${s.width}×${s.height} · ${US.fmtDur(s.duration)}${bo.recursive && s.bin ? ' · ' + s.bin : ''}`, value: !bo.skip.includes(s.id), onChange: on => { bo.skip = on ? bo.skip.filter(x => x !== s.id) : bo.skip.concat(s.id); saveBo(); showCount(); } })));
+        showCount();
+      }
+      const binOpen = ui.button('Open export folder', { small: true, icon: 'folder', onClick: openFolder });
+      binOpen.classList.add('hidden');
+      const binBtn = ui.actionButton('Export the sequences', async () => {
+        const r = await US.jobs.run({ title: US.say('Exporting the bin’s sequences'), tool: 'deliver' }, job => exportBin(Object.assign({}, bo, { binId: binSel.get(), binName: (bins.find(b => b.id === binSel.get()) || {}).path || '', folder }), job));
+        if (r && r.dir) { lastDir = r.dir; binOpen.classList.remove('hidden'); }
+      });
+      panes.bin.append(
+        ui.card(h('div.row', h('div.grow.card-title', 'Bin export'), ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: fillBins })),
+          ui.field('Bin', binSel),
+          ui.toggle({ label: 'Include the bins inside it', value: !!bo.recursive, onChange: x => { bo.recursive = x; saveBo(); listBinSeqs(); } }),
+          binSeqList),
+        ui.card(ui.field('Export settings', binPresetSel, inResolve() ? 'Your own render presets from Resolve’s Deliver page are listed here too.' : 'Presets you save in Media Encoder or Premiere’s Export screen are listed here too.'),
+          ui.field('Add to every file name', binSuffix, US.say('For example _v2: “Song 1_v2.mp4”. Each file is named after its sequence.')),
+          ui.toggle({ label: 'Start rendering straight away', hint: inResolve() ? 'Off: the renders wait in the Render Queue on the Deliver page until you press Render All.' : 'Off: the exports wait in Media Encoder’s queue until you press its green Start button.', value: !bo.queueOnly, onChange: x => { bo.queueOnly = !x; saveBo(); } }),
+          ui.toggle({ label: 'Replace earlier exports with the same name', hint: 'Off: a new copy is saved as “Name (2)”.', value: !!bo.replace, onChange: x => { bo.replace = x; saveBo(); } }),
+          folderRow()),
+        ui.note(US.say(inResolve() ? 'Each timeline renders whole, one after another, as its own file named after it. Safe Zones guides are hidden automatically.' : 'Each sequence exports whole through Media Encoder, one after another, as its own file named after it. Your sequences aren’t changed (Safe Zones guides are hidden so they don’t export).')),
+        binBtn, binOpen);
+
       /* chapters */
       const which = ui.select({ options: [{ value: 'named', label: 'Markers that have a name' }, { value: 'all', label: 'All markers' }].concat(ui.MARKER_COLORS.map(c => ({ value: String(c.i), label: c.name + ' markers' }))), value: 'named', onChange: () => buildChapters() });
       const chapterText = h('textarea.input.mono', { rows: 10, readOnly: true });
@@ -604,18 +704,18 @@
         h('div.muted', 'Titles, a description, show notes with times, YouTube chapters, pull quotes, social posts and keywords – from what is said in the open sequence (Story’s transcripts of the clips in it). Only that text is sent to the AI; the quotes are checked against the transcript.'),
         ui.field('Notes for the writer', notesIn), writeBtn), textOut);
 
-      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'ranges') { fillPresets(); showRanges(); } if (t === 'text' && lastEpisode && !textOut.childNodes.length) drawEpisode(lastEpisode); }
+      function showTab(t) { Object.entries(panes).forEach(([k, el]) => el.classList.toggle('hidden', k !== t)); tabs.set(t); if (t === 'chapters') buildChapters(); if (t === 'ranges') { fillPresets(); showRanges(); } if (t === 'bin') { fillPresets(); fillBins(); } if (t === 'text' && lastEpisode && !textOut.childNodes.length) drawEpisode(lastEpisode); }
       // another sequence opened while Render ranges is showing: list its ranges
       let shownSeq = null;
       const refreshRanges = US.debounce(() => { if (!panes.ranges.classList.contains('hidden')) showRanges(); }, 400);
       US.bus.on('context', () => { const id = US.ctx.sequence && US.ctx.sequence.id; if (id !== shownSeq) { shownSeq = id; refreshRanges(); } });
       function renderCtx() { seqLine.textContent = US.ctx.sequence ? `Sequence: ${US.ctx.sequence.name} (${US.ctx.sequence.width}×${US.ctx.sequence.height}, ${US.fmtDur(US.ctx.sequence.duration)})` : 'Open a sequence in the Timeline first.'; }
       US.bus.on('context', renderCtx);
-      v.body.append(seqLine, tabs, panes.pack, panes.ranges, panes.chapters);
+      v.body.append(seqLine, tabs, panes.pack, panes.ranges, panes.bin, panes.chapters, panes.text);
       showTab('pack');
       return { el: v.el, onShow(opt) { renderCtx(); if (opt && opt.tab) showTab(opt.tab); } };
     }
   });
 
-  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS, rangePlan, userPresets, newRangeSpan, cleanSuffix, layerColours };
+  US.deliver = { parseNotes, autoOffset, chapters, OUTPUTS, rangePlan, binPlan, exportBin, userPresets, newRangeSpan, cleanSuffix, layerColours };
 })();

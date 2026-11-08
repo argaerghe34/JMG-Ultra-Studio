@@ -358,6 +358,15 @@ module.exports = function (R) {
         return { id: job.id, restored: true, hadIn: null, hadOut: null, file: job.file };
       });
     },
+    /** As jsx/tools/finish.jsx: the timelines in a bin (and the bins inside it with a.recursive). a: {binId, recursive} */
+    binSequences(a) {
+      const byItem = new Map();
+      for (const tl of R.timelines()) { const mpi = tryCall(() => tl.GetMediaPoolItem(), null); if (mpi) byItem.set(R.id(mpi), tl); }
+      return R.clipsIn(R.needFolder(a.binId), !!a.recursive).filter(x => byItem.has(x.id)).map(x => {
+        const tl = byItem.get(x.id), sz = R.size(tl);
+        return { id: R.id(tl), name: String(tl.GetName() || ''), bin: R.binPath(x.parts), duration: R.tlDuration(tl), width: sz.width, height: sz.height };
+      });
+    },
     /** The file extension a preset writes ('mp4', 'mov', …), or '' if Resolve can't tell. a: {seqId, preset} */
     async presetExtension(a) {
       const p = String(a.preset || '');
