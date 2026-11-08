@@ -130,6 +130,8 @@
   }
   function reindex() {
     lineById = new Map(); clipOfLine = new Map(); linesIndex = new Map(); linesStamp++;
+    // songs, other languages and noise left out (Story › 1 Interviews › Leave out songs and other languages)
+    if (US.storyIgnore && (state.ignore || state.transcripts.some(t => t.ignored))) US.storyIgnore.partition(state.transcripts, state.ignore);
     for (const t of state.transcripts) t.lines.forEach((l, i) => { lineById.set(l.id, l); clipOfLine.set(l.id, t); linesIndex.set(l.id, i); });
     // names and terms spelt as the project's glossary says (from each line's original text, so it never doubles)
     if ((state.glossary && state.glossary.length) || allLinesRaw().some(l => l.orig != null)) GL().apply(allLinesRaw(), state.glossary || []);
@@ -178,7 +180,7 @@
     // themes, narratives and moments still find their lines
     const old = US.storySync ? US.storySync.matchTranscript(state.transcripts, { key, path: p, name, itemId, lines }) : state.transcripts.find(x => x.key === key);
     if (old && old.key !== key) { key = old.key; lines = T.toLines(segments, prefixOf(key)); }
-    if (old && US.storySync) { const r = US.storySync.carryIds(old.lines, lines); readCount.again++; readCount.changed += r.changed; }
+    if (old && US.storySync) { const r = US.storySync.carryIds(old.lines.concat(old.ignored || []), lines); readCount.again++; readCount.changed += r.changed; }
     const t = { key, name, path: p || '', itemId: itemId || (old && old.itemId) || '', source, file: file || '', format: format || '', language: language || '', lines, added: Date.now() };
     const i = old ? state.transcripts.indexOf(old) : -1;
     if (i >= 0 && state.transcripts[i].summary) t.summary = state.transcripts[i].summary;   // kept while it still fits (summarySig)
@@ -2370,6 +2372,7 @@
         el.appendChild(ui.stats(ui.stat(state.transcripts.length, one(state.transcripts.length, 'interview')), ui.stat(US.fmtDur(secs), 'of speech'), ui.stat(lines.length, one(lines.length, 'line')),
           named ? ui.stat(named, one(named, 'speaker')) : ui.stat('No', 'speaker names')));
         el.appendChild(scopeCard());
+        if (US.storyIgnore) el.appendChild(US.storyIgnore.card({ render }));
         if (US.storyProof) el.appendChild(US.storyProof.card({ render }));
         el.appendChild(glossaryCard());
         // the technical part: which clip each transcript belongs to, and speaker names
