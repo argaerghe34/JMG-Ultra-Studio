@@ -140,6 +140,7 @@
   /** How well the groups stand apart: mean silhouette (−1..1). */
   function silhouette(vs, labels, k) {
     if (k < 2) return 0;
+    if (vs.length > 500) { const step = vs.length / 500, pick = Array.from({ length: 500 }, (_, i) => Math.floor(i * step)); return silhouette(pick.map(i => vs[i]), pick.map(i => labels[i]), k); }
     let t = 0;
     vs.forEach((v, i) => {
       const per = new Array(k).fill(0), cnt = new Array(k).fill(0);
@@ -157,35 +158,68 @@
    * (≥ 0.8 of the spread among one group's lines, and ≥ 4 in all) and also be the one asking against the one
    * answering. (Measured on test voices: different people 8–16 apart, one person's halves 3–14 – shape alone can't tell.)
    */
-  function apart(raws, labels, k, qs) {
+  function apart(raws, labels, k, qs, at) { return notApart(raws, labels, k, qs, at).length === 0; }
+  /**
+   * The pairs of groups that don't stand apart (see apart), closest first: [[a, b], …]. at: each line's time – at an
+   * event (speeches between songs, a panel) each person speaks a turn of several lines in a row, which a content split
+   * of one person never does; that counts like asking against answering.
+   */
+  function notApart(raws, labels, k, qs, at) {
     const groups = Array.from({ length: k }, (_, j) => raws.map((v, i) => i).filter(i => labels[i] === j));
     const mean = g => { const c = new Array(CEPS).fill(0), f = []; g.forEach(i => { const v = raws[i]; for (let d = 0; d < CEPS; d++) c[d] += v[d] / g.length; if (isFinite(v[v.length - 1])) f.push(v[v.length - 1]); }); return { c, f0: median(f), q: qs ? g.filter(i => qs[i]).length / g.length : 0 }; };
     const spread = (g, m) => Math.sqrt(g.reduce((t, i) => t + raws[i].slice(0, CEPS).reduce((u, x, d) => u + (x - m.c[d]) ** 2, 0), 0) / g.length);
     const ms = groups.map(mean), sp = groups.map((g, j) => spread(g, ms[j]));
+    const order = at ? raws.map((v, i) => i).sort((x, y) => at[x] - at[y]) : null, out = [];
+    // both groups speak in turns of 3 lines or more (lines of only these two groups, in time order)
+    const turns = (a, b) => {
+      if (!order) return false;
+      const runs = [0, 0], cnt = [0, 0]; let prev = -1;
+      for (const i of order) { const l = labels[i] === a ? 0 : labels[i] === b ? 1 : -1; if (l < 0) continue; cnt[l]++; if (l !== prev) runs[l]++; prev = l; }
+      return runs[0] > 0 && runs[1] > 0 && cnt[0] / runs[0] >= 3 && cnt[1] / runs[1] >= 3;
+    };
     for (let a = 0; a < k; a++) for (let b = a + 1; b < k; b++) {
       const semis = isFinite(ms[a].f0) && isFinite(ms[b].f0) ? 12 * Math.abs(ms[a].f0 - ms[b].f0) / Math.LN2 : 0;
       const d = Math.sqrt(ms[a].c.reduce((t, x, i) => t + (x - ms[b].c[i]) ** 2, 0)), shape = d / (Math.sqrt((sp[a] ** 2 + sp[b] ** 2) / 2) || 1);
       const asks = Math.abs(ms[a].q - ms[b].q) >= 0.5;
-      if (semis < 2 && !(shape >= 0.8 && d >= 4 && asks)) return false;
+      if (semis < 2 && !(shape >= 0.8 && d >= 4 && (asks || turns(a, b)))) out.push({ a, b, d });
     }
-    return true;
+    return out.sort((x, y) => x.d - y.d).map(x => [x.a, x.b]);
   }
   const SPLIT = 0.12; // the groups must stand apart at least this well, or it's one voice
   /**
    * One interview's prints (scaled) -> its voices: [{centre, ids}] (2–4 voices when they stand apart, else 1).
    * Each voice must hold at least 4% of the speech, so a cough or a laugh doesn't become a person.
    */
-  function voicesIn(ps, maxVoices = 4) {
+  function voicesIn(ps, maxVoices = 12) {
     const ids = Object.keys(ps).filter(id => ps[id].n >= MIN_FRAMES);
     if (ids.length < 4) return ids.length ? [{ centre: centroid(ids.map(id => ps[id].s)), ids }] : [];
     const vs = ids.map(id => ps[id].s), ws = ids.map(id => ps[id].n), all = ws.reduce((a, b) => a + b, 0);
     let best = { k: 1, score: SPLIT, labels: new Array(ids.length).fill(0), centres: [centroid(vs, ws)] };
+    const raws = ids.map(id => ps[id].raw), qs = ids.map(id => !!ps[id].q), at = ids.every(id => isFinite(ps[id].at)) ? ids.map(id => ps[id].at) : null;
+    const tried = new Set();
     for (let k = 2; k <= Math.min(maxVoices, ids.length - 1); k++) {
       const r = kmeans(vs, k, ws);
-      const share = Array.from({ length: k }, (_, j) => r.labels.reduce((t, l, i) => t + (l === j ? ws[i] : 0), 0) / all);
-      if (share.some(x => x < 0.04) || !apart(ids.map(id => ps[id].raw), r.labels, k, ids.map(id => !!ps[id].q))) continue;
-      const sc = silhouette(vs, r.labels, k) - (k - 2) * 0.03; // a little against more voices than needed
-      if (sc > best.score) best = { k, score: sc, labels: r.labels, centres: r.centres };
+      let labels = r.labels.slice(), kk = k;
+      // groups that are one person after all are joined (the closest first), rather than losing the whole split
+      for (;;) {
+        const share = Array.from({ length: kk }, (_, j) => labels.reduce((t, l, i) => t + (l === j ? ws[i] : 0), 0) / all);
+        const tiny = share.findIndex(x => x < 0.02);
+        let pair = null;
+        if (tiny >= 0) {   // a cough or a laugh isn't a person: into the nearest group
+          const c = centroid(vs.filter((_, i) => labels[i] === tiny));
+          let bd = Infinity; for (let j = 0; j < kk; j++) if (j !== tiny) { const idx = vs.map((_, i) => i).filter(i => labels[i] === j); if (!idx.length) continue; const dd = dist(c, centroid(idx.map(i => vs[i]))); if (dd < bd) { bd = dd; pair = [j, tiny]; } }
+        } else pair = notApart(raws, labels, kk, qs, at)[0];
+        if (!pair || kk < 2) break;
+        const [keep, gone] = pair[0] < pair[1] ? pair : [pair[1], pair[0]];
+        labels = labels.map(l => (l === gone ? keep : l > gone ? l - 1 : l)); kk--;
+      }
+      if (kk < 2) continue;
+      const sig = labels.join(',');
+      if (tried.has(sig)) continue;
+      tried.add(sig);
+      const centres = Array.from({ length: kk }, (_, j) => { const idx = vs.map((_, i) => i).filter(i => labels[i] === j); return centroid(idx.map(i => vs[i]), idx.map(i => ws[i])); });
+      const sc = silhouette(vs, labels, kk) - (kk - 2) * 0.01; // a little against more voices than needed
+      if (sc > best.score) best = { k: kk, score: sc, labels, centres };
     }
     return best.centres.map((c, j) => ({ centre: c, ids: ids.filter((_, i) => best.labels[i] === j) })).filter(v => v.ids.length);
   }
@@ -255,7 +289,7 @@
     const sc = scaler(flat);
     const found = interviews.map(t => {
       const own = Object.values(t.prints).map(p => p.v), sc1 = own.length > 3 ? scaler(own) : sc, ps = {};
-      for (const [id, p] of Object.entries(t.prints)) ps[id] = { s: scaled(p.v, sc1), g: scaled(p.v, sc), n: p.n, raw: p.v, q: !!(t.questions && t.questions[id]) };
+      for (const [id, p] of Object.entries(t.prints)) ps[id] = { s: scaled(p.v, sc1), g: scaled(p.v, sc), n: p.n, raw: p.v, q: !!(t.questions && t.questions[id]), at: t.times ? t.times[id] : NaN };
       const vs = voicesIn(ps);
       // each voice's place among all interviews, and how much of it is questions
       vs.forEach(v => {
@@ -337,8 +371,9 @@
       if (!id) { skipped.push(t.name); continue; }
       job.set({ who: 'computer', msg: `Listening to ${t.name} (${i + 1} of ${ts.length})` });
       const questions = {};
-      for (const l of t.lines) if (isQuestion(l.text)) questions[l.id] = true;
-      try { got.push({ key: t.key, t, questions, prints: prints(await statsFor(job, t, Object.assign({ id, name: t.name, path: t.path }, byId.get(id) || {}))) }); }
+      const times = {};
+      for (const l of t.lines) { if (isQuestion(l.text)) questions[l.id] = true; times[l.id] = l.start; }
+      try { got.push({ key: t.key, t, questions, times, prints: prints(await statsFor(job, t, Object.assign({ id, name: t.name, path: t.path }, byId.get(id) || {}))) }); }
       catch (e) { if (e && e.code === 'CANCELLED') throw e; skipped.push(t.name); US.log('warn', `Voices: couldn’t read the sound of ${t.name}`, String(e && (e.title || e.message)), 'story'); }
     }
     if (!got.length) throw new US.UserError('NOT_FOUND', { title: 'Couldn’t hear any of the interviews.', action: 'Link each transcript to its clip in Story › 1 Interviews › Interviews and speakers, then try again.', detail: skipped.join(', ') });
