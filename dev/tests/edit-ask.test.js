@@ -285,3 +285,40 @@ test('any timeline edit in many sequences: a 2-second Dip to Black on the first 
     assert.deepStrictEqual([q.steps.length, q.questions.map(x => x.kind)], [0, ['sequences']]);
   } finally { Object.assign(US, { ai: was.ai, ctx: was.ctx }); US.host.call = was.call; }
 });
+
+test('a clip lined up with another in each sequence (its end at the end of “Contrast 1” on V3), on V5, with a 2-second Cross Dissolve at its start', async () => {
+  const PR = { bins: ['All Songs'], more: 0, clips: [{ id: 'e1', name: 'Bishnat-Be-the-Light-end-screen-4K-animated-v2.mp4', file: 'Bishnat-Be-the-Light-end-screen-4K-animated-v2.mp4', bin: 'Graphics', kind: 'video' }],
+    sequences: [{ id: 'a1', name: 'Song 1', bin: 'All Songs', duration: 200, video: 4, audio: 2 }, { id: 'a2', name: 'Song 2', bin: 'All Songs', duration: 150, video: 4, audio: 2 }, { id: 'a3', name: 'Song 3', bin: 'All Songs', duration: 90, video: 1, audio: 2 }] };
+  const ends = { a1: 180, a2: 140 };
+  const seqInfo = id => ({ id, name: id, fps: 25, duration: 200, markers: [], audio: [],
+    video: [{ index: 0, clips: [clip(0, 190, 'Song.MP4')] }, { index: 1, clips: [] }, { index: 2, clips: ends[id] ? [clip(0, 60, 'Contrast 2'), clip(60, ends[id], 'Contrast 1')] : [] }] });
+  const host = [], calls = [], was = { ai: US.ai, call: US.host.call, ctx: US.ctx };
+  US.ctx = { sequence: null };
+  US.host.call = async (fn, a) => {
+    host.push([fn, a]);
+    if (fn === 'binItems') return [{ id: 'n1', name: 'Song 1', kind: 'sequence', bin: 'All Songs' }];
+    if (fn === 'editProject') return PR;
+    if (fn === 'editRead') return seqInfo(a.seqId);
+    if (fn === 'itemsInfo') return [{ id: 'e1', rangeStart: 0, rangeEnd: 12, duration: 12 }];
+    if (fn === 'placeClips') { const c = a.clips[0]; return { placed: [{ start: c.at, end: c.at + (c.out - c.in) }] }; }
+    if (fn === 'editApply') return { done: a.targets.length, skipped: [] };
+    return true;
+  };
+  US.ai = { available: () => true, label: () => 'Claude', json: async req => { calls.push(req); return { reply: 'On V5 in each sequence, ending with Contrast 1, with a 2-second Cross Dissolve.', done: false, questions: [], steps: [{ op: 'append', sequencesJson: '', targetsJson: '{"bin":"All Songs"}', paramsJson: JSON.stringify({ clip: 'Bishnat-Be-the-Light-end-screen-4K-animated-v2.mp4', track: 'V5', audio: false, place: 'endAt', anchor: { tracks: ['V3'], nameContains: 'Contrast 1' }, anchorEdge: 'end', transition: { name: 'Cross Dissolve', at: 'start', seconds: 2 } }), why: '' }] }; } };
+  try {
+    const r = await E.plan(job, { request: 'end screen on V5…', scope: { where: 'bin', binId: 'x', binName: 'All Songs' } });
+    assert.ok(/endAt/.test(calls[0].system[0].text), 'the AI is told it can line a clip up');
+    assert.deepStrictEqual(r.plan.questions, []);
+    const st = r.plan.steps[0];
+    assert.deepStrictEqual(st.targets.map(t => [t.seqId, t.anchor.time, t.anchor.name, t.anchor.track]), [['a1', 180, 'Contrast 1', 'V3'], ['a2', 140, 'Contrast 1', 'V3']]);
+    assert.ok(/Song 3/.test(r.plan.dropped.join(' ')), 'a sequence without Contrast 1 is left out and said: ' + r.plan.dropped.join(' | '));
+    assert.strictEqual(E.describe(st), 'Add “Bishnat-Be-the-Light-end-screen-4K-animated-v2.mp4” ending where “Contrast 1” (V3) ends on V5, picture only, Cross Dissolve at its start (2 s) · 2 sequences');
+    host.length = 0;
+    const out = await E.run(job, r.conv, r.plan.steps, {});
+    assert.deepStrictEqual(host.filter(h => h[0] === 'placeClips').map(h => [h[1].seqId, h[1].clips[0].at, h[1].clips[0].v, h[1].cursor]), [['a1', 168, 4, undefined], ['a2', 128, 4, undefined]], 'its end on Contrast 1’s end (12 s clip)');
+    assert.deepStrictEqual(host.filter(h => h[0] === 'editApply').map(h => [h[1].seqId, h[1].op, h[1].params, h[1].targets]), [
+      ['a1', 'transition', { name: 'Cross Dissolve', at: 'start', seconds: 2 }, [{ kind: 'video', track: 4, start: 168, end: 180 }]],
+      ['a2', 'transition', { name: 'Cross Dissolve', at: 'start', seconds: 2 }, [{ kind: 'video', track: 4, start: 128, end: 140 }]]]);
+    assert.deepStrictEqual(out.unplace.map(x => [x.seqId, x.start, x.end]), [['a1', 168, 180], ['a2', 128, 140]]);
+  } finally { Object.assign(US, { ai: was.ai, ctx: was.ctx }); US.host.call = was.call; }
+});

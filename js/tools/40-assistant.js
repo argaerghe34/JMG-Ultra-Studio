@@ -410,10 +410,10 @@
         cancel.addEventListener('click', () => { go.disabled = cancel.disabled = true; status.textContent = 'Cancelled – nothing changed.'; if (onDone) onDone(false); });
         go.addEventListener('click', () => {
           const answers = rows.map(r => ({ ask: r.q.ask, a: r.get() }));
-          if (answers.some(x => !x.a)) { status.textContent = 'Answer each question (or type your answer below).'; return; }
+          if (answers.every(x => !x.a)) { status.textContent = 'Answer at least one question (or type your answer below).'; return; }
           go.disabled = cancel.disabled = true;
-          bubble('me', answers.map(x => x.a).join(' · '));
-          runEdit('My answers:\n' + answers.map(x => `- ${x.ask} → ${x.a}`).join('\n'), null, onDone);
+          bubble('me', answers.filter(x => x.a).map(x => x.a).join(' · '));
+          runEdit('My answers:\n' + answers.map(x => `- ${x.ask} → ${x.a || '(left unanswered – doesn’t apply, or decide sensibly)'}`).join('\n'), null, onDone);
         });
       }
       function showAsk(a) { bubble('bot wide', US.story.askCard(a, { onRefine: t => { bubble('me', t); runAsk(t, a.id); } })); }

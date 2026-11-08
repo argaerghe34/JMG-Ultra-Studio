@@ -33,7 +33,7 @@
     move: { where: 'items', resolve: true, title: 'Move to bin', params: 'bin: path like "Selects/Roaming"', desc: 'Move each clip to a bin (made if needed).' },
     sequence: { where: 'items', resolve: true, title: 'New sequence', params: 'name: the sequence’s name', desc: 'A new sequence with the clips one after another, in the order picked.' },
     // where 'any': works on other sequences in the project (SEQUENCES / PROJECT CLIPS), whatever Ask is reading
-    append: { where: 'any', resolve: true, title: 'Add a clip to sequences', params: 'clip: a clip id from PROJECT CLIPS (p…) or its exact name; track: "V2" (the video track it goes on – made if a sequence hasn’t got it); audio: true to bring its sound too, false for picture only; audioTrack: "A2" (default: the same number as track); gap: seconds of space before it (default 0)', desc: 'Add one clip from the project at the END of each sequence picked (after everything already in it), on one track. It changes the editor’s own sequences, not copies – the editor confirms first. Targets are sequences: {"sequences":["s3","s8"]} or {"bin":"part of the bin path","nameContains":""}.' }
+    append: { where: 'any', resolve: true, title: 'Add a clip to sequences', params: 'clip: a clip id from PROJECT CLIPS (p…) or its exact name; track: "V2" (the video track it goes on – made if a sequence hasn’t got it); audio: true to bring its sound too, false for picture only; audioTrack: "A2" (default: the same number as track); place: "after" (default – after everything in the sequence, gap: seconds of space before it) | "endAt" (the added clip ENDS where the anchor clip ends or starts) | "startAt" (it STARTS there); anchor: a clip query for the clip to line up with in each sequence, e.g. {"tracks":["V3"],"nameContains":"Contrast 1"} (adjustment layers, titles and graphics count as clips; add "every":"first" or "last" if there may be several); anchorEdge: "end" (default) | "start"; transition: {"name":"Cross Dissolve","at":"start"|"end"|"both","seconds":2} on the added clip (Premiere only)', desc: 'Add one clip from the project to each sequence picked, on one track: after everything already in it, or lined up with another clip in each sequence (its end or start), with a transition on it if asked. It changes the editor’s own sequences, not copies – the editor confirms first. Targets are sequences: {"sequences":["s3","s8"]} or {"bin":"part of the bin path","nameContains":""}.' },
   };
   /** The edits that make sense here: for this kind of scope, and that this editor allows. */
   const opsFor = (kind, resolve = RES()) => Object.entries(OPS).filter(([, o]) => (o.where === 'both' || o.where === 'any' || o.where === kind) && (!resolve || o.resolve)).map(([k]) => k);
@@ -236,7 +236,7 @@
    * An "append" step against the project: the one clip, the sequences and the track(s) – or the questions to ask when
    * any of them isn't certain. -> {step} | {questions}
    */
-  function appendStep(m, q, p) {
+  function appendStep(m, q, p, others = new Map()) {
     const pr = m.project, lc = x => String(x || '').toLowerCase().trim(), ask = [];
     if (!pr) return { questions: [{ ask: 'I couldn’t read the project’s sequences. Which bin are they in?', kind: 'sequences', options: [] }] };
     // the clip: by id, then exact name or file name, then part of either
@@ -262,11 +262,26 @@
     let audio = soundOnly ? true : still ? false : p.audio;
     if (typeof audio === 'string') audio = /^(true|yes|1)$/i.test(audio);
     if (clip && audio == null) ask.push({ ask: `Bring the sound of “${clip.name}” too, or the picture only?`, kind: 'choice', options: ['Picture and sound', 'Picture only'] });
+    // lined up with another clip in each sequence: where that clip ends (or starts)
+    const place = /^(endAt|startAt)$/.test(p.place) ? p.place : 'after', anchor = place === 'after' ? null : (parseJson(typeof p.anchor === 'string' ? p.anchor : JSON.stringify(p.anchor || {})) || null);
+    if (place !== 'after' && !anchor) ask.push({ ask: 'Which clip in each sequence should it line up with? (Its track and name, e.g. “Contrast 1” on V3.)', kind: 'text', options: [] });
+    let tr = p.transition && typeof p.transition === 'object' ? p.transition : null;
+    if (typeof p.transition === 'string' && p.transition.trim()) tr = { name: p.transition.trim(), at: 'start' };
     if (ask.length) return { questions: ask };
+    const missing = [];
+    const targets = seqs.map(x => {
+      const t = { seqId: x.seqId, name: x.name, bin: x.bin, duration: x.duration, sequence: true };
+      if (!anchor) return t;
+      const sm = others.get(x.seqId), hits = sm ? select(sm, Object.assign({}, anchor, { ids: undefined, lines: undefined })) : [];
+      if (!hits.length) { missing.push(x.name); return null; }
+      const h = hits.slice().sort((a, b) => a.end - b.end)[hits.length - 1];   // several: the one that ends last
+      return Object.assign(t, { anchor: { time: p.anchorEdge === 'start' ? h.start : h.end, name: h.name, track: (h.kind === 'audio' ? 'A' : 'V') + (h.track + 1) } });
+    }).filter(Boolean);
+    if (anchor && !targets.length) return { questions: [{ ask: `I can’t find ${anchor.nameContains ? `“${anchor.nameContains}”` : 'that clip'}${anchor.tracks ? ` on ${[].concat(anchor.tracks).join(', ')}` : ''} in those sequences. Which clip should it line up with?`, kind: 'text', options: [] }] };
     return {
       step: {
-        op: 'append', query: q, params: Object.assign({}, p, { clipId: clip.itemId, clipName: clip.name, clipKind: clip.kind, v: v || 0, a, video: !soundOnly, audio: !!audio, gap: Math.max(0, Number(p.gap) || 0) }),
-        targets: seqs.map(x => ({ seqId: x.seqId, name: x.name, bin: x.bin, duration: x.duration, sequence: true }))
+        op: 'append', query: q, missing, params: Object.assign({}, p, { clipId: clip.itemId, clipName: clip.name, clipKind: clip.kind, v: v || 0, a, video: !soundOnly, audio: !!audio, gap: Math.max(0, Number(p.gap) || 0), place, anchor, anchorEdge: p.anchorEdge === 'start' ? 'start' : 'end', transition: tr }),
+        targets
       }
     };
   }
@@ -293,8 +308,11 @@
       try { q = s.targetsJson ? JSON.parse(s.targetsJson) : {}; } catch (e) { q = {}; }
       try { p = s.paramsJson ? JSON.parse(s.paramsJson) : {}; } catch (e) { p = {}; }
       if (op === 'append') {
-        const x = appendStep(m, q || {}, p || {});
+        // the sequences may come in targetsJson or in sequencesJson
+        const seqQ = q && (q.sequences || q.bin || q.nameContains || q.all) ? q : (parseJson(s.sequencesJson) || q || {});
+        const x = appendStep(m, seqQ, p || {}, others);
         if (x.questions) { for (const k of x.questions) if (!questions.some(y => y.kind === k.kind && y.ask === k.ask)) questions.push(k); continue; }
+        if (x.step.missing.length) dropped.push(`${x.step.params.clipName}: not in ${x.step.missing.slice(0, 5).map(n => `“${n}”`).join(', ')}${x.step.missing.length > 5 ? ` and ${x.step.missing.length - 5} more` : ''} – the clip to line up with isn’t there`);
         steps.push(Object.assign(x.step, { why: String(s.why || '') }));
         continue;
       }
@@ -323,7 +341,7 @@
       rename: () => `Rename to “${p.name}”`, marker: () => `Marker${p.name ? ` “${p.name}”` : ''}`,
       text: () => `${p.style === 'lowerThird' ? 'Lower third' : 'Title'} “${p.text || '…'}”`, razor: () => 'Cut at the start and end',
       move: () => `Move to “${p.bin}”`, sequence: () => `New sequence “${p.name || 'Ask'}”`,
-      append: () => `Add “${p.clipName || p.clip}” at the end${p.video === false ? '' : ` on V${(p.v || 0) + 1}`}${p.audio ? ` (${p.video === false ? 'on' : 'sound on'} A${(p.a || 0) + 1})` : p.video === false ? '' : ', picture only'}${p.gap ? ` after ${p.gap} s` : ''}`
+      append: () => `Add “${p.clipName || p.clip}” ${p.place === 'endAt' || p.place === 'startAt' ? `${p.place === 'endAt' ? 'ending' : 'starting'} where ${s.targets[0] && s.targets[0].anchor ? `“${s.targets[0].anchor.name}” (${s.targets[0].anchor.track})` : 'the anchor clip'} ${p.anchorEdge === 'start' ? 'starts' : 'ends'}` : 'at the end'}${p.video === false ? '' : ` on V${(p.v || 0) + 1}`}${p.audio ? ` (${p.video === false ? 'on' : 'sound on'} A${(p.a || 0) + 1})` : p.video === false ? '' : ', picture only'}${p.gap && p.place === 'after' ? ` after ${p.gap} s` : ''}${p.transition ? `, ${p.transition.name || 'Cross Dissolve'} at its ${p.transition.at === 'end' ? 'end' : p.transition.at === 'both' ? 'start and end' : 'start'}${p.transition.seconds ? ` (${p.transition.seconds} s)` : p.transition.frames ? ` (${p.transition.frames} frames)` : ''}` : ''}`
     }[s.op];
     return `${what ? what() : s.op} · ${where}`;
   }
@@ -396,7 +414,8 @@
     if (!c.others) c.others = new Map();
     const want = [];
     for (const st of (r && r.steps) || []) {
-      const sq = st.op === 'append' ? null : parseJson(st.sequencesJson);
+      let sq = st.op === 'append' ? null : parseJson(st.sequencesJson);
+      if (st.op === 'append') { const p = parseJson(st.paramsJson) || {}, q = parseJson(st.targetsJson) || {}; if (/^(endAt|startAt)$/.test(p.place)) sq = q.sequences || q.bin || q.nameContains || q.all ? q : parseJson(st.sequencesJson); }
       if (sq) for (const x of pickSequences(c.model.project, sq).seqs) if (!c.others.has(x.seqId) && !want.some(w => w.seqId === x.seqId)) want.push(x);
     }
     let k = 0;
@@ -458,11 +477,19 @@
           job.check();
           k++; job.set({ who: 'premiere', msg: `Adding “${p.clipName}” to “${t.name}”` }).progress((k - 1) / st.targets.length, `${k} of ${st.targets.length}: ${t.name}`);
           try {
-            const cursor = p.gap ? (await US.host.call('sequenceInfo', { seqId: t.seqId })).duration + p.gap : null;
+            const len = to - from, at = t.anchor ? (p.place === 'endAt' ? t.anchor.time - len : t.anchor.time) : null;
+            if (at != null && at < -0.001) { r.skipped.push({ why: `“${t.name}”: “${t.anchor.name}” is shorter than the clip, so it would start before the sequence` }); continue; }
+            const cursor = at == null && p.gap ? (await US.host.call('sequenceInfo', { seqId: t.seqId })).duration + p.gap : null;
             // picture only: its sound is laid on A1 past the end and taken off again, so no empty audio track is made for it
-            const res = await US.host.call('placeClips', Object.assign({ seqId: t.seqId, clips: [{ id: p.clipId, in: from, out: to, v: p.v || 0, a: p.audio ? p.a || 0 : 0, video: p.video !== false, audio: !!p.audio }] }, cursor != null ? { cursor } : {}));
+            const res = await US.host.call('placeClips', Object.assign({ seqId: t.seqId, clips: [Object.assign({ id: p.clipId, in: from, out: to, v: p.v || 0, a: p.audio ? p.a || 0 : 0, video: p.video !== false, audio: !!p.audio }, at != null ? { at: Math.max(0, at) } : {})] }, cursor != null ? { cursor } : {}));
             const got = res && res.placed && res.placed[0];
-            if (got) { r.done++; placed.push({ seqId: t.seqId, name: t.name, start: got.start, end: got.end, v: p.v || 0, a: p.a || 0, video: p.video !== false, audio: !!p.audio }); }
+            if (got) {
+              r.done++; placed.push({ seqId: t.seqId, name: t.name, start: got.start, end: got.end, v: p.v || 0, a: p.a || 0, video: p.video !== false, audio: !!p.audio });
+              if (p.transition) {
+                const x = await US.host.call('editApply', { seqId: t.seqId, op: 'transition', params: p.transition, targets: [{ kind: p.video === false ? 'audio' : 'video', track: p.video === false ? p.a || 0 : p.v || 0, start: got.start, end: got.end }] });
+                if (x.unsupported || !x.done) r.skipped.push({ why: `“${t.name}”: no ${p.transition.name || 'transition'}${x.why ? ' – ' + x.why : (x.skipped && x.skipped[0] ? ' – ' + x.skipped[0].why : '')}` });
+              }
+            }
             else r.skipped.push({ why: `not placed in “${t.name}”` });
           } catch (e) { r.skipped.push({ why: `${t.name}: ${(e && (e.title || e.message)) || e}` }); }
         }
