@@ -160,3 +160,87 @@ test('cut around a line, then delete it: the delete takes the line’s piece; se
     assert.ok(del.targets.some(t => t.start === 15), 'and the drone clip');
   } finally { US.host.call = was; }
 });
+
+/* ---------- other sequences: a clip at the end of many, asking when it isn't sure ---------- */
+const PROJECT = {
+  bins: ['(Project root)', 'Graphics', 'Shorts', 'Shorts / Old', 'Long'],
+  sequences: [{ id: 'q1', itemId: 'n1', name: 'Short 1', bin: 'Shorts', duration: 30, video: 1, audio: 2 }, { id: 'q2', itemId: 'n2', name: 'Short 2', bin: 'Shorts', duration: 42, video: 2, audio: 2 },
+    { id: 'q3', itemId: 'n3', name: 'Old short', bin: 'Shorts / Old', duration: 20, video: 1, audio: 1 }, { id: 'q4', itemId: 'n4', name: 'Full film', bin: 'Long', duration: 900, video: 3, audio: 4 }],
+  clips: [{ id: 'g1', name: 'Logo sting.mov', file: 'Logo sting.mov', bin: 'Graphics', kind: 'video' }, { id: 'g2', name: 'Logo still.png', file: 'Logo still.png', bin: 'Graphics', kind: 'still' }, { id: 'g3', name: 'Interview.MP4', file: 'Interview.MP4', bin: 'Long', kind: 'video' }],
+  more: 0
+};
+const withProject = () => Object.assign(E.timelineModel(INFO, null), { project: E.projectModel(PROJECT) });
+const append = (targets, params) => ({ reply: '', done: false, questions: [], steps: [{ op: 'append', targetsJson: JSON.stringify(targets), paramsJson: JSON.stringify(params), why: '' }] });
+
+test('the project goes with every request: sequences s1… with their bin and tracks, clips p1…', () => {
+  const t = E.outline(withProject());
+  assert.ok(/SEQUENCE “Cut”/.test(t) && /SEQUENCES \(4\)/.test(t) && /s2\tShort 2\tShorts\t0:42.00\tV2 A2/.test(t) && /p1\tLogo sting.mov\tvideo\tGraphics/.test(t), t);
+  assert.ok(E.opsFor('timeline').includes('append') && E.opsFor('items').includes('append') && E.opsFor('timeline', true).includes('append'), 'in any scope, and in Resolve');
+  assert.ok(E.PLAN_SCHEMA.required.includes('questions'));
+});
+
+test('adding a clip to the end of sequences: one bin (not one that only contains the word), the clip, the track', () => {
+  const m = withProject();
+  const p = E.checkPlan(append({ bin: 'Shorts' }, { clip: 'logo sting', track: 'V2', audio: false }), m);
+  assert.deepStrictEqual(p.questions, []);
+  assert.deepStrictEqual(p.steps[0].targets.map(t => t.seqId), ['q1', 'q2'], '“Shorts / Old” isn’t the Shorts bin');
+  assert.deepStrictEqual([p.steps[0].params.clipId, p.steps[0].params.v, p.steps[0].params.video, p.steps[0].params.audio], ['g1', 1, true, false]);
+  assert.strictEqual(E.describe(p.steps[0]), 'Add “Logo sting.mov” at the end on V2, picture only · 2 sequences');
+  const s = E.checkPlan(append({ sequences: ['s3', 's4'] }, { clip: 'p1', track: 'V3', audio: true }), m).steps[0];
+  assert.deepStrictEqual([s.targets.map(t => t.name), s.params.a, E.describe(s)], [['Old short', 'Full film'], 2, 'Add “Logo sting.mov” at the end on V3 (sound on A3) · 2 sequences']);
+  assert.strictEqual(E.checkPlan(append({ bin: 'Shorts' }, { clip: 'Logo still.png', track: 'V2' }), m).steps[0].params.audio, false, 'a still has no sound – no question about it');
+});
+
+test('not sure → questions, not a guess: which clip, which bin, which track, sound or not; the AI’s own questions too', () => {
+  const m = withProject(), q = r => E.checkPlan(r, m).questions.map(x => x.kind);
+  assert.deepStrictEqual(q(append({ bin: 'Shorts' }, { clip: 'logo', track: 'V2', audio: false })), ['clip'], 'two clips are called logo-something');
+  assert.deepStrictEqual(E.checkPlan(append({ bin: 'Shorts' }, { clip: 'logo', track: 'V2' }), m).questions[0].options, ['Logo sting.mov', 'Logo still.png']);
+  assert.deepStrictEqual(q(append({ bin: 'Exports' }, { clip: 'p1', track: 'V2', audio: false })), ['sequences']);
+  assert.deepStrictEqual(q(append({ bin: 'Shorts' }, { clip: 'p1', audio: false })), ['track']);
+  assert.deepStrictEqual(q(append({ bin: 'Shorts' }, { clip: 'p1', track: 'V2' })), ['choice'], 'a video clip: with its sound or not?');
+  assert.deepStrictEqual(q(append({}, {})), ['clip', 'sequences', 'track']);
+  const p = E.checkPlan({ reply: 'Which track?', done: true, steps: [], questions: [{ ask: 'Which track should the logo go on?', kind: 'track', options: [] }, { ask: 'Odd', kind: 'weird', options: [] }] }, m);
+  assert.deepStrictEqual([p.questions.map(x => x.kind), p.done], [['track', 'text'], false], 'not done while asking; unknown kinds become a text answer');
+});
+
+test('runs in the sequences themselves (no copies), at the end on the track asked, back to the open sequence; taken out again exactly', async () => {
+  const host = [], was = { call: US.host.call, ctx: US.ctx };
+  US.ctx = { sequence: { id: 's1', name: 'Cut' } };
+  US.host.call = async (fn, a) => {
+    host.push([fn, a]);
+    if (fn === 'itemsInfo') return [{ id: 'g1', rangeStart: 0, rangeEnd: 4, duration: 4 }];
+    if (fn === 'placeClips') { const d = PROJECT.sequences.find(x => x.id === a.seqId).duration; return { placed: [{ start: d, end: d + 4 }], cursor: d + 4 }; }
+    if (fn === 'editApply') return { done: a.targets.length, skipped: [] };
+    return true;
+  };
+  try {
+    const m = withProject(), p = E.checkPlan(append({ bin: 'Shorts' }, { clip: 'Logo sting.mov', track: 'V2', audio: false }), m);
+    const out = await E.run(job, { model: m }, p.steps, { copy: true });
+    assert.strictEqual(host.filter(h => h[0] === 'cloneSequence').length, 0, 'no copies');
+    assert.deepStrictEqual(host.filter(h => h[0] === 'placeClips').map(h => [h[1].seqId, h[1].cursor, h[1].clips[0]]), [
+      ['q1', undefined, { id: 'g1', in: 0, out: 4, v: 1, a: 0, video: true, audio: false }], ['q2', undefined, { id: 'g1', in: 0, out: 4, v: 1, a: 0, video: true, audio: false }]], 'at the end of each');
+    assert.deepStrictEqual(host[host.length - 1], ['openSequence', { seqId: 's1' }], 'back to the sequence that was open');
+    assert.strictEqual(out.summary, 'Added to 2 sequences');
+    assert.deepStrictEqual(out.unplace.map(x => [x.seqId, x.start, x.end]), [['q1', 30, 34], ['q2', 42, 46]]);
+    host.length = 0;
+    assert.strictEqual(await E.unplace(out.unplace), 2);
+    assert.deepStrictEqual(host.map(h => [h[1].seqId, h[1].op, h[1].params.ripple, h[1].targets]), [['q1', 'remove', false, [{ kind: 'video', track: 1, start: 30, end: 34 }]], ['q2', 'remove', false, [{ kind: 'video', track: 1, start: 42, end: 46 }]]]);
+  } finally { US.host.call = was.call; US.ctx = was.ctx; }
+});
+
+test('Resolve: the project overview, and a clip laid at the end of a timeline on V2 (track made), then taken out', async () => {
+  const F = Fake.make(), host = HOST.connect({ api: F.resolve });
+  const run = async (n, a) => { const r = await host.run(n, a); if (!r.ok) throw new Error(`${n}: ${r.error.code} ${r.error.detail}`); return r.data; };
+  const a = F.addMedia('/m/A.mp4', { frames: 2500 }), logo = F.addMedia('/m/Logo.mov', { frames: 100, bin: 'Graphics' });
+  const tl = F.addTimeline('Short 1', [{ item: a, in: 0, out: 250 }]), seqId = tl.GetUniqueId();
+  const pr = await run('editProject', {});
+  assert.ok(pr.bins.includes('Graphics'));
+  assert.deepStrictEqual(pr.sequences.map(x => [x.id, x.name, x.duration, x.video]), [[seqId, 'Short 1', 10, 1]]);
+  assert.deepStrictEqual(pr.clips.map(x => [x.name, x.kind, x.bin]), [['A.mp4', 'video', '(Project root)'], ['Logo.mov', 'video', 'Graphics']]);
+  const r = await run('placeClips', { seqId, clips: [{ id: logo.GetUniqueId(), in: 0, out: 4, v: 1, a: 1, video: true, audio: false }] });
+  assert.deepStrictEqual(r.placed, [{ start: 10, end: 14 }]);
+  assert.deepStrictEqual(tl.GetItemListInTrack('video', 2).map(i => i.GetName()), ['Logo.mov']);
+  assert.strictEqual(tl.GetItemListInTrack('audio', 2).length, 0, 'picture only');
+  assert.strictEqual((await run('editApply', { seqId, op: 'remove', params: { ripple: false }, targets: [{ kind: 'video', track: 1, start: 10, end: 14 }] })).done, 1);
+  assert.strictEqual(tl.GetItemListInTrack('video', 2).length, 0);
+});

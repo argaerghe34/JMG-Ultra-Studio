@@ -225,4 +225,29 @@
         }
         return out;
     };
+
+    /**
+     * The project next to the sequence or bin Ask › Edit reads, so a request can reach other sequences and clips ("the
+     * logo at the end of every sequence in Shorts"). a: {maxClips} -> {bins:[paths], sequences:[{id, itemId, name, bin,
+     * duration, video, audio}], clips:[{id, name, file, bin, kind}], more: clips left out}
+     */
+    var STILL = /\.(jpe?g|png|tiff?|psd|ai|bmp|gif|heic|webp|dng|exr|tga)$/i, SOUND = /\.(wav|bwf|mp3|aiff?|m4a|aac|flac|ogg|wma|caf)$/i;
+    fn.editProject = function (a) {
+        var max = (a && a.maxClips) || 3000, bins = [], seqBin = {}, clips = [], more = 0, seqs = [], i;
+        U.walk(U.project().rootItem, function (c) {
+            if (c.type === 2) { bins.push(U.binPath(c)); return; }
+            if (c.type !== 1) return;
+            var isSeq = false; try { isSeq = c.isSequence(); } catch (e) { }
+            if (isSeq) { seqBin[c.nodeId] = U.binPath(c); return; }
+            if (clips.length >= max) { more++; return; }
+            var p = ''; try { p = c.getMediaPath() || ''; } catch (e) { }
+            clips.push({ id: c.nodeId, name: c.name, file: p.split(/[\\\/]/).pop(), bin: U.binPath(c), kind: !p ? 'other' : STILL.test(p) ? 'still' : SOUND.test(p) ? 'audio' : 'video' });
+        });
+        var all = U.project().sequences;
+        for (i = 0; i < all.numSequences; i++) {
+            var s = all[i], itemId = ''; try { itemId = s.projectItem.nodeId; } catch (e) { }
+            seqs.push({ id: s.sequenceID, itemId: itemId, name: s.name, bin: seqBin[itemId] || '(Project root)', duration: U.ticksToSec(s.end), video: s.videoTracks.numTracks, audio: s.audioTracks.numTracks });
+        }
+        return { bins: bins, sequences: seqs, clips: clips, more: more };
+    };
 })(UStudio);
