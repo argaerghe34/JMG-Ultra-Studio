@@ -34,7 +34,7 @@ US.host.call = async (fn, a) => {
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: null };
 US.tools.open = () => {};
-run('js/tools/22-story-ignore.js'); run('js/tools/33-deliver.js'); run('js/tools/41-edit.js'); run('js/tools/40-assistant.js');
+run('js/tools/22-story-ignore.js'); run('js/tools/44-youtube.js'); run('js/tools/33-deliver.js'); run('js/tools/41-edit.js'); run('js/tools/40-assistant.js');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fail = m => { console.error('✗ ' + m); process.exitCode = 1; };
 
@@ -66,6 +66,6 @@ const fail = m => { console.error('✗ ' + m); process.exitCode = 1; };
   const sel = Array.from(a.el.querySelectorAll('.edit-question select'));
   if (sel.length !== 2 || !Array.from(sel[0].options).some(o => /End screen\.mp4/.test(o.textContent)) || !Array.from(sel[1].options).some(o => o.value === 'V5')) fail('Ask: the clip and track pickers aren’t filled');
   if (errors.length) fail('errors:\n' + errors.join('\n'));
-  if (!process.exitCode) console.log('ok – Bin export, the question card and Story’s Leave out draw');
+  if (!process.exitCode) console.log('ok – Bin export, the question card and Story’s Leave out and YouTube draw');
   setTimeout(() => process.exit(process.exitCode || 0), 50);
 })().catch(e => { fail(e.stack); process.exit(1); });
