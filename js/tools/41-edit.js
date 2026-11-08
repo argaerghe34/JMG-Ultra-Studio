@@ -16,7 +16,7 @@
   // where: 'timeline' (clips or ranges on a sequence) | 'items' (clips in the Project panel / Media Pool)
   // resolve: false = Premiere only (Resolve doesn't let add-ons do it)
   const OPS = {
-    transition: { where: 'timeline', resolve: false, title: 'Transition', params: 'name: "Cross Dissolve" | "Dip to Black" | "Dip to White" | "Film Dissolve" | "Additive Dissolve" | "Morph Cut" (audio: "Constant Power" | "Constant Gain" | "Exponential Fade"); at: "start" | "end" | "both"; frames: number (default half a second)', desc: 'Add a transition to each clip. On audio clips it is an audio fade.' },
+    transition: { where: 'timeline', resolve: false, title: 'Transition', params: 'name: "Cross Dissolve" | "Dip to Black" | "Dip to White" | "Film Dissolve" | "Additive Dissolve" | "Morph Cut" (audio: "Constant Power" | "Constant Gain" | "Exponential Fade"); at: "start" | "end" | "both"; frames: number, or seconds: number (default half a second)', desc: 'Add a transition to each clip. On audio clips it is an audio fade.' },
     effect: { where: 'timeline', resolve: false, title: 'Effect', params: 'name: as Premiere’s Effects panel shows it, e.g. "Gaussian Blur", "Lumetri Color", "Black & White", "Warp Stabilizer", "Crop" (audio: "DeNoise", "Parametric Equalizer")', desc: 'Add an effect to each clip.' },
     speed: { where: 'timeline', resolve: false, title: 'Speed', params: 'percent: number (50 = half speed)', desc: 'Change each clip’s speed (the clip gets longer or shorter).' },
     motion: { where: 'timeline', resolve: true, title: 'Scale / position', params: 'scale: percent; x, y: 0–1 across the frame (0.5 = centre); rotation: degrees – give only what changes', desc: 'Set framing on each video clip.' },
@@ -182,7 +182,7 @@
     properties: {
       reply: { type: 'string' }, done: { type: 'boolean' },
       questions: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['ask', 'kind', 'options'], properties: { ask: { type: 'string' }, kind: { type: 'string', enum: QUESTION_KINDS }, options: { type: 'array', items: { type: 'string' } } } } },
-      steps: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['op', 'targetsJson', 'paramsJson', 'why'], properties: { op: { type: 'string' }, targetsJson: { type: 'string' }, paramsJson: { type: 'string' }, why: { type: 'string' } } } }
+      steps: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['op', 'sequencesJson', 'targetsJson', 'paramsJson', 'why'], properties: { op: { type: 'string' }, sequencesJson: { type: 'string' }, targetsJson: { type: 'string' }, paramsJson: { type: 'string' }, why: { type: 'string' } } } }
     }
   };
   function rules(kind) {
@@ -199,8 +199,10 @@
       `- "reply": one or two short sentences in plain British English saying what you’ll do (or found). "done": true when nothing more is needed.${RES() ? ' Resolve can’t add transitions, effects, speed changes, keyframes, text or cuts by script – say so if asked.' : ''}`,
       '- The other sequences, bins and clips in the project are listed under SEQUENCES and PROJECT CLIPS. Only "append" uses them.',
       '- If you are not sure what the editor means – which clip, which sequences or bin, which track, with sound or not – do NOT guess: return no steps and ask in "questions" (at most 4, one thing each). "kind" is how they answer: "clip" (they pick a project clip), "bin", "sequences" (they pick the bin they’re in), "track", "choice" (give 2–5 "options"), "text". "options" is [] except for "choice" (for "clip" you may list likely clip names). When the answers come back, plan; ask again only about what is still unclear.',
-      '- "append" changes the editor’s own sequences; the panel asks them to confirm before it runs, so mention that in "reply".',
-      '', 'EDITS:', ...ops.map(k => `- ${k}: ${OPS[k].desc} Settings: ${OPS[k].params}`)
+      `- "sequencesJson": "" for ${kind === 'items' ? 'the clips shown above' : 'the sequence shown above'}. To make an edit in OTHER sequences – one or many at once – give {"sequences":["s3","s8"]} or {"bin":"part of the bin path","nameContains":"part of the name"} from SEQUENCES. "targetsJson" then picks the clips inside EACH of those sequences with a clip query: {"tracks":["V1"],"kind":"video|audio","nameContains":"","minSeconds":0,"maxSeconds":0,"label":0-15,"from":seconds,"to":seconds,"every":"all|first|last|everyOther|cuts"} (no c… ids or transcript lines – those belong to ${kind === 'items' ? 'one sequence only' : 'the sequence shown'}). Example: a 2-second Dip to Black on the first clip on V1 of every sequence called "All Songs": op "transition", sequencesJson {"nameContains":"All Songs"}, targetsJson {"tracks":["V1"],"every":"first"}, paramsJson {"name":"Dip to Black","at":"start","seconds":2}.`,
+      '- "append", and every edit with "sequencesJson", changes the editor’s own sequences (no copies); the panel asks them to confirm before it runs, so mention that in "reply".',
+      '', 'EDITS:', ...ops.map(k => `- ${k}: ${OPS[k].desc} Settings: ${OPS[k].params}`),
+      ...(kind === 'items' ? ['', 'EDITS FOR SEQUENCES (only with "sequencesJson"):', ...opsFor('timeline').filter(k => !ops.includes(k)).map(k => `- ${k}: ${OPS[k].desc} Settings: ${OPS[k].params}`)] : [])
     ].join('\n');
   }
   /** "V2" → 1 (0-based); null when it isn't a track of that kind. */
@@ -209,6 +211,27 @@
     if (!t || (t[1] && t[1].toUpperCase() !== kind)) return null;
     const n = Number(t[2]); return n >= 1 && n <= 99 ? n - 1 : null;
   }
+  /**
+   * The sequences a step means: by id (s…), or by bin (exactly, the end of its path, or part of it) and part of the
+   * name – or a question when none match or the bin is ambiguous. -> {seqs, ask}
+   */
+  function pickSequences(pr, q) {
+    const lc = x => String(x || '').toLowerCase().trim(), ask = [];
+    let seqs = [];
+    if (!pr) return { seqs, ask: [{ ask: 'I couldn’t read the project’s sequences. Which bin are they in?', kind: 'sequences', options: [] }] };
+    const binOk = b => { const w = lc(q.bin); return !w || lc(b) === w || lc(b).endsWith(' / ' + w) || lc(b).includes(w); };
+    if (Array.isArray(q.sequences) && q.sequences.length) { const ids = new Set(q.sequences.map(String)); seqs = pr.sequences.filter(x => ids.has(x.id) || ids.has(x.seqId)); }
+    else if (q.bin || q.nameContains || q.all) seqs = pr.sequences.filter(x => binOk(x.bin) && (!q.nameContains || lc(x.name).includes(lc(q.nameContains))));
+    if (q.bin && seqs.length) {
+      // one bin, not every bin whose path happens to contain the word
+      const exact = seqs.filter(x => lc(x.bin) === lc(q.bin) || lc(x.bin).endsWith(' / ' + lc(q.bin)));
+      if (exact.length) seqs = exact;
+      else if (new Set(seqs.map(x => x.bin)).size > 1) { ask.push({ ask: `More than one bin matches “${q.bin}”. Which one holds the sequences?`, kind: 'sequences', options: [...new Set(seqs.map(x => x.bin))].slice(0, 12) }); seqs = []; }
+    }
+    if (!seqs.length && !ask.length) ask.push({ ask: q.bin ? `I can’t find sequences in a bin called “${q.bin}”. Which bin are they in?` : q.nameContains ? `I can’t find sequences called “${q.nameContains}”. Which bin are they in?` : 'Which sequences? Choose the bin they’re in.', kind: 'sequences', options: [] });
+    return { seqs, ask };
+  }
+  const parseJson = x => { if (!x || !String(x).trim()) return null; try { const o = JSON.parse(x); return o && typeof o === 'object' && Object.keys(o).length ? o : null; } catch (e) { return null; } };
   /**
    * An "append" step against the project: the one clip, the sequences and the track(s) – or the questions to ask when
    * any of them isn't certain. -> {step} | {questions}
@@ -227,18 +250,8 @@
     }
     if (clips.length !== 1) ask.push({ ask: !want ? 'Which clip should go at the end?' : clips.length ? `More than one clip matches “${want}”. Which one?` : `I can’t find a clip called “${want}”. Which one is it?`, kind: 'clip', options: clips.slice(0, 12).map(c => c.name) });
     const clip = clips.length === 1 ? clips[0] : null;
-    // the sequences: by id, or by bin (exactly, the end of its path, or part of it) and name
-    let seqs = [];
-    const binOk = b => { const w = lc(q.bin); return !w || lc(b) === w || lc(b).endsWith(' / ' + w) || lc(b).includes(w); };
-    if (Array.isArray(q.sequences) && q.sequences.length) { const ids = new Set(q.sequences.map(String)); seqs = pr.sequences.filter(x => ids.has(x.id) || ids.has(x.seqId)); }
-    else if (q.bin || q.nameContains || q.all) seqs = pr.sequences.filter(x => binOk(x.bin) && (!q.nameContains || lc(x.name).includes(lc(q.nameContains))));
-    if (q.bin && seqs.length) {
-      // one bin, not every bin whose path happens to contain the word
-      const exact = seqs.filter(x => lc(x.bin) === lc(q.bin) || lc(x.bin).endsWith(' / ' + lc(q.bin)));
-      if (exact.length) seqs = exact;
-      else if (new Set(seqs.map(x => x.bin)).size > 1) { ask.push({ ask: `More than one bin matches “${q.bin}”. Which one holds the sequences?`, kind: 'sequences', options: [...new Set(seqs.map(x => x.bin))].slice(0, 12) }); seqs = []; }
-    }
-    if (!seqs.length && !ask.some(x => x.kind === 'sequences')) ask.push({ ask: q.bin ? `I can’t find sequences in a bin called “${q.bin}”. Which bin are they in?` : 'Which sequences should it go on? Choose the bin they’re in.', kind: 'sequences', options: [] });
+    const picked = pickSequences(pr, q);
+    const seqs = picked.seqs; ask.push(...picked.ask);
     // the track(s): a sound-only clip goes on an audio track; a still has no sound
     const soundOnly = !!clip && clip.kind === 'audio', still = !!clip && clip.kind === 'still';
     const v = soundOnly ? null : trackIndex(p.track, 'V');
@@ -258,12 +271,23 @@
     };
   }
   /** The AI's answer → steps with parsed settings and targets; unknown edits and empty picks are dropped (and said). */
-  function checkPlan(r, m) {
-    const kind = m.kind, ok = new Set(opsFor(kind)), steps = [], dropped = [];
+  function checkPlan(r, m, others = new Map()) {
+    const kind = m.kind, ok = new Set(opsFor(kind)), onSeqs = new Set(opsFor('timeline').filter(k => k !== 'append')), steps = [], dropped = [];
     const questions = ((r && r.questions) || []).filter(x => x && String(x.ask || '').trim()).slice(0, 4)
       .map(x => ({ ask: String(x.ask).trim(), kind: QUESTION_KINDS.includes(x.kind) ? x.kind : 'text', options: Array.isArray(x.options) ? x.options.map(String).filter(Boolean).slice(0, 12) : [] }));
     for (const s of (r && r.steps) || []) {
-      const op = String(s.op || '');
+      const op = String(s.op || ''), sq = op === 'append' ? null : parseJson(s.sequencesJson);
+      if (sq) {
+        if (!onSeqs.has(op)) { dropped.push(`${op || '?'}: ${OPS[op] && !OPS[op].resolve && RES() ? 'Premiere only' : 'not something I can do in other sequences'}`); continue; }
+        const picked = pickSequences(m.project, sq);
+        if (picked.ask.length) { for (const k of picked.ask) if (!questions.some(y => y.ask === k.ask)) questions.push(k); continue; }
+        let q = parseJson(s.targetsJson) || {}, p = parseJson(s.paramsJson) || {};
+        q = Object.assign({}, q); delete q.ids; delete q.lines;   // ids and lines belong to the sequence shown
+        const perSeq = picked.seqs.map(x => { const sm = others.get(x.seqId); return { seqId: x.seqId, name: x.name, targets: sm ? select(sm, q).map(t => Object.assign(t, { seqId: x.seqId, seqName: x.name })) : [] }; }).filter(x => x.targets.length);
+        if (!perSeq.length) { dropped.push(`${OPS[op].title}: nothing matched in those ${US.plural(picked.seqs.length, 'sequence')}`); continue; }
+        steps.push({ op, query: q, params: p, why: String(s.why || ''), multi: true, perSeq, targets: perSeq.flatMap(x => x.targets) });
+        continue;
+      }
       if (!ok.has(op)) { dropped.push(`${op || '?'}: ${OPS[op] && !OPS[op].resolve && RES() ? 'Premiere only' : 'not something I can do here'}`); continue; }
       let q = {}, p = {};
       try { q = s.targetsJson ? JSON.parse(s.targetsJson) : {}; } catch (e) { q = {}; }
@@ -287,9 +311,9 @@
   /** One line for a step: "Cross Dissolve at both ends · 42 clips on V1". */
   function describe(s) {
     const p = s.params || {}, n = s.targets.length, lines = s.targets[0] && s.targets[0].line, items = s.targets[0] && s.targets[0].itemId;
-    const where = s.op === 'append' ? US.plural(n, 'sequence') : items ? US.plural(n, 'clip') : lines ? US.plural(n, 'line') : `${US.plural(n, 'clip')}${(() => { const t = [...new Set(s.targets.map(x => (x.kind === 'audio' ? 'A' : 'V') + (x.track + 1)))]; return t.length && t.length <= 4 ? ' on ' + t.join(', ') : ''; })()}`;
+    const where = s.op === 'append' ? US.plural(n, 'sequence') : s.multi ? `${US.plural(n, 'clip')} in ${US.plural(s.perSeq.length, 'sequence')}` : items ? US.plural(n, 'clip') : lines ? US.plural(n, 'line') : `${US.plural(n, 'clip')}${(() => { const t = [...new Set(s.targets.map(x => (x.kind === 'audio' ? 'A' : 'V') + (x.track + 1)))]; return t.length && t.length <= 4 ? ' on ' + t.join(', ') : ''; })()}`;
     const what = {
-      transition: () => `${p.name || 'Cross Dissolve'} at ${p.at === 'start' ? 'the start' : p.at === 'end' ? 'the end' : 'both ends'}${p.frames ? ` (${p.frames} frames)` : ''}`,
+      transition: () => `${p.name || 'Cross Dissolve'} at ${p.at === 'start' ? 'the start' : p.at === 'end' ? 'the end' : 'both ends'}${p.seconds ? ` (${p.seconds} s)` : p.frames ? ` (${p.frames} frames)` : ''}`,
       effect: () => `Add ${p.name}`, speed: () => `Speed ${p.percent}%`,
       motion: () => ['scale ' + p.scale + '%', p.x != null || p.y != null ? `position ${p.x != null ? p.x : '–'}, ${p.y != null ? p.y : '–'}` : '', p.rotation != null ? `rotate ${p.rotation}°` : ''].filter(x => x && !/undefined/.test(x)).join(', ') || 'Framing',
       zoom: () => `Slow zoom ${p.from != null ? p.from : 100}% → ${p.to != null ? p.to : 110}%${p.seconds ? ` over ${p.seconds} s` : ''}`,
@@ -364,7 +388,22 @@
     job && job.set({ who: 'ai', msg: `${US.ai.label()} is planning the edit` });
     const r = await US.ai.json({ system: [{ text: rules(m.kind), cache: '1h' }], user: [{ text: c.outline, cache: '1h' }, c.firstUser], turns: c.turns, schema: PLAN_SCHEMA, maxTokens: 6000, effort: 'medium', feature: 'Ask › Edit' });
     c.lastAnswer = JSON.stringify(r || {});
-    return { conv: c, plan: checkPlan(r, c.model) };
+    await readOthers(job, r, c);
+    return { conv: c, plan: checkPlan(r, c.model, c.others) };
+  }
+  /** Read the other sequences the AI's steps name (once per conversation, until something changes them). */
+  async function readOthers(job, r, c) {
+    if (!c.others) c.others = new Map();
+    const want = [];
+    for (const st of (r && r.steps) || []) {
+      const sq = st.op === 'append' ? null : parseJson(st.sequencesJson);
+      if (sq) for (const x of pickSequences(c.model.project, sq).seqs) if (!c.others.has(x.seqId) && !want.some(w => w.seqId === x.seqId)) want.push(x);
+    }
+    let k = 0;
+    for (const x of want.slice(0, 300)) {
+      job && job.set({ who: 'premiere', msg: `Reading “${x.name}”` }).progress(k++ / want.length, `${k} of ${want.length}: ${x.name}`);
+      try { c.others.set(x.seqId, timelineModel(await US.host.call('editRead', { seqId: x.seqId }), null)); } catch (e) { /* a sequence that won't read is left out */ }
+    }
   }
   const scopeLabel = (scope, m) => (scope.where === 'bin' ? `the bin “${scope.binName || ''}”` : scope.where === 'project' ? 'the whole project' : scope.where === 'selection' ? `the clips selected in “${m.seq ? m.seq.name : ''}”` : scope.where === 'transcripts' ? `the transcript lines heard in “${m.seq ? m.seq.name : ''}”` : `the sequence “${m.seq ? m.seq.name : ''}”`);
 
@@ -392,9 +431,10 @@
    * remember what they changed, for Undo. -> {summary, results:[{step, done, skipped, unsupported, why}], seqId, undo}
    */
   async function run(job, conv, steps, opts = {}) {
-    const appends = steps.filter(x => x.op === 'append'), rest = steps.filter(x => x.op !== 'append');
+    const appends = steps.filter(x => x.op === 'append'), multi = steps.filter(x => x.multi), rest = steps.filter(x => x.op !== 'append' && !x.multi);
     let out = { summary: '', results: [] }, placed = [];
     if (appends.length) { const a = await runAppends(job, appends); placed = a.placed; out = { summary: a.summary, results: a.results }; }
+    if (multi.length) { const x = await runMulti(job, multi); out = { summary: [out.summary, x.summary].filter(Boolean).join(' · '), results: out.results.concat(x.results), multi: true }; conv.others = new Map(); }
     if (rest.length) { const r = await runSteps(job, conv, rest, opts); out = Object.assign({}, r, { summary: [out.summary, r.summary].filter(Boolean).join(' · '), results: out.results.concat(r.results) }); }
     if (placed.length) out.unplace = placed;
     return out;
@@ -432,6 +472,38 @@
     const done = US.sum(results.map(r => r.done || 0)), skipped = US.sum(results.map(r => (r.skipped || []).length));
     US.log(skipped ? 'warn' : 'ok', `Ask › Edit: added to ${US.plural(done, 'sequence')}`, results.map(r => `${describe(r.step)}: ${r.unsupported ? r.why : `${r.done} done${r.skipped.length ? `, ${r.skipped.length} skipped (${r.skipped.slice(0, 3).map(x => x.why).join('; ')})` : ''}`}`).concat(placed.map(x => `  “${x.name}” ${fmtT(x.start)}–${fmtT(x.end)}`)).join('\n'), 'assistant');
     return { summary: `Added to ${US.plural(done, 'sequence')}${skipped ? ` · ${skipped} not added` : ''}`, results, placed };
+  }
+  /**
+   * Edits in other sequences, made in each sequence itself (the editor confirmed that), one sequence at a time, the
+   * safe order within each (cuts first, deletes last). Comes back to the sequence that was open. -> {summary, results}
+   */
+  async function runMulti(job, steps) {
+    const results = steps.map(st => ({ step: st, done: 0, skipped: [] })), back = US.ctx.sequence && US.ctx.sequence.id;
+    const seqs = []; for (const st of steps) for (const x of st.perSeq) if (!seqs.some(y => y.seqId === x.seqId)) seqs.push({ seqId: x.seqId, name: x.name });
+    const tg = t => ({ kind: t.kind, track: t.track, start: t.start, end: t.end });
+    try {
+      for (let k = 0; k < seqs.length; k++) {
+        job.check();
+        const { seqId, name } = seqs[k];
+        job.set({ who: 'premiere', msg: `Editing “${name}”` }).progress(k / seqs.length, `${k + 1} of ${seqs.length}: ${name}`);
+        for (const st of runOrder(steps)) {
+          const part = st.perSeq.find(x => x.seqId === seqId), r = results.find(x => x.step === st);
+          if (!part || r.unsupported) continue;
+          try {
+            if (st.op === 'rename' || st.op === 'text') {
+              let n = 0;
+              for (const t of part.targets) { n++; const x = await US.host.call('editApply', { seqId, op: st.op, params: Object.assign({}, st.params, st.op === 'rename' ? { name: fill(st.params.name, t, n) } : { text: fill(st.params.text, t, n) }), targets: [tg(t)] }); r.done += x.done || 0; r.skipped.push(...(x.skipped || [])); if (x.unsupported) { r.unsupported = true; r.why = x.why; break; } }
+            } else {
+              const x = await US.host.call('editApply', { seqId, op: st.op, params: st.params, targets: part.targets.map(tg) });
+              r.done += x.done || 0; r.skipped.push(...(x.skipped || [])); if (x.unsupported) { r.unsupported = true; r.why = x.why; }
+            }
+          } catch (e) { r.skipped.push({ why: `${name}: ${(e && (e.title || e.message)) || e}` }); }
+        }
+      }
+    } finally { if (back) await US.host.call('openSequence', { seqId: back }).catch(() => {}); }
+    const done = US.sum(results.map(r => r.done || 0)), skipped = US.sum(results.map(r => r.skipped.length));
+    US.log(skipped ? 'warn' : 'ok', `Ask › Edit: ${US.plural(done, 'change')} in ${US.plural(seqs.length, 'sequence')}`, results.map(r => `${describe(r.step)}: ${r.unsupported ? r.why : `${r.done} done${r.skipped.length ? `, ${r.skipped.length} skipped (${[...new Set(r.skipped.map(x => x.why))].slice(0, 3).join('; ')})` : ''}`}`).concat(seqs.map(x => '  ' + x.name)).join('\n'), 'assistant');
+    return { summary: `${US.plural(done, 'change')} in ${US.plural(seqs.length, 'sequence')}${skipped ? ` · ${skipped} skipped` : ''}`, results };
   }
   /** Take appended clips out again (exactly what runAppends placed, nothing else moves). -> clips removed */
   async function unplace(list) {
@@ -553,5 +625,5 @@
     run: async () => ({ summary: 'Open Ask › Edit to plan this.' })
   });
 
-  US.editAsk = { OPS, opsFor, timelineModel, itemsModel, projectModel, outline, select, checkPlan, appendStep, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
+  US.editAsk = { OPS, opsFor, timelineModel, itemsModel, projectModel, outline, select, checkPlan, appendStep, pickSequences, readOthers, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
 })();

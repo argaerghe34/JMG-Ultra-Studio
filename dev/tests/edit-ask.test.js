@@ -244,3 +244,44 @@ test('Resolve: the project overview, and a clip laid at the end of a timeline on
   assert.strictEqual((await run('editApply', { seqId, op: 'remove', params: { ripple: false }, targets: [{ kind: 'video', track: 1, start: 10, end: 14 }] })).done, 1);
   assert.strictEqual(tl.GetItemListInTrack('video', 2).length, 0);
 });
+
+test('any timeline edit in many sequences: a 2-second Dip to Black on the first V1 clip of every “All Songs” sequence, asked from a bin', async () => {
+  const PR = { bins: ['Concerts', 'Concerts / Night 1', 'Concerts / Night 2'], more: 0, clips: [],
+    sequences: [{ id: 'a1', name: 'All Songs', bin: 'Concerts / Night 1', duration: 60, video: 2, audio: 2 }, { id: 'a2', name: 'All Songs', bin: 'Concerts / Night 2', duration: 80, video: 1, audio: 2 }, { id: 'b1', name: 'Highlights', bin: 'Concerts', duration: 30, video: 1, audio: 1 }] };
+  const seqInfo = id => ({ id, name: 'All Songs', fps: 25, duration: 60, markers: [], video: [{ index: 0, clips: [clip(0, 20, 'Song 1.MP4'), clip(20, 60, 'Song 2.MP4')] }, { index: 1, clips: [clip(5, 9, 'Logo.mov')] }], audio: [{ index: 0, clips: [clip(0, 60, 'Mix.wav')] }] });
+  const host = [], calls = [], was = { ai: US.ai, call: US.host.call, ctx: US.ctx };
+  US.ctx = { sequence: { id: 'b1', name: 'Highlights' } };
+  US.host.call = async (fn, a) => {
+    host.push([fn, a]);
+    if (fn === 'binItems') return [{ id: 'n1', name: 'All Songs', kind: 'sequence', bin: 'Concerts / Night 1' }];
+    if (fn === 'editProject') return PR;
+    if (fn === 'editRead') return seqInfo(a.seqId);
+    if (fn === 'editApply') return { done: a.targets.length, skipped: [] };
+    return true;
+  };
+  const answers = [
+    { reply: 'Which ones?', done: false, steps: [{ op: 'transition', sequencesJson: '{"nameContains":"All Song"}', targetsJson: '{}', paramsJson: '{}', why: '' }], questions: [] },
+    { reply: 'A Dip to Black at the start of each.', done: false, questions: [], steps: [{ op: 'transition', sequencesJson: '{"nameContains":"All Songs"}', targetsJson: '{"tracks":["V1"],"every":"first","ids":["c9"]}', paramsJson: '{"name":"Dip to Black","at":"start","seconds":2}', why: '' }] }];
+  US.ai = { available: () => true, label: () => 'Claude', json: async req => { calls.push(req); return answers[calls.length - 1]; } };
+  try {
+    const p0 = await E.plan(job, { request: 'dip to black', scope: { where: 'bin', binId: 'x', binName: 'Concerts' } });
+    assert.ok(/EDITS FOR SEQUENCES/.test(calls[0].system[0].text) && /- transition:/.test(calls[0].system[0].text), 'timeline edits offered for other sequences, from a bin');
+    assert.ok(p0.plan.steps[0].multi);
+    const r = await E.plan(job, { request: 'a 2-second dip to black at the start of the first V1 clip in each All Songs sequence', scope: { where: 'bin', binId: 'x', binName: 'Concerts' }, conv: p0.conv });
+    const st = r.plan.steps[0];
+    assert.deepStrictEqual([st.op, st.multi, st.perSeq.map(x => x.seqId), st.targets.map(t => [t.seqId, t.name, t.start])], ['transition', true, ['a1', 'a2'], [['a1', 'Song 1.MP4', 0], ['a2', 'Song 1.MP4', 0]]], 'the first V1 clip in each – not the logo on V2, not Highlights; a stray c… id is ignored');
+    assert.strictEqual(E.describe(st), 'Dip to Black at the start (2 s) · 2 clips in 2 sequences');
+    assert.strictEqual(host.filter(h => h[0] === 'editRead').length, 2, 'each sequence read once in the conversation');
+    host.length = 0;
+    const out = await E.run(job, r.conv, r.plan.steps, { copy: true });
+    assert.strictEqual(host.filter(h => h[0] === 'cloneSequence').length, 0, 'in the sequences themselves');
+    assert.deepStrictEqual(host.filter(h => h[0] === 'editApply').map(h => [h[1].seqId, h[1].op, h[1].params, h[1].targets]), [
+      ['a1', 'transition', { name: 'Dip to Black', at: 'start', seconds: 2 }, [{ kind: 'video', track: 0, start: 0, end: 20 }]],
+      ['a2', 'transition', { name: 'Dip to Black', at: 'start', seconds: 2 }, [{ kind: 'video', track: 0, start: 0, end: 20 }]]]);
+    assert.deepStrictEqual(host[host.length - 1], ['openSequence', { seqId: 'b1' }], 'back to the sequence that was open');
+    assert.strictEqual(out.summary, '2 changes in 2 sequences');
+    // a name that matches nothing: asked, not guessed
+    const q = E.checkPlan({ reply: '', done: false, questions: [], steps: [{ op: 'transition', sequencesJson: '{"nameContains":"Encore"}', targetsJson: '{}', paramsJson: '{}', why: '' }] }, r.conv.model, r.conv.others);
+    assert.deepStrictEqual([q.steps.length, q.questions.map(x => x.kind)], [0, ['sequences']]);
+  } finally { Object.assign(US, { ai: was.ai, ctx: was.ctx }); US.host.call = was.call; }
+});

@@ -80,7 +80,7 @@
         var name = p.name || (kind === 'audio' ? 'Constant Power' : 'Cross Dissolve'), tr = null;
         try { tr = kind === 'audio' ? qe.project.getAudioTransitionByName(name) : qe.project.getVideoTransitionByName(name); } catch (e) { }
         if (!tr) throw U.err('NOT_FOUND', 'No transition called ' + name, 'Premiere has no transition called “' + name + '”.', 'Use its name as the Effects panel shows it, e.g. Cross Dissolve, Dip to Black, Film Dissolve, Constant Power.');
-        var at = p.at || 'both', dur = tcFrames(seq, p.frames || Math.round(U.seqFps(seq) / 2)), n = 0;
+        var at = p.at || 'both', dur = tcFrames(seq, p.frames || (p.seconds ? p.seconds * U.seqFps(seq) : Math.round(U.seqFps(seq) / 2))), n = 0;
         var ends = at === 'both' ? [true, false] : [at === 'start'];
         for (var i = 0; i < ends.length; i++) {
             var it = qeItemAt(q, seq, kind, track, ti.start.seconds); if (!it) break;

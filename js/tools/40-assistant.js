@@ -313,13 +313,13 @@
         }
         const on = p.steps.map(() => true);
         const seqFor = () => conv.workSeqId || (m.seq && m.seq.id);
-        const goTo = t => { if (t.seqId) US.host.call('openSequence', { seqId: t.seqId }).catch(e => ui.showError(e)); else if (timeline && t.start != null) US.host.call('setPlayhead', { seqId: seqFor(), seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
+        const goTo = t => { if (t.seqId) US.host.call('openSequence', { seqId: t.seqId }).then(() => (t.start != null ? US.host.call('setPlayhead', { seqId: t.seqId, seconds: t.start }) : null)).catch(e => ui.showError(e)); else if (timeline && t.start != null) US.host.call('setPlayhead', { seqId: seqFor(), seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
         const stepRow = (s, i) => {
-          const more = h('div.edit-targets.hidden', s.targets.slice(0, 40).map(t => h('button.chip', { title: 'Go there', onclick: () => goTo(t) }, t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId || t.sequence ? t.name : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim())), s.targets.length > 40 ? h('span.field-hint', `…and ${s.targets.length - 40} more`) : null);
+          const more = h('div.edit-targets.hidden', s.targets.slice(0, 40).map(t => h('button.chip', { title: 'Go there', onclick: () => goTo(t) }, t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId || t.sequence ? t.name : t.seqName ? `${t.seqName}: ${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)}` : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim())), s.targets.length > 40 ? h('span.field-hint', `…and ${s.targets.length - 40} more`) : null);
           const box = h('input', { type: 'checkbox', checked: true, onchange: e => { on[i] = e.target.checked; } });
           return h('li.edit-step', h('label.row', box, h('div.grow', h('b', E.describe(s)), s.why ? h('div.field-hint', s.why) : null)), h('button.btn.small.ghost', { onclick: () => more.classList.toggle('hidden') }, 'Which'), more);
         };
-        const onTimeline = timeline && p.steps.some(x => x.op !== 'append'), adding = p.steps.some(x => x.op === 'append');
+        const own = x => x.op === 'append' || x.multi, onTimeline = timeline && p.steps.some(x => !own(x)), adding = p.steps.some(own);
         const copyToggle = onTimeline && !conv.workSeqId ? ui.toggle({ label: 'Work on a copy of the sequence', hint: `Off: “${m.seq.name}” itself changes (Edit › Undo in Premiere can take steps back one by one).`, value: US.settings.get('editAsk.copy', true), onChange: x => US.settings.set('editAsk.copy', x) }) : null;
         const runBtn = ui.button(p.steps.length > 1 ? `Run ${p.steps.length} edits` : 'Run', { kind: 'primary', icon: 'play' }), cancel = ui.button('Cancel', { kind: 'ghost' }), status = h('div.plan-status');
         const card = h('div.plan',
@@ -328,8 +328,8 @@
           h('ol.plan-steps', p.steps.map(stepRow)),
           p.dropped.length ? h('div.field-hint', 'Left out: ' + p.dropped.join(' · ')) : null,
           copyToggle, onTimeline && conv.workSeqId ? h('div.field-hint', `Runs on the copy “${conv.workSeqName}”.`) : null,
-          adding ? h('div.field-hint', 'Adding a clip changes those sequences themselves (no copies). You’ll be asked to confirm, and can take it out again afterwards.') : null,
-          !timeline && p.steps.some(x => x.op !== 'append') ? h('div.field-hint', 'This changes clips in your project. Labels, names and bins can be put back with Undo afterwards.') : null,
+          adding ? h('div.field-hint', US.say('Edits in other sequences change those sequences themselves (no copies). You’ll be asked to confirm first.')) : null,
+          !timeline && p.steps.some(x => !own(x)) ? h('div.field-hint', 'This changes clips in your project. Labels, names and bins can be put back with Undo afterwards.') : null,
           h('div.row', runBtn, cancel), status,
           h('div.field-hint', 'Not right? Type what to change below and I’ll redo the plan.'));
         bubble('bot wide', card);
@@ -338,14 +338,15 @@
           const steps = p.steps.filter((x, i) => on[i]);
           if (!steps.length) { status.textContent = 'Tick at least one edit.'; return; }
           // the editor's own sequences change: say which, and ask
-          const adds = steps.filter(x => x.op === 'append');
+          const adds = steps.filter(x => x.op === 'append' || x.multi);
           if (adds.length) {
-            const names = [...new Set(adds.flatMap(x => x.targets.map(t => t.name)))], n = new Set(adds.flatMap(x => x.targets.map(t => t.seqId))).size;
+            const seqsOf = x => (x.multi ? x.perSeq.map(y => ({ id: y.seqId, name: y.name })) : x.targets.map(t => ({ id: t.seqId, name: t.name })));
+            const names = [...new Set(adds.flatMap(x => seqsOf(x).map(y => y.name)))], n = new Set(adds.flatMap(x => seqsOf(x).map(y => y.id))).size;
             const yes = await ui.modal({
               title: US.say(`Change ${US.plural(n, 'sequence')} of your own?`),
               body: h('div', h('p', US.say(`${adds.map(x => E.describe(x)).join(' · ')}. This goes into the sequences themselves – no copies are made.`)),
                 h('pre.mono', names.slice(0, 12).join('\n') + (names.length > 12 ? `\n…and ${names.length - 12} more` : '')),
-                h('p.field-hint', 'Afterwards, “Take them out again” removes exactly what was added.')),
+                h('p.field-hint', adds.every(x => x.op === 'append') ? 'Afterwards, “Take them out again” removes exactly what was added.' : US.say('Premiere’s Edit › Undo takes the changes back one at a time.'))),
               buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: US.say(`Change ${US.plural(n, 'sequence')}`), value: true, kind: 'primary' }]
             });
             if (!yes) { status.textContent = 'Not run – nothing changed.'; return; }
