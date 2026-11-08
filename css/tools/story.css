@@ -279,3 +279,10 @@
   .heat-row { grid-template-columns: 80px 1fr 40px; }
   .story-tl-row { grid-template-columns: 64px 1fr; }
 }
+
+/* Story › Leave out songs and other languages */
+.ignore-opts { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.ignore-list { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 3px; }
+.ignore-line { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.ignore-time { opacity: .7; min-width: 44px; }
+.ignore-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

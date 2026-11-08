@@ -119,7 +119,7 @@
   /* ---------- the screen ---------- */
   US.tools.register({
     id: 'assistant', name: 'Assistant', short: 'Ask', icon: 'ask', order: 40,
-    hostFns: ['editRead', 'editSelection', 'editApply', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems'],
+    hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips'],
     blurb: 'Say what you want in plain English – run a tool, or ask anything about your interviews.',
     create() {
       const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'Tell it what you want. It shows a plan first and only acts when you press Run.' });
@@ -166,13 +166,13 @@
       const ASK_EXAMPLES = ['Every story about family, in the order it happened', 'Where do the interviewees disagree?', 'A 45-second opening about why they came', 'Who talks about their parents, and what do they say?', 'The funniest moments, best first'];
       /** What the AI reads for an ask, and what it costs (the shared transcript). */
       function readsLine() { try { US.story.loadState(); return US.story.contextLine(); } catch (e) { return ''; } }
-      const EDIT_EXAMPLES = ['A cross dissolve on every cut on V1', 'Punch in to 110% on each interview clip', 'Dip to black where the speaker changes', 'Lower thirds with the speaker’s name the first time each person talks', 'Audio fades of 12 frames on every music clip', 'Colour every clip longer than 20 seconds orange'];
+      const EDIT_EXAMPLES = ['A cross dissolve on every cut on V1', 'Punch in to 110% on each interview clip', 'Dip to black where the speaker changes', 'Lower thirds with the speaker’s name the first time each person talks', 'Audio fades of 12 frames on every music clip', 'Add the logo clip to the end of every sequence in the Shorts bin', 'Colour every clip longer than 20 seconds orange'];
       function greet() {
         US.clear(log); history.length = 0;
         const aiOn = US.ai && US.ai.available();
         if (mode === 'edit') {
           editConv = null;
-          bubble('bot', h('div', 'Tell me what to change. I read the sequence (or bin, or project) as text – clip names, times, tracks, labels, effects and, if transcribed, who speaks – and show you a plan. Nothing changes until you press Run, and sequence edits go on a copy.'), chips(EDIT_EXAMPLES),
+          bubble('bot', h('div', 'Tell me what to change. I read the sequence (or bin, or project) as text – clip names, times, tracks, labels, effects and, if transcribed, who speaks – and show you a plan. I can also add a clip – a logo, an end card – to the end of many sequences at once. If I’m not sure what you mean, I ask first. Nothing changes until you press Run; sequence edits go on a copy, and adding to your own sequences is confirmed first.'), chips(EDIT_EXAMPLES),
             aiOn ? h('div.field-hint', `Planned by ${US.ai.label()} – only text is sent, never footage.${US.app.is('resolve') ? ' In Resolve: framing, opacity, colours, on/off, deleting and markers (Resolve doesn’t let add-ons add transitions, effects or text).' : ''}`) : h('div.field-hint', 'This needs AI: add a Claude or Gemini key in Settings.'));
           return;
         }
@@ -305,6 +305,7 @@
       }
       function showEditPlan(p, { followUp = false, onDone = null, request = '', where = 'sequence' } = {}) {
         const conv = editConv, m = conv.model, timeline = m.kind === 'timeline';
+        if (p.questions && p.questions.length) { showQuestions(p, { onDone }); return; }
         if (!p.steps.length) {
           bubble('bot', h('div', p.reply || (p.done ? 'That’s all done.' : 'I couldn’t find a way to do that with the edits I have.')), p.dropped.length ? h('div.field-hint', 'Left out: ' + p.dropped.join(' · ')) : null);
           if (onDone) onDone(!!p.done);
@@ -312,21 +313,23 @@
         }
         const on = p.steps.map(() => true);
         const seqFor = () => conv.workSeqId || (m.seq && m.seq.id);
-        const goTo = t => { if (timeline && t.start != null) US.host.call('setPlayhead', { seqId: seqFor(), seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
+        const goTo = t => { if (t.seqId) US.host.call('openSequence', { seqId: t.seqId }).then(() => (t.start != null ? US.host.call('setPlayhead', { seqId: t.seqId, seconds: t.start }) : null)).catch(e => ui.showError(e)); else if (timeline && t.start != null) US.host.call('setPlayhead', { seqId: seqFor(), seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
         const stepRow = (s, i) => {
-          const more = h('div.edit-targets.hidden', s.targets.slice(0, 40).map(t => h('button.chip', { title: 'Go there', onclick: () => goTo(t) }, t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId ? t.name : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim())), s.targets.length > 40 ? h('span.field-hint', `…and ${s.targets.length - 40} more`) : null);
+          const more = h('div.edit-targets.hidden', s.targets.slice(0, 40).map(t => h('button.chip', { title: 'Go there', onclick: () => goTo(t) }, t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId || t.sequence ? t.name : t.seqName ? `${t.seqName}: ${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)}` : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim())), s.targets.length > 40 ? h('span.field-hint', `…and ${s.targets.length - 40} more`) : null);
           const box = h('input', { type: 'checkbox', checked: true, onchange: e => { on[i] = e.target.checked; } });
           return h('li.edit-step', h('label.row', box, h('div.grow', h('b', E.describe(s)), s.why ? h('div.field-hint', s.why) : null)), h('button.btn.small.ghost', { onclick: () => more.classList.toggle('hidden') }, 'Which'), more);
         };
-        const copyToggle = timeline && !conv.workSeqId ? ui.toggle({ label: 'Work on a copy of the sequence', hint: `Off: “${m.seq.name}” itself changes (Edit › Undo in Premiere can take steps back one by one).`, value: US.settings.get('editAsk.copy', true), onChange: x => US.settings.set('editAsk.copy', x) }) : null;
+        const own = x => x.op === 'append' || x.multi, onTimeline = timeline && p.steps.some(x => !own(x)), adding = p.steps.some(own);
+        const copyToggle = onTimeline && !conv.workSeqId ? ui.toggle({ label: 'Work on a copy of the sequence', hint: `Off: “${m.seq.name}” itself changes (Edit › Undo in Premiere can take steps back one by one).`, value: US.settings.get('editAsk.copy', true), onChange: x => US.settings.set('editAsk.copy', x) }) : null;
         const runBtn = ui.button(p.steps.length > 1 ? `Run ${p.steps.length} edits` : 'Run', { kind: 'primary', icon: 'play' }), cancel = ui.button('Cancel', { kind: 'ghost' }), status = h('div.plan-status');
         const card = h('div.plan',
           followUp ? h('div.field-label', 'Still to do') : null,
           p.reply ? h('div', p.reply) : null,
           h('ol.plan-steps', p.steps.map(stepRow)),
           p.dropped.length ? h('div.field-hint', 'Left out: ' + p.dropped.join(' · ')) : null,
-          copyToggle, timeline && conv.workSeqId ? h('div.field-hint', `Runs on the copy “${conv.workSeqName}”.`) : null,
-          !timeline ? h('div.field-hint', 'This changes clips in your project. Labels, names and bins can be put back with Undo afterwards.') : null,
+          copyToggle, onTimeline && conv.workSeqId ? h('div.field-hint', `Runs on the copy “${conv.workSeqName}”.`) : null,
+          adding ? h('div.field-hint', US.say('Edits in other sequences change those sequences themselves (no copies). You’ll be asked to confirm first.')) : null,
+          !timeline && p.steps.some(x => !own(x)) ? h('div.field-hint', 'This changes clips in your project. Labels, names and bins can be put back with Undo afterwards.') : null,
           h('div.row', runBtn, cancel), status,
           h('div.field-hint', 'Not right? Type what to change below and I’ll redo the plan.'));
         bubble('bot wide', card);
@@ -334,6 +337,20 @@
         runBtn.addEventListener('click', async () => {
           const steps = p.steps.filter((x, i) => on[i]);
           if (!steps.length) { status.textContent = 'Tick at least one edit.'; return; }
+          // the editor's own sequences change: say which, and ask
+          const adds = steps.filter(x => x.op === 'append' || x.multi);
+          if (adds.length) {
+            const seqsOf = x => (x.multi ? x.perSeq.map(y => ({ id: y.seqId, name: y.name })) : x.targets.map(t => ({ id: t.seqId, name: t.name })));
+            const names = [...new Set(adds.flatMap(x => seqsOf(x).map(y => y.name)))], n = new Set(adds.flatMap(x => seqsOf(x).map(y => y.id))).size;
+            const yes = await ui.modal({
+              title: US.say(`Change ${US.plural(n, 'sequence')} of your own?`),
+              body: h('div', h('p', US.say(`${adds.map(x => E.describe(x)).join(' · ')}. This goes into the sequences themselves – no copies are made.`)),
+                h('pre.mono', names.slice(0, 12).join('\n') + (names.length > 12 ? `\n…and ${names.length - 12} more` : '')),
+                h('p.field-hint', adds.every(x => x.op === 'append') ? 'Afterwards, “Take them out again” removes exactly what was added.' : US.say('Premiere’s Edit › Undo takes the changes back one at a time.'))),
+              buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: US.say(`Change ${US.plural(n, 'sequence')}`), value: true, kind: 'primary' }]
+            });
+            if (!yes) { status.textContent = 'Not run – nothing changed.'; return; }
+          }
           runBtn.disabled = cancel.disabled = true; status.textContent = 'Running…';
           const out = await US.jobs.run({ title: 'Editing', tool: 'assistant' }, job => E.run(job, conv, steps, { copy: !timeline ? false : conv.workSeqId ? true : US.settings.get('editAsk.copy', true) }));
           if (!out) { status.textContent = 'Stopped – see the message above.'; if (onDone) onDone(false); return; }
@@ -341,6 +358,7 @@
           if (request && !followUp) card.appendChild(h('div.row', ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Ask for this edit again later, on any sequence, in one go', onClick: () => saveRecipe([{ edit: request, where }], request.slice(0, 40)) })));
           bubble('bot', h('div.done', US.icon('ok', 15), h('span', out.summary)),
             h('ul.edit-results', out.results.map(x => h('li', `${E.describe(x.step)}: ${x.unsupported ? x.why : `${x.done} done${x.skipped && x.skipped.length ? ` · ${x.skipped.length} skipped (${[...new Set(x.skipped.map(k => k.why))].slice(0, 2).join('; ')})` : ''}`}`))),
+            out.unplace && out.unplace.length ? ui.button('Take them out again', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Taking them out again', tool: 'assistant' }, async () => ({ summary: `Took out ${US.plural(await E.unplace(out.unplace), 'clip')}` })) }) : null,
             out.undo && out.undo.length ? ui.button('Undo', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Putting it back', tool: 'assistant' }, async () => { await E.undoItems(out.undo); return { summary: 'Put back as it was' }; }) }) : null);
           // stage 2: read back what happened and check it against the request
           const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', 'Checking the result…')));
@@ -350,6 +368,52 @@
           editConv = c.conv;
           if (c.plan.steps.length) showEditPlan(c.plan, { followUp: true, onDone });
           else { bubble('bot', h('div', c.plan.reply || 'That looks done.')); if (onDone) onDone(true); }
+        });
+      }
+      /** Not sure yet (the AI asked, or the panel couldn't pin down the clip, sequences or track): ask with a picker for
+          each, then plan again with the answers. Typing an answer below works too. */
+      function showQuestions(p, { onDone = null } = {}) {
+        const pr = (editConv && editConv.model.project) || { bins: [], sequences: [], clips: [] };
+        const seqBins = new Map(); for (const x of pr.sequences) seqBins.set(x.bin, (seqBins.get(x.bin) || 0) + 1);
+        const maxV = Math.max(3, ...pr.sequences.map(x => x.video || 0)) + 1, maxA = Math.max(3, ...pr.sequences.map(x => x.audio || 0)) + 1;
+        const rows = p.questions.map(q => {
+          let el, get;
+          if (q.kind === 'clip') {
+            const pick = list => list.slice(0, 500).map(c => ({ value: c.id, label: `${c.name}${c.bin && c.bin !== '(Project root)' ? `  –  ${c.bin}` : ''}` }));
+            const likely = pr.clips.filter(c => q.options.includes(c.name)), start = likely.length ? likely : pr.clips;
+            const sel = ui.select({ options: pick(start), placeholder: 'Choose the clip…' });
+            const find = h('input.input', { placeholder: 'Type part of its name to find it' });
+            find.addEventListener('input', () => { const w = find.value.trim().toLowerCase(); sel.setOptions(pick(w ? pr.clips.filter(c => `${c.name} ${c.file}`.toLowerCase().includes(w)) : start), ''); });
+            el = h('div', find, sel);
+            get = () => { const c = pr.clips.find(x => x.id === sel.get()); return c ? `the clip “${c.name}” (${c.id}${c.bin ? `, in ${c.bin}` : ''})` : ''; };
+          } else if (q.kind === 'bin' || q.kind === 'sequences') {
+            const all = (q.kind === 'sequences' ? [...seqBins.keys()] : pr.bins.slice()).sort((a, b) => a.localeCompare(b));
+            const first = q.options.filter(b => all.includes(b)), list = first.concat(all.filter(b => !first.includes(b)));
+            const sel = ui.select({ options: list.map(b => ({ value: b, label: q.kind === 'sequences' ? `${b} (${US.plural(seqBins.get(b) || 0, 'sequence')})` : b })), placeholder: 'Choose the bin…' });
+            el = sel;
+            get = () => (!sel.get() ? '' : q.kind === 'sequences' ? `every sequence in the bin “${sel.get()}” (${US.plural(seqBins.get(sel.get()) || 0, 'sequence')})` : `the bin “${sel.get()}”`);
+          } else if (q.kind === 'track') {
+            const tracks = [...Array(maxV).keys()].map(i => 'V' + (i + 1)).concat([...Array(maxA).keys()].map(i => 'A' + (i + 1)));
+            const sel = ui.select({ options: tracks.map(t => ({ value: t, label: t })), placeholder: 'Choose the track…' });
+            el = sel; get = () => (sel.get() ? `track ${sel.get()}` : '');
+          } else if (q.kind === 'choice' && q.options.length) {
+            let v = '';
+            el = ui.segmented({ options: q.options.map(o => ({ value: o, label: o })), value: '', onChange: x => { v = x; } });
+            get = () => v;
+          } else { el = h('input.input', { placeholder: 'Your answer' }); get = () => el.value.trim(); }
+          return { q, el, get };
+        });
+        const go = ui.button('Answer', { kind: 'primary' }), cancel = ui.button('Cancel', { kind: 'ghost' }), status = h('div.plan-status');
+        bubble('bot wide', h('div.plan', p.reply ? h('div', p.reply) : null, h('div.field-label', p.questions.length > 1 ? 'A few questions first' : 'One question first'),
+          rows.map(r => h('div.edit-question', h('div', US.say(r.q.ask)), r.el)), h('div.row', go, cancel), status,
+          h('div.field-hint', 'Or type your answer below.')));
+        cancel.addEventListener('click', () => { go.disabled = cancel.disabled = true; status.textContent = 'Cancelled – nothing changed.'; if (onDone) onDone(false); });
+        go.addEventListener('click', () => {
+          const answers = rows.map(r => ({ ask: r.q.ask, a: r.get() }));
+          if (answers.every(x => !x.a)) { status.textContent = 'Answer at least one question (or type your answer below).'; return; }
+          go.disabled = cancel.disabled = true;
+          bubble('me', answers.filter(x => x.a).map(x => x.a).join(' · '));
+          runEdit('My answers:\n' + answers.map(x => `- ${x.ask} → ${x.a || '(left unanswered – doesn’t apply, or decide sensibly)'}`).join('\n'), null, onDone);
         });
       }
       function showAsk(a) { bubble('bot wide', US.story.askCard(a, { onRefine: t => { bubble('me', t); runAsk(t, a.id); } })); }

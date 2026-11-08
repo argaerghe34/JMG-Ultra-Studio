@@ -80,3 +80,42 @@ test('render ranges: your own Media Encoder and Premiere presets are found, newe
   assert.ok(p[0].path.includes('26.0'));
   fs.rmSync(docs, { recursive: true, force: true });
 });
+
+/* ---------- bin export ---------- */
+test('bin export: one file per sequence, named after it plus the ending; no two alike (Windows ignores case)', () => {
+  const path = require('path');
+  const p = US.deliver.binPlan([{ id: 'a', name: 'Song 1' }, { id: 'b', name: 'Song: 2/live' }, { id: 'c', name: 'song 1' }], 'mp4', '/out', { suffix: '_v2' });
+  assert.deepStrictEqual(p.map(x => [x.seqId, x.name, x.out]), [['a', 'Song 1_v2', path.join('/out', 'Song 1_v2.mp4')], ['b', 'Song- 2-live_v2', path.join('/out', 'Song- 2-live_v2.mp4')], ['c', 'song 1_v2 (2)', path.join('/out', 'song 1_v2 (2).mp4')]]);
+});
+test('bin export: the ticked sequences go to Media Encoder whole (no range), guides hidden first; plain errors', async () => {
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'binexp-')), preset = path.join(dir, 'H264.epr');
+  fs.writeFileSync(preset, 'x');
+  const host = [], was = { call: US.host.call, enc: US.encoder, fsx: US.fsx };
+  US.host.call = async (fn, a) => { host.push([fn, a]); if (fn === 'binSequences') return [{ id: 's1', name: 'Song 1' }, { id: 's2', name: 'Song 2' }, { id: 's3', name: 'Song 3' }]; if (fn === 'presetExtension') return 'mp4'; if (fn === 'guideStatus') return [{ hidden: a.seqId !== 's2' }]; return true; };
+  let sent = null;
+  US.encoder = { run: async (tasks, job, opts) => { sent = { tasks, opts }; tasks.forEach(t => { t.ok = true; }); return tasks; } };
+  US.fsx = Object.assign({}, was.fsx, { ensureDir() {}, exportsDir: () => dir });
+  const job = { set() { return job; }, progress() {}, check() {} };
+  try {
+    const r = await US.deliver.exportBin({ binId: 'b1', binName: 'Concerts / All Songs', skip: ['s3'], preset, folder: path.join(dir, 'Out'), suffix: '_1' }, job);
+    assert.deepStrictEqual(host.find(h => h[0] === 'binSequences')[1], { binId: 'b1', recursive: false });
+    assert.deepStrictEqual(sent.tasks.map(t => [t.seqId, path.basename(t.out), t.range, t.preset === preset]), [['s1', 'Song 1_1.mp4', undefined, true], ['s2', 'Song 2_1.mp4', undefined, true]], 'whole sequences; the unticked one left out');
+    assert.deepStrictEqual(host.filter(h => h[0] === 'showGuides').map(h => h[1].seqId), ['s2'], 'guides hidden where they show');
+    assert.strictEqual(r.summary, '2 sequences exported');
+    await assert.rejects(US.deliver.exportBin({ binId: 'b1', skip: ['s1', 's2', 's3'], preset }, job), e => e.code === 'NOTHING_FOUND');
+    await assert.rejects(US.deliver.exportBin({ binId: '' }, job), e => e.code === 'BAD_INPUT');
+  } finally { US.host.call = was.call; US.encoder = was.enc; US.fsx = was.fsx; }
+});
+test('bin export in Resolve: the timelines in a bin (and the bins inside it, when asked)', async () => {
+  const Fake = require('./resolve-fake'), HOST = require('../../resolve/host');
+  const F = Fake.make(), host = HOST.connect({ api: F.resolve });
+  const run = async (n, a) => { const r = await host.run(n, a); if (!r.ok) throw new Error(`${n}: ${r.error.code} ${r.error.detail}`); return r.data; };
+  const a = F.addMedia('/m/A.mp4', { frames: 2500 });
+  const t1 = F.addTimeline('Song 1', [{ item: a, in: 0, out: 250 }]), t2 = F.addTimeline('Song 2', [{ item: a, in: 0, out: 100 }]);
+  const bin = F.bin('All Songs'), sub = F.bin('All Songs/Encores');
+  F.pool.MoveClips([t1.GetMediaPoolItem()], bin); F.pool.MoveClips([t2.GetMediaPoolItem()], sub);
+  const bins = await run('listBins'), id = bins.find(b => b.path === 'All Songs').id;
+  assert.deepStrictEqual((await run('binSequences', { binId: id })).map(x => [x.id, x.name, x.duration]), [[t1.GetUniqueId(), 'Song 1', 10]]);
+  assert.deepStrictEqual((await run('binSequences', { binId: id, recursive: true })).map(x => [x.name, x.bin]), [['Song 1', 'All Songs'], ['Song 2', 'All Songs / Encores']]);
+});

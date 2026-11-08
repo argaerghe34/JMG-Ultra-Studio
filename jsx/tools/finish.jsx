@@ -409,6 +409,21 @@
         return { id: id, restored: restored, hadIn: hadIn, hadOut: hadOut };
     };
     /** The file extension a Media Encoder preset writes ('mp4', 'mov', …), or '' if Premiere can't tell. a: {seqId, preset} */
+    /**
+     * The sequences in a bin (with a.recursive, in the bins inside it too), in the Project panel's order – for Deliver ›
+     * Bin export. a: {binId, recursive} -> [{id, name, bin, duration, width, height}]
+     */
+    fn.binSequences = function (a) {
+        var bin = U.needItem(a.binId), byItem = {}, seqs = U.project().sequences, out = [], i;
+        for (i = 0; i < seqs.numSequences; i++) { try { byItem[seqs[i].projectItem.nodeId] = seqs[i]; } catch (e) { } }
+        U.walk(bin, function (c, d) {
+            if (c.type === 2 || (!a.recursive && d > 0)) return;
+            var s = byItem[c.nodeId]; if (!s) return;
+            out.push({ id: s.sequenceID, name: s.name, bin: U.binPath(c), duration: U.ticksToSec(s.end), width: s.frameSizeHorizontal, height: s.frameSizeVertical });
+        });
+        return out;
+    };
+
     fn.presetExtension = function (a) {
         var seq = U.needSeq(a.seqId), x = '';
         try { x = String(seq.getExportFileExtension(a.preset) || ''); } catch (e) { }

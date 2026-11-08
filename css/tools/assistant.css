@@ -32,6 +32,8 @@
 .edit-where { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
 .edit-where .field-label { margin: 0; }
 .edit-step { margin: 6px 0; }
+.edit-question { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.edit-question .input { width: 100%; }
 .edit-step label.row { align-items: flex-start; gap: 8px; cursor: pointer; }
 .edit-step input[type=checkbox] { margin-top: 3px; }
 .edit-targets { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0 24px; }

@@ -73,6 +73,24 @@ module.exports = (R, fns) => {
       }
       if (a.op === 'remove') R.forget && R.forget();
       return out;
+    },
+
+    /** As jsx/tools/edit.jsx: bins, timelines (with their bin and track counts) and clips. a: {maxClips} */
+    editProject(a) {
+      const max = (a && a.maxClips) || 3000, idx = R.index(), clips = [];
+      let more = 0;
+      for (const c of idx.clips) {
+        const kind = R.quickKind(c.item);
+        if (kind === 'sequence' || R.isSubtitle(c.item)) continue;
+        if (clips.length >= max) { more++; continue; }
+        const file = String(R.prop(c.item, 'File Path') || '');
+        clips.push({ id: c.id, name: String(tryCall(() => c.item.GetName(), '')), file: file.split(/[\\/]/).pop(), bin: R.binPath(c.parts), kind });
+      }
+      const sequences = R.timelines().map(tl => {
+        const mpi = tryCall(() => tl.GetMediaPoolItem(), null), e = mpi ? R.entry(R.id(mpi)) : null;
+        return { id: R.id(tl), itemId: mpi ? R.id(mpi) : '', name: String(tl.GetName() || ''), bin: R.binPath(e ? e.parts : []), duration: R.tlDuration(tl), video: tl.GetTrackCount('video'), audio: tl.GetTrackCount('audio') };
+      });
+      return { bins: idx.folders.map(f => R.binPath(f.parts)).filter(p => p !== '(Project root)'), sequences, clips, more };
     }
   };
 };

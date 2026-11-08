@@ -149,3 +149,23 @@ test('the names saved for every interview; asking for it in the Assistant', () =
   assert.strictEqual(m('tell the voices apart'), 'story.voices');
   assert.strictEqual(m('identify the speakers'), 'story.voices');
 });
+
+test('an event: six speakers taking turns (similar pitches, no questions) are six voices; one long speech stays one', () => {
+  const P = [
+    { f0: 120, formants: [[550, 90], [1250, 110], [2450, 160]] }, { f0: 126, formants: [[700, 90], [1600, 120], [2700, 170]] }, { f0: 132, formants: [[460, 80], [1000, 100], [2200, 150]] },
+    { f0: 205, formants: [[700, 90], [1850, 120], [2900, 170]] }, { f0: 212, formants: [[850, 100], [1450, 120], [3100, 180]] }, { f0: 198, formants: [[600, 90], [2100, 130], [3000, 170]] }];
+  const say = 'Thank you all so much for being here tonight with us.';
+  // the host (P[0]) between each speech, then each speaker's turn of 5 lines
+  const turns = [];
+  P.slice(1).forEach((p, s) => { for (let i = 0; i < 3; i++) turns.push([P[0], 3 + (i % 2), say]); for (let i = 0; i < 5; i++) turns.push([p, 4 + (i % 3) * 0.5, say]); });
+  const iv = interview('ev', turns), x = prep(iv);
+  x.times = Object.fromEntries(iv.lines.map(l => [l.id, l.start]));
+  const res = V.solve([x]);
+  assert.strictEqual(res.voices.length, 6, JSON.stringify(res.voices.map(v => v.key)));
+  // every line with the others of its speaker
+  const byWho = new Map(); for (const l of iv.lines) { const k = P.indexOf(l.who); if (!byWho.has(k)) byWho.set(k, new Set()); byWho.get(k).add(res.lines[l.id].voice); }
+  assert.ok(Array.from(byWho.values()).every(s => s.size === 1) && new Set(Array.from(byWho.values()).map(s => [...s][0])).size === 6, 'each speaker one voice of their own');
+  const one = interview('sp', Array.from({ length: 20 }, (_, i) => [P[1], 4 + (i % 3) * 0.5, say])), y = prep(one);
+  y.times = Object.fromEntries(one.lines.map(l => [l.id, l.start]));
+  assert.strictEqual(V.solve([y]).voices.length, 1, 'one person giving a long speech');
+});
