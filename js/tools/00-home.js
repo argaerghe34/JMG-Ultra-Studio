@@ -136,12 +136,12 @@
       function renderTiles() {
         US.clear(groups);
         for (const g of US.GROUPS) {
-          const tools = US.tools.list().filter(d => d.group === g.id && !d.hidden && d.id !== US.FEATURED);
+          const tools = US.tools.list().filter(d => d.group === g.id && US.onRail(d) && d.id !== US.FEATURED);
           if (!tools.length) continue;
           groups.appendChild(h('div.group-title', g.name));
           groups.appendChild(h('div.tiles', tools.map(d => h('button.tile', { onclick: () => US.tools.open(d.id) }, h('div.tool-icon', US.icon(d.icon, 17)), h('div', h('div.tile-name', d.name), h('div.tile-blurb', d.blurb || ''))))));
         }
-        const other = US.tools.list().filter(d => d.id !== 'home' && !d.hidden && !US.GROUPS.some(g => g.id === d.group));
+        const other = US.tools.list().filter(d => d.id !== 'home' && US.onRail(d) && !US.GROUPS.some(g => g.id === d.group));
         if (other.length) {
           groups.appendChild(h('div.group-title', 'More'));
           groups.appendChild(h('div.tiles', other.map(d => h('button.tile', { onclick: () => US.tools.open(d.id) }, h('div.tool-icon', US.icon(d.icon, 17)), h('div', h('div.tile-name', d.name), h('div.tile-blurb', d.blurb || ''))))));
@@ -216,7 +216,7 @@
           try {
             fns = await US.host.call('listFns');
             // per tool, so it's clear which tool can't work yet
-            const missing = US.tools.list().map(d => [d.name, (d.hostFns || []).filter(f => !fns.includes(f))]).filter(([, m]) => m.length);
+            const missing = US.tools.list().filter(d => !US.PAUSED_TOOLS.includes(d.id)).map(d => [d.name, (d.hostFns || []).filter(f => !fns.includes(f))]).filter(([, m]) => m.length);
             if (missing.length) add('bad', resolve ? 'Some tools are missing Resolve commands' : 'Some Premiere scripts didn’t load', missing.map(([name, m]) => `${name}: ${m.join(', ')}`).join(' · '));
             else add('ok', `All ${fns.length} Premiere commands loaded`);
           } catch (e) { add('bad', resolve ? 'The Resolve commands didn’t load' : 'Premiere scripts didn’t load', US.errors.explain(e).detail); }

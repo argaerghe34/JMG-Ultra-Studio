@@ -3,8 +3,8 @@
   'use strict';
   const US = window.US, h = US.h, ui = US.ui, path = require('path');
 
-  const HIDDEN_NAMES = 'Colour, Cameras, B-roll and Sound Check';
-  // five taps on About: one of these (written for Ultra Studio, never fetched from anywhere)
+  const HIDDEN_NAMES = 'Colour, Cameras, B-roll, Sound Check and mVFX';
+  // a click on About: one of these (written for Ultra Studio, never fetched from anywhere)
   const JOKES = [
     'Why did the editor break up with the timeline? It had too many unresolved gaps.',
     'How many editors does it take to change a light bulb? None – they’ll fix it in the grade.',
@@ -209,19 +209,19 @@
         } });
         return ui.field('Another version', h('div.row', h('div.grow', sel), show, install), 'Go back to an earlier version if an update gets in the way, or forward again. Only the list is fetched; a version is downloaded when you install it.');
       }
-      /* About – press it five times */
+      /* About – click it for a joke */
       function about() {
-        let taps = [], last = -1;
+        // one click: a joke; each click after it, a different one – all of them before any comes round again
+        let deck = [], last = -1;
+        const next = () => {
+          if (!deck.length) { deck = JOKES.map((_, i) => i); for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } if (deck.length > 1 && deck[0] === last) deck.push(deck.shift()); }
+          return (last = deck.shift());
+        };
         const joke = h('div.settings-joke.hidden');
         const card = ui.card(h('div.card-title', 'About'), h('div.muted', `JMG Ultra Studio ${US.version}${US.build ? ` (unpublished${US.build.from ? ' – ' + US.build.from : ''})` : ''} · ${(US.premiere && US.premiere.app && /Resolve/.test(US.premiere.app) ? US.premiere.app : US.app.full)} ${US.premiere ? US.premiere.version : ''}`), h('div.muted.small', 'Works on a copy: tools that change a sequence always make a new one first. Nothing is uploaded.'), joke);
-        card.addEventListener('click', () => {
-          const now = Date.now();
-          taps = taps.filter(t => now - t < 3000).concat(now);
-          if (taps.length < 5) return;
-          taps = [];
-          let i; do { i = Math.floor(Math.random() * JOKES.length); } while (JOKES.length > 1 && i === last);
-          last = i; joke.textContent = JOKES[i]; joke.classList.remove('hidden');
-        });
+        card.style.cursor = 'pointer';
+        card.title = 'Click for a joke';
+        card.addEventListener('click', () => { joke.textContent = JOKES[next()]; joke.classList.remove('hidden'); });
         return card;
       }
       /* a code that shows the hidden tabs (kept as a fingerprint, not the code itself) */

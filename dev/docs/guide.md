@@ -62,6 +62,8 @@ With an AI key you can let it use the AI for themes, moments and the interview s
 
 ## Tools
 
+**Advanced** (in the rail, near the bottom) keeps the tools for particular jobs out of the way: **Selects**, **Subclip Maker**, **MC Selects** (Premiere), **Take Sets**, **Song Splitter** and **Podcast**. Open one from there; its screen has a **‹ Advanced** link back. Its **In development** folder holds the tools still being made – **Colour**, **Camera Switch**, **B-roll**, **Sound Check** and **mVFX** – which you can try, though parts may not work yet and the Assistant doesn't use them.
+
 {{TOOLS}}
 
 {{AICOSTS}}

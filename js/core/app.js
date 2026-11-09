@@ -10,10 +10,16 @@
   /** Tools taken out for now (the user asked: Colour and Cameras 28 Oct 2026, B-roll and Sound 29 Oct 2026). Their code
       stays; delete an id here to bring one back. The unit tests set window.US_SHOW_PAUSED so the paused tools' code is still tested. */
   US.PAUSED_TOOLS = window.US_SHOW_PAUSED || (US.settings && US.settings.get('showHidden', false)) ? [] : ['colour', 'cameras', 'broll', 'sound', 'mvfx'];   // Settings › a code shows them
+  /** Tools that live in the Advanced tab instead of the rail (the user asked, 9 Nov 2026): niche ones, opened from there.
+      The paused tools above are there too, under "In development", unless the Settings code puts them back on the rail. */
+  US.ADVANCED_TOOLS = ['selects', 'subclips', 'mcselects', 'takes', 'songs', 'podcast'];
+  /** Is it a tab of its own on the rail and on Home (not hidden, not in Advanced, not in development)? */
+  US.onRail = d => !!d && !d.hidden && !US.PAUSED_TOOLS.includes(d.id) && !US.ADVANCED_TOOLS.includes(d.id);
+  /** The tab a tool is reached from: Advanced for the tools kept there. */
+  US.homeTabOf = id => (US.tools.get('advanced') && (US.ADVANCED_TOOLS.includes(id) || US.PAUSED_TOOLS.includes(id)) ? 'advanced' : id);
   US.tools = {
     /** register({id, name, short, icon, group, blurb, order, apps?: ['premiere'] (only there), create: () => ({el, onShow?, onHide?})}) */
     register(def) {
-      if (US.PAUSED_TOOLS.includes(def.id)) return;
       if (def.apps && US.app && !def.apps.includes(US.app.id)) return;
       // re-registering (development hot reload) replaces the old tool and its screen
       const i = defs.findIndex(d => d.id === def.id);
@@ -35,8 +41,9 @@
      *            run: async (params, job) -> {summary} })
      * run() is called inside a job; it should use job.progress/job.check and throw US.UserError for plain failures.
      */
-    register(a) { if (US.PAUSED_TOOLS.includes(a.tool) || (a.apps && US.app && !a.apps.includes(US.app.id))) return; const i = actions.findIndex(x => x.id === a.id); if (i >= 0) actions.splice(i, 1); actions.push(Object.assign({ params: {}, examples: [], changes: false }, a)); },
-    list() { return actions.slice(); },
+    register(a) { if ((a.apps && US.app && !a.apps.includes(US.app.id))) return; const i = actions.findIndex(x => x.id === a.id); if (i >= 0) actions.splice(i, 1); actions.push(Object.assign({ params: {}, examples: [], changes: false }, a)); },
+    /** What the Assistant and the Agent may use: not the tools still in development (their own buttons still work). */
+    list() { return actions.filter(a => !US.PAUSED_TOOLS.includes(a.tool)); },
     get(id) { return actions.find(a => a.id === id); },
     /** Fill defaults and coerce types. */
     normalize(a, params) {
@@ -165,7 +172,7 @@
   function buildRail() {
     US.clear(els.rail);
     const add = d => els.rail.appendChild(h('button.rail-btn', { dataset: { id: d.id }, title: d.name + (d.blurb ? ' – ' + d.blurb : ''), onclick: () => open(d.id) }, US.icon(d.icon, 19), h('span', d.short || d.name)));
-    const list = US.tools.list().filter(d => !d.hidden);
+    const list = US.tools.list().filter(US.onRail);
     const home = list.find(d => d.id === 'home'); if (home) add(home);
     // the featured tool (Story – the heart of the app) sits right under Home
     const featured = list.find(d => d.id === US.FEATURED);
@@ -190,11 +197,18 @@
       catch (e) { US.ui.showError(e, { context: 'Opening ' + def.name }); m = { el: US.ui.empty({ icon: 'error', title: `${def.name} couldn’t start.`, text: 'Open the activity log (☰) and send the details to support.' }) }; US.log('error', `${def.name} failed to open`, e.stack); }
       // wide tools (Story's board, and any tool that asks) use the panel's full width instead of a reading width
       if (def.wide || def.id === US.FEATURED) m.el.classList.add('wide');
+      // a tool kept in Advanced: a way back there, and for one in development a plain warning
+      if (US.homeTabOf(def.id) === 'advanced') {
+        const dev = US.PAUSED_TOOLS.includes(def.id);
+        m.el.prepend(h('div.advanced-crumb', h('button.link-btn', { onclick: () => open('advanced') }, '‹ Advanced' + (dev ? ' › In development' : '')),
+          dev ? h('span.field-hint', ' – still being made: parts may not work yet') : null));
+      }
       mounted.set(def.id, m); els.view.appendChild(m.el);
     }
     m.el.classList.remove('hidden');
     currentId = def.id;
-    US.$$('.rail-btn', els.rail).forEach(b => b.classList.toggle('on', b.dataset.id === def.id));
+    const railId = US.homeTabOf(def.id);
+    US.$$('.rail-btn', els.rail).forEach(b => b.classList.toggle('on', b.dataset.id === railId));
     els.view.scrollTop = 0;
     if (!def.hidden) US.settings.set('lastTool', def.id);
     m.onShow && m.onShow(opts);

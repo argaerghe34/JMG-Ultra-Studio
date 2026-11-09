@@ -1,3 +1,9 @@
+## What's new in 1.3.32
+
+- **A new Advanced tab** keeps the rail short. **Selects**, **Subclip Maker**, **MC Selects** (Premiere), **Take Sets**, **Song Splitter** and **Podcast** live there now – open one from Advanced, and its screen has a **‹ Advanced** link back (the rail shows Advanced while you're in it). They work exactly as before, and the Assistant can still use them.
+- **Advanced › In development** holds the tools still being made – **Colour**, **Camera Switch**, **B-roll**, **Sound Check** and **mVFX** – so you can try them. Each says it's still being made; the Assistant and the Agent don't use them.
+- **A joke with every click** on the version in *Settings › About* – a different one each time, all of them before any comes round again.
+
 ## What's new in 1.3.31
 
 - **Story reads the transcripts Resolve already has – nothing is transcribed again.** *Story › 1 Interviews › Read transcripts from Resolve* opens a list of everything in the project – clips, sound files, **multicam clips** and **timelines** – with **transcript in Resolve** marked on those Resolve has transcribed. Those are read as they are; the ones without are transcribed by Resolve only if you leave *Have Resolve transcribe the ticked ones…* on.
