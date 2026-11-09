@@ -1,3 +1,10 @@
+## What's new in 1.3.30
+
+- **Updates with one button: Settings › Updates › Check for updates and install.** It asks GitHub for the newest version; if there's one, it shows what's new, and **Install** downloads it, checks it's complete and the right version, and puts it in place. In Premiere the panel then reloads by itself. In Resolve your Mac may ask for your password (Windows: click Yes), because Resolve's plugin folder is shared by everyone on the computer; the panel reloads, or asks you to restart Resolve when the update changes the part Resolve starts itself.
+- **Nothing is lost:** your settings and Story work stay, and the version you had is copied aside first and put back if anything goes wrong.
+- No sign-in is needed while the releases are public. If the repository is made private, paste a GitHub token under *GitHub sign-in*, or sign in with the GitHub CLI on that computer.
+- A development copy (linked to the code) can check for a new version but is never replaced.
+
 ## What's new in 1.3.29.10
 
 - **Transcribing in Resolve works when Resolve doesn't pass on the Media Pool selection.** *Transcribe with Resolve* could stop with “No interview clips are selected” although a clip was selected. Now, when Resolve reports nothing selected, the button opens a list of the project's clips by bin: tick your interviews (a filter box helps) and press **Transcribe**. Clips already transcribed start ticked, so pressing again reads them again.

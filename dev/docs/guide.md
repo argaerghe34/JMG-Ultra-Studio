@@ -12,7 +12,7 @@ Then open Premiere Pro and choose **Window › Extensions › JMG Ultra Studio**
 
 **First thing to do:** on **Home**, press **Check my setup**. It really renders some sound and reads some video from your open project, so you know everything works on that computer. Press **Copy report** if anything fails and send it over.
 
-**Updating:** run the new installer. Your settings and analysis results are kept.
+**Updating:** **Settings › Updates › Check for updates and install** – one button, and the panel reloads by itself. Or run the new installer. Your settings and analysis results are kept.
 **Removing:** run **Uninstall on Mac / Windows**.
 
 ## In DaVinci Resolve Studio
@@ -30,7 +30,7 @@ The same panel runs in **DaVinci Resolve Studio 19.1 or later** (20 recommended)
 
 Not in the Workspace menu? Open a project, then quit Resolve completely and open it again; and check *DaVinci Resolve › About* says **Studio**, 19.1 or later.
 
-**Updating:** run the new installer (quit Resolve first). **Removing:** **Uninstall on Mac / Windows**. Settings, analysis results and logs are shared with the Premiere version.
+**Updating:** **Settings › Updates › Check for updates and install** – one button; the Mac may ask for your password. Or run the new installer (quit Resolve first). **Removing:** **Uninstall on Mac / Windows**. Settings, analysis results and logs are shared with the Premiere version.
 
 **Resolve's words:** this guide is written for Premiere. In Resolve the panel uses Resolve's words – a *sequence* is a *timeline*, the *Project panel* is the *Media Pool*, *Media Encoder* is Resolve's *render queue* (the Deliver page), *export presets* are *render presets*, and *adjustment layers* are *adjustment clips*.
 

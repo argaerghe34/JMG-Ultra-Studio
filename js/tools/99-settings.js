@@ -160,9 +160,32 @@
           h('div.row', ui.button('Open data folder', { small: true, icon: 'folder', onClick: () => openFolder(US.fsx.dataDir) }),
             ui.button('Clear analysis cache', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: 'Clear the analysis cache?', text: 'Clips will be analysed again next time. Nothing in your Premiere project changes.', ok: 'Clear it' })) { require('fs').rmSync(require('path').join(US.fsx.dataDir, 'cache'), { recursive: true, force: true }); ui.toast({ type: 'ok', title: 'Cache cleared' }); } } }))),
         // the editor's full name (US.app.full): "Premiere Pro 26.5" or "DaVinci Resolve Studio 20.3.1"
+        updatesCard(),
         about(),
         codeCard()
       );
+      /* Updates: one button checks GitHub for a newer version and installs it (js/tools/98-update.js) */
+      function updatesCard() {
+        if (!US.update) return null;
+        const t = US.update.target(), signIn = h('div.field-hint');
+        const drawSignIn = () => {
+          const tk = US.update.token();
+          signIn.textContent = tk.from === 'settings' ? 'Signed in to GitHub with the token below.' : tk.from === 'gh' ? 'Signed in to GitHub through the GitHub CLI on this computer – no token needed.' : 'No sign-in needed while the releases are public. If the repository is made private, paste a token here or sign in with the GitHub CLI (gh auth login).';
+        };
+        const tokIn = ui.input({ type: 'password', placeholder: US.secrets.get('githubToken') ? '•••••••• saved on this computer' : 'Paste a GitHub token' });
+        const saveTok = ui.button('Save', { small: true, onClick: () => { US.secrets.set('githubToken', tokIn.value.trim()); tokIn.value = ''; tokIn.placeholder = US.secrets.get('githubToken') ? '•••••••• saved on this computer' : 'Paste a GitHub token'; drawSignIn(); } });
+        const rmTok = ui.button('Remove', { small: true, kind: 'ghost', onClick: () => { US.secrets.set('githubToken', ''); tokIn.placeholder = 'Paste a GitHub token'; drawSignIn(); } });
+        drawSignIn();
+        const last = US.settings.get('update.lastInstalled', null);
+        return h('div', { dataset: { section: 'updates' } }, ui.card(h('div.card-title', 'Updates'),
+          h('div.muted', `This is version ${US.version}. One button checks GitHub for a newer version and, if there is one, shows what’s new and installs it${US.app.is('resolve') ? ` – ${process.platform === 'win32' ? 'Windows may ask you to click Yes' : 'your Mac may ask for your password'}, as Resolve’s plugin folder is shared by everyone on this computer` : ''}. Your settings and Story work are kept, and the previous version is put back if anything goes wrong.`),
+          ui.actionButton('Check for updates and install', () => US.update.checkAndInstall(), { icon: 'refresh' }),
+          t.dev ? h('div.field-hint', `This copy can check but isn’t updated from here – ${t.dev && t.why}.`) : null,
+          last && last.to === US.version ? h('div.field-hint', `Updated from ${last.from} on ${new Date(last.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.`) : null,
+          ui.section('GitHub sign-in (only for a private repository)', [
+            ui.field('GitHub token', h('div.row', h('div.grow', tokIn), saveTok, rmTok), 'github.com › Settings › Developer settings › Fine-grained tokens › access to JMG-Ultra-Studio, Contents: read-only. Kept in this computer’s key store and only ever sent to GitHub.'),
+            signIn], { open: false })));
+      }
       /* About – press it five times */
       function about() {
         let taps = [], last = -1;
