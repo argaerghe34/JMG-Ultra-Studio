@@ -194,7 +194,11 @@ module.exports = (R, fns) => {
       const key = p => (isWinPath(p) ? String(p).replace(/\//g, '\\').toLowerCase() : String(p));
       if (a && a.paths && a.paths.length) want = new Set(a.paths.map(key));
       let list = R.index().clips;
-      if (a && a.selected) { const sel = new Set(R.list(R.pool().GetSelectedClips()).map(R.id)); list = list.filter(c => sel.has(c.id)); }
+      if (a && a.selected) {
+        // straight from Resolve's selection: a selected clip counts even when the bin walk doesn't reach it
+        let sel = []; try { sel = R.list(R.pool().GetSelectedClips()).filter(Boolean); } catch (e) { /* none */ }
+        list = sel.map(item => { const id = R.id(item), e = R.entry(id); return { item, id, parts: e ? e.parts : [] }; });
+      }
       const out = [];
       for (const c of list) {
         const p = R.props(c.item), file = String(p['File Path'] || '');

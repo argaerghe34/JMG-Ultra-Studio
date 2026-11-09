@@ -109,6 +109,15 @@ test('resolve story: storyClips – media only, by path, the selection, subclips
   assert.deepStrictEqual((await run('storyClips', { paths: ['/m/Int B.mov'] })).map(c => c.id), [b.GetUniqueId()]);
   F.selected = [b, F.timelines[0].GetMediaPoolItem()];
   assert.deepStrictEqual((await run('storyClips', { selected: true })).map(c => c.id), [b.GetUniqueId()]);
+  // Resolve can hand the selection back as a numbered dict; the bin comes with it
+  const keep = F.pool.GetSelectedClips;
+  F.pool.GetSelectedClips = () => ({ 1: a, 2: b });
+  const got = await run('storyClips', { selected: true });
+  assert.deepStrictEqual(got.map(c => c.id), [a.GetUniqueId(), b.GetUniqueId()]);
+  assert.strictEqual(got[0].bin, 'Interviews');
+  F.pool.GetSelectedClips = () => { throw new Error('refused'); };
+  assert.deepStrictEqual(await run('storyClips', { selected: true }), [], 'a refusal is no selection, not an error');
+  F.pool.GetSelectedClips = keep;
 });
 
 test('resolve story: storyTiming – start timecode, frame rate, drop frame, sound only', async () => {

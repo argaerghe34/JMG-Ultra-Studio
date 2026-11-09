@@ -2155,6 +2155,47 @@
    * read them in. Which clips: opts.ids, else the clips selected in the Media Pool, else the ones Story already has
    * Resolve transcripts of (read again). One clip at a time: Resolve doesn't answer while it transcribes.
    */
+  /**
+   * Resolve: tick the interview clips to transcribe in a list of the project's clips, by bin. Already transcribed ones
+   * start ticked (pressing again reads them again). -> [ids] or null when cancelled.
+   */
+  async function chooseResolveClips() {
+    const ui = US.ui, clips = await projectClips();
+    if (!clips.length) { ui.toast({ type: 'warn', title: 'There are no clips with media in this project.', text: 'Import your interviews into the Media Pool first.' }); return null; }
+    const done = new Set(state.transcripts.filter(t => t.source === 'resolve').map(t => t.itemId).filter(Boolean));
+    const picked = new Set(clips.filter(c => done.has(c.id)).map(c => c.id));
+    const listEl = h('div', { style: { maxHeight: '340px', overflow: 'auto', marginTop: '8px' } }), count = h('div.field-hint');
+    let q = '';
+    const tally = () => { count.textContent = picked.size ? `${US.plural(picked.size, 'clip')} ticked` : 'Nothing ticked yet'; };
+    function draw() {
+      US.clear(listEl);
+      const shown = clips.filter(c => !q || (c.name + ' ' + c.bin).toLowerCase().includes(q));
+      let bin = null;
+      for (const c of shown) {
+        if (c.bin !== bin) { bin = c.bin; listEl.appendChild(h('div.field-hint', { style: { marginTop: '8px' } }, bin)); }
+        const box = h('input', { type: 'checkbox', checked: picked.has(c.id), onchange: e => { if (e.target.checked) picked.add(c.id); else picked.delete(c.id); tally(); } });
+        listEl.appendChild(h('label.row', { style: { cursor: 'pointer' } }, box, ' ' + c.name, done.has(c.id) ? h('span.field-hint', ' – transcribed') : null));
+      }
+      if (!shown.length) listEl.appendChild(h('div.muted', 'No clips match.'));
+    }
+    const filter = ui.input({ placeholder: 'Filter by name or bin…', onInput: v => { q = String(v || '').trim().toLowerCase(); draw(); } });
+    draw(); tally();
+    const ok = await ui.modal({ title: 'Choose the interviews to transcribe', wide: true,
+      body: h('div', h('p.muted', 'Resolve transcribes each ticked clip in turn, on this computer.'), filter, listEl, count),
+      buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: 'Transcribe', value: true, kind: 'primary' }] });
+    return ok && picked.size ? Array.from(picked) : null;
+  }
+  /** The Transcribe button in Resolve: the Media Pool selection when Resolve reports one, otherwise the chooser. */
+  async function transcribeResolve() {
+    const sel = await US.host.call('storyClips', { selected: true }).catch(() => []) || [];
+    if (sel.length) return US.actions.run('story.read', {});
+    const ids = await chooseResolveClips();
+    if (!ids) return false;
+    const r = await US.jobs.run({ title: 'Transcribing with Resolve', tool: 'story' }, job => readResolveTranscripts(job, { ids }));
+    US.tools.open('story', { tab: 'transcripts' });
+    return r;
+  }
+
   async function readResolveTranscripts(job, { ids = null } = {}) {
     await ready(); loadState();
     job.set({ who: 'premiere', msg: 'Finding the clips to transcribe' });
@@ -2163,7 +2204,12 @@
       const again = state.transcripts.filter(t => t.source === 'resolve');
       if (again.length) { const m = await resolveItems(again), want = new Set(m.values()); clips = (await projectClips()).filter(c => want.has(c.id)); }
     }
-    if (!clips.length) throw new US.UserError('NO_SELECTION', { title: 'No interview clips are selected.', action: 'Select your interview clips in the Media Pool, then press “Transcribe with Resolve” again.' });
+    if (!clips.length) {
+      const seen = await US.host.call('selectionList', {}).catch(() => []) || [];
+      throw new US.UserError('NO_SELECTION', seen.length
+        ? { title: `The ${US.plural(seen.length, 'item')} selected in the Media Pool ${seen.length === 1 ? 'isn’t a clip' : 'aren’t clips'} with media.`, action: 'Timelines, multicam clips, titles and generators can’t be transcribed. Select the interview clips themselves, or press “Choose clips…” in Story › 1 Interviews.' }
+        : { title: 'Resolve reports no clips selected in the Media Pool.', action: 'Press “Choose clips…” in Story › 1 Interviews and tick your interviews in the list.' });
+    }
     readCount.again = readCount.changed = 0;
     let ok = 0, lines = 0; const bad = [];
     for (let i = 0; i < clips.length; i++) {
@@ -2359,11 +2405,11 @@
         el.appendChild(stepHead('transcripts'));
         el.appendChild(ui.card(
           h('div.card-title', 'Get transcripts'),
-          RES ? h('div.muted', 'Resolve Studio transcribes for free, on this computer. Select your interview clips in the Media Pool and press the button: Story has Resolve make subtitles of each clip on a temporary timeline (deleted afterwards) and reads them in. Resolve and this panel may not respond while a clip is being transcribed.')
+          RES ? h('div.muted', 'Resolve Studio transcribes for free, on this computer. Select your interview clips in the Media Pool and press the button, or press “Choose clips…” to tick them in a list: Story has Resolve make subtitles of each clip on a temporary timeline (deleted afterwards) and reads them in. Resolve and this panel may not respond while a clip is being transcribed.')
             : h('div.muted', 'Premiere’s own transcription is free, accurate and stays on this computer. Select your interviews in the Project panel › right-click › Transcribe. When it’s done, read them in here.'),
-          RES ? ui.actionButton(state.transcripts.length ? 'Transcribe with Resolve again' : 'Transcribe with Resolve', () => US.actions.run('story.read', {}), { icon: 'refresh' })
+          RES ? ui.actionButton(state.transcripts.length ? 'Transcribe with Resolve again' : 'Transcribe with Resolve', () => transcribeResolve(), { icon: 'refresh' })
             : ui.actionButton(state.transcripts.length ? 'Read Premiere’s transcripts again' : 'Read Premiere’s transcripts', () => US.actions.run('story.read', {}), { icon: 'refresh' }),
-          h('div.row', ui.button('Import transcript files…', { icon: 'folder', onClick: async () => {
+          h('div.row', RES ? ui.button('Choose clips…', { icon: 'check', onClick: async () => { const ids = await chooseResolveClips(); if (ids) { await US.jobs.run({ title: 'Transcribing with Resolve', tool: 'story' }, job => readResolveTranscripts(job, { ids })); render(); } } }) : null, ui.button('Import transcript files…', { icon: 'folder', onClick: async () => {
             const files = US.app.pickFiles({ multi: true, title: 'Choose transcript files', ext: ['srt', 'vtt', 'txt', 'csv', 'tsv', 'json', 'prtranscript'] });
             if (files.length) await US.jobs.run({ title: 'Importing transcripts', tool: 'story' }, job => importFiles(job, files.map(US.normPath))).then(render);
           } }), h('span.field-hint', 'SRT, VTT, CSV, JSON or text with timecodes'))));
@@ -4144,7 +4190,7 @@
     loadState: () => loadState(), state: () => state, addTranscript: (...a) => { const t = addTranscript(...a); reindex(); saveNow(); return t; },
     /** what the copy that travels is named after: the .prproj in Premiere; in Resolve, a name in the media's folder */
     sharedProjectPath: () => (RES ? (resRef && resRef.shared) || '' : (US.ctx.project && US.ctx.project.path) || ''),
-    buildSequence, sortIntoBins, readPremiereTranscripts, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
+    buildSequence, sortIntoBins, readPremiereTranscripts, transcribeResolve, chooseResolveClips, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
     themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,

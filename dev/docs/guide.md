@@ -36,7 +36,7 @@ Not in the Workspace menu? Open a project, then quit Resolve completely and open
 
 **What works differently in Resolve:**
 
-- Story can't read the transcripts Resolve makes itself (a plugin can't get at them): **Transcribe with Resolve** (Story › 1 Interviews) has Resolve turn the selected clips' speech into subtitles and reads those (phrase by phrase, without speaker names), or Story reads transcript files. Resolve may not respond while it transcribes.
+- Story can't read the transcripts Resolve makes itself (a plugin can't get at them): **Transcribe with Resolve** (Story › 1 Interviews) has Resolve turn the selected clips' speech into subtitles (or the ones you tick under **Choose clips…**) and reads those (phrase by phrase, without speaker names), or Story reads transcript files. Resolve may not respond while it transcribes.
 - Captions from Story are saved and put in the Media Pool (Captions bin) for you to drag onto the timeline – Resolve can't place a subtitle file by script.
 - ▶ in Story plays the line in the panel's own player; the clip is selected in the Media Pool.
 - Sound Check can't set clip volume from a plugin: it tells you what to change instead of changing it.

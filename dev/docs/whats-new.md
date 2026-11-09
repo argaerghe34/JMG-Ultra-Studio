@@ -1,3 +1,10 @@
+## What's new in 1.3.29.10
+
+- **Transcribing in Resolve works when Resolve doesn't pass on the Media Pool selection.** *Transcribe with Resolve* could stop with “No interview clips are selected” although a clip was selected. Now, when Resolve reports nothing selected, the button opens a list of the project's clips by bin: tick your interviews (a filter box helps) and press **Transcribe**. Clips already transcribed start ticked, so pressing again reads them again.
+- **Choose clips…** next to the button opens the same list any time, in Story › 1 Interviews. Home's *Transcribe with Resolve* works the same way.
+- The selected clips are now read straight from Resolve's selection, so a selected clip counts even when it sits somewhere the bin search doesn't reach.
+- If what's selected can't be transcribed (a timeline, a multicam clip, a title), the message now says so instead of “nothing selected”.
+
 ## What's new in 1.3.29.2
 
 - **Installing in DaVinci Resolve is clearer.** The Resolve download now has a **START HERE - How to install.html** page with every step for a Mac or a PC, what to click, and what to do if JMG Ultra Studio doesn't show up in Resolve.
