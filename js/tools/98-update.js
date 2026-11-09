@@ -63,6 +63,7 @@
   }
   const io = {
     latest: auth => request(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' }, auth }),
+    list: auth => request(`https://api.github.com/repos/${REPO}/releases?per_page=100`, { headers: { Accept: 'application/vnd.github+json' }, auth }),
     download: (asset, auth, file, progress, job) => request(asset.url, { headers: { Accept: 'application/octet-stream' }, auth, file, progress, job })
   };
 
@@ -85,6 +86,21 @@
     const latest = String(rel.tag_name || '').replace(/^v/i, ''), current = US.version;
     const asset = (rel.assets || []).find(a => a.name === assetName(latest));
     return { current, latest, newer: compare(latest, current) > 0, release: rel, asset, notes: String(rel.body || ''), published: rel.published_at || '', url: rel.html_url || '' };
+  }
+
+  /**
+   * Every published version with a download for this editor, newest first – for going back to an earlier one when an
+   * update misbehaves. Only the list is fetched; a version is downloaded when it's chosen.
+   * -> [{version, published, notes, asset, url, newer, current}]
+   */
+  async function versions() {
+    const t = token();
+    let rels;
+    try { rels = await io.list(t.token); } catch (e) { throw gitHubError(e, !!t.token); }
+    return (rels || []).filter(r => !r.draft && !r.prerelease).map(r => {
+      const v = String(r.tag_name || '').replace(/^v/i, '');
+      return { version: v, published: r.published_at || '', notes: String(r.body || ''), asset: (r.assets || []).find(a => a.name === assetName(v)), url: r.html_url || '', newer: compare(v, US.version) > 0, current: compare(v, US.version) === 0 };
+    }).filter(r => r.asset).sort((a, b) => compare(b.version, a.version));
   }
 
   /* ---------- this copy ---------- */
@@ -210,16 +226,21 @@
     const ok = await US.jobs.run({ title: 'Checking for updates', tool: 'settings' }, async job => { job.set({ who: 'computer', msg: 'Asking GitHub for the newest version' }); info = await check(); return { summary: info.newer ? `${info.latest} is available` : 'up to date' }; });
     if (!ok || !info) return null;
     if (!info.newer) { ui.toast({ type: 'ok', title: `You have the newest version (${info.current}).` }); return info; }
-    const t = target();
+    return installChosen(info);
+  }
+  /** Ask, then install info.latest (newer, or an earlier version to go back to), then reload or say to restart. */
+  async function installChosen(info) {
+    const ui = US.ui, h = US.h;
+    const t = target(), back = compare(info.latest, US.version) < 0;
     if (t.dev) { ui.toast({ type: 'info', title: `Version ${info.latest} is available.`, text: `This copy isn’t updated from here – ${t.why}.` }); return info; }
     const when = info.published ? new Date(info.published).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
     const notes = h('div.update-notes', { style: { maxHeight: '260px', overflow: 'auto', whiteSpace: 'pre-wrap' } }, info.notes.replace(/^#+\s*/gm, '').replace(/\*\*|\*/g, '').trim() || 'No notes.');
-    const go = await ui.modal({ title: `Install version ${info.latest}?`, wide: true,
-      body: h('div', h('p.muted', `You have ${info.current}.${when ? ` ${info.latest} came out on ${when}.` : ''} ${RES ? (isWin ? 'Windows may ask you to click Yes' : 'Your Mac may ask for your password') + ' – Resolve’s plugin folder is shared by everyone on this computer.' : ''} Your settings and Story work are kept.`), notes),
-      buttons: [{ label: 'Not now', value: false, kind: 'ghost' }, { label: `Install ${info.latest}`, value: true, kind: 'primary' }] });
+    const go = await ui.modal({ title: back ? `Go back to version ${info.latest}?` : `Install version ${info.latest}?`, wide: true,
+      body: h('div', back ? h('p', `This replaces ${US.version} with the earlier ${info.latest} – for when an update gets in the way. Story work made with newer features may show less until you update again.`) : null, h('p.muted', `You have ${US.version}.${when ? ` ${info.latest} came out on ${when}.` : ''} ${RES ? (isWin ? 'Windows may ask you to click Yes' : 'Your Mac may ask for your password') + ' – Resolve’s plugin folder is shared by everyone on this computer.' : ''} Your settings and Story work are kept.`), notes),
+      buttons: [{ label: 'Not now', value: false, kind: 'ghost' }, { label: back ? `Go back to ${info.latest}` : `Install ${info.latest}`, value: true, kind: 'primary' }] });
     if (!go) return info;
     let res;
-    const done = await US.jobs.run({ title: `Updating to ${info.latest}`, tool: 'settings' }, async job => { res = await install(info, job); return { summary: `version ${res.version} installed` }; });
+    const done = await US.jobs.run({ title: back ? `Going back to ${info.latest}` : `Updating to ${info.latest}`, tool: 'settings' }, async job => { res = await install(info, job); return { summary: `version ${res.version} installed` }; });
     if (!done || !res) return info;
     if (res.restart) {
       await ui.modal({ title: `Version ${res.version} is installed`, body: h('p', `Quit ${US.app.full} and open it again to finish – this update changes the part ${US.app.name} starts itself.${RES ? ' Then Workspace › Workflow Integrations › JMG Ultra Studio.' : ''}`), buttons: [{ label: 'OK', value: true, kind: 'primary' }] });
@@ -231,5 +252,5 @@
     return info;
   }
 
-  US.update = { compare, assetName, token, check, target, install, checkAndInstall, io, REPO };
+  US.update = { compare, assetName, token, check, versions, target, install, checkAndInstall, installChosen, io, REPO };
 })();

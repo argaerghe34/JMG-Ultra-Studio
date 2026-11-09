@@ -120,7 +120,7 @@
             : h('div.field-hint', US.ctx.project ? 'Open Story to read this project’s transcripts.' : 'Open a project in Premiere to begin.'),
           c && c.interviews ? storyWhere() : null,
           h('div.row',
-            step(hasTranscripts ? 'Read transcripts again' : (US.app.is('resolve') ? 'Transcribe with Resolve' : 'Read Premiere’s transcripts'), 'refresh', () => (US.app.is('resolve') && US.story && US.story.transcribeResolve ? US.story.transcribeResolve() : US.actions.run('story.read', {})).then(renderFeatured), !hasTranscripts),
+            step(hasTranscripts ? 'Read transcripts again' : (US.app.is('resolve') ? 'Read transcripts from Resolve' : 'Read Premiere’s transcripts'), 'refresh', () => (US.app.is('resolve') && US.story && US.story.transcribeResolve ? US.story.transcribeResolve() : US.actions.run('story.read', {})).then(renderFeatured), !hasTranscripts),
             step('2 Themes', 'story', () => openSection('themes'), hasTranscripts && !c.themes),
             step('3 Find', 'target', () => openSection('find')),
             step('4 Build', 'film', () => openSection('build'), hasTranscripts && c.themes > 0),

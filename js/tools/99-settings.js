@@ -181,10 +181,33 @@
           h('div.muted', `This is version ${US.version}. One button checks GitHub for a newer version and, if there is one, shows what’s new and installs it${US.app.is('resolve') ? ` – ${process.platform === 'win32' ? 'Windows may ask you to click Yes' : 'your Mac may ask for your password'}, as Resolve’s plugin folder is shared by everyone on this computer` : ''}. Your settings and Story work are kept, and the previous version is put back if anything goes wrong.`),
           ui.actionButton('Check for updates and install', () => US.update.checkAndInstall(), { icon: 'refresh' }),
           t.dev ? h('div.field-hint', `This copy can check but isn’t updated from here – ${t.dev && t.why}.`) : null,
+          versionsRow(),
           last && last.to === US.version ? h('div.field-hint', `Updated from ${last.from} on ${new Date(last.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.`) : null,
           ui.section('GitHub sign-in (only for a private repository)', [
             ui.field('GitHub token', h('div.row', h('div.grow', tokIn), saveTok, rmTok), 'github.com › Settings › Developer settings › Fine-grained tokens › access to JMG-Ultra-Studio, Contents: read-only. Kept in this computer’s key store and only ever sent to GitHub.'),
             signIn], { open: false })));
+      }
+      /** Install a particular version – to go back when an update misbehaves. The list comes from GitHub only when asked for. */
+      function versionsRow() {
+        let list = [];
+        const sel = ui.select({ options: [{ value: '', label: 'Press “Show versions”' }], value: '', onChange: v => { install.disabled = !v || v === US.version; } });
+        const install = ui.button('Install this version', { small: true, disabled: true, onClick: async () => {
+          const v = list.find(x => x.version === sel.get());
+          if (v) await US.update.installChosen({ latest: v.version, current: US.version, asset: v.asset, notes: v.notes, published: v.published, url: v.url });
+        } });
+        const show = ui.button('Show versions', { small: true, kind: 'ghost', onClick: async () => {
+          await US.jobs.run({ title: 'Listing versions', tool: 'settings' }, async job => {
+            job.set({ who: 'computer', msg: 'Asking GitHub which versions there are' });
+            list = await US.update.versions();
+            const day = d => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+            const opts = list.map(v => ({ value: v.version, label: `${v.version}${v.current ? ' – this one' : v.newer ? ' – newer' : ' – earlier'}${v.published ? ` · ${day(v.published)}` : ''}` }));
+            const pick = (list.find(v => !v.current && !v.newer) || list[0] || {}).version || '';
+            sel.setOptions(opts, pick);
+            install.disabled = !pick || pick === US.version;
+            return { summary: US.plural(list.length, 'version') };
+          });
+        } });
+        return ui.field('Another version', h('div.row', h('div.grow', sel), show, install), 'Go back to an earlier version if an update gets in the way, or forward again. Only the list is fetched; a version is downloaded when you install it.');
       }
       /* About – press it five times */
       function about() {

@@ -118,11 +118,13 @@ module.exports = (R, fns) => {
    * first with TranscribeAudio when the clip has none. Times are source timecodes, turned into media seconds.
    * -> {words:[{t, d, w, speaker}], language} or null (older Resolve, or nothing came) so the subtitle way is used.
    */
-  function readTranscription(it) {
-    let tr = null; try { tr = it.GetTranscription(); } catch (e) { return null; }
+  function readTranscription(it, nested) {
+    let tr = null; try { tr = nested == null ? it.GetTranscription() : it.GetTranscription(!!nested); } catch (e) { return null; }
     const segs = tr && R.list(tr.segments);
     if (!segs || !segs.length) return null;
-    const tm = clipTiming(it), sec = tc => { const f = R.tcToFrames(String(tc || ''), tm.fps); return isFinite(f) ? +(f / tm.fps - tm.start).toFixed(3) : NaN; };
+    // a timeline's transcription is in its own timecode: seconds from its first frame; a clip's in its source timecode
+    const tl = timelineOf(it), tm = tl ? { fps: R.fps(tl), start: tl.GetStartFrame() / R.fps(tl) } : clipTiming(it);
+    const sec = tc => { const f = R.tcToFrames(String(tc || ''), tm.fps); return isFinite(f) ? +(f / tm.fps - tm.start).toFixed(3) : NaN; };
     const words = [];
     for (const g of segs) {
       const sp = g.speaker ? String(g.speaker) : '', ws = R.list(g.words);
@@ -151,6 +153,87 @@ module.exports = (R, fns) => {
       if (/Cancel/i.test(String(st.JobStatus || '')) || st.Error) return null;
     }
     return null;
+  }
+
+  /* ---------- timelines and multicam clips as interview sources ---------- */
+  /** What a Media Pool item is, for Story: 'timeline', 'multicam', 'compound', 'audio', 'video', 'other'. */
+  function sourceKind(it) {
+    const type = String(R.props(it)['Type'] || '');
+    if (/timeline/i.test(type)) return 'timeline';
+    if (/multicam/i.test(type)) return 'multicam';
+    if (/compound/i.test(type)) return 'compound';
+    const k = R.quickKind(it);
+    return k === 'audio' || k === 'video' ? k : 'other';
+  }
+  /** The Timeline behind a timeline's Media Pool item (null for anything else). */
+  function timelineOf(it) {
+    if (!it || !/timeline/i.test(String(R.props(it)['Type'] || ''))) return null;
+    const id = R.id(it);
+    return R.timelines().find(t => tryCall(() => R.id(t.GetMediaPoolItem()), '') === id) || null;
+  }
+  /** Tracks that are switched on (Resolve has no "soloed" for scripts: a track switched off is left out). */
+  const enabled = (tl, type, k) => tryCall(() => tl.GetIsTrackEnabled(type, k) !== false, true);
+  /** The media items on a timeline's switched-on tracks, each once, sound first. -> [{id, name, kind, track}] */
+  function timelineMembers(tl) {
+    const out = [], seen = new Set();
+    for (const type of ['audio', 'video']) for (let k = 1, n = tl.GetTrackCount(type); k <= n; k++) {
+      if (!enabled(tl, type, k)) continue;
+      for (const ti of R.list(tl.GetItemListInTrack(type, k)).filter(Boolean)) {
+        const m = tryCall(() => ti.GetMediaPoolItem(), null), id = m ? R.id(m) : '';
+        if (!id || seen.has(id)) continue;
+        seen.add(id); out.push({ id, name: String(m.GetName() || ''), kind: sourceKind(m), track: type[0].toUpperCase() + k });
+      }
+    }
+    return out;
+  }
+  /** Has the item a transcription in Resolve already (its own, or for a timeline the one made as a nested clip)? */
+  const hasTranscription = it => !!(readTranscription(it) || (timelineOf(it) && readTranscription(it, true)));
+  /**
+   * The clip under a timeline time, for playing a line: the top switched-on video track's item there, else the first
+   * sound. -> {item, sec (in that clip's media)} or null
+   */
+  function underTimeline(tl, sec) {
+    const f = R.tlFrame(tl, sec);
+    for (const type of ['audio', 'video']) for (let k = type === 'video' ? tl.GetTrackCount(type) : 1, n = tl.GetTrackCount(type); type === 'video' ? k >= 1 : k <= n; k += type === 'video' ? -1 : 1) {
+      if (!enabled(tl, type, k)) continue;
+      for (const ti of R.list(tl.GetItemListInTrack(type, k)).filter(Boolean)) {
+        if (ti.GetStart() > f || ti.GetEnd() <= f) continue;
+        const m = tryCall(() => ti.GetMediaPoolItem(), null);
+        if (!m || !R.props(m)['File Path']) continue;
+        const t = R.itemTimes(tl, ti);
+        return { item: m, sec: t.in + (sec - t.start) * (t.speed || 1) };
+      }
+    }
+    return null;
+  }
+  /**
+   * A line from a synced timeline: every clip on its switched-on tracks between in and out, laid on the same tracks
+   * of tl at `at`, picture and sound linked again where they were one clip. -> [TimelineItem]
+   */
+  function placeTimelineRange(tl, src, inSec, outSec, at) {
+    R.open(tl);
+    const sf = R.fps(src), tf = R.fps(tl), r0 = src.GetStartFrame() + Math.round(inSec * sf), r1 = src.GetStartFrame() + Math.round(outSec * sf);
+    const rec0 = R.tlFrame(tl, at), got = [];
+    for (const type of ['video', 'audio']) for (let k = 1, n = src.GetTrackCount(type); k <= n; k++) {
+      if (!enabled(src, type, k)) continue;
+      for (const ti of R.list(src.GetItemListInTrack(type, k)).filter(Boolean)) {
+        const a = Math.max(ti.GetStart(), r0), b = Math.min(ti.GetEnd(), r1);
+        if (b <= a) continue;
+        const m = tryCall(() => ti.GetMediaPoolItem(), null);
+        if (!m) continue;                          // titles, generators: not media
+        // source frames are the clip's own (a 25 fps clip in a 24 fps timeline): timeline frames -> clip frames
+        const cf = R.clipFps(m) || sf, s0 = Number(ti.GetSourceStartFrame()) + (a - ti.GetStart()) * cf / sf;
+        if (!isFinite(s0)) continue;
+        ensureTracks(tl, type, k);
+        const info = { mediaPoolItem: m, startFrame: Math.round(s0), endFrame: Math.round(s0 + (b - a) * cf / sf), mediaType: type === 'video' ? 1 : 2, trackIndex: k, recordFrame: Math.round(rec0 + (a - r0) * tf / sf) };
+        const placed = R.list(R.pool().AppendToTimeline([info])).filter(Boolean);
+        if (!placed.length) R.log && R.log('placeTimelineRange: nothing placed for ' + m.GetName() + ' ' + JSON.stringify(Object.assign({}, info, { mediaPoolItem: undefined })));
+        got.push(...placed);
+      }
+    }
+    // everything of one line moves together: picture, its sound and the other devices' sound
+    if (got.length > 1) tryCall(() => tl.SetClipsLinked(got, true), false);
+    return got;
   }
 
   /** Transcribe timelines left behind (Resolve was maybe still writing into them): gone once an hour old. */
@@ -210,6 +293,69 @@ module.exports = (R, fns) => {
       return out;
     },
 
+    /**
+     * Everything Story can read interviews from, for the chooser: clips with media, multicam clips and timelines, with
+     * whether Resolve already has a transcription of each (a.check) and, for a timeline, the clips on its switched-on
+     * tracks. -> [{id, name, bin, kind, path, transcribed, members?}]
+     */
+    storySources(a) {
+      const out = [];
+      for (const c of R.index().clips) {
+        const kind = sourceKind(c.item);
+        if (kind === 'other' || kind === 'compound') continue;
+        const p = R.props(c.item), info = { id: c.id, name: String(p['Clip Name'] || c.item.GetName() || ''), bin: R.binPath(c.parts), kind, path: String(p['File Path'] || '') };
+        if (kind !== 'timeline' && kind !== 'multicam' && !info.path) continue;
+        if (a && a.check) info.transcribed = hasTranscription(c.item);
+        if (kind === 'timeline') { const tl = timelineOf(c.item); info.members = tl ? timelineMembers(tl).map(m => m.id) : []; }
+        out.push(info);
+      }
+      return out;
+    },
+    /**
+     * The transcription Resolve already has of a clip, multicam clip or timeline – nothing is transcribed unless
+     * a.transcribe (then Resolve makes one, as Media Pool › Transcribe does; a timeline as a nested clip).
+     * -> {id, name, path, kind, language, words, how:'read'|'transcribed'} or {id, name, kind, none:true}
+     */
+    async storyReadTranscript(a) {
+      const it = R.needItem(a.id), kind = sourceKind(it), tl = timelineOf(it), name = String(it.GetName() || ''), path = String(R.props(it)['File Path'] || '');
+      const out = got => ({ id: R.id(it), name, path, kind, language: got.language || '', words: got.words, how: got.made ? 'transcribed' : 'read' });
+      const have = readTranscription(it) || (tl ? readTranscription(it, true) : null);
+      if (have) return out(have);
+      if (!a.transcribe || typeof it.TranscribeAudio !== 'function') return { id: R.id(it), name, path, kind, none: true };
+      const T = Object.assign({ poll: 1000, settle: 4000, max: secs => 180e3 + secs * 3000, now: () => Date.now() }, R.transcribeTiming);
+      const secs = tl ? R.tlDuration(tl) : R.itemInfo(it).rangeEnd || 600;
+      let started = false; try { started = !!(tl ? it.TranscribeAudio(true, true) : it.TranscribeAudio(true)); } catch (e) { started = false; }
+      if (!started) throw R.err('HOST_SCRIPT', 'TranscribeAudio returned false', `Resolve couldn’t transcribe “${name}”.`, 'Check it plays with sound in Resolve. Transcribing needs DaVinci Resolve Studio 21.1 or later.');
+      const pr = R.project(), end = T.now() + T.max(secs);
+      while (T.now() < end) {
+        await sleep(T.poll);
+        let st = {}; try { st = (pr.GetTranscribeAudioStatus && pr.GetTranscribeAudioStatus()) || {}; } catch (e) { /* older 21.1 */ }
+        const got = readTranscription(it) || (tl ? readTranscription(it, true) : null);
+        if (got && !/Analyzing|Initializing/i.test(String(st.JobStatus || ''))) return out(Object.assign(got, { made: true }));
+        if (/Cancel/i.test(String(st.JobStatus || '')) || st.Error) break;
+      }
+      throw R.err('HOST_SCRIPT', 'No transcription after waiting', `Resolve hasn’t finished transcribing “${name}”.`, 'It may still be working, or heard no speech. Wait, then read the transcripts again.');
+    },
+    /**
+     * Sync recordings of the same moment into one multicam clip (Resolve syncs them by their sound).
+     * a: {ids, name?} -> {id, name}
+     */
+    storyMakeMulticam(a) {
+      const items = (a.ids || []).map(id => R.needItem(id));
+      if (items.length < 2) throw R.err('BAD_INPUT', 'Two or more recordings are needed for a multicam clip.');
+      const api = R.api, opt = {};
+      if (api.MULTICAM_ANGLE_SYNC_AUDIO != null) opt.angleSyncMode = api.MULTICAM_ANGLE_SYNC_AUDIO;
+      if (api.MULTICAM_ANGLE_NAME_CLIP != null) opt.angleNameMode = api.MULTICAM_ANGLE_NAME_CLIP;
+      if (a.name) opt.name = String(a.name);
+      // made from the recordings' own bin: the multicam lands beside them (Resolve moves the recordings into an
+      // "Original Clips" bin there)
+      const e = R.entry(R.id(items[0]));
+      const made = R.list(tryCall(() => (e && e.folder ? R.inFolder(e.folder, () => R.pool().CreateMulticamClip(items, opt)) : R.pool().CreateMulticamClip(items, opt)), [])).filter(Boolean);
+      if (!made.length) throw R.err('HOST_SCRIPT', 'CreateMulticamClip gave nothing', 'Resolve couldn’t make the multicam clip.', 'Check the recordings share sound (they’re synced by it), or make it in Resolve: select them › right-click › Create New Multicam Clip Using Selected Clips.');
+      R.forget();
+      return { id: R.id(made[0]), name: String(made[0].GetName() || '') };
+    },
+
     /** Media start (timecode offset in seconds) and frame rate for clips: a.ids -> {id: {fps, drop, start, audioOnly}} */
     storyTiming(a) {
       const out = {};
@@ -222,8 +368,11 @@ module.exports = (R, fns) => {
      * panel plays the line itself from the media file (or its proxy). -> {position, timing, loaded, path, proxy, name}
      */
     storyCue(a) {
-      const it = R.needItem(a.id), info = R.itemInfo(it);
+      const it = R.needItem(a.id), tl = timelineOf(it);
       try { R.pool().SetSelectedClip(it); } catch (e) { /* selecting is a nicety */ }
+      const under = tl ? underTimeline(tl, Math.max(0, a.seconds || 0)) : null;
+      if (under) { const u = R.itemInfo(under.item); return { position: Math.max(0, a.seconds || 0), fileSeconds: Math.max(0, under.sec), timing: { fps: R.fps(tl), drop: false, start: 0, audioOnly: false }, loaded: R.id(it), path: u.path, proxy: u.proxy, name: String(it.GetName() || ''), hasVideo: u.hasVideo, offline: u.offline }; }
+      const info = R.itemInfo(it);
       return { position: Math.max(0, a.seconds || 0), timing: clipTiming(it), loaded: info.id, path: info.path, proxy: info.proxy, name: info.name, hasVideo: info.hasVideo, offline: info.offline };
     },
     /** Stops the panel's own player (Resolve's viewers can't be stopped by script). */
@@ -351,7 +500,8 @@ module.exports = (R, fns) => {
         const it = R.needItem(c.id);
         // a line without times is skipped (null), never sent to Resolve as NaN
         if (R.num(c.in) == null || R.num(c.out) == null) { placed.push(null); continue; }
-        const got = placeRange(tl, it, c.in, c.out, cursor);
+        const src = timelineOf(it);
+        const got = src ? placeTimelineRange(tl, src, c.in, c.out, cursor) : placeRange(tl, it, c.in, c.out, cursor);
         const main = mainItem(got);
         if (!main) { placed.push(null); cursor += R.num(c.out) - R.num(c.in); continue; }
         colourItems(got, c.label);

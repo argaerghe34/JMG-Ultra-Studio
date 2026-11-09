@@ -68,3 +68,21 @@ test('update: a changed manifest asks for a restart; a download with the wrong v
   await assert.rejects(() => installFrom(releaseZip('99.0.2', '99.0.0'), dir2, '99.0.2'), /says it’s version 99\.0\.0/);
   assert.strictEqual(fs.readFileSync(path.join(dir2, 'index.html'), 'utf8'), 'old');
 });
+
+test('update: the version list – newest first, only versions with a download for this editor, this one marked', async () => {
+  const keep = U.io.list;
+  const rel = (v, assets, extra) => Object.assign({ tag_name: 'v' + v, published_at: '2026-11-0' + (v.length % 9) + 'T10:00:00Z', body: 'notes ' + v, assets: assets.map(n => ({ name: n, url: 'u/' + n, size: 1 })) }, extra);
+  U.io.list = async () => [rel('1.3.29.9', [U.assetName('1.3.29.9', false), U.assetName('1.3.29.9', true)]), rel('99.0', [U.assetName('99.0', false)]), rel(US.version, [U.assetName(US.version, false)]), rel('1.3.28', [U.assetName('1.3.28', true)]), rel('98.0', [U.assetName('98.0', false)], { draft: true })];
+  try {
+    const v = await U.versions();
+    assert.deepStrictEqual(v.map(x => [x.version, x.newer, x.current]), [['99.0', true, false], [US.version, false, true], ['1.3.29.9', false, false]], 'no Resolve-only 1.3.28 in Premiere, no draft');
+    assert.strictEqual(v[2].asset.name, 'JMG-Ultra-Studio-1.3.29.9.zip');
+  } finally { U.io.list = keep; }
+});
+
+test('update: going back – an earlier version installs over this one like an update', async () => {
+  const dir = installed(US.version);
+  const r = await installFrom(releaseZip('1.0.0'), dir, '1.0.0');
+  assert.strictEqual(r.version, '1.0.0');
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'index.html'), 'utf8'), 'new 1.0.0');
+});

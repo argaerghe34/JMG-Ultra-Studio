@@ -217,8 +217,9 @@
     const again = player.id === id && Math.abs(player.at - seconds) < 0.05 && player.el && !player.el.paused;
     stopCue();
     if (!play || again) return Object.assign({ landed: true, playing: false, player: 'panel' }, r);
+    const at = r.fileSeconds != null ? r.fileSeconds : seconds;   // a timeline's line plays from the clip under it
     for (const f of [r.path, r.proxy].filter(x => x && !player.bad.has(x))) {
-      if (await playFile(f, seconds)) { player.id = id; player.at = seconds; return Object.assign({ landed: true, playing: true, player: 'panel', file: f }, r); }
+      if (await playFile(f, at)) { player.id = id; player.at = seconds; return Object.assign({ landed: true, playing: true, player: 'panel', file: f }, r); }
       player.bad.add(f);
     }
     if (!player.told.has(id)) {

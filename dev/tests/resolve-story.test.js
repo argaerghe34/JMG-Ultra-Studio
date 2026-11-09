@@ -438,3 +438,52 @@ test('resolve story: Resolve 21.1’s own transcription is read word by word wit
   const r3 = await run('storyTranscribe', { id: a.GetUniqueId() });
   assert.ok(!r3.words); assert.deepStrictEqual(r3.items.map(x => x.text), ['From the subtitles.']);
 });
+
+test('resolve story: sources – clips, multicam clips and timelines (their clips on switched-on tracks), and which Resolve has transcribed', async () => {
+  const { F, run } = setup();
+  const a = F.addMedia('/m/Cam A.mov', { frames: 2500 }), b = F.addMedia('/m/Cam B.mov', { frames: 2500 }), w = F.addMedia('/m/Lav.wav', { type: 'Audio', frames: 2500 });
+  const tl = F.addTimeline('Interview synced', [{ item: a, in: 0, out: 2500 }, { item: b, in: 0, out: 2500, track: 2, mediaType: 1 }, { item: w, in: 0, out: 2500, track: 2, mediaType: 2 }]);
+  tl._vOn = [true, false];   // V2 (Cam B) switched off
+  a.GetTranscription = () => ({ segments: [{ start: '00:00:01:00', end: '00:00:02:00', text: 'Hello.', words: [{ text: 'Hello.', start: '00:00:01:00', end: '00:00:02:00' }] }] });
+  const src = await run('storySources', { check: true });
+  const by = n => src.find(s => s.name === n);
+  assert.strictEqual(by('Interview synced').kind, 'timeline');
+  assert.deepStrictEqual(by('Interview synced').members.sort(), [a.GetUniqueId(), w.GetUniqueId()].sort(), 'Cam B is on a switched-off track');
+  assert.strictEqual(by('Cam A.mov').transcribed, true); assert.strictEqual(by('Cam B.mov').transcribed, false);
+  assert.strictEqual(by('Lav.wav').kind, 'audio');
+  // reading never transcribes unless asked
+  let asked = 0; b.TranscribeAudio = () => { asked++; return true; };
+  const none = await run('storyReadTranscript', { id: b.GetUniqueId() });
+  assert.ok(none.none); assert.strictEqual(asked, 0);
+  const got = await run('storyReadTranscript', { id: a.GetUniqueId() });
+  assert.strictEqual(got.how, 'read'); assert.deepStrictEqual(got.words.map(x => [x.w, x.t]), [['Hello.', 1]]);
+});
+
+test('resolve story: a timeline’s transcript is in timeline time, and its line lays every switched-on track between In and Out', async () => {
+  const { F, run } = setup();
+  const a = F.addMedia('/m/Cam A.mov', { frames: 2500 }), b = F.addMedia('/m/Cam B.mov', { frames: 2500 }), w = F.addMedia('/m/Lav.wav', { type: 'Audio', frames: 2500 });
+  const src = F.addTimeline('Interview synced', [{ item: a, in: 100, out: 1100, at: 0 }, { item: b, in: 300, out: 1300, at: 0, track: 2, mediaType: 1 }, { item: w, in: 50, out: 1050, at: 0, track: 2, mediaType: 2 }]);
+  const R = HOST.connect({ api: F.resolve }).R, fps = R.fps(src), tc = s => R.framesToTC(src.GetStartFrame() + Math.round(s * fps), fps);
+  src._mpi.GetTranscription = nested => (nested ? {} : { segments: [{ start: tc(4), end: tc(6), text: 'We met in Haifa.', speaker: 'Ruth', words: [{ text: 'We', start: tc(4), end: tc(4.4) }, { text: 'met', start: tc(4.4), end: tc(5) }, { text: 'in', start: tc(5), end: tc(5.2) }, { text: 'Haifa.', start: tc(5.2), end: tc(6) }] }] });
+  const id = src._mpi.GetUniqueId();
+  const t = await run('storyReadTranscript', { id });
+  assert.strictEqual(t.kind, 'timeline'); assert.strictEqual(t.path, '');
+  assert.deepStrictEqual(t.words.map(x => x.t), [4, 4.4, 5, 5.2], 'seconds from the timeline’s first frame');
+  // build: the line 4–6 s
+  const out = F.addTimeline('Selects', []);
+  const r = await run('storyPlace', { seqId: out.GetUniqueId(), clips: [{ id, in: 4, out: 6 }], cursor: 0 });
+  assert.ok(r.placed[0], 'placed');
+  const items = ['video', 'audio'].flatMap(type => [1, 2].flatMap(k => R.list(out.GetItemListInTrack(type, k)).map(ti => [type, k, ti.GetMediaPoolItem().GetName(), ti.GetSourceStartFrame(), ti.GetStart() - out.GetStartFrame(), ti.GetEnd() - ti.GetStart()])));
+  const f = s => Math.round(s * fps);
+  assert.deepStrictEqual(items.sort(), [
+    ['audio', 1, 'Cam A.mov', 100 + f(4), 0, f(2)], ['audio', 2, 'Lav.wav', 50 + f(4), 0, f(2)],
+    ['video', 1, 'Cam A.mov', 100 + f(4), 0, f(2)], ['video', 2, 'Cam B.mov', 300 + f(4), 0, f(2)]
+  ].sort(), 'every track, the same In/Out, the same tracks');
+  // a switched-off track stays out; playing the line plays the clip under it
+  src._aOn = [true, false];
+  const out2 = F.addTimeline('Selects 2', []);
+  await run('storyPlace', { seqId: out2.GetUniqueId(), clips: [{ id, in: 4, out: 6 }], cursor: 0 });
+  assert.strictEqual(R.list(out2.GetItemListInTrack('audio', 2)).length, 0, 'A2 switched off');
+  const cue = await run('storyCue', { id, seconds: 5 });
+  assert.strictEqual(cue.path, '/m/Cam A.mov'); near(cue.fileSeconds, 100 / fps + 5, 'media time of the clip under it', 0.05);
+});

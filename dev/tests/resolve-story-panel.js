@@ -30,7 +30,7 @@ const Fake = require('./resolve-fake'), HOST = require('../../resolve/host');
   await assert.rejects(US.story.readPremiereTranscripts(job), e => e.code === 'NO_SELECTION');
   F.selected = [clip];
   const r = await US.story.readPremiereTranscripts(job);
-  assert.ok(/1 interview transcribed by Resolve/.test(r.summary), r.summary);
+  assert.ok(/1 interview read from Resolve/.test(r.summary), r.summary);
   const st = US.story.state();
   assert.strictEqual(st.transcripts.length, 1);
   const t = st.transcripts[0];

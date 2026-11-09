@@ -107,6 +107,24 @@ stays, and they get no Resolve layer until they come back.
   is set – the tests don't change it; a person opens the test project and the panel, and the rest is driven over
   the panel's DevTools port.
 
+## Measured in real Resolve Studio 21.2 (9 Nov 2026) – Story's interview sources
+- **Transcripts already in Resolve:** `MediaPoolItem.GetTranscription()` works on clips, sound files, multicam clips and
+  timelines. A timeline's comes from its clips' transcripts (nothing transcribed) and is in the timeline's own
+  timecode; Story reads it in seconds from the timeline's first frame. `storyReadTranscript` never transcribes unless
+  asked (`transcribe: true` → `TranscribeAudio`; a timeline as a nested clip).
+- **A multicam clip** has no transcript of its own until it's transcribed, even when its angles have one, and the API
+  doesn't say which clips it's made of – Story offers to transcribe it (one pass). `CreateMulticamClip` with
+  `MULTICAM_ANGLE_SYNC_AUDIO` makes one from a camera clip and a sound file (`storyMakeMulticam`).
+- **A synced timeline's line** (`placeTimelineRange`): every item on its switched-on tracks inside In–Out, laid on the
+  same tracks, with `AppendToTimeline` per track (`mediaType` 1/2). `GetSourceStartFrame` is in the clip's own frames
+  (a 25 fps clip in a 24 fps timeline): timeline frames × clip fps / timeline fps. `SetClipsLinked(items, true)` links
+  a line's picture, its sound and the other devices' sound. No API says which track is **soloed**: switched-off tracks
+  (`GetIsTrackEnabled`) are left out.
+- **Duplicates:** recordings of the same moment are recognised by their words (`sameRecordings`, word triples), and
+  read once – a timeline or multicam first, else the one with the most words heard.
+- The e2e test `22s-story-sources` makes its own spoken interview (macOS `say`) and a second device (ffmpeg), as
+  Resolve hears `I001_interview.mp4` as music.
+
 ## Building and installing
 - `node dev/resolve/build.js` → `dist/JMG Ultra Studio for Resolve <version>/` and
   `dist/JMG-Ultra-Studio-Resolve-<version>.zip` (installers for Mac and Windows inside).

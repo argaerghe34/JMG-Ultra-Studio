@@ -1141,7 +1141,7 @@
   /** Premiere captions for a sequence from its timeline transcript. opts: {style, names, upper, add} -> {file, count, summary} */
   async function makeCaptions(job, tl, { style = 'subtitles', names = false, upper = false, add = true, target = null } = {}) {
     const display = namesFor(tl), entries = tl.result.entries.map(e => Object.assign({}, e, { name: display.get(e.speakerKey) }));
-    if (!entries.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no transcribed speech in this sequence.', action: RES ? 'Transcribe the clips you used (Story › 1 Interviews › Transcribe with Resolve), then try again.' : 'Transcribe the clips you used, read Premiere’s transcripts, then try again.' });
+    if (!entries.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no transcribed speech in this sequence.', action: RES ? 'Read the transcripts of the clips you used (Story › 1 Interviews › Read transcripts from Resolve), then try again.' : 'Transcribe the clips you used, read Premiere’s transcripts, then try again.' });
     const cues = CAP().cues(entries, { style, names, upper });
     const dir = US.fsx.ensureDir(path.join(US.settings.get('story.exportDir') || path.join(US.fsx.exportsDir(), 'Transcripts'), 'Captions'));
     const file = uniquePath(path.join(dir, `${fileSafe(tl.info.name)} - ${CAP().STYLES[style].label.toLowerCase()} captions.srt`));
@@ -2156,80 +2156,182 @@
    * Resolve transcripts of (read again). One clip at a time: Resolve doesn't answer while it transcribes.
    */
   /**
-   * Resolve: tick the interview clips to transcribe in a list of the project's clips, by bin. Already transcribed ones
-   * start ticked (pressing again reads them again). -> [ids] or null when cancelled.
+   * Resolve: choose what to read interviews from – clips, multicam clips and timelines (a synced timeline or a
+   * multicam is read as one interview; its lines are built from every switched-on track). Timelines fold open to the
+   * clips on them, with one tick for all of those. What Resolve has transcribed already is marked and read as it is;
+   * the rest is transcribed only when "Transcribe the ones without" is on. -> {ids, transcribe} or null
    */
   async function chooseResolveClips() {
-    const ui = US.ui, clips = await projectClips();
-    if (!clips.length) { ui.toast({ type: 'warn', title: 'There are no clips with media in this project.', text: 'Import your interviews into the Media Pool first.' }); return null; }
-    const done = new Set(state.transcripts.filter(t => t.source === 'resolve').map(t => t.itemId).filter(Boolean));
-    const picked = new Set(clips.filter(c => done.has(c.id)).map(c => c.id));
-    const listEl = h('div', { style: { maxHeight: '340px', overflow: 'auto', marginTop: '8px' } }), count = h('div.field-hint');
+    const ui = US.ui;
+    const all = await US.host.call('storySources', { check: true }).catch(() => null) || (await projectClips()).map(c => Object.assign({ kind: 'video' }, c));
+    if (!all.length) { ui.toast({ type: 'warn', title: 'There are no clips or timelines in this project.', text: 'Import your interviews into the Media Pool first.' }); return null; }
+    const byId = new Map(all.map(s => [s.id, s]));
+    const done = new Set(state.transcripts.map(t => t.itemId).filter(Boolean));
+    const sel = new Set(((await US.host.call('selectionList', {}).catch(() => [])) || []).map(x => x.id));
+    const picked = new Set(all.filter(s => done.has(s.id) || sel.has(s.id)).map(s => s.id));
+    const timelines = all.filter(s => s.kind === 'timeline'), multicams = all.filter(s => s.kind === 'multicam'), clips = all.filter(s => s.kind !== 'timeline' && s.kind !== 'multicam');
+    const listEl = h('div', { style: { maxHeight: '380px', overflow: 'auto', marginTop: '8px' } }), count = h('div.field-hint');
+    const open = new Set();
     let q = '';
-    const tally = () => { count.textContent = picked.size ? `${US.plural(picked.size, 'clip')} ticked` : 'Nothing ticked yet'; };
+    const match = s => !q || (s.name + ' ' + s.bin).toLowerCase().includes(q);
+    const badge = s => (s.transcribed ? h('span.pill', { title: 'Resolve has transcribed it: read as it is, nothing is transcribed again' }, 'transcript in Resolve') : null);
+    const KIND = { timeline: 'timeline', multicam: 'multicam', audio: 'sound', video: '' };
+    function tally() {
+      const n = picked.size, need = Array.from(picked).filter(id => !(byId.get(id) || {}).transcribed).length;
+      count.textContent = n ? `${US.plural(n, 'item')} ticked${need ? ` · ${need} without a transcript in Resolve yet` : ' · all have transcripts in Resolve'}` : 'Nothing ticked yet';
+    }
+    const tick = (ids, on) => { for (const id of ids) if (on) picked.add(id); else picked.delete(id); };
+    function row(s, indent) {
+      const box = h('input', { type: 'checkbox', checked: picked.has(s.id), onchange: e => { tick([s.id], e.target.checked); draw(); } });
+      return h('label.row', { style: { cursor: 'pointer', marginLeft: indent ? '22px' : '0', gap: '6px' } }, box, h('span', s.name), KIND[s.kind] ? h('span.field-hint', KIND[s.kind]) : null, badge(s), indent ? null : h('span.field-hint', s.bin));
+    }
+    const secOpen = { timelines: timelines.length <= 12, multicams: multicams.length <= 12, clips: clips.length <= 40 };
+    /** A group's heading: fold/unfold, its name and count, and a tick for everything in it (as filtered). */
+    function section(key, label, list, hint) {
+      if (!list.length) return;
+      const ids = list.flatMap(x => (x.kind === 'timeline' ? [x.id] : [x.id])), on = ids.every(id => picked.has(id)), isOpen = secOpen[key] || !!q;
+      listEl.appendChild(h('div.row', { style: { gap: '6px', marginTop: '12px', alignItems: 'center' } },
+        h('button.icon-btn', { title: isOpen ? 'Fold' : 'Show', onclick: () => { secOpen[key] = !isOpen; draw(); } }, isOpen ? '▾' : '▸'),
+        h('input', { type: 'checkbox', checked: on, title: `Tick all ${label.toLowerCase()}`, onchange: e => { tick(ids, e.target.checked); draw(); } }),
+        h('b', `${label} (${list.length})`)));
+      if (hint && isOpen) listEl.appendChild(h('div.field-hint', { style: { marginLeft: '22px' } }, hint));
+      return isOpen;
+    }
     function draw() {
       US.clear(listEl);
-      const shown = clips.filter(c => !q || (c.name + ' ' + c.bin).toLowerCase().includes(q));
-      let bin = null;
-      for (const c of shown) {
-        if (c.bin !== bin) { bin = c.bin; listEl.appendChild(h('div.field-hint', { style: { marginTop: '8px' } }, bin)); }
-        const box = h('input', { type: 'checkbox', checked: picked.has(c.id), onchange: e => { if (e.target.checked) picked.add(c.id); else picked.delete(c.id); tally(); } });
-        listEl.appendChild(h('label.row', { style: { cursor: 'pointer' } }, box, ' ' + c.name, done.has(c.id) ? h('span.field-hint', ' – transcribed') : null));
+      const shown = all.filter(match);
+      const allBox = h('input', { type: 'checkbox', checked: shown.length > 0 && shown.every(s => picked.has(s.id)), onchange: e => { tick(shown.map(s => s.id), e.target.checked); draw(); } });
+      listEl.appendChild(h('label.row', { style: { cursor: 'pointer', fontWeight: 600 } }, allBox, ' Select all' + (q ? ' shown' : '')));
+      const tls = timelines.filter(t => match(t) || (t.members || []).some(id => byId.has(id) && match(byId.get(id))));
+      if (section('timelines', 'Timelines', tls, 'A synced timeline is one interview: its lines bring every switched-on track with them. Or tick the clips on it.')) {
+        for (const t of tls) {
+          const mem = (t.members || []).map(id => byId.get(id)).filter(Boolean), memIds = mem.map(m => m.id);
+          listEl.appendChild(h('div.row', { style: { gap: '6px', marginTop: '6px', marginLeft: '22px', alignItems: 'center' } },
+            h('input', { type: 'checkbox', checked: picked.has(t.id), title: 'The timeline itself, as one interview', onchange: e => { tick([t.id], e.target.checked); draw(); } }),
+            h('b', t.name), badge(t), h('span.field-hint', t.bin)));
+          if (memIds.length) listEl.appendChild(h('div.row', { style: { gap: '6px', marginLeft: '44px', alignItems: 'center' } },
+            h('button.icon-btn', { title: open.has(t.id) ? 'Fold' : 'Show its clips', onclick: () => { if (open.has(t.id)) open.delete(t.id); else open.add(t.id); draw(); } }, open.has(t.id) ? '▾' : '▸'),
+            h('input', { type: 'checkbox', checked: memIds.every(id => picked.has(id)), title: 'Tick every clip on this timeline', onchange: e => { tick(memIds, e.target.checked); draw(); } }),
+            h('span.field-hint', `its ${US.plural(mem.length, 'clip')}`)));
+          if (open.has(t.id)) for (const m of mem) { const r = row(m, true); r.style.marginLeft = '66px'; listEl.appendChild(r); }
+        }
       }
-      if (!shown.length) listEl.appendChild(h('div.muted', 'No clips match.'));
+      const mcs = multicams.filter(match);
+      if (section('multicams', 'Multicam clips', mcs, 'One interview each; lines are cut from the multicam clip, so you can still switch angles.')) for (const m of mcs) listEl.appendChild(row(m, true));
+      const cl = clips.filter(match);
+      if (section('clips', 'Clips', cl)) {
+        let bin = null;
+        for (const c of cl) {
+          if (c.bin !== bin) { bin = c.bin; listEl.appendChild(h('div.field-hint', { style: { marginTop: '6px', marginLeft: '22px', fontStyle: 'italic' } }, bin)); }
+          listEl.appendChild(row(Object.assign({}, c, { bin: '' }), true));
+        }
+      }
+      if (!shown.length && !tls.length) listEl.appendChild(h('div.muted', 'Nothing matches.'));
+      tally();
     }
     const filter = ui.input({ placeholder: 'Filter by name or bin…', onInput: v => { q = String(v || '').trim().toLowerCase(); draw(); } });
-    draw(); tally();
-    const ok = await ui.modal({ title: 'Choose the interviews to transcribe', wide: true,
-      body: h('div', h('p.muted', 'Resolve transcribes each ticked clip in turn, on this computer.'), filter, listEl, count),
-      buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: 'Transcribe', value: true, kind: 'primary' }] });
-    return ok && picked.size ? Array.from(picked) : null;
+    let transcribe = US.settings.get('story.transcribeMissing', true) !== false;
+    const tr = ui.toggle({ label: 'Have Resolve transcribe the ticked ones that have no transcript yet', value: transcribe, onChange: x => { transcribe = !!x; US.settings.set('story.transcribeMissing', transcribe); }, hint: 'Off: only transcripts Resolve already has are read – nothing new is transcribed.' });
+    draw();
+    const ok = await ui.modal({ title: 'Choose the interviews', wide: true,
+      body: h('div', h('p.muted', 'Transcripts Resolve already has – of clips, multicam clips or timelines – are read as they are. Recordings of the same moment (the same words) are read once.'), filter, listEl, count, tr),
+      buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: 'Read transcripts', value: true, kind: 'primary' }] });
+    return ok && picked.size ? { ids: Array.from(picked), transcribe } : null;
   }
-  /** The Transcribe button in Resolve: the Media Pool selection when Resolve reports one, otherwise the chooser. */
+  /** The button in Resolve: the chooser, starting with the Media Pool selection and what Story has read before. */
   async function transcribeResolve() {
-    const sel = await US.host.call('storyClips', { selected: true }).catch(() => []) || [];
-    if (sel.length) return US.actions.run('story.read', {});
-    const ids = await chooseResolveClips();
-    if (!ids) return false;
-    const r = await US.jobs.run({ title: 'Transcribing with Resolve', tool: 'story' }, job => readResolveTranscripts(job, { ids }));
+    const pick = await chooseResolveClips();
+    if (!pick) return false;
+    const r = await US.jobs.run({ title: 'Reading transcripts from Resolve', tool: 'story' }, job => readResolveTranscripts(job, pick));
     US.tools.open('story', { tab: 'transcripts' });
     return r;
   }
 
-  async function readResolveTranscripts(job, { ids = null } = {}) {
+  /**
+   * Recordings of the same moment from different devices give (nearly) the same words: groups of transcripts whose
+   * word triples mostly match. items: [{key, words:[string]}] -> [[key, ...]] (only groups of two or more)
+   */
+  function sameRecordings(items, min = 0.6) {
+    const grams = items.map(it => { const w = it.words.map(x => String(x).toLowerCase().replace(/[^\p{L}\p{N}']/gu, '')).filter(Boolean), g = new Set(); for (let i = 0; i + 2 < w.length; i++) g.add(w[i] + ' ' + w[i + 1] + ' ' + w[i + 2]); return g; });
+    const parent = items.map((_, i) => i), find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+      const a = grams[i], b = grams[j];
+      if (a.size < 10 || b.size < 10) continue;
+      let n = 0; for (const g of a.size < b.size ? a : b) if ((a.size < b.size ? b : a).has(g)) n++;
+      if (n / Math.min(a.size, b.size) >= min) parent[find(j)] = find(i);
+    }
+    const groups = new Map();
+    items.forEach((it, i) => { const r = find(i); groups.set(r, (groups.get(r) || []).concat(it.key)); });
+    return Array.from(groups.values()).filter(g => g.length > 1);
+  }
+
+  async function readResolveTranscripts(job, { ids = null, transcribe = true } = {}) {
     await ready(); loadState();
-    job.set({ who: 'premiere', msg: 'Finding the clips to transcribe' });
-    let clips = ids && ids.length ? (await projectClips()).filter(c => ids.includes(c.id)) : await US.host.call('storyClips', { selected: true });
-    if (!clips.length && !(ids && ids.length)) {
-      const again = state.transcripts.filter(t => t.source === 'resolve');
-      if (again.length) { const m = await resolveItems(again), want = new Set(m.values()); clips = (await projectClips()).filter(c => want.has(c.id)); }
+    job.set({ who: 'premiere', msg: 'Finding what to read' });
+    if (!ids || !ids.length) {
+      ids = ((await US.host.call('selectionList', {}).catch(() => [])) || []).map(x => x.id);
+      if (!ids.length) ids = state.transcripts.filter(t => t.source === 'resolve' && t.itemId).map(t => t.itemId);
     }
-    if (!clips.length) {
-      const seen = await US.host.call('selectionList', {}).catch(() => []) || [];
-      throw new US.UserError('NO_SELECTION', seen.length
-        ? { title: `The ${US.plural(seen.length, 'item')} selected in the Media Pool ${seen.length === 1 ? 'isn’t a clip' : 'aren’t clips'} with media.`, action: 'Timelines, multicam clips, titles and generators can’t be transcribed. Select the interview clips themselves, or press “Choose clips…” in Story › 1 Interviews.' }
-        : { title: 'Resolve reports no clips selected in the Media Pool.', action: 'Press “Choose clips…” in Story › 1 Interviews and tick your interviews in the list.' });
-    }
+    if (!ids.length) throw new US.UserError('NO_SELECTION', { title: 'Nothing is chosen to read.', action: 'Press “Read transcripts from Resolve” in Story › 1 Interviews and tick your interviews, multicam clips or timelines.' });
     readCount.again = readCount.changed = 0;
-    let ok = 0, lines = 0; const bad = [];
-    for (let i = 0; i < clips.length; i++) {
+    const got = [], bad = [], none = [];
+    for (let i = 0; i < ids.length; i++) {
       job.check();
-      const c = clips[i];
-      job.set({ who: 'premiere' }).progress(i / clips.length, `Resolve is transcribing ${c.name} (${i + 1} of ${clips.length}) – Resolve and this panel may not respond until it’s done`);
-      await new Promise(res => setTimeout(res, 80));   // let the message show: the call holds the panel while Resolve works
+      job.set({ who: 'premiere' }).progress(i / ids.length, `Reading ${i + 1} of ${ids.length} from Resolve${transcribe ? ' – one without a transcript is transcribed now, and Resolve may not respond until it’s done' : ''}`);
+      await new Promise(res => setTimeout(res, 60));   // let the message show: the call holds the panel while Resolve works
       try {
-        const r = await US.host.call('storyTranscribe', { id: c.id, language: US.settings.get('story.language', '') || undefined }, { timeout: 0, slowAfter: 4 * 3600e3 });
-        // Resolve 21.1+ gives its own transcription word by word (exact times, speakers); older Resolve gives subtitles
-        const segments = r.words && r.words.length ? T.wordsToSentences(r.words) : T.fromSubtitles(r.items);
-        if (!segments.length) { bad.push(`${c.name}: no speech found`); continue; }
-        addTranscript({ name: r.name || c.name, path: r.path || c.path, itemId: c.id, source: 'resolve', language: r.language, segments });
-        ok++; lines += segments.length;
-      } catch (e) { if (US.errors.cancelled(e)) throw e; bad.push(`${c.name}: ${US.errors.explain(e).title}`); }
+        let r = await US.host.call('storyReadTranscript', { id: ids[i], transcribe }, { timeout: 0, slowAfter: 4 * 3600e3 });
+        if (r.none && transcribe && r.kind !== 'timeline' && r.kind !== 'multicam') {
+          // Resolve before 21.1 has no transcription of its own: its subtitles, per phrase
+          r = await US.host.call('storyTranscribe', { id: ids[i], own: false, language: US.settings.get('story.language', '') || undefined }, { timeout: 0, slowAfter: 4 * 3600e3 });
+        }
+        if (r.none) { none.push(r.name); continue; }
+        const segments = r.words && r.words.length ? T.wordsToSentences(r.words) : T.fromSubtitles(r.items || []);
+        if (!segments.length) { bad.push(`${r.name}: no speech found`); continue; }
+        got.push({ r, segments, id: ids[i] });
+      } catch (e) { if (US.errors.cancelled(e)) throw e; bad.push(`${ids[i]}: ${US.errors.explain(e).title}`); }
     }
+    // the same moment recorded on several devices: one transcript – a synced timeline or multicam first, else the
+    // recording with the most words heard (usually the cleanest sound)
+    const rank = g => (g.r.kind === 'timeline' || g.r.kind === 'multicam' ? 1e9 : 0) + (g.r.words ? g.r.words.length : g.segments.length * 10);
+    const dups = sameRecordings(got.map((g, k) => ({ key: k, words: g.r.words ? g.r.words.map(w => w.w) : g.segments.flatMap(s => String(s.text).split(/\s+/)) })));
+    const skip = new Set(), same = [];
+    for (const grp of dups) {
+      const keep = grp.slice().sort((a, b) => rank(got[b]) - rank(got[a]))[0];
+      grp.filter(k => k !== keep).forEach(k => skip.add(k));
+      same.push({ keep: got[keep], others: grp.filter(k => k !== keep).map(k => got[k]) });
+    }
+    let ok = 0, lines = 0;
+    got.forEach((g, k) => {
+      if (skip.has(k)) return;
+      addTranscript({ name: g.r.name, path: g.r.path || '', itemId: g.id, source: 'resolve', language: g.r.language, segments: g.segments });
+      ok++; lines += g.segments.length;
+    });
     reindex(); saveNow();
-    if (!ok) throw new US.UserError('NOTHING_FOUND', { title: 'Resolve didn’t transcribe any speech.', action: 'Check the clips have speech and play with sound in Resolve, then try again.', detail: bad.join('\n') });
-    if (bad.length) US.ui.toast({ type: 'warn', title: `${US.plural(bad.length, 'clip')} not transcribed`, text: bad.slice(0, 3).join(' · '), detail: bad.join('\n') });
-    return { summary: `${US.plural(ok, 'interview')} transcribed by Resolve (${US.plural(lines, 'phrase')})${readNote()}` };
+    if (!ok) throw new US.UserError('NOTHING_FOUND', none.length && !bad.length
+      ? { title: `Resolve has no transcript of ${none.length === 1 ? `“${none[0]}”` : `those ${none.length} items`} yet.`, action: 'Transcribe them in Resolve (Media Pool › right-click › Audio Transcription › Transcribe), or turn on “Have Resolve transcribe the ticked ones…” in the chooser.' }
+      : { title: 'Resolve gave no speech to read.', action: 'Check the clips have speech and play with sound in Resolve, then try again.', detail: bad.concat(none.map(n => `${n}: no transcript in Resolve`)).join('\n') });
+    if (bad.length || none.length) US.ui.toast({ type: 'warn', title: `${US.plural(bad.length + none.length, 'item')} not read`, text: bad.concat(none.map(n => `${n}: no transcript in Resolve`)).slice(0, 3).join(' · '), detail: bad.concat(none.map(n => `${n}: no transcript in Resolve`)).join('\n') });
+    if (same.length) setTimeout(() => offerMulticam(same), 300);
+    const transcribed = got.filter(g => g.r.how === 'transcribed' || g.r.items).length;
+    return { summary: `${US.plural(ok, 'interview')} read from Resolve (${US.plural(lines, 'line')})${transcribed ? ` – ${transcribed} transcribed now` : ' – nothing transcribed again'}${same.length ? ` · ${US.plural(skip.size, 'recording')} of the same moment read once` : ''}${readNote()}` };
+  }
+  /** After reading: recordings of the same moment were read once – offer to sync them into a multicam clip. */
+  async function offerMulticam(same) {
+    const ui = US.ui;
+    const groups = same.filter(s => s.keep.r.kind !== 'timeline' && s.keep.r.kind !== 'multicam' && s.others.every(o => o.r.kind !== 'timeline' && o.r.kind !== 'multicam'));
+    const list = h('ul', same.map(s => h('li', `“${s.keep.r.name}” used; the same words in ${s.others.map(o => `“${o.r.name}”`).join(', ')}`)));
+    const make = groups.length ? await ui.modal({ title: 'Recordings of the same moment', wide: true,
+      body: h('div', h('p', 'These were recorded at the same time on different devices, so Story reads them once:'), list,
+        h('p.muted', 'Resolve can sync them by their sound into a multicam clip – then build selects from it, switching angles in Resolve as usual. Read the multicam clip in Story afterwards to use it.')),
+      buttons: [{ label: 'Not now', value: false, kind: 'ghost' }, { label: groups.length === 1 ? 'Make a multicam clip' : `Make ${groups.length} multicam clips`, value: true, kind: 'primary' }] })
+      : (ui.toast({ type: 'info', title: 'Recordings of the same moment were read once', detail: same.map(s => `${s.keep.r.name} = ${s.others.map(o => o.r.name).join(', ')}`).join('\n') }), false);
+    if (!make) return;
+    await US.jobs.run({ title: 'Making multicam clips', tool: 'story' }, async job => {
+      const made = [];
+      for (const g of groups) { job.check(); made.push((await US.host.call('storyMakeMulticam', { ids: [g.keep.id].concat(g.others.map(o => o.id)), name: g.keep.r.name.replace(/\.[^.]+$/, '') + ' – multicam' })).name); }
+      return { summary: `made ${made.join(', ')} (Media Pool)` };
+    });
   }
 
   async function importFiles(job, files) {
@@ -2332,12 +2434,12 @@
   US.tools.register({
     id: 'story', name: 'Story', short: 'Story', icon: 'story', group: 'cut', order: 22,
     blurb: 'Step by step from your interviews to a cut: themes, specific lines and moments, a sequence or a narrative, and documents to share.',
-    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyDropSwap', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe'] : []),
+    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyDropSwap', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe', 'storySources', 'storyReadTranscript', 'storyMakeMulticam'] : []),
     create() {
       const v = ui.toolView({
         icon: 'story', title: 'Story', blurb: 'From your interviews to a cut, step by step: themes, the lines you need, a sequence or narrative, and documents to share.',
         help: h('div', h('p', 'Story works from transcripts, in five steps. You can go back to any step at any time.'), h('ol',
-          h('li', h('b', 'Interviews. '), (RES ? 'Select your interviews in the Media Pool and press “Transcribe with Resolve” (free in Resolve Studio, on this computer)' : 'Let Premiere transcribe your interviews (select clips › right-click › Transcribe – free, on this computer), then press “Read Premiere’s transcripts”') + ' – or import transcript files. Then choose what to work on: every interview, some of them, or the lines in a sequence such as your selects (only between its In and Out points if you like).'),
+          h('li', h('b', 'Interviews. '), (RES ? 'Press “Read transcripts from Resolve” and tick your interviews – clips, multicam clips or a synced timeline; transcripts Resolve already has are read as they are, the rest transcribed (free in Resolve Studio, on this computer)' : 'Let Premiere transcribe your interviews (select clips › right-click › Transcribe – free, on this computer), then press “Read Premiere’s transcripts”') + ' – or import transcript files. Then choose what to work on: every interview, some of them, or the lines in a sequence such as your selects (only between its In and Out points if you like).'),
           h('li', h('b', 'Themes. '), 'Type the themes you want (optional) and press Find themes: Story finds yours and its own in one pass. How picky sets how many lines each theme keeps. Each theme has a colour its clips get in the timeline.'),
           h('li', h('b', 'Find. '), 'Search for specific lines (by word, related words and mis-heard words), Find more on a topic you haven’t covered, and Moments – bloopers, funny bits, off-camera voices and poignant moments.'),
           h('li', h('b', 'Build. '), 'A sequence from your themes, a narrative from a one-sentence brief (and a promo from it), bins by theme, and highlights on a string-out – your clips are never changed.'),
@@ -2405,11 +2507,11 @@
         el.appendChild(stepHead('transcripts'));
         el.appendChild(ui.card(
           h('div.card-title', 'Get transcripts'),
-          RES ? h('div.muted', 'Resolve Studio transcribes for free, on this computer. Select your interview clips in the Media Pool and press the button, or press “Choose clips…” to tick them in a list: Story has Resolve make subtitles of each clip on a temporary timeline (deleted afterwards) and reads them in. Resolve and this panel may not respond while a clip is being transcribed.')
+          RES ? h('div.muted', 'Story reads the transcripts Resolve already has – of clips, multicam clips and synced timelines – without transcribing again. Press the button and tick your interviews (what’s selected in the Media Pool starts ticked). A synced timeline or multicam clip is one interview: its lines bring every switched-on track with them. Ones without a transcript can be transcribed by Resolve (free in Resolve Studio, on this computer).')
             : h('div.muted', 'Premiere’s own transcription is free, accurate and stays on this computer. Select your interviews in the Project panel › right-click › Transcribe. When it’s done, read them in here.'),
-          RES ? ui.actionButton(state.transcripts.length ? 'Transcribe with Resolve again' : 'Transcribe with Resolve', () => transcribeResolve(), { icon: 'refresh' })
+          RES ? ui.actionButton(state.transcripts.length ? 'Read transcripts from Resolve again…' : 'Read transcripts from Resolve…', () => transcribeResolve(), { icon: 'refresh' })
             : ui.actionButton(state.transcripts.length ? 'Read Premiere’s transcripts again' : 'Read Premiere’s transcripts', () => US.actions.run('story.read', {}), { icon: 'refresh' }),
-          h('div.row', RES ? ui.button('Choose clips…', { icon: 'check', onClick: async () => { const ids = await chooseResolveClips(); if (ids) { await US.jobs.run({ title: 'Transcribing with Resolve', tool: 'story' }, job => readResolveTranscripts(job, { ids })); render(); } } }) : null, ui.button('Import transcript files…', { icon: 'folder', onClick: async () => {
+          h('div.row', ui.button('Import transcript files…', { icon: 'folder', onClick: async () => {
             const files = US.app.pickFiles({ multi: true, title: 'Choose transcript files', ext: ['srt', 'vtt', 'txt', 'csv', 'tsv', 'json', 'prtranscript'] });
             if (files.length) await US.jobs.run({ title: 'Importing transcripts', tool: 'story' }, job => importFiles(job, files.map(US.normPath))).then(render);
           } }), h('span.field-hint', 'SRT, VTT, CSV, JSON or text with timecodes'))));
@@ -3700,7 +3802,7 @@
           el.appendChild(h('div.note.warn', US.icon('warn', 15), h('div',
             h('div', h('b', `${US.plural(names.length, 'clip')} in this sequence ${names.length === 1 ? 'has' : 'have'} no transcript yet: `), names.slice(0, 8).join(', ') + (names.length > 8 ? ` …and ${names.length - 8} more` : '') + '.'),
             h('div', RES ? 'Press the button to have Resolve transcribe them. If they’re music or sound effects, ignore this.' : 'Select them in the Project panel › right-click › Transcribe (or Window › Text › Transcript › Transcribe). To do it automatically, turn on “Auto-transcribe” in Premiere’s Import settings. If they’re music or sound effects, ignore this.'),
-            h('div.row', { style: { marginTop: '6px' } }, ui.button(RES ? 'Transcribe them with Resolve' : 'Read Premiere’s transcripts', { small: true, icon: 'refresh', onClick: async () => { const ids = r.missing.map(m => m.itemId).filter(Boolean), ok = RES && ids.length ? await US.jobs.run({ title: 'Transcribing with Resolve', tool: 'story' }, job => readPremiereTranscripts(job, { ids })) : await US.actions.run('story.read', {}); if (ok) { tl = await timelineTranscript(null, { seqId: tl.info.id, tracks: tlTracks, info: tl.info }); show('timeline'); } } })))));
+            h('div.row', { style: { marginTop: '6px' } }, ui.button(RES ? 'Read them from Resolve' : 'Read Premiere’s transcripts', { small: true, icon: 'refresh', onClick: async () => { const ids = r.missing.map(m => m.itemId).filter(Boolean), ok = RES && ids.length ? await US.jobs.run({ title: 'Transcribing with Resolve', tool: 'story' }, job => readPremiereTranscripts(job, { ids })) : await US.actions.run('story.read', {}); if (ok) { tl = await timelineTranscript(null, { seqId: tl.info.id, tracks: tlTracks, info: tl.info }); show('timeline'); } } })))));
         }
         const staleKeys = new Set(r.entries.filter(e => e.exact === false).map(e => e.clipKey));
         const stale = state.transcripts.filter(t => staleKeys.has(t.key) && t.source === 'premiere');
@@ -3822,8 +3924,8 @@
   }
 
   US.actions.register({
-    id: 'story.read', tool: 'story', title: RES ? 'Transcribe with Resolve' : 'Read Premiere’s transcripts', changes: false,
-    describe: RES ? 'Has Resolve transcribe the interview clips selected in the Media Pool and reads them into Story.' : 'Saves the project and reads every transcript Premiere has made for its clips into Story.',
+    id: 'story.read', tool: 'story', title: RES ? 'Read transcripts from Resolve' : 'Read Premiere’s transcripts', changes: false,
+    describe: RES ? 'Reads the transcripts Resolve has of the clips, multicam clips or timelines selected in the Media Pool into Story (transcribing only the ones without).' : 'Saves the project and reads every transcript Premiere has made for its clips into Story.',
     examples: ['read the transcripts', 'load Premiere’s transcripts'],
     match: t => (/\b(read|load|import|get|pull)\b.*\btranscripts?\b/i.test(t) ? {} : null),
     run: async (p, job) => { const r = await readPremiereTranscripts(job); openStory('transcripts'); return r; }
@@ -4190,7 +4292,7 @@
     loadState: () => loadState(), state: () => state, addTranscript: (...a) => { const t = addTranscript(...a); reindex(); saveNow(); return t; },
     /** what the copy that travels is named after: the .prproj in Premiere; in Resolve, a name in the media's folder */
     sharedProjectPath: () => (RES ? (resRef && resRef.shared) || '' : (US.ctx.project && US.ctx.project.path) || ''),
-    buildSequence, sortIntoBins, readPremiereTranscripts, transcribeResolve, chooseResolveClips, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
+    buildSequence, sortIntoBins, readPremiereTranscripts, transcribeResolve, chooseResolveClips, readResolveTranscripts, sameRecordings, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
     themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,

@@ -33,3 +33,5 @@ desktop.ini
 
 # Resolve's own connection module: the installer copies it from Resolve Studio; never committed or shipped
 WorkflowIntegration.node
+dev/test-media/interview/J001_spoken_interview.mp4
+dev/test-media/interview/J001_lav.wav
