@@ -56,3 +56,35 @@ console.log('US-TITLE Song ' + url.slice(-6)); console.log('US-PROG 50 100 NA');
     await assert.rejects(Y.run(job, { links: 'no links', ytdlp: 'x' }), e => e.code === 'BAD_INPUT');
   } finally { US.host.call = was; }
 });
+
+test('age-restricted: signed in only for the videos that need it; with no sign-in set they’re handed back to ask, not an error', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-age-')), fake = path.join(dir, 'fake.js'), seen = path.join(dir, 'seen.txt');
+  fs.writeFileSync(fake, `const a = process.argv.slice(2), url = a[a.length - 1], out = a[a.indexOf('-P') + 1], fs = require('fs');
+const signed = a.includes('--cookies-from-browser') || a.includes('--cookies');
+fs.appendFileSync(${JSON.stringify(seen)}, url.slice(-8) + (signed ? ' signed ' + a[a.indexOf(a.includes('--cookies') ? '--cookies' : '--cookies-from-browser') + 1] : ' plain') + String.fromCharCode(10));
+if (/AGE/.test(url) && !signed) { console.error('ERROR: [youtube] AGEAGE12: Sign in to confirm your age. This video may be inappropriate for some users.'); process.exit(1); }
+const f = require('path').join(out, url.slice(-8) + '.mp4'); fs.writeFileSync(f, 'x'); console.log('US-TITLE ' + url.slice(-8)); console.log('US-FILE ' + f);`);
+  const host = [], was = US.host.call;
+  US.host.call = async (fn, a) => { host.push(path.basename(a.paths[0])); return [{ id: 'n' }]; };
+  const job = { cancelled: false, set() {}, progress() {}, check() {} }, links = 'https://youtu.be/OKOKOK12 https://youtu.be/AGEAGE12';
+  try {
+    // no sign-in set: the ordinary one downloads; the age-restricted one comes back marked, nothing thrown
+    let r = await Y.run(job, { links, folder: dir, ytdlp: [process.execPath, fake] });
+    assert.deepStrictEqual(host, ['OKOKOK12.mp4']);
+    assert.deepStrictEqual(r.failed.map(f => [f.url.slice(-8), f.signIn, /age-restricted/.test(f.why)]), [['AGEAGE12', true, true]]);
+    const r2 = await Y.run(job, { links: 'https://youtu.be/AGEAGE12', folder: dir, ytdlp: [process.execPath, fake] });
+    assert.strictEqual(r2.done.length, 0, 'only blocked ones: handed back to ask, not thrown');
+    // signed in with a browser: tried plainly first, then signed in for the one that needs it
+    fs.writeFileSync(seen, ''); host.length = 0;
+    r = await Y.run(job, { links, folder: dir, ytdlp: [process.execPath, fake], signIn: 'browser', browser: 'firefox' });
+    assert.deepStrictEqual(fs.readFileSync(seen, 'utf8').trim().split('\n'), ['OKOKOK12 plain', 'AGEAGE12 plain', 'AGEAGE12 signed firefox']);
+    assert.deepStrictEqual(host, ['OKOKOK12.mp4', 'AGEAGE12.mp4']); assert.strictEqual(r.failed.length, 0);
+    // a cookies file
+    fs.writeFileSync(seen, '');
+    await Y.run(job, { links: 'https://youtu.be/AGEAGE12', folder: dir, ytdlp: [process.execPath, fake], signIn: 'file', cookies: path.join(dir, 'cookies.txt'), signedIn: true });
+    assert.deepStrictEqual(fs.readFileSync(seen, 'utf8').trim().split('\n'), ['AGEAGE12 signed ' + path.join(dir, 'cookies.txt')], 'asked for the sign-in just now: signed in straight away');
+    assert.deepStrictEqual(Y.signInArgs({ signIn: 'off', browser: 'firefox' }), []);
+    assert.deepStrictEqual(Y.signInArgs({ signIn: 'browser', browser: 'evil; rm' }), [], 'only known browsers');
+    assert.ok(/Close that browser/.test(Y.plainError('ERROR: Could not copy Chrome cookie database. See …')));
+  } finally { US.host.call = was; }
+});

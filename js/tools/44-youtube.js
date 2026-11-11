@@ -27,7 +27,17 @@
     best: { label: 'Highest quality', hint: 'Up to 4K, converted to H.264 MP4 – takes longer' },
     audio: { label: 'Sound only', hint: 'M4A (AAC) – for music and voice-overs' }
   };
-  /** yt-dlp's arguments for one link. o: {quality, folder, playlist, ffmpeg} */
+  const BROWSERS = isWin ? ['firefox', 'chrome', 'edge', 'brave', 'opera', 'vivaldi'] : ['firefox', 'chrome', 'safari', 'edge', 'brave', 'opera', 'vivaldi'];
+  const BROWSER_NAME = { firefox: 'Firefox', chrome: 'Chrome', edge: 'Edge', brave: 'Brave', opera: 'Opera', vivaldi: 'Vivaldi', safari: 'Safari' };
+  /** The sign-in arguments: a browser's YouTube sign-in, or an exported cookies file. o: {signIn: 'off'|'browser'|'file', browser, cookies} */
+  function signInArgs(o) {
+    if (o.signIn === 'browser' && BROWSERS.includes(o.browser)) return ['--cookies-from-browser', o.browser];
+    if (o.signIn === 'file' && o.cookies) return ['--cookies', o.cookies];
+    return [];
+  }
+  /** Needs a signed-in account: age-restricted, or YouTube's “confirm you're not a bot”. */
+  const needsSignIn = t => /sign in to confirm|age-restricted|inappropriate for some users|confirm your age/i.test(String(t || ''));
+  /** yt-dlp's arguments for one link. o: {quality, folder, playlist, ffmpeg, signedIn (use the sign-in)} */
   function argsFor(url, o) {
     const q = QUALITY[o.quality] ? o.quality : 'premiere';
     const a = ['--newline', '--no-simulate', '--progress', '--encoding', 'utf-8', '--windows-filenames', '--no-mtime', '--no-part',
@@ -36,6 +46,7 @@
       '-P', o.folder, '-o', (o.playlist ? '%(playlist_title).80B/%(playlist_index)03d – ' : '') + '%(title).150B [%(id)s].%(ext)s',
       o.playlist ? '--yes-playlist' : '--no-playlist'];
     if (o.ffmpeg) a.push('--ffmpeg-location', o.ffmpeg);
+    if (o.signedIn) a.push(...signInArgs(o));
     if (q === 'audio') a.push('-f', 'ba[ext=m4a]/ba', '-x', '--audio-format', 'm4a');
     else if (q === 'best') a.push('-f', 'bv*+ba/b', '-S', 'res,fps', '--merge-output-format', 'mkv', '--recode-video', 'mp4', '--postprocessor-args', 'VideoConvertor:-c:v libx264 -crf 18 -preset fast -pix_fmt yuv420p -c:a aac -b:a 192k');
     else a.push('-f', 'bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*[vcodec^=avc1]+ba/bv*+ba/b', '-S', 'res:1080,fps', '--merge-output-format', 'mp4');
@@ -57,7 +68,9 @@
   function plainError(t) {
     t = String(t || '');
     if (/private video|members-only|join this channel/i.test(t)) return 'It’s private or for members only.';
-    if (/sign in to confirm your age|age-restricted/i.test(t)) return 'It’s age-restricted, so YouTube wants a signed-in account.';
+    if (/could not find .*cookies database|could not copy .*cookie database|failed to decrypt with dpapi|unsupported browser|app.?bound/i.test(t)) return 'Couldn’t read the browser’s sign-in. Close that browser completely and try again – or use Firefox, or a cookies file (Chrome and Edge often lock theirs).';
+    if (/cookies are no longer valid|netscape format|invalid cookies/i.test(t)) return 'The sign-in has expired or the cookies file isn’t right. Sign in to YouTube in the browser again (or export a new cookies file).';
+    if (/sign in to confirm your age|age-restricted|inappropriate for some users/i.test(t)) return 'It’s age-restricted, so YouTube wants a signed-in account that’s confirmed as over 18.';
     if (/sign in to confirm you.?re not a bot/i.test(t)) return 'YouTube asked to confirm it isn’t a bot. Try again later, or press “Update the downloader”.';
     if (/video unavailable|has been removed|does not exist/i.test(t)) return 'The video isn’t available (removed, or blocked in your country).';
     if (/HTTP Error 403|Requested format is not available|nsig|signature/i.test(t)) return 'YouTube changed something. Press “Update the downloader”, then try again.';
@@ -180,20 +193,28 @@
       job.check();
       const at = i / links.length, part = 1 / links.length;
       job.set({ who: 'computer', msg: `Downloading ${i + 1} of ${links.length}` });
-      const r = await download(job, links[i], Object.assign({}, o, { folder, ytdlp: t.ytdlp, ffmpeg: t.ffmpeg }), (f, title) => job.progress(at + part * 0.9 * f, `${title || links[i]} – ${Math.round(f * 100)}%`));
+      const step = (f, title) => job.progress(at + part * 0.9 * f, `${title || links[i]} – ${Math.round(f * 100)}%`);
+      const base = Object.assign({}, o, { folder, ytdlp: t.ytdlp, ffmpeg: t.ffmpeg });
+      // signed in only when YouTube won't let the video through otherwise (age-restricted, or its bot check)
+      let r = await download(job, links[i], Object.assign({}, base, { signedIn: !!o.signedIn }), step);
+      if (!r.files.length && !o.signedIn && needsSignIn(r.error) && signInArgs(o).length) {
+        job.check();
+        job.set({ who: 'computer', msg: `Signing in for “${r.title || links[i]}”` });
+        r = await download(job, links[i], Object.assign({}, base, { signedIn: true }), step);
+      }
       job.check();
-      if (!r.files.length) { failed.push({ url: links[i], title: r.title, why: plainError(r.error || 'Nothing was downloaded.') }); continue; }
+      if (!r.files.length) { failed.push({ url: links[i], title: r.title, why: plainError(r.error || 'Nothing was downloaded.'), signIn: needsSignIn(r.error) }); continue; }
       job.set({ who: US.app.is('resolve') ? 'resolve' : 'premiere', msg: `Importing “${r.title || path.basename(r.files[0])}”` });
       try { const got = await US.host.call('importFiles', Object.assign({ paths: r.files }, into)); done.push({ url: links[i], title: r.title, files: r.files, items: got }); }
       catch (e) { failed.push({ url: links[i], title: r.title, why: `Downloaded, but not imported: ${e.title || e.message}` }); }
     }
     US.log(failed.length ? 'warn' : 'ok', `YouTube: ${US.plural(done.length, 'video')} downloaded and imported`, failed.map(f => `${f.title || f.url}: ${f.why}`).join(' · '), 'youtube');
-    if (!done.length && failed.length) throw new US.UserError('NOT_FOUND', { title: failed.length === 1 ? `Couldn’t download it: ${failed[0].why}` : `None of the ${failed.length} downloaded.`, detail: failed.map(f => `${f.url}: ${f.why}`).join('\n') });
+    if (!done.length && failed.length && !failed.every(f => f.signIn)) throw new US.UserError('NOT_FOUND', { title: failed.length === 1 ? `Couldn’t download it: ${failed[0].why}` : `None of the ${failed.length} downloaded.`, detail: failed.map(f => `${f.url}: ${f.why}`).join('\n') });
     return { summary: `${US.plural(done.length, 'video')} in “${o.binName || 'YouTube'}”${failed.length ? ` · ${failed.length} didn’t download` : ''}`, done, failed, folder };
   }
 
   /* ---------- the tab ---------- */
-  const opts = () => Object.assign({ folder: '', binId: '', quality: 'premiere', playlist: false }, US.settings.get('youtube', {}));
+  const opts = () => Object.assign({ folder: '', binId: '', quality: 'premiere', playlist: false, signIn: 'off', browser: 'firefox', cookies: '' }, US.settings.get('youtube', {}));
   US.tools.register({
     id: 'youtube', name: 'YouTube', short: 'YouTube', icon: 'youtube', group: 'selects', order: 14,
     hostFns: ['listBins', 'importFiles'],
@@ -212,6 +233,37 @@
       const quality = ui.segmented({ options: Object.entries(QUALITY).map(([value, q]) => ({ value, label: q.label })), value: o.quality, onChange: x => { o.quality = x; save(); qHint.textContent = QUALITY[x].hint; } });
       const qHint = h('div.field-hint', QUALITY[o.quality] ? QUALITY[o.quality].hint : '');
       const setupBox = h('div');
+      /** Some videos need a signed-in account: how to sign in (a browser, or a cookies file) -> true when set, false to skip. */
+      async function askSignIn(blocked) {
+        let how = o.signIn !== 'off' ? o.signIn : 'browser', browser = o.browser || 'firefox', cookies = o.cookies || '';
+        const box = h('div');
+        const draw = () => {
+          US.clear(box);
+          box.appendChild(h('p', `${blocked.length === 1 ? `“${blocked[0].title || blocked[0].url}” is` : `${blocked.length} videos are`} age-restricted (or YouTube asked to confirm it isn’t a bot), so YouTube only lets a signed-in account download ${blocked.length === 1 ? 'it' : 'them'}. Use your spare YouTube account – one confirmed as over 18. It’s only used for videos that need it.`));
+          box.appendChild(ui.segmented({ options: [{ value: 'browser', label: 'Signed in to a browser' }, { value: 'file', label: 'A cookies file' }], value: how, onChange: x => { how = x; draw(); } }));
+          if (how === 'browser') {
+            box.appendChild(ui.field('Browser', ui.select({ options: BROWSERS.map(b => ({ value: b, label: BROWSER_NAME[b] + (b === 'firefox' ? ' (most reliable)' : '') })), value: browser, onChange: x => { browser = x; draw(); } })));
+            box.appendChild(h('div.field-hint', `Sign in to YouTube in ${BROWSER_NAME[browser]} with the spare account first.${browser === 'firefox' || browser === 'safari' ? '' : ' Then close it completely – it locks its sign-in while it’s open, and newer versions may not share it at all (Firefox or a cookies file always work).'}`));
+          } else {
+            box.appendChild(h('div.row', h('span.field-hint.grow', cookies || 'No file chosen yet.'), ui.button('Choose file…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = US.app.pickFiles({ title: 'Choose the cookies file (cookies.txt)', ext: ['txt'] }); if (r[0]) { cookies = US.normPath(r[0]); draw(); } } catch (e) { ui.showError(e); } } })));
+            box.appendChild(h('div.field-hint', 'Signed in to YouTube with the spare account, export its cookies with a “Get cookies.txt” browser extension and choose the file. Keep it private – it’s that account’s sign-in.'));
+          }
+        };
+        draw();
+        const v = await ui.modal({ title: 'YouTube wants a signed-in account', body: box, buttons: [{ label: 'Skip them', value: false, kind: 'ghost' }, { label: 'Sign in and try again', value: true, kind: 'primary' }] });
+        if (!v) return false;
+        if (how === 'file' && !cookies) { ui.toast({ type: 'warn', title: 'Choose the cookies file first.' }); return false; }
+        Object.assign(o, { signIn: how, browser, cookies }); save(); drawSignedIn();
+        return true;
+      }
+      // once a sign-in is set: a line to change or forget it
+      const signedLine = h('div');
+      function drawSignedIn() {
+        US.clear(signedLine);
+        if (o.signIn === 'off') return;
+        signedLine.appendChild(h('div.row', h('span.field-hint.grow', `Age-restricted videos: signed in with ${o.signIn === 'file' ? 'a cookies file' : BROWSER_NAME[o.browser] || o.browser}, only when needed.`),
+          ui.button('Forget', { small: true, kind: 'ghost', title: 'Stop using the sign-in – it’s asked for again next time a video needs it', onClick: () => { o.signIn = 'off'; o.cookies = ''; save(); drawSignedIn(); } })));
+      }
       function drawSetup() {
         US.clear(setupBox);
         const t = tools();
@@ -226,8 +278,13 @@
         } }));
       }
       const go = ui.actionButton('Download and import', async () => {
-        const r = await US.jobs.run({ title: 'Downloading from YouTube', tool: 'youtube' }, job => run(job, { links: links.value, folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist }));
+        const r = await US.jobs.run({ title: 'Downloading from YouTube', tool: 'youtube' }, job => run(job, { links: links.value, folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies }));
         if (r === undefined) return;
+        const blocked = r.failed.filter(f => f.signIn);
+        if (blocked.length && o.signIn === 'off' && await askSignIn(blocked)) {
+          const again = await US.jobs.run({ title: 'Downloading the age-restricted videos', tool: 'youtube' }, job => run(job, { links: blocked.map(f => f.url), folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies, signedIn: true }));
+          if (again !== undefined) { r.done = r.done.concat(again.done); r.failed = r.failed.filter(f => !f.signIn).concat(again.failed); }
+        }
         if (r.failed.length) ui.toast({ type: 'warn', title: `${r.failed.length} didn’t download`, text: r.failed.map(f => `${f.title || f.url}: ${f.why}`).join('\n'), timeout: 12000 });
         else links.value = '';
         count();
@@ -240,12 +297,12 @@
           h('div.row', folderLine, ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = US.app.pickFiles({ folder: true, title: 'Where should the downloads go?', start: o.folder || defaultFolder() }); if (r[0]) { o.folder = US.normPath(r[0]); save(); showFolder(); } } catch (e) { ui.showError(e); } } }),
             ui.button('Open', { small: true, kind: 'ghost', onClick: () => { const f = US.fsx.ensureDir(o.folder || defaultFolder()); cp.exec((isWin ? 'explorer "' : 'open "') + f + '"'); } })),
           ui.field('Quality', quality), qHint),
-        ui.card(setupBox, go, h('div.field-hint', 'Only download videos you own or have permission to use.')));
-      count(); showFolder(); drawSetup();
-      return { el: v.el, onShow() { o = opts(); fillBins(); showFolder(); drawSetup(); } };
+        ui.card(setupBox, go, signedLine, h('div.field-hint', 'Only download videos you own or have permission to use.')));
+      count(); showFolder(); drawSetup(); drawSignedIn();
+      return { el: v.el, onShow() { o = opts(); fillBins(); showFolder(); drawSetup(); drawSignedIn(); } };
     }
   });
   US.actions && US.actions.register && US.actions.register({ id: 'youtube.open', tool: 'youtube', title: 'Download from YouTube', changes: false, describe: 'Opens the YouTube tab: paste links, they’re downloaded and imported into a bin.', examples: ['download this youtube video', 'import from youtube'], match: t => (/\byoutube|youtu\.be\b/i.test(t) && /\b(download|import|get|grab)\b/i.test(t) ? {} : null), run: async () => { US.tools.open('youtube'); return { summary: 'YouTube is open – paste the links there.' }; } });
 
-  US.youtube = { parseLinks, argsFor, parseLine, plainError, run, tools, QUALITY };
+  US.youtube = { parseLinks, argsFor, parseLine, plainError, run, tools, QUALITY, signInArgs, needsSignIn, BROWSERS };
 })();
