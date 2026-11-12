@@ -1,3 +1,11 @@
+## What's new in 1.3.34
+
+- **The YouTube tab is now Download, and takes links from almost any video site:** YouTube, Vimeo, Instagram (reels and posts), TikTok, Facebook, X (Twitter), Threads, Reddit, LinkedIn, Dailymotion, Twitch, SoundCloud, Bandcamp and most others. Paste links from different sites together: it says how many it found from each (*3 links found – 2 Instagram, 1 Vimeo*). The same video shared twice, for example with and without the share code after the link, downloads once.
+- **H.264 first.** When a site offers the same size in H.264 and HEVC (TikTok and Instagram often do), *Best for editing* (it was *Best for Premiere*) takes H.264, so it plays and scrubs smoothly in Premiere and Resolve.
+- **Sign-ins for any site.** Vimeo, Instagram, Facebook, TikTok and X often only give a video to someone signed in. Those videos are now handled like YouTube's age-restricted ones: you're asked once to use a browser you're signed in to (or a cookies file), and the sign-in is only used for the videos that need it.
+- **Clearer messages, with the site's name:** a link that isn't to a video, a post with no video, *TikTok is blocking downloads from this internet connection*, *too many downloads at once*, and *Instagram changed something – press “Update the downloader”*.
+- New downloads go into a bin called **Web downloads**, and a *Web downloads* folder next to the project (or the *YouTube downloads* folder, if an earlier version made one there). Ask: *download this instagram reel*, *get this tiktok*.
+
 ## What's new in 1.3.33
 
 - **Speaker names from the AI in the transcript of a timeline** (Story › 5 Share › Transcript of a timeline › Who is who). **Name the speakers with AI** works out who each voice is from what's said – someone introducing themselves, being addressed by name, the person asking the questions – and from the Story wiki's people when you've made the wiki. Only text is read. When it's a reasonable guess rather than clear, the label says **(not sure)**, e.g. *David Levy (not sure)*. Under each voice you see what the AI decided and why. A name you type always wins; **Use the AI's names** turns them off; **Ask again** redoes them.

@@ -1,4 +1,4 @@
-// YouTube: links found in pasted text, yt-dlp's arguments (H.264 for Premiere, 4K converted, sound only), its output
+// Download (was YouTube): links from many sites found in pasted text, yt-dlp's arguments (H.264 for Premiere, 4K converted, sound only), its output
 // read, errors in plain words, and a whole run with a pretend yt-dlp: downloaded into the folder, imported into the bin.
 const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path');
@@ -7,9 +7,31 @@ const US = load(['ui', 'app', 'js/tools/44-youtube.js']);
 const Y = US.youtube;
 
 test('links: watch, youtu.be, Shorts and playlists, each once, from any pasted text', () => {
-  const got = Y.parseLinks('Here: https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s\nyoutu.be/dQw4w9WgXcQ (same)\n<https://youtube.com/shorts/abcdefGHIJ1>, https://www.youtube.com/playlist?list=PL123abc and nothing else https://vimeo.com/123');
-  assert.deepStrictEqual(got, ['https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s', 'https://youtube.com/shorts/abcdefGHIJ1', 'https://www.youtube.com/playlist?list=PL123abc']);
+  const got = Y.parseLinks('Here: https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s\nyoutu.be/dQw4w9WgXcQ (same)\n<https://youtube.com/shorts/abcdefGHIJ1>, https://www.youtube.com/playlist?list=PL123abc and Vimeo too https://vimeo.com/123');
+  assert.deepStrictEqual(got, ['https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s', 'https://youtube.com/shorts/abcdefGHIJ1', 'https://www.youtube.com/playlist?list=PL123abc', 'https://vimeo.com/123']);
   assert.deepStrictEqual(Y.parseLinks('nothing here'), []);
+});
+
+test('links from many sites: Vimeo, Instagram, TikTok, Facebook, X and others; the same video shared twice is one', () => {
+  const got = Y.parseLinks(`Vimeo https://vimeo.com/76979871 and its private one https://vimeo.com/123456789/abcdef1234
+reel: https://www.instagram.com/reel/C1a2B3c4D5e/?igsh=MTc4MmM1YmI2Ng== and again instagram.com/reel/C1a2B3c4D5e/
+https://www.tiktok.com/@someone/video/7312345678901234567?is_from_webapp=1&sender_device=pc.
+fb: https://www.facebook.com/watch/?v=1234567890 https://fb.watch/abcDEF/ x.com/someone/status/1790000000000000000
+https://www.reddit.com/r/videos/comments/abc123/a_title/ and some site https://example.org/talk.html, e.g. not a link, file.mp4`);
+  assert.deepStrictEqual(got, ['https://vimeo.com/76979871', 'https://vimeo.com/123456789/abcdef1234',
+    'https://www.instagram.com/reel/C1a2B3c4D5e/?igsh=MTc4MmM1YmI2Ng==', 'https://www.tiktok.com/@someone/video/7312345678901234567?is_from_webapp=1&sender_device=pc',
+    'https://www.facebook.com/watch/?v=1234567890', 'https://fb.watch/abcDEF/', 'https://x.com/someone/status/1790000000000000000',
+    'https://www.reddit.com/r/videos/comments/abc123/a_title/', 'https://example.org/talk.html']);
+  assert.deepStrictEqual(got.map(u => Y.platformOf(u).name), ['Vimeo', 'Vimeo', 'Instagram', 'TikTok', 'Facebook', 'Facebook', 'X (Twitter)', 'Reddit', 'example.org']);
+  assert.strictEqual(Y.describeLinks(got), '2 Vimeo, 1 Instagram, 1 TikTok, 2 Facebook, 1 X (Twitter), 1 Reddit, 1 example.org');
+  assert.deepStrictEqual(Y.parseLinks('https://m.youtube.com/watch?v=dQw4w9WgXcQ https://youtu.be/dQw4w9WgXcQ?si=abc'), ['https://m.youtube.com/watch?v=dQw4w9WgXcQ']);
+  // a site that wants a sign-in, in plain words with its name, and the sign-in offered
+  const ig = 'Requested content is not available, rate-limit reached or login required. Use --cookies, --cookies-from-browser, --username and --password';
+  assert.ok(Y.needsSignIn(ig) && /^Instagram only shows it to someone signed in/.test(Y.plainError(ig, 'Instagram')));
+  assert.ok(/isn’t a link to a video/.test(Y.plainError('Unsupported URL: https://example.org/', 'example.org')));
+  assert.ok(/TikTok changed something/.test(Y.plainError('Unable to extract webpage video data', 'TikTok')));
+  assert.ok(/YouTube changed something/.test(Y.plainError('Requested format is not available')));
+  assert.strictEqual(Y.parseLine('ERROR: [Instagram] C1a2B3c4D5e: Requested content is not available').text, 'Requested content is not available');
 });
 
 test('yt-dlp’s arguments: H.264 MP4 for Premiere, 4K converted to H.264, sound only; the folder, one video or the playlist', () => {
@@ -52,7 +74,7 @@ console.log('US-TITLE Song ' + url.slice(-6)); console.log('US-PROG 50 100 NA');
     assert.strictEqual(r.summary, '2 videos in “Concert / YouTube” · 1 didn’t download');
     host.length = 0;
     await Y.run(job, { links: 'https://youtu.be/CCCCCCCC', folder: dir, ytdlp: [process.execPath, fake] });
-    assert.deepStrictEqual(host[0][1].binPath, 'YouTube', 'no bin chosen: a new bin “YouTube”');
+    assert.deepStrictEqual(host[0][1].binPath, 'Web downloads', 'no bin chosen: a new bin “Web downloads”');
     await assert.rejects(Y.run(job, { links: 'no links', ytdlp: 'x' }), e => e.code === 'BAD_INPUT');
   } finally { US.host.call = was; }
 });

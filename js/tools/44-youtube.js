@@ -1,5 +1,5 @@
-/* JMG Ultra Studio – YouTube: paste links, they're downloaded to a folder you choose and imported into the bin you
-   pick. The downloading is done by yt-dlp (with ffmpeg to join picture and sound) – free tools fetched once, with your
+/* JMG Ultra Studio – Download (was “YouTube”): paste links from YouTube, Vimeo, Instagram, TikTok, Facebook, X and
+   most other video sites; they're downloaded to a folder you choose and imported into the bin you pick. The downloading is done by yt-dlp (with ffmpeg to join picture and sound) – free tools fetched once, with your
    OK, into the panel's own folder. Made for Premiere: H.264 MP4 by default (what YouTube calls “avc1”, up to 1080p), so
    it plays and scrubs smoothly; “Highest quality” converts 4K's VP9/AV1 to H.264, which takes longer. */
 (function () {
@@ -11,32 +11,80 @@
   if (US.addIcon) US.addIcon('youtube', 'M3 6.5c0-1 .8-1.8 1.8-1.9C6.6 4.4 9 4.3 10 4.3s3.4.1 5.2.3c1 .1 1.8.9 1.8 1.9v7c0 1-.8 1.8-1.8 1.9-1.8.2-4.2.3-5.2.3s-3.4-.1-5.2-.3c-1-.1-1.8-.9-1.8-1.9z M8.5 7.3v5.4l4.5-2.7z');
 
   /* ---------- pure: links, yt-dlp's arguments, its output ---------- */
-  /** YouTube links in pasted text (one per line, or anything between), each once, in order. */
+  /** The sites people download from most (yt-dlp handles these and well over a thousand more). */
+  const PLATFORMS = [
+    { id: 'youtube', name: 'YouTube', re: /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/ },
+    { id: 'vimeo', name: 'Vimeo', re: /(^|\.)vimeo\.com$/ },
+    { id: 'instagram', name: 'Instagram', re: /(^|\.)(instagram\.com|instagr\.am)$/ },
+    { id: 'tiktok', name: 'TikTok', re: /(^|\.)tiktok\.com$/ },
+    { id: 'facebook', name: 'Facebook', re: /(^|\.)(facebook\.com|fb\.watch|fb\.com)$/ },
+    { id: 'x', name: 'X (Twitter)', re: /(^|\.)(x\.com|twitter\.com)$/ },
+    { id: 'threads', name: 'Threads', re: /(^|\.)threads\.(net|com)$/ },
+    { id: 'reddit', name: 'Reddit', re: /(^|\.)(reddit\.com|redd\.it)$/ },
+    { id: 'linkedin', name: 'LinkedIn', re: /(^|\.)linkedin\.com$/ },
+    { id: 'dailymotion', name: 'Dailymotion', re: /(^|\.)(dailymotion\.com|dai\.ly)$/ },
+    { id: 'twitch', name: 'Twitch', re: /(^|\.)twitch\.tv$/ },
+    { id: 'soundcloud', name: 'SoundCloud', re: /(^|\.)soundcloud\.com$/ },
+    { id: 'bandcamp', name: 'Bandcamp', re: /(^|\.)bandcamp\.com$/ },
+    { id: 'bbc', name: 'BBC', re: /(^|\.)bbc\.co\.uk$|(^|\.)bbc\.com$/ }
+  ];
+  const hostOf = u => { try { return new URL(u).hostname.toLowerCase().replace(/^(www|m|mobile|music|web)\./, ''); } catch (e) { return ''; } };
+  /** Which site a link is from -> {id, name}; other sites -> {id: 'other', name: the site's address}. */
+  function platformOf(url) {
+    const host = hostOf(url);
+    return PLATFORMS.find(p => p.re.test(host)) || { id: 'other', name: host || 'the website' };
+  }
+  // links written without https:// – only for the sites above, so “e.g.” or “file.mp4” aren't taken for links
+  const BARE = /(?:^|[\s(<"'])((?:www\.|m\.)?(?:youtube\.com|youtu\.be|vimeo\.com|instagram\.com|tiktok\.com|vm\.tiktok\.com|facebook\.com|fb\.watch|x\.com|twitter\.com|reddit\.com)\/[^\s<>"]+)/gi;
+  /** Tracking bits that don't change which video it is. */
+  const TRACKING = /^(utm_\w+|si|igsh|igshid|fbclid|feature|is_from_webapp|sender_device|_r|_t|ref|ref_src|s|share_id|mibextid|rdid)$/i;
+  /** The same video however it was shared: YouTube by its id, the rest by address without tracking bits. */
+  function linkKey(u) {
+    let url; try { url = new URL(u); } catch (e) { return u; }
+    if (platformOf(u).id === 'youtube') {
+      const id = url.searchParams.get('v') || (/^\/(?:shorts|live|embed)\/([\w-]+)/.exec(url.pathname) || [])[1] || (url.hostname.endsWith('youtu.be') ? url.pathname.slice(1) : '') || url.searchParams.get('list');
+      if (id) return 'youtube:' + id;
+    }
+    const q = Array.from(url.searchParams).filter(([k]) => !TRACKING.test(k)).map(([k, v]) => k + '=' + v).sort().join('&');
+    return hostOf(u) + url.pathname.replace(/\/+$/, '') + (q ? '?' + q : '');
+  }
+  /** Video links in pasted text (one per line, or anything between) from any site, each once, in order. */
   function parseLinks(text) {
-    const out = [], seen = new Set();
-    for (const m of String(text || '').matchAll(/(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?[^\s]*v=[\w-]{6,}[^\s]*|shorts\/[\w-]{6,}[^\s]*|live\/[\w-]{6,}[^\s]*|playlist\?[^\s]*list=[\w-]+[^\s]*|embed\/[\w-]{6,})|youtu\.be\/[\w-]{6,}[^\s]*)/gi)) {
-      let u = m[0].replace(/[)\].,;'"”’>]+$/, '');
+    const out = [], seen = new Set(), t = String(text || '');
+    const found = Array.from(t.matchAll(/https?:\/\/[^\s<>"]+/gi), m => ({ at: m.index, u: m[0] }))
+      .concat(Array.from(t.matchAll(BARE), m => ({ at: m.index + m[0].indexOf(m[1]), u: m[1] })).filter(b => !/https?:\/\/$/i.test(t.slice(Math.max(0, b.at - 8), b.at))))
+      .sort((a, b) => a.at - b.at);
+    for (const f of found) {
+      let u = f.u.replace(/[)\].,;:!?'"”’>]+$/, '');
       if (!/^https?:/i.test(u)) u = 'https://' + u;
-      const id = (/[?&]v=([\w-]+)/.exec(u) || /(?:youtu\.be|shorts|live|embed)\/([\w-]+)/.exec(u) || /[?&]list=([\w-]+)/.exec(u) || [u, u])[1];
-      if (!seen.has(id)) { seen.add(id); out.push(u); }
+      if (!hostOf(u) || !/\./.test(hostOf(u))) continue;
+      const k = linkKey(u);
+      if (!seen.has(k)) { seen.add(k); out.push(u); }
     }
     return out;
   }
+  /** “3 links found – 2 Instagram, 1 Vimeo” */
+  function describeLinks(links) {
+    const by = new Map();
+    for (const u of links) { const n = platformOf(u).name; by.set(n, (by.get(n) || 0) + 1); }
+    return Array.from(by, ([n, c]) => `${c} ${n}`).join(', ');
+  }
   const QUALITY = {
-    premiere: { label: 'Best for Premiere', hint: 'H.264 MP4, up to 1080p – plays smoothly, no converting' },
+    premiere: { label: 'Best for editing', hint: 'H.264 MP4, up to 1080p – plays and scrubs smoothly, no converting' },
     best: { label: 'Highest quality', hint: 'Up to 4K, converted to H.264 MP4 – takes longer' },
     audio: { label: 'Sound only', hint: 'M4A (AAC) – for music and voice-overs' }
   };
   const BROWSERS = isWin ? ['firefox', 'chrome', 'edge', 'brave', 'opera', 'vivaldi'] : ['firefox', 'chrome', 'safari', 'edge', 'brave', 'opera', 'vivaldi'];
   const BROWSER_NAME = { firefox: 'Firefox', chrome: 'Chrome', edge: 'Edge', brave: 'Brave', opera: 'Opera', vivaldi: 'Vivaldi', safari: 'Safari' };
-  /** The sign-in arguments: a browser's YouTube sign-in, or an exported cookies file. o: {signIn: 'off'|'browser'|'file', browser, cookies} */
+  /** The sign-in arguments: a browser's sign-in (YouTube, Instagram, Facebook…), or an exported cookies file. o: {signIn: 'off'|'browser'|'file', browser, cookies} */
   function signInArgs(o) {
     if (o.signIn === 'browser' && BROWSERS.includes(o.browser)) return ['--cookies-from-browser', o.browser];
     if (o.signIn === 'file' && o.cookies) return ['--cookies', o.cookies];
     return [];
   }
-  /** Needs a signed-in account: age-restricted, or YouTube's “confirm you're not a bot”. */
-  const needsSignIn = t => /sign in to confirm|age-restricted|inappropriate for some users|confirm your age/i.test(String(t || ''));
+  /** Needs a signed-in account: age-restricted, YouTube's “confirm you're not a bot”, or a site that wants you logged in
+      (Instagram, Facebook, TikTok and X often do; yt-dlp then suggests --cookies). */
+  const needsSignIn = t => /sign in to confirm|age-restricted|inappropriate for some users|confirm your age|login required|log ?in to (view|see|watch|continue)|you need to log ?in|requires? (a )?(login|authentication|logged)|only available for registered users|--cookies\b|for the authentication|only works when logged.in|IP address is blocked|cookies for the authentication|NSFW tweet|sensitive content/i.test(String(t || ''));
   /** yt-dlp's arguments for one link. o: {quality, folder, playlist, ffmpeg, signedIn (use the sign-in)} */
   function argsFor(url, o) {
     const q = QUALITY[o.quality] ? o.quality : 'premiere';
@@ -49,11 +97,11 @@
     if (o.signedIn) a.push(...signInArgs(o));
     if (q === 'audio') a.push('-f', 'ba[ext=m4a]/ba', '-x', '--audio-format', 'm4a');
     else if (q === 'best') a.push('-f', 'bv*+ba/b', '-S', 'res,fps', '--merge-output-format', 'mkv', '--recode-video', 'mp4', '--postprocessor-args', 'VideoConvertor:-c:v libx264 -crf 18 -preset fast -pix_fmt yuv420p -c:a aac -b:a 192k');
-    else a.push('-f', 'bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*[vcodec^=avc1]+ba/bv*+ba/b', '-S', 'res:1080,fps', '--merge-output-format', 'mp4');
+    else a.push('-f', 'bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*[vcodec^=avc1]+ba/bv*+ba/b', '-S', 'res:1080,vcodec:h264,fps', '--merge-output-format', 'mp4');
     a.push('--', url);
     return a;
   }
-  /** One line of yt-dlp's output -> {kind: 'progress', f} | {kind: 'title', title} | {kind: 'file', file} | {kind: 'error', text} | null */
+  /** One line of yt-dlp's output (also a warning that the site wants a sign-in, so it's asked for) -> {kind: 'progress', f} | {kind: 'title', title} | {kind: 'file', file} | {kind: 'error', text} | null */
   function parseLine(line) {
     const s = String(line || '').trim();
     let m;
@@ -61,20 +109,25 @@
     if ((m = /^US-TITLE (.+)$/.exec(s))) return { kind: 'title', title: m[1] };
     if ((m = /^US-FILE (.+)$/.exec(s))) return { kind: 'file', file: m[1] };
     if ((m = /^\[download\] (.+) has already been downloaded$/.exec(s))) return { kind: 'file', file: m[1], already: true };
-    if ((m = /^ERROR: (.+)$/.exec(s))) return { kind: 'error', text: m[1].replace(/^\[[^\]]+\] [\w-]+: /, '') };
+    if ((m = /^ERROR: (.+)$/.exec(s))) return { kind: 'error', text: m[1].replace(/^\[[^\]]+\] (?:[\w.-]+: )?/, '') };
     return null;
   }
-  /** A yt-dlp error in plain words. */
-  function plainError(t) {
-    t = String(t || '');
+  /** A yt-dlp error in plain words. site: the site's name (“Instagram”) – YouTube when not given. */
+  function plainError(t, site) {
+    t = String(t || ''); site = site || 'YouTube';
+    if (/unsupported url/i.test(t)) return 'That isn’t a link to a video Ultra Studio can download – check it opens the video itself.';
+    if (/no video (could be found|formats found|in this)|there'?s no video|no media found|only images/i.test(t)) return 'There’s no video there (a photo post, or a link to a profile).';
+    if (/IP address is blocked/i.test(t)) return `${site} is blocking downloads from this internet connection. Try signed in, later, or from another network.`;
+    if (site !== 'YouTube' && needsSignIn(t)) return `${site} only shows it to someone signed in (it’s private, for followers or members, or the site wants to check you’re a person).`;
     if (/private video|members-only|join this channel/i.test(t)) return 'It’s private or for members only.';
     if (/could not find .*cookies database|could not copy .*cookie database|failed to decrypt with dpapi|unsupported browser|app.?bound/i.test(t)) return 'Couldn’t read the browser’s sign-in. Close that browser completely and try again – or use Firefox, or a cookies file (Chrome and Edge often lock theirs).';
-    if (/cookies are no longer valid|netscape format|invalid cookies/i.test(t)) return 'The sign-in has expired or the cookies file isn’t right. Sign in to YouTube in the browser again (or export a new cookies file).';
+    if (/cookies are no longer valid|netscape format|invalid cookies/i.test(t)) return `The sign-in has expired or the cookies file isn’t right. Sign in to ${site} in the browser again (or export a new cookies file).`;
     if (/sign in to confirm your age|age-restricted|inappropriate for some users/i.test(t)) return 'It’s age-restricted, so YouTube wants a signed-in account that’s confirmed as over 18.';
     if (/sign in to confirm you.?re not a bot/i.test(t)) return 'YouTube asked to confirm it isn’t a bot. Try again later, or press “Update the downloader”.';
-    if (/video unavailable|has been removed|does not exist/i.test(t)) return 'The video isn’t available (removed, or blocked in your country).';
-    if (/HTTP Error 403|Requested format is not available|nsig|signature/i.test(t)) return 'YouTube changed something. Press “Update the downloader”, then try again.';
-    if (/unable to download webpage|getaddrinfo|timed out|network/i.test(t)) return 'No internet connection, or YouTube didn’t answer.';
+    if (/video unavailable|has been removed|does not exist|(?<!format is )not available|content isn.t available|page not found|HTTP Error 404/i.test(t)) return 'The video isn’t available (removed, private, or blocked in your country).';
+    if (/HTTP Error 403|Requested format is not available|nsig|signature|unable to extract|unable to parse|cannot parse data/i.test(t)) return `${site} changed something. Press “Update the downloader”, then try again.`;
+    if (/HTTP Error 429|too many requests|rate.?limit/i.test(t)) return `${site} says too many downloads at once. Wait a few minutes and try again.`;
+    if (/unable to download webpage|getaddrinfo|timed out|network/i.test(t)) return `No internet connection, or ${site} didn’t answer.`;
     return t.slice(0, 200);
   }
 
@@ -177,25 +230,29 @@
       p.on('close', () => { clearInterval(kill); read('\n'); resolve({ files: files.filter(f => fs.existsSync(f)), title, error: errors.length ? errors[errors.length - 1] : '' }); });
     });
   }
+  // “Web downloads” next to the project – or the “YouTube downloads” folder an earlier version made there
   const defaultFolder = () => {
-    const pr = US.ctx && US.ctx.project && US.ctx.project.path;
-    return pr ? path.join(path.dirname(pr), 'YouTube downloads') : path.join(path.dirname(US.fsx.exportsDir()), 'YouTube downloads');
+    const pr = US.ctx && US.ctx.project && US.ctx.project.path, base = pr ? path.dirname(pr) : path.dirname(US.fsx.exportsDir());
+    const old = path.join(base, 'YouTube downloads');
+    return fs.existsSync(old) ? old : path.join(base, 'Web downloads');
   };
+  const DEFAULT_BIN = 'Web downloads';
   /** o: {links, folder, binId, binName, quality, playlist} */
   async function run(job, o) {
     const links = Array.isArray(o.links) ? o.links : parseLinks(o.links);
-    if (!links.length) throw new US.UserError('BAD_INPUT', { title: 'No YouTube links there.', action: 'Paste links like https://www.youtube.com/watch?v=… or https://youtu.be/… – one per line.' });
+    if (!links.length) throw new US.UserError('BAD_INPUT', { title: 'No links there.', action: 'Paste links to videos – YouTube, Vimeo, Instagram, TikTok, Facebook and so on – one per line.' });
     const t = o.ytdlp ? { ytdlp: o.ytdlp, ffmpeg: o.ffmpeg || '' } : tools();
     if (!t.ytdlp || (!t.ffmpeg && !o.ytdlp)) throw new US.UserError('NOT_FOUND', { title: 'The downloader isn’t set up yet.', action: 'Press “Set up the downloader” first.' });
     const folder = US.fsx.ensureDir(o.folder || defaultFolder()), done = [], failed = [];
-    const into = o.binId ? { binId: o.binId } : { binPath: 'YouTube' };
+    const into = o.binId ? { binId: o.binId } : { binPath: DEFAULT_BIN };
     for (let i = 0; i < links.length; i++) {
       job.check();
       const at = i / links.length, part = 1 / links.length;
       job.set({ who: 'computer', msg: `Downloading ${i + 1} of ${links.length}` });
       const step = (f, title) => job.progress(at + part * 0.9 * f, `${title || links[i]} – ${Math.round(f * 100)}%`);
       const base = Object.assign({}, o, { folder, ytdlp: t.ytdlp, ffmpeg: t.ffmpeg });
-      // signed in only when YouTube won't let the video through otherwise (age-restricted, or its bot check)
+      const site = platformOf(links[i]).name;
+      // signed in only when the site won't let the video through otherwise (age-restricted, a bot check, a login wall)
       let r = await download(job, links[i], Object.assign({}, base, { signedIn: !!o.signedIn }), step);
       if (!r.files.length && !o.signedIn && needsSignIn(r.error) && signInArgs(o).length) {
         job.check();
@@ -203,31 +260,31 @@
         r = await download(job, links[i], Object.assign({}, base, { signedIn: true }), step);
       }
       job.check();
-      if (!r.files.length) { failed.push({ url: links[i], title: r.title, why: plainError(r.error || 'Nothing was downloaded.'), signIn: needsSignIn(r.error) }); continue; }
+      if (!r.files.length) { failed.push({ url: links[i], site, title: r.title, why: plainError(r.error || 'Nothing was downloaded.', site), signIn: needsSignIn(r.error) }); continue; }
       job.set({ who: US.app.is('resolve') ? 'resolve' : 'premiere', msg: `Importing “${r.title || path.basename(r.files[0])}”` });
-      try { const got = await US.host.call('importFiles', Object.assign({ paths: r.files }, into)); done.push({ url: links[i], title: r.title, files: r.files, items: got }); }
+      try { const got = await US.host.call('importFiles', Object.assign({ paths: r.files }, into)); done.push({ url: links[i], site, title: r.title, files: r.files, items: got }); }
       catch (e) { failed.push({ url: links[i], title: r.title, why: `Downloaded, but not imported: ${e.title || e.message}` }); }
     }
-    US.log(failed.length ? 'warn' : 'ok', `YouTube: ${US.plural(done.length, 'video')} downloaded and imported`, failed.map(f => `${f.title || f.url}: ${f.why}`).join(' · '), 'youtube');
+    US.log(failed.length ? 'warn' : 'ok', `Download: ${US.plural(done.length, 'video')} downloaded and imported`, failed.map(f => `${f.title || f.url}: ${f.why}`).join(' · '), 'youtube');
     if (!done.length && failed.length && !failed.every(f => f.signIn)) throw new US.UserError('NOT_FOUND', { title: failed.length === 1 ? `Couldn’t download it: ${failed[0].why}` : `None of the ${failed.length} downloaded.`, detail: failed.map(f => `${f.url}: ${f.why}`).join('\n') });
-    return { summary: `${US.plural(done.length, 'video')} in “${o.binName || 'YouTube'}”${failed.length ? ` · ${failed.length} didn’t download` : ''}`, done, failed, folder };
+    return { summary: `${US.plural(done.length, 'video')} in “${o.binName || DEFAULT_BIN}”${failed.length ? ` · ${failed.length} didn’t download` : ''}`, done, failed, folder };
   }
 
   /* ---------- the tab ---------- */
   const opts = () => Object.assign({ folder: '', binId: '', quality: 'premiere', playlist: false, signIn: 'off', browser: 'firefox', cookies: '' }, US.settings.get('youtube', {}));
   US.tools.register({
-    id: 'youtube', name: 'YouTube', short: 'YouTube', icon: 'youtube', group: 'selects', order: 14,
+    id: 'youtube', name: 'Download', short: 'Download', icon: 'download', group: 'selects', order: 14,
     hostFns: ['listBins', 'importFiles'],
     create() {
-      const v = ui.toolView({ icon: 'youtube', title: 'YouTube', blurb: 'Paste YouTube links: each video is downloaded to the folder you choose and imported into your bin, ready to edit.' });
+      const v = ui.toolView({ icon: 'download', title: 'Download', blurb: 'Paste links from YouTube, Vimeo, Instagram, TikTok, Facebook, X and most other video sites: each video is downloaded to the folder you choose and imported into your bin, ready to edit.' });
       let o = opts();
       const save = () => US.settings.set('youtube', o);
-      const links = h('textarea.input', { rows: 5, placeholder: 'Paste links here, one per line\nhttps://www.youtube.com/watch?v=…\nhttps://youtu.be/…', oninput: () => count() });
+      const links = h('textarea.input', { rows: 5, placeholder: 'Paste links here, one per line\nhttps://www.youtube.com/watch?v=…\nhttps://vimeo.com/…\nhttps://www.instagram.com/reel/…', oninput: () => count() });
       const countLine = h('div.field-hint');
-      const count = () => { const n = parseLinks(links.value).length; countLine.textContent = n ? `${US.plural(n, 'link')} found` : 'Links from youtube.com, youtu.be and YouTube Shorts.'; };
-      const binSel = ui.select({ options: [], placeholder: 'A new bin called “YouTube”', onChange: x => { o.binId = x; save(); } });
+      const count = () => { const l = parseLinks(links.value); countLine.textContent = l.length ? `${US.plural(l.length, 'link')} found – ${describeLinks(l)}` : 'YouTube, Vimeo, Instagram, TikTok, Facebook, X, Reddit, LinkedIn, Dailymotion, Twitch, SoundCloud and most other sites.'; };
+      const binSel = ui.select({ options: [], placeholder: `A new bin called “${DEFAULT_BIN}”`, onChange: x => { o.binId = x; save(); } });
       let bins = [];
-      async function fillBins() { try { bins = (await US.host.call('listBins')).filter(b => b.path !== '(Project root)'); binSel.setOptions([{ value: '', label: 'A new bin called “YouTube”' }].concat(bins.map(b => ({ value: b.id, label: b.path }))), bins.some(b => b.id === o.binId) ? o.binId : ''); } catch (e) { /* no project yet */ } }
+      async function fillBins() { try { bins = (await US.host.call('listBins')).filter(b => b.path !== '(Project root)'); binSel.setOptions([{ value: '', label: `A new bin called “${DEFAULT_BIN}”` }].concat(bins.map(b => ({ value: b.id, label: b.path }))), bins.some(b => b.id === o.binId) ? o.binId : ''); } catch (e) { /* no project yet */ } }
       const folderLine = h('div.grow.field-hint');
       const showFolder = () => { folderLine.textContent = `Saving to ${o.folder || defaultFolder()}`; };
       const quality = ui.segmented({ options: Object.entries(QUALITY).map(([value, q]) => ({ value, label: q.label })), value: o.quality, onChange: x => { o.quality = x; save(); qHint.textContent = QUALITY[x].hint; } });
@@ -236,21 +293,25 @@
       /** Some videos need a signed-in account: how to sign in (a browser, or a cookies file) -> true when set, false to skip. */
       async function askSignIn(blocked) {
         let how = o.signIn !== 'off' ? o.signIn : 'browser', browser = o.browser || 'firefox', cookies = o.cookies || '';
+        const names = Array.from(new Set(blocked.map(b => b.site || 'YouTube'))), onlyYT = names.every(n => n === 'YouTube');
+        const sites = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
         const box = h('div');
         const draw = () => {
           US.clear(box);
-          box.appendChild(h('p', `${blocked.length === 1 ? `“${blocked[0].title || blocked[0].url}” is` : `${blocked.length} videos are`} age-restricted (or YouTube asked to confirm it isn’t a bot), so YouTube only lets a signed-in account download ${blocked.length === 1 ? 'it' : 'them'}. Use your spare YouTube account – one confirmed as over 18. It’s only used for videos that need it.`));
+          box.appendChild(h('p', onlyYT
+            ? `${blocked.length === 1 ? `“${blocked[0].title || blocked[0].url}” is` : `${blocked.length} videos are`} age-restricted (or YouTube asked to confirm it isn’t a bot), so YouTube only lets a signed-in account download ${blocked.length === 1 ? 'it' : 'them'}. Use your spare YouTube account – one confirmed as over 18. It’s only used for videos that need it.`
+            : `${blocked.length === 1 ? `“${blocked[0].title || blocked[0].url}”` : `${blocked.length} videos`} on ${sites} only download${blocked.length === 1 ? 's' : ''} for someone signed in (private or followers-only posts, age limits, or a check that you’re a person). Use an account that can see ${blocked.length === 1 ? 'it' : 'them'} – a spare one if you have it. The sign-in is only used for videos that need it.`));
           box.appendChild(ui.segmented({ options: [{ value: 'browser', label: 'Signed in to a browser' }, { value: 'file', label: 'A cookies file' }], value: how, onChange: x => { how = x; draw(); } }));
           if (how === 'browser') {
             box.appendChild(ui.field('Browser', ui.select({ options: BROWSERS.map(b => ({ value: b, label: BROWSER_NAME[b] + (b === 'firefox' ? ' (most reliable)' : '') })), value: browser, onChange: x => { browser = x; draw(); } })));
-            box.appendChild(h('div.field-hint', `Sign in to YouTube in ${BROWSER_NAME[browser]} with the spare account first.${browser === 'firefox' || browser === 'safari' ? '' : ' Then close it completely – it locks its sign-in while it’s open, and newer versions may not share it at all (Firefox or a cookies file always work).'}`));
+            box.appendChild(h('div.field-hint', `Sign in to ${sites} in ${BROWSER_NAME[browser]} first.${browser === 'firefox' || browser === 'safari' ? '' : ' Then close it completely – it locks its sign-in while it’s open, and newer versions may not share it at all (Firefox or a cookies file always work).'}`));
           } else {
             box.appendChild(h('div.row', h('span.field-hint.grow', cookies || 'No file chosen yet.'), ui.button('Choose file…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = US.app.pickFiles({ title: 'Choose the cookies file (cookies.txt)', ext: ['txt'] }); if (r[0]) { cookies = US.normPath(r[0]); draw(); } } catch (e) { ui.showError(e); } } })));
-            box.appendChild(h('div.field-hint', 'Signed in to YouTube with the spare account, export its cookies with a “Get cookies.txt” browser extension and choose the file. Keep it private – it’s that account’s sign-in.'));
+            box.appendChild(h('div.field-hint', `Signed in to ${sites}, export the cookies with a “Get cookies.txt” browser extension and choose the file. Keep it private – it’s that account’s sign-in.`));
           }
         };
         draw();
-        const v = await ui.modal({ title: 'YouTube wants a signed-in account', body: box, buttons: [{ label: 'Skip them', value: false, kind: 'ghost' }, { label: 'Sign in and try again', value: true, kind: 'primary' }] });
+        const v = await ui.modal({ title: `${sites} want${names.length > 1 ? '' : 's'} a signed-in account`, body: box, buttons: [{ label: 'Skip them', value: false, kind: 'ghost' }, { label: 'Sign in and try again', value: true, kind: 'primary' }] });
         if (!v) return false;
         if (how === 'file' && !cookies) { ui.toast({ type: 'warn', title: 'Choose the cookies file first.' }); return false; }
         Object.assign(o, { signIn: how, browser, cookies }); save(); drawSignedIn();
@@ -261,28 +322,28 @@
       function drawSignedIn() {
         US.clear(signedLine);
         if (o.signIn === 'off') return;
-        signedLine.appendChild(h('div.row', h('span.field-hint.grow', `Age-restricted videos: signed in with ${o.signIn === 'file' ? 'a cookies file' : BROWSER_NAME[o.browser] || o.browser}, only when needed.`),
+        signedLine.appendChild(h('div.row', h('span.field-hint.grow', `Videos that need an account: signed in with ${o.signIn === 'file' ? 'a cookies file' : BROWSER_NAME[o.browser] || o.browser}, only when needed.`),
           ui.button('Forget', { small: true, kind: 'ghost', title: 'Stop using the sign-in – it’s asked for again next time a video needs it', onClick: () => { o.signIn = 'off'; o.cookies = ''; save(); drawSignedIn(); } })));
       }
       function drawSetup() {
         US.clear(setupBox);
         const t = tools();
         if (t.ytdlp && t.ffmpeg) {
-          setupBox.appendChild(h('div.row', h('span.field-hint.grow', 'Downloader ready.'), ui.button('Update the downloader', { small: true, kind: 'ghost', icon: 'refresh', title: 'YouTube changes often – update when downloads start failing', onClick: async () => { const r = await US.jobs.run({ title: 'Updating the downloader', tool: 'youtube' }, job => update(job)); if (r !== undefined) ui.toast({ type: 'ok', title: 'Downloader', text: r }); } })));
+          setupBox.appendChild(h('div.row', h('span.field-hint.grow', 'Downloader ready.'), ui.button('Update the downloader', { small: true, kind: 'ghost', icon: 'refresh', title: 'The sites change often – update when downloads start failing', onClick: async () => { const r = await US.jobs.run({ title: 'Updating the downloader', tool: 'youtube' }, job => update(job)); if (r !== undefined) ui.toast({ type: 'ok', title: 'Downloader', text: r }); } })));
           return;
         }
         setupBox.appendChild(ui.note(`Downloading needs two free tools: yt-dlp (fetches the video) and ffmpeg (joins picture and sound). They're downloaded once, from their official GitHub${isWin ? '' : ' and evermeet.cx'} pages, into Ultra Studio's own folder – about ${isWin ? 140 : 90} MB.`));
         setupBox.appendChild(ui.button('Set up the downloader', { kind: 'primary', icon: 'download', onClick: async () => {
-          const r = await US.jobs.run({ title: 'Setting up the YouTube downloader', tool: 'youtube' }, job => setUp(job));
+          const r = await US.jobs.run({ title: 'Setting up the downloader', tool: 'youtube' }, job => setUp(job));
           if (r !== undefined) drawSetup();
         } }));
       }
       const go = ui.actionButton('Download and import', async () => {
-        const r = await US.jobs.run({ title: 'Downloading from YouTube', tool: 'youtube' }, job => run(job, { links: links.value, folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies }));
+        const r = await US.jobs.run({ title: 'Downloading videos', tool: 'youtube' }, job => run(job, { links: links.value, folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies }));
         if (r === undefined) return;
         const blocked = r.failed.filter(f => f.signIn);
         if (blocked.length && o.signIn === 'off' && await askSignIn(blocked)) {
-          const again = await US.jobs.run({ title: 'Downloading the age-restricted videos', tool: 'youtube' }, job => run(job, { links: blocked.map(f => f.url), folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies, signedIn: true }));
+          const again = await US.jobs.run({ title: 'Downloading the videos that need a sign-in', tool: 'youtube' }, job => run(job, { links: blocked.map(f => f.url), folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies, signedIn: true }));
           if (again !== undefined) { r.done = r.done.concat(again.done); r.failed = r.failed.filter(f => !f.signIn).concat(again.failed); }
         }
         if (r.failed.length) ui.toast({ type: 'warn', title: `${r.failed.length} didn’t download`, text: r.failed.map(f => `${f.title || f.url}: ${f.why}`).join('\n'), timeout: 12000 });
@@ -302,7 +363,7 @@
       return { el: v.el, onShow() { o = opts(); fillBins(); showFolder(); drawSetup(); drawSignedIn(); } };
     }
   });
-  US.actions && US.actions.register && US.actions.register({ id: 'youtube.open', tool: 'youtube', title: 'Download from YouTube', changes: false, describe: 'Opens the YouTube tab: paste links, they’re downloaded and imported into a bin.', examples: ['download this youtube video', 'import from youtube'], match: t => (/\byoutube|youtu\.be\b/i.test(t) && /\b(download|import|get|grab)\b/i.test(t) ? {} : null), run: async () => { US.tools.open('youtube'); return { summary: 'YouTube is open – paste the links there.' }; } });
+  US.actions && US.actions.register && US.actions.register({ id: 'youtube.open', tool: 'youtube', title: 'Download videos from the web', changes: false, describe: 'Opens the Download tab: paste links from YouTube, Vimeo, Instagram, TikTok, Facebook, X and more – they’re downloaded and imported into a bin.', examples: ['download this youtube video', 'import from vimeo', 'download an instagram reel', 'get this tiktok'], match: t => (/\b(youtube|youtu\.be|vimeo|instagram|insta|reels?|tiktok|facebook|fb|twitter|x\.com|reddit|linkedin|dailymotion|twitch|soundcloud|bandcamp)\b/i.test(t) && /\b(download|import|get|grab)\b/i.test(t) ? {} : null), run: async () => { US.tools.open('youtube'); return { summary: 'Download is open – paste the links there.' }; } });
 
-  US.youtube = { parseLinks, argsFor, parseLine, plainError, run, tools, QUALITY, signInArgs, needsSignIn, BROWSERS };
+  US.youtube = { parseLinks, platformOf, linkKey, describeLinks, PLATFORMS, argsFor, parseLine, plainError, run, tools, QUALITY, signInArgs, needsSignIn, BROWSERS, DEFAULT_BIN };
 })();
