@@ -224,3 +224,29 @@ test('interview log: a section per interview – summary, themes, strongest line
   const txt = E.logText(sampleLog(false));
   assert.ok(txt.includes('1. ruth.mp4 – Ruth, Interviewer · 5:12') && txt.includes('Talks about: Family (5, from 00:00:12:00) · Faith (2, from 00:03:01:10)') && !txt.includes('Transcript:'), txt);
 });
+
+test('interviews numbered in timeline order, on the labels with the clip; where each starts and ends', () => {
+  const e = (clipKey, clip, sp, start, end, text) => ({ clipKey, clip, speakerKey: clipKey + '|' + sp, start, end, text, entries: [] });
+  const entries = [e('r', 'ruth.mov', 'S1', 0, 4, 'I grew up by the sea.'), e('r', 'ruth.mov', 'S1', 4.5, 8, 'My father fished.'), e('d', 'david.wav', 'S1', 9, 12, 'We lit the candles.'), e('r', 'ruth.mov', 'S1', 13, 15, 'And then we left.')];
+  const d = new Map([['r|S1', 'Ruth Cohen'], ['d|S1', 'David (not sure)']]);
+  assert.deepStrictEqual(Array.from(TL.interviewNumbers(entries)), [['r', 1], ['d', 2]], 'numbered by first appearance');
+  const lab = TL.labeller(entries, d, { interviews: true, clips: true });
+  assert.strictEqual(lab(entries[2]), 'David (not sure) · Interview 2 · david.wav');
+  assert.strictEqual(TL.labeller(entries, d, {})(entries[0]), 'Ruth Cohen', 'off: just the name');
+  const paras = TL.paragraphs(entries, d, { labelOf: TL.labeller(entries, d, { interviews: true }) });
+  assert.deepStrictEqual(paras.map(p => p.name), ['Ruth Cohen · Interview 1', 'David (not sure) · Interview 2', 'Ruth Cohen · Interview 1']);
+  const marked = TL.withInterviewMarks(paras, entries);
+  assert.deepStrictEqual(marked.map(p => (p.mark ? TL.markText(p) + ' @' + p.at : p.name)), [
+    'Interview 1 starts – ruth.mov @0', 'Ruth Cohen · Interview 1', 'Interview 1 ends @8',
+    'Interview 2 starts – david.wav @9', 'David (not sure) · Interview 2', 'Interview 2 ends @12',
+    'Interview 1 starts – ruth.mov @13', 'Ruth Cohen · Interview 1', 'Interview 1 ends @15']);
+  // the exports carry them
+  const t = { title: 'T', sequence: 'Cut', project: '', date: 'today', speakers: [{ name: 'Ruth Cohen', talk: 9 }], paragraphs: marked, markText: TL.markText,
+    entries: entries.map(x => Object.assign({}, x, { name: lab(x), srcIn: 0, srcOut: 1 })), seqTC: s => E.tc(3600 + s, { fps: 25 }), srcTC: () => '00:00:00:00', interviewOf: x => TL.interviewNumbers(entries).get(x.clipKey) };
+  const txt = E.toText(t);
+  assert.ok(txt.includes('01:00:00:00  —— Interview 1 starts – ruth.mov ——') && txt.includes('01:00:12:00  —— Interview 2 ends ——') && txt.includes('David (not sure) · Interview 2: We lit the candles.'), txt);
+  const csv = E.toCSV(t).replace(/^﻿/, '').trim().split('\r\n');
+  assert.ok(csv[0].startsWith('Timecode in,Timecode out,Speaker,Interview,Text') && csv[3].includes(',2,We lit the candles.'), csv.join('\n'));
+  const docx = E.toDocx(t);
+  assert.ok(docx.length > 1000, 'a Word file with the marks');
+});

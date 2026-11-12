@@ -1,3 +1,9 @@
+## What's new in 1.3.33
+
+- **Speaker names from the AI in the transcript of a timeline** (Story › 5 Share › Transcript of a timeline › Who is who). **Name the speakers with AI** works out who each voice is from what's said – someone introducing themselves, being addressed by name, the person asking the questions – and from the Story wiki's people when you've made the wiki. Only text is read. When it's a reasonable guess rather than clear, the label says **(not sure)**, e.g. *David Levy (not sure)*. Under each voice you see what the AI decided and why. A name you type always wins; **Use the AI's names** turns them off; **Ask again** redoes them.
+- **Where each interview starts and stops.** Switch on **Number the interviews and mark where each starts and ends** under Export: every label carries its interview's number with the name (*Ruth Cohen · Interview 2*), and a line marks where each interview begins and ends – also when the cut goes back to an earlier interview. In the Word, text and subtitle exports, and as an *Interview* column in the spreadsheet.
+- **Clip names on the labels:** a second switch adds the clip each line comes from (*Ruth Cohen · Interview 2 · A001_C003.mov*).
+
 ## What's new in 1.3.32
 
 - **A new Advanced tab** keeps the rail short. **Selects**, **Subclip Maker**, **MC Selects** (Premiere), **Take Sets**, **Song Splitter** and **Podcast** live there now – open one from Advanced, and its screen has a **‹ Advanced** link back (the rail shows Advanced while you're in it). They work exactly as before, and the Assistant can still use them.

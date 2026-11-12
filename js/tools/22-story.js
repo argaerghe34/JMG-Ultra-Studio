@@ -954,7 +954,91 @@
     const result = TL().build(collected.clips, find);
     return { info, tracks, collected, result };
   }
-  function namesFor(tl) { if (!state.whoIsWho) state.whoIsWho = {}; return TL().displayNames(tl.result.speakers, state.whoIsWho); }
+  /**
+   * Who each voice is: the name typed in "Who is who", else – while "Use the AI's names" is on – the AI's, with
+   * "(not sure)" when it wasn't confident, else Premiere's/Resolve's own name, else Speaker A, B, C…
+   */
+  function namesFor(tl) {
+    if (!state.whoIsWho) state.whoIsWho = {};
+    const ai = state.speakerAI || {}, useAI = US.settings.get('story.tlAINames', true) !== false, names = {};
+    for (const sp of tl.result.speakers) {
+      const typed = (state.whoIsWho[sp.key] || '').trim(), a = useAI && ai[sp.key];
+      names[sp.key] = typed || (a && a.name ? a.name + (a.sure ? '' : ' (not sure)') : '');
+    }
+    return TL().displayNames(tl.result.speakers, names);
+  }
+  /** The transcript-of-a-timeline options: interviews numbered with their starts and ends, clip names on the labels. */
+  const tlLabelOpts = () => ({ interviews: !!US.settings.get('story.tlInterviews', false), clips: !!US.settings.get('story.tlClips', false) });
+
+  /* ---------- the AI names the voices (text only) ---------- */
+  const SPEAKER_SYSTEM = 'You help a documentary editor label who is speaking in interview transcripts. Each voice has a key, the clip it is in and its lines; each interview is also shown from its start, voices labelled, so you can see introductions and people addressing each other by name. Work out each voice’s real name from what is said – someone introducing themselves (“I’m Ruth”, “my name is…”), being addressed by name (“So Ruth, tell me…”), or the notes on the people in the story. The person asking the questions is “Interviewer” unless their name is clear. Never invent a name: when nothing in the text points to one, leave name empty. sure is true only when the text clearly says who it is; when it is a reasonable guess (only one person in the story fits, a name mentioned nearby), give the name with sure false. why: a few words saying what told you. Use British English.';
+  const SPEAKER_SCHEMA = { type: 'object', additionalProperties: false, required: ['voices'], properties: { voices: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['key', 'name', 'sure', 'why'], properties: { key: { type: 'string' }, name: { type: 'string' }, sure: { type: 'boolean' }, why: { type: 'string' } } } } } };
+  /**
+   * The text the AI reads to name the voices of a timeline transcript, in parts of at most ~40,000 characters: each
+   * interview from its start (voices labelled V1, V2… by key) and up to 15 longer lines per voice; the wiki's people
+   * and interview summaries, when there's a wiki. -> [{req, keys}]
+   */
+  function speakerRequests(tl, { only = null } = {}) {
+    const voices = tl.result.speakers.filter(sp => !only || only.has(sp.key));
+    const byClip = new Map();
+    for (const sp of voices) { if (!byClip.has(sp.clipKey)) byClip.set(sp.clipKey, []); byClip.get(sp.clipKey).push(sp); }
+    const vid = new Map(tl.result.speakers.map((sp, i) => [sp.key, 'V' + (i + 1)]));
+    const cut = (t, n) => (String(t).length > n ? String(t).slice(0, n) + '…' : String(t));
+    const blocks = [];
+    for (const [clipKey, sps] of byClip) {
+      const tr = state.transcripts.find(t => t.key === clipKey);
+      if (!tr) continue;
+      const keyOf = sp => clipKey + '|' + (sp || '');
+      const label = l => vid.get(keyOf(l.speaker)) || (l.speaker ? `(${l.speaker})` : '(?)');
+      const opening = tr.lines.slice(0, 45).map(l => `${label(l)}: ${cut(l.text, 260)}`);
+      const per = sps.map(sp => {
+        const ls = tr.lines.filter(l => keyOf(l.speaker) === sp.key);
+        const pick = ls.slice().sort((a, b) => b.text.length - a.text.length).slice(0, 15).sort((a, b) => a.start - b.start);
+        return `Voice ${vid.get(sp.key)} (key ${sp.key}; ${ls.length} lines${sp.label && !TL().GENERIC.test(sp.label) ? `; labelled “${sp.label}”` : ''}):\n` + pick.map(l => '- ' + cut(l.text, 300)).join('\n');
+      });
+      blocks.push({ keys: sps.map(sp => sp.key), text: `## Interview: ${tr.name}\nFrom the start:\n${opening.join('\n')}\n\n${per.join('\n\n')}` });
+    }
+    const w = state.wiki && state.wiki.data, notes = [];
+    if (w) {
+      for (const p of (w.person || []).slice(0, 40)) notes.push(`- ${p.name}: ${cut(p.summary || '', 220)}`);
+      const ivs = (w.interviews || []).slice(0, 40).map(i => `- ${i.title}: ${cut(i.summary || '', 260)}`);
+      if (ivs.length) notes.push('', 'Interviews in brief:', ...ivs);
+    }
+    const typed = Object.values(state.whoIsWho || {}).concat(Object.values(state.speakers || {}).map(x => x && x.name)).filter(n => n && !TL().GENERIC.test(n));
+    const known = (notes.length ? 'People in the story (from the story wiki):\n' + notes.join('\n') + '\n\n' : '') + (typed.length ? `Names the editor has already used: ${Array.from(new Set(typed)).join(', ')}\n\n` : '');
+    const parts = [];
+    let cur = null;
+    for (const b of blocks) {
+      if (!cur || cur.text.length + b.text.length > 40000) { cur = { text: '', keys: [] }; parts.push(cur); }
+      cur.text += (cur.text ? '\n\n' : '') + b.text; cur.keys.push(...b.keys);
+    }
+    return parts.map(pt => ({ keys: pt.keys, req: { feature: 'Story – speaker names', system: SPEAKER_SYSTEM, schema: SPEAKER_SCHEMA, maxTokens: 4000, effort: 'low',
+      user: `${known}Give a name for each of these voice keys: ${pt.keys.join(', ')}\n\n${pt.text}` } }));
+  }
+  /** Name a timeline transcript's voices with the AI (only the ones without a name yet, unless again). -> {named, unsure, summary} */
+  async function nameSpeakersAI(job, tl, { again = false } = {}) {
+    if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
+    if (!state.speakerAI) state.speakerAI = {};
+    const only = new Set(tl.result.speakers.filter(sp => again || !state.speakerAI[sp.key]).map(sp => sp.key));
+    if (!only.size) return { named: 0, unsure: 0, summary: 'every voice has a name from the AI already – press “Ask again” to redo them' };
+    const reqs = speakerRequests(tl, { only });
+    if (!reqs.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s nothing for the AI to read.', action: 'Make the transcript of a timeline with transcribed speech first.' });
+    if (US.ai.approveTotal) await US.ai.approveTotal(SAI().cost(reqs.map(r => r.req)).usd, 'Speaker names');
+    let named = 0, unsure = 0;
+    for (let i = 0; i < reqs.length; i++) {
+      job.check(); job.set({ who: 'ai', msg: `Working out who is speaking${reqs.length > 1 ? ` (${i + 1} of ${reqs.length})` : ''}` }).progress(i / reqs.length);
+      const ans = await SAI().ask(reqs[i].req);
+      for (const v of (ans && ans.voices) || []) {
+        if (!reqs[i].keys.includes(v.key)) continue;
+        const name = String(v.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        state.speakerAI[v.key] = { name, sure: !!v.sure && !!name, why: String(v.why || '').slice(0, 200), at: Date.now(), by: US.ai.label() };
+        if (name) { named++; if (!v.sure) unsure++; }
+      }
+    }
+    save();
+    return { named, unsure, summary: `${US.plural(named, 'voice')} named by ${US.ai.label()}${unsure ? ` · ${unsure} marked “not sure”` : ''}` };
+  }
+
   const fileSafe = n => String(n).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Transcript';
   function uniquePath(f) {
     if (US.encoder && US.encoder.unique) return US.encoder.unique(f);
@@ -967,10 +1051,16 @@
     if (US.fsx.isWin) cp.exec(reveal ? `explorer /select,"${f}"` : `start "" "${f}"`);
     else cp.execFile('open', reveal ? ['-R', f] : [f]);
   }
+  /** The transcript's paragraphs as shown and exported: labelled, with each interview's start and end when asked for. */
+  function tlParagraphs(tl, display) {
+    const entries = tl.result.entries, lo = tlLabelOpts();
+    const paras = TL().paragraphs(entries, display, { labelOf: TL().labeller(entries, display, lo) });
+    return lo.interviews ? TL().withInterviewMarks(paras, entries) : paras;
+  }
   /** Write the transcript as docx | txt | srt | csv. Returns {file, summary}. */
   async function exportTimeline(job, tl, format = 'docx') {
     const display = namesFor(tl), E = EX(), timing = tl.info.timing || { zero: 0, fps: tl.info.fps || 25, drop: false };
-    const entries = tl.result.entries;
+    const entries = tl.result.entries, lo = tlLabelOpts(), labelOf = TL().labeller(entries, display, lo);
     if (!entries.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s nothing to export yet.', action: 'None of the clips in this sequence have transcripts – see the list on the Timeline tab.' });
     const ids = Array.from(new Set(entries.map(e => e.itemId).filter(Boolean)));
     job && job.set({ who: 'premiere', msg: 'Reading source timecodes' });
@@ -981,9 +1071,10 @@
       title: `Transcript – ${tl.info.name}`, sequence: tl.info.name, project: US.ctx.project ? US.ctx.project.name : '',
       date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       speakers: TL().people(tl.result.speakers, display),
-      paragraphs: TL().paragraphs(entries, display),
-      entries: entries.map(e => Object.assign({}, e, { name: display.get(e.speakerKey) })),
-      seqTC, srcTC
+      paragraphs: tlParagraphs(tl, display),
+      entries: entries.map(e => Object.assign({}, e, { name: labelOf(e) })),
+      seqTC, srcTC, markText: TL().markText,
+      interviewOf: lo.interviews ? (nums => e => nums.get(e.clipKey))(TL().interviewNumbers(entries)) : null
     };
     const body = format === 'docx' ? E.toDocx(t) : format === 'srt' ? E.toSRT(t) : format === 'csv' ? E.toCSV(t) : E.toText(t);
     const dir = US.fsx.ensureDir(US.settings.get('story.exportDir') || path.join(US.fsx.exportsDir(), 'Transcripts'));
@@ -3818,13 +3909,23 @@
         const colourOf = name => SPEAKER_COLORS[Math.max(0, folks.findIndex(p => p.name.toLowerCase() === String(name).toLowerCase())) % SPEAKER_COLORS.length];
         const listEl = h('div.story-tl-list'), peopleEl = h('div.field-hint');
         const redraw = () => { const d = namesFor(tl); const f = TL().people(r.speakers, d); peopleEl.textContent = `${US.plural(f.length, 'person', 'people')}: ` + f.map(p => `${p.name} (${US.fmtDur(p.talk)})`).join(', '); drawLines(d); };
+        const aiOn = !!(US.ai && US.ai.available()), aiNames = state.speakerAI || {}, aiCount = r.speakers.filter(sp => aiNames[sp.key]).length;
+        const nameAI = again => US.jobs.run({ title: 'Naming the speakers', tool: 'story', who: 'AI' }, async job => { const x = await nameSpeakersAI(job, tl, { again }); renderTimeline(); return x; });
+        const aiRow = aiOn ? h('div', { style: { margin: '6px 0 10px' } },
+          h('div.row', ui.button(aiCount ? 'Name the rest with AI' : 'Name the speakers with AI', { small: true, icon: 'spark', onClick: () => nameAI(false) }),
+            aiCount ? ui.button('Ask again', { small: true, kind: 'ghost', title: 'Name every voice again', onClick: () => nameAI(true) }) : null),
+          aiCount ? ui.toggle({ label: 'Use the AI’s names', value: US.settings.get('story.tlAINames', true) !== false, hint: 'A name you type always wins. “(not sure)” marks a guess.', onChange: v => { US.settings.set('story.tlAINames', !!v); renderTimeline(); } }) : null,
+          h('div.field-hint', `${US.ai.label()} reads only text – each interview’s opening, a sample of each voice’s lines${state.wiki ? ' and the story wiki’s people' : ''} – and names each voice from what’s said (introductions, people addressed by name). A guess is marked “(not sure)”.${state.wiki ? '' : ' Make the Story wiki first for better names.'}`)) : null;
         el.appendChild(ui.card(h('div.card-title', 'Who is who', h('span.right', US.plural(r.speakers.length, 'voice'))),
-          h('div.muted', 'Premiere tells voices apart within each clip. Type a name for each – the same name in two rows means the same person.'),
+          h('div.muted', `${RES ? 'Resolve' : 'Premiere'} tells voices apart within each clip. Type a name for each – the same name in two rows means the same person.`),
+          aiRow,
           ...r.speakers.map(sp => {
             const input = ui.input({ value: (state.whoIsWho || {})[sp.key] || '', placeholder: display.get(sp.key), onInput: US.debounce(v => { state.whoIsWho[sp.key] = v.trim(); save(); redraw(); }, 350) });
+            const a = aiNames[sp.key];
             return h('div.story-who', h('span.swatch', { style: { background: colourOf(display.get(sp.key)) } }),
               h('div.story-who-main', h('div.row', h('div.grow', input), h('span.field-hint', US.fmtDur(sp.talk))),
-                h('div.story-meta', `${sp.clipName}${TL().GENERIC.test(sp.label || '') ? (sp.label ? ' · ' + sp.label : '') : ' · named “' + sp.label + '” in Premiere'}`),
+                h('div.story-meta', `${sp.clipName}${TL().GENERIC.test(sp.label || '') ? (sp.label ? ' · ' + sp.label : '') : ' · named “' + sp.label + '” in ' + (RES ? 'Resolve' : 'Premiere')}`),
+                a ? h('div.story-meta', a.name ? `AI: ${a.name}${a.sure ? '' : ' (not sure)'}${a.why ? ' – ' + a.why : ''}` : `AI: couldn’t tell${a.why ? ' – ' + a.why : ''}`) : null,
                 sp.sample ? h('div.story-who-sample', `“${sp.sample.text}”`) : null),
               sp.sample ? h('button.icon-btn', { title: 'Hear this voice', onclick: async () => { try { await US.host.cue(sp.sample.itemId, Math.max(0, sp.sample.srcIn - 0.2), { play: true }); } catch (e) { ui.showError(e); } } }, US.icon('play', 15)) : null);
           }), peopleEl));
@@ -3833,7 +3934,10 @@
         const lastRow = h('div');
         const showLast = () => { US.clear(lastRow); if (lastExport) lastRow.appendChild(h('div.row', h('span.field-hint.grow', US.basename(lastExport)), ui.button('Open', { small: true, onClick: () => openFile(lastExport) }), ui.button(US.fsx.isWin ? 'Show in Explorer' : 'Show in Finder', { small: true, kind: 'ghost', onClick: () => openFile(lastExport, true) }))); };
         showLast();
+        const lo = tlLabelOpts();
         el.appendChild(ui.card(h('div.card-title', 'Export'), fmt,
+          ui.toggle({ label: 'Number the interviews and mark where each starts and ends', value: lo.interviews, hint: 'Each label says which interview it is (“Ruth Cohen · Interview 2”), with a line where each interview begins and ends', onChange: v => { US.settings.set('story.tlInterviews', !!v); redraw(); } }),
+          ui.toggle({ label: 'Clip names on the labels', value: lo.clips, hint: 'The clip each line comes from, after the name', onChange: v => { US.settings.set('story.tlClips', !!v); redraw(); } }),
           h('div.field-hint', 'Word: title, speaker key and timecoded paragraphs · Text · Subtitles (.srt) with names · Spreadsheet (.csv) with source clips and timecodes. Saved in Documents › JMG Ultra Studio › Transcripts.'),
           ui.actionButton('Export transcript', () => US.jobs.run({ title: 'Exporting the transcript', tool: 'story' }, async job => { const x = await exportTimeline(job, tl, tlFormat); lastExport = x.file; showLast(); ui.toast({ type: 'ok', title: 'Transcript saved', text: US.basename(x.file), action: { label: 'Open', fn: () => openFile(x.file) } }); return x; }), { icon: 'deliver' }),
           lastRow));
@@ -3854,8 +3958,8 @@
         function drawLines(d) {
           US.clear(listEl);
           const timing = tl.info.timing || { zero: 0, fps: tl.info.fps || 25 };
-          const paras = TL().paragraphs(r.entries, d);
-          for (const p of paras.slice(0, 600)) listEl.appendChild(h('div.story-tl-row', { title: 'Click to move the playhead here', onclick: () => US.host.call('setPlayhead', { seqId: tl.info.id, seconds: p.start }).catch(e => ui.showError(e)) },
+          const paras = tlParagraphs(tl, d);
+          for (const p of paras.slice(0, 600)) listEl.appendChild(p.mark ? h('div.story-tl-mark.' + p.mark, h('span.story-tl-tc', EX().tc(timing.zero + p.at, { fps: timing.fps, drop: timing.drop })), h('b', TL().markText(p))) : h('div.story-tl-row', { title: 'Click to move the playhead here', onclick: () => US.host.call('setPlayhead', { seqId: tl.info.id, seconds: p.start }).catch(e => ui.showError(e)) },
             h('span.story-tl-tc', EX().tc(timing.zero + p.start, { fps: timing.fps, drop: timing.drop })),
             h('div.story-tl-body', h('span.story-tl-name', { style: { color: colourOf(p.name) } }, p.name), ' ', p.text)));
           if (paras.length > 600) listEl.appendChild(h('div.field-hint', `…${paras.length - 600} more paragraphs in the export.`));
@@ -4296,7 +4400,7 @@
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
     themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,
-    timelineTranscript, exportTimeline, exportBoard, interviewLog, summarise, openFile, summaryPlan, summarySig, namesFor, refreshCustomTheme: (...a) => refreshCustomTheme(...a),
+    timelineTranscript, exportTimeline, exportBoard, interviewLog, summarise, openFile, summaryPlan, summarySig, namesFor, nameSpeakersAI, speakerRequests, tlParagraphs, refreshCustomTheme: (...a) => refreshCustomTheme(...a),
     PICKY_LEVELS, pickyFor, passLevel, pickLines, effectiveLines, describePicky, relevanceOf, findMore, selectedIds, newThemeFrom, usedInSequence,
     selectionMap, highlightStringOut, removeHighlights, guessStringOut, narrativeAlternates: (...a) => narrativeAlternates(...a),
     narrativePool, makeNarrative, narrativeColumn, narrativeGroups, buildNarrative, makePromo, latestNarrative: id => latestNarrative(id), trimOf,

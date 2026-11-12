@@ -105,7 +105,7 @@
     const out = [t.title, `${t.sequence}${t.project ? ' · ' + t.project : ''} · ${t.date}`, '', 'Speakers:'];
     for (const s of t.speakers) out.push(`  ${s.name} – ${US.fmtDur(s.talk)}`);
     out.push('');
-    for (const p of t.paragraphs) out.push(`${t.seqTC(p.start)}  ${p.name}: ${p.text}`, '');
+    for (const p of t.paragraphs) out.push(p.mark ? `${t.seqTC(p.at)}  —— ${t.markText(p)} ——` : `${t.seqTC(p.start)}  ${p.name}: ${p.text}`, '');
     return out.join('\n');
   }
   /** Subtitles: one cue per line, split if longer than 7 s or 84 characters, speaker name first. */
@@ -124,15 +124,19 @@
   }
   function csvCell(s) { s = String(s == null ? '' : s); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
   function toCSV(t) {
-    const rows = [['Timecode in', 'Timecode out', 'Speaker', 'Text', 'Source clip', 'Source timecode in', 'Source timecode out']];
-    for (const e of t.entries) rows.push([t.seqTC(e.start), t.seqTC(e.end), e.name, e.text, e.clip, t.srcTC(e, e.srcIn), t.srcTC(e, e.srcOut)]);
+    const iv = !!t.interviewOf;
+    const rows = [['Timecode in', 'Timecode out', 'Speaker'].concat(iv ? ['Interview'] : [], ['Text', 'Source clip', 'Source timecode in', 'Source timecode out'])];
+    for (const e of t.entries) rows.push([t.seqTC(e.start), t.seqTC(e.end), e.name].concat(iv ? [t.interviewOf(e)] : [], [e.text, e.clip, t.srcTC(e, e.srcIn), t.srcTC(e, e.srcOut)]));
     return '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
   }
   function toDocx(t) {
     const blocks = [{ heading: 'Speakers' }];
     for (const s of t.speakers) blocks.push({ paragraph: { spaceAfter: 40, runs: [{ text: s.name, bold: true }, { text: `  ${US.fmtDur(s.talk)} of talk`, color: '666666' }] } });
     blocks.push({ heading: 'Transcript' });
-    for (const p of t.paragraphs) blocks.push({ paragraph: { runs: [{ text: t.seqTC(p.start) + '   ', mono: true, color: '808080', size: 18 }, { text: p.name + ': ', bold: true }, { text: p.text }] } });
+    for (const p of t.paragraphs) {
+      if (p.mark) { blocks.push({ paragraph: { spaceAfter: 60, runs: [{ text: t.seqTC(p.at) + '   ', mono: true, color: '808080', size: 18 }, { text: t.markText(p), bold: true, color: p.mark === 'start' ? '2E7D4F' : '9A3B2E' }] } }); continue; }
+      blocks.push({ paragraph: { runs: [{ text: t.seqTC(p.start) + '   ', mono: true, color: '808080', size: 18 }, { text: p.name + ': ', bold: true }, { text: p.text }] } });
+    }
     return docx({ title: t.title, subtitle: `${t.sequence}${t.project ? ' · ' + t.project : ''} · ${t.date}`, blocks });
   }
 

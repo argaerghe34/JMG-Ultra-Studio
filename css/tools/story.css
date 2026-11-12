@@ -286,3 +286,8 @@
 .ignore-line { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .ignore-time { opacity: .7; min-width: 44px; }
 .ignore-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the transcript of a timeline: where each interview starts and ends */
+.story-tl-mark { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 6px; padding: 4px 8px; border-radius: var(--radius-s); font-size: 12px; }
+.story-tl-mark.start { background: color-mix(in srgb, var(--ok, #2e7d4f) 14%, transparent); }
+.story-tl-mark.end { background: color-mix(in srgb, var(--text-3) 12%, transparent); margin-bottom: 12px; }

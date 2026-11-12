@@ -128,11 +128,51 @@
     }
     return Array.from(map.values()).sort((a, b) => a.first - b.first);
   }
-  /** Consecutive entries from the same person become one paragraph (a gap over maxGap seconds starts a new one). */
-  function paragraphs(entries, display, { maxGap = 5 } = {}) {
+  /**
+   * Interviews in the order they're first heard on the timeline: clipKey -> 1, 2, 3… (one interview = one transcript,
+   * however often it's cut back to). -> Map
+   */
+  function interviewNumbers(entries) {
+    const out = new Map();
+    for (const e of entries) if (!out.has(e.clipKey)) out.set(e.clipKey, out.size + 1);
+    return out;
+  }
+  /**
+   * The label in front of each paragraph: the speaker's name, and with opts.interviews the interview's number, with
+   * opts.clips the clip's name – "Ruth Cohen · Interview 2 · A001_C003.mov". -> (entry) => label
+   */
+  function labeller(entries, display, { interviews = false, clips = false } = {}) {
+    const nums = interviewNumbers(entries);
+    return e => [display.get(e.speakerKey), interviews ? `Interview ${nums.get(e.clipKey)}` : '', clips ? e.clip : ''].filter(Boolean).join(' · ');
+  }
+  /**
+   * Where each interview starts and ends on the timeline: a run of paragraphs from one interview between two others.
+   * paragraphs (from paragraphs()) -> the same list with {mark: 'start'|'end', n, clip, at} rows put in between.
+   */
+  function withInterviewMarks(paras, entries) {
+    const nums = interviewNumbers(entries), out = [];
+    let cur = null;
+    for (const p of paras) {
+      const e = p.entries[0], k = e.clipKey;
+      if (cur && cur.k !== k) { out.push({ mark: 'end', n: cur.n, clip: cur.clip, at: cur.end }); cur = null; }
+      if (!cur) { cur = { k, n: nums.get(k), clip: e.clip, end: p.end }; out.push({ mark: 'start', n: cur.n, clip: e.clip, at: p.start }); }
+      cur.end = Math.max(cur.end, p.end);
+      out.push(p);
+    }
+    if (cur) out.push({ mark: 'end', n: cur.n, clip: cur.clip, at: cur.end });
+    return out;
+  }
+  /** "Interview 2 starts – A001_C003.mov" / "Interview 2 ends" */
+  const markText = m => (m.mark === 'start' ? `Interview ${m.n} starts – ${m.clip}` : `Interview ${m.n} ends`);
+
+  /**
+   * Consecutive entries from the same person become one paragraph (a gap over maxGap seconds starts a new one).
+   * labelOf(entry), when given, is the paragraph's label (it then also splits paragraphs at an interview change).
+   */
+  function paragraphs(entries, display, { maxGap = 5, labelOf = null } = {}) {
     const out = [];
     for (const e of entries) {
-      const name = display.get(e.speakerKey);
+      const name = labelOf ? labelOf(e) : display.get(e.speakerKey);
       const last = out[out.length - 1];
       if (last && last.name.toLowerCase() === name.toLowerCase() && e.start - last.end <= maxGap) { last.text += ' ' + e.text; last.end = Math.max(last.end, e.end); last.entries.push(e); }
       else out.push({ start: e.start, end: e.end, name, text: e.text, entries: [e] });
@@ -179,5 +219,5 @@
     }).sort((a, b) => a.start - b.start);
   }
 
-  US.storyTimeline = { collectClips, mapLines, build, displayNames, people, paragraphs, GENERIC, highlightSections, coverage, firstWords };
+  US.storyTimeline = { collectClips, mapLines, build, displayNames, people, paragraphs, interviewNumbers, labeller, withInterviewMarks, markText, GENERIC, highlightSections, coverage, firstWords };
 })();
