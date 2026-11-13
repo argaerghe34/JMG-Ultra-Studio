@@ -67,8 +67,19 @@ const fail = m => { console.error('✗ ' + m); process.exitCode = 1; };
   if (sel.length !== 2 || !Array.from(sel[0].options).some(o => /End screen\.mp4/.test(o.textContent)) || !Array.from(sel[1].options).some(o => o.value === 'V5')) fail('Ask: the clip and track pickers aren’t filled');
   // YouTube: no sign-in on screen; a blocked video brings the question, and the answer is remembered
   const y = US.tools.get('youtube').create(); w.document.body.appendChild(y.el); y.onShow(); await sleep(100);
-  for (const want of ['Paste YouTube links', 'Best for Premiere', 'Download and import']) if (!y.el.textContent.includes(want)) fail(`YouTube: “${want}” missing`);
+  for (const want of ['Paste links from YouTube', 'Best for editing', 'Download and import']) if (!y.el.textContent.includes(want)) fail(`YouTube: “${want}” missing`);
   if (/age-restricted|signed in/i.test(y.el.textContent)) fail('YouTube: the sign-in shows before it’s needed');
+  // a folder and a bin (as before), or a folder only: the bin picker hides and the button says Download
+  const segFolder = Array.from(y.el.querySelectorAll('button.seg')).find(b => /A folder only/.test(b.textContent));
+  if (!segFolder || !y.el.textContent.includes('A folder and a bin')) fail('Download: no folder / bin switch');
+  else {
+    segFolder.click(); await sleep(30);
+    const binField = Array.from(y.el.querySelectorAll('select')).find(sl => Array.from(sl.options).some(o => /All Songs/.test(o.textContent)));
+    if (!binField || binField.closest('div[style*="none"]') == null) fail('Download: the bin picker still shows with “A folder only”');
+    if (!/nothing is added to the project/.test(y.el.textContent) || !Array.from(y.el.querySelectorAll('button')).some(b => b.textContent.trim() === 'Download')) fail('Download: folder only isn’t said');
+    if ((US.settings.get('youtube', {}) || {}).toBin !== false) fail('Download: folder only not remembered');
+    Array.from(y.el.querySelectorAll('button.seg')).find(b => /A folder and a bin/.test(b.textContent)).click(); await sleep(30);
+  }
   const realRun = US.jobs.run, runs = [];
   US.jobs.run = async (o, fn) => { runs.push(o.title); return runs.length === 1 ? { done: [], failed: [{ url: 'https://youtu.be/AGEAGE12', title: 'Concert', why: 'age', signIn: true }], summary: '' } : { done: [{}], failed: [], summary: '' }; };
   y.el.querySelector('textarea').value = 'https://youtu.be/AGEAGE12';
@@ -79,7 +90,7 @@ const fail = m => { console.error('✗ ' + m); process.exitCode = 1; };
   const ok = Array.from(w.document.querySelectorAll('button')).find(b => /Sign in and try again/.test(b.textContent));
   if (ok) ok.click(); else fail('YouTube sign-in: no button');
   await sleep(150);
-  if (runs.length !== 2 || !/age-restricted/.test(runs[1])) fail('YouTube sign-in: not tried again: ' + runs.join(' | '));
+  if (runs.length !== 2 || !/need a sign-in/.test(runs[1])) fail('YouTube sign-in: not tried again: ' + runs.join(' | '));
   if ((US.settings.get('youtube', {}) || {}).signIn !== 'browser' || !/signed in with Firefox/.test(y.el.textContent)) fail('YouTube sign-in: not remembered');
   US.jobs.run = realRun;
   if (errors.length) fail('errors:\n' + errors.join('\n'));

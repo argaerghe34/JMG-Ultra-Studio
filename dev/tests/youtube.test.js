@@ -110,3 +110,20 @@ const f = require('path').join(out, url.slice(-8) + '.mp4'); fs.writeFileSync(f,
     assert.ok(/Close that browser/.test(Y.plainError('ERROR: Could not copy Chrome cookie database. See …')));
   } finally { US.host.call = was; }
 });
+
+test('a folder only: downloaded into the folder, nothing added to the project', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-folder-')), fake = path.join(dir, 'fake.js');
+  fs.writeFileSync(fake, "const a = process.argv.slice(2), url = a[a.length - 1], out = a[a.indexOf('-P') + 1]; const f = require('path').join(out, url.slice(-8) + '.mp4'); require('fs').writeFileSync(f, 'x'); console.log('US-TITLE ' + url.slice(-8)); console.log('US-FILE ' + f);");
+  const host = [], was = US.host.call;
+  US.host.call = async (fn, a) => { host.push(fn); return [{ id: 'n' }]; };
+  const job = { cancelled: false, set() {}, progress() {}, check() {} }, out = path.join(dir, 'Clips for later');
+  try {
+    const r = await Y.run(job, { links: 'https://youtu.be/AAAAAAAA https://youtu.be/BBBBBBBB', toBin: false, folder: out, ytdlp: [process.execPath, fake] });
+    assert.deepStrictEqual(host, [], 'nothing imported');
+    assert.ok(fs.existsSync(path.join(out, 'AAAAAAAA.mp4')) && fs.existsSync(path.join(out, 'BBBBBBBB.mp4')));
+    assert.strictEqual(r.done.length, 2);
+    assert.strictEqual(r.summary, '2 videos saved in “Clips for later” (not added to the project)');
+    await Y.run(job, { links: 'https://youtu.be/CCCCCCCC', folder: out, ytdlp: [process.execPath, fake] });
+    assert.deepStrictEqual(host, ['importFiles'], 'by default (as before) they go into a bin too');
+  } finally { US.host.call = was; }
+});

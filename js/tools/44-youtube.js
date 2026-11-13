@@ -237,7 +237,7 @@
     return fs.existsSync(old) ? old : path.join(base, 'Web downloads');
   };
   const DEFAULT_BIN = 'Web downloads';
-  /** o: {links, folder, binId, binName, quality, playlist} */
+  /** o: {links, folder, toBin (false: download to the folder only, nothing added to the project), binId, binName, quality, playlist} */
   async function run(job, o) {
     const links = Array.isArray(o.links) ? o.links : parseLinks(o.links);
     if (!links.length) throw new US.UserError('BAD_INPUT', { title: 'No links there.', action: 'Paste links to videos – YouTube, Vimeo, Instagram, TikTok, Facebook and so on – one per line.' });
@@ -261,17 +261,18 @@
       }
       job.check();
       if (!r.files.length) { failed.push({ url: links[i], site, title: r.title, why: plainError(r.error || 'Nothing was downloaded.', site), signIn: needsSignIn(r.error) }); continue; }
+      if (o.toBin === false) { done.push({ url: links[i], site, title: r.title, files: r.files, items: [] }); continue; }
       job.set({ who: US.app.is('resolve') ? 'resolve' : 'premiere', msg: `Importing “${r.title || path.basename(r.files[0])}”` });
       try { const got = await US.host.call('importFiles', Object.assign({ paths: r.files }, into)); done.push({ url: links[i], site, title: r.title, files: r.files, items: got }); }
       catch (e) { failed.push({ url: links[i], title: r.title, why: `Downloaded, but not imported: ${e.title || e.message}` }); }
     }
-    US.log(failed.length ? 'warn' : 'ok', `Download: ${US.plural(done.length, 'video')} downloaded and imported`, failed.map(f => `${f.title || f.url}: ${f.why}`).join(' · '), 'youtube');
+    US.log(failed.length ? 'warn' : 'ok', `Download: ${US.plural(done.length, 'video')} downloaded${o.toBin === false ? ` to ${folder}` : ' and imported'}`, failed.map(f => `${f.title || f.url}: ${f.why}`).join(' · '), 'youtube');
     if (!done.length && failed.length && !failed.every(f => f.signIn)) throw new US.UserError('NOT_FOUND', { title: failed.length === 1 ? `Couldn’t download it: ${failed[0].why}` : `None of the ${failed.length} downloaded.`, detail: failed.map(f => `${f.url}: ${f.why}`).join('\n') });
-    return { summary: `${US.plural(done.length, 'video')} in “${o.binName || DEFAULT_BIN}”${failed.length ? ` · ${failed.length} didn’t download` : ''}`, done, failed, folder };
+    return { summary: `${US.plural(done.length, 'video')} ${o.toBin === false ? `saved in “${path.basename(folder)}” (not added to the project)` : `in “${o.binName || DEFAULT_BIN}”`}${failed.length ? ` · ${failed.length} didn’t download` : ''}`, done, failed, folder };
   }
 
   /* ---------- the tab ---------- */
-  const opts = () => Object.assign({ folder: '', binId: '', quality: 'premiere', playlist: false, signIn: 'off', browser: 'firefox', cookies: '' }, US.settings.get('youtube', {}));
+  const opts = () => Object.assign({ toBin: true, folder: '', binId: '', quality: 'premiere', playlist: false, signIn: 'off', browser: 'firefox', cookies: '' }, US.settings.get('youtube', {}));
   US.tools.register({
     id: 'youtube', name: 'Download', short: 'Download', icon: 'download', group: 'selects', order: 14,
     hostFns: ['listBins', 'importFiles'],
@@ -338,12 +339,22 @@
           if (r !== undefined) drawSetup();
         } }));
       }
-      const go = ui.actionButton('Download and import', async () => {
-        const r = await US.jobs.run({ title: 'Downloading videos', tool: 'youtube' }, job => run(job, { links: links.value, folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies }));
+      // a folder and a bin, or the folder only
+      const binBox = h('div');
+      const where = ui.segmented({ options: [{ value: 'bin', label: 'A folder and a bin' }, { value: 'folder', label: 'A folder only' }], value: o.toBin === false ? 'folder' : 'bin', onChange: x => { o.toBin = x === 'bin'; save(); showWhere(); } });
+      const whereHint = h('div.field-hint');
+      function showWhere() {
+        binBox.style.display = o.toBin === false ? 'none' : '';
+        whereHint.textContent = o.toBin === false ? 'Saved to the folder below only – nothing is added to the project.' : 'Saved to the folder below and imported into the bin.';
+        const label = go && go.querySelector('span'); if (label) label.textContent = o.toBin === false ? 'Download' : 'Download and import';
+      }
+      let go = null;
+      go = ui.actionButton('Download and import', async () => {
+        const r = await US.jobs.run({ title: 'Downloading videos', tool: 'youtube' }, job => run(job, { links: links.value, toBin: o.toBin !== false, folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies }));
         if (r === undefined) return;
         const blocked = r.failed.filter(f => f.signIn);
         if (blocked.length && o.signIn === 'off' && await askSignIn(blocked)) {
-          const again = await US.jobs.run({ title: 'Downloading the videos that need a sign-in', tool: 'youtube' }, job => run(job, { links: blocked.map(f => f.url), folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies, signedIn: true }));
+          const again = await US.jobs.run({ title: 'Downloading the videos that need a sign-in', tool: 'youtube' }, job => run(job, { links: blocked.map(f => f.url), toBin: o.toBin !== false, folder: o.folder, binId: o.binId, binName: (bins.find(b => b.id === o.binId) || {}).path, quality: o.quality, playlist: o.playlist, signIn: o.signIn, browser: o.browser, cookies: o.cookies, signedIn: true }));
           if (again !== undefined) { r.done = r.done.concat(again.done); r.failed = r.failed.filter(f => !f.signIn).concat(again.failed); }
         }
         if (r.failed.length) ui.toast({ type: 'warn', title: `${r.failed.length} didn’t download`, text: r.failed.map(f => `${f.title || f.url}: ${f.why}`).join('\n'), timeout: 12000 });
@@ -354,13 +365,14 @@
         ui.card(h('div.card-title', 'Links'), links, countLine,
           ui.toggle({ label: 'Whole playlist when a link is one', hint: 'Off: just the video, even when its link is part of a playlist.', value: !!o.playlist, onChange: x => { o.playlist = x; save(); } })),
         ui.card(h('div.card-title', 'Where they go'),
-          ui.field('Bin', binSel), h('div.row', ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: fillBins })),
+          where, whereHint,
+          (binBox.append(ui.field('Bin', binSel), h('div.row', ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: fillBins }))), binBox),
           h('div.row', folderLine, ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = US.app.pickFiles({ folder: true, title: 'Where should the downloads go?', start: o.folder || defaultFolder() }); if (r[0]) { o.folder = US.normPath(r[0]); save(); showFolder(); } } catch (e) { ui.showError(e); } } }),
             ui.button('Open', { small: true, kind: 'ghost', onClick: () => { const f = US.fsx.ensureDir(o.folder || defaultFolder()); cp.exec((isWin ? 'explorer "' : 'open "') + f + '"'); } })),
           ui.field('Quality', quality), qHint),
         ui.card(setupBox, go, signedLine, h('div.field-hint', 'Only download videos you own or have permission to use.')));
-      count(); showFolder(); drawSetup(); drawSignedIn();
-      return { el: v.el, onShow() { o = opts(); fillBins(); showFolder(); drawSetup(); drawSignedIn(); } };
+      count(); showFolder(); drawSetup(); drawSignedIn(); showWhere();
+      return { el: v.el, onShow() { o = opts(); fillBins(); showFolder(); drawSetup(); drawSignedIn(); showWhere(); } };
     }
   });
   US.actions && US.actions.register && US.actions.register({ id: 'youtube.open', tool: 'youtube', title: 'Download videos from the web', changes: false, describe: 'Opens the Download tab: paste links from YouTube, Vimeo, Instagram, TikTok, Facebook, X and more – they’re downloaded and imported into a bin.', examples: ['download this youtube video', 'import from vimeo', 'download an instagram reel', 'get this tiktok'], match: t => (/\b(youtube|youtu\.be|vimeo|instagram|insta|reels?|tiktok|facebook|fb|twitter|x\.com|reddit|linkedin|dailymotion|twitch|soundcloud|bandcamp)\b/i.test(t) && /\b(download|import|get|grab)\b/i.test(t) ? {} : null), run: async () => { US.tools.open('youtube'); return { summary: 'Download is open – paste the links there.' }; } });
