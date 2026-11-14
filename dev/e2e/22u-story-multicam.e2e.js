@@ -22,16 +22,19 @@ try {
   const seq = await T.freshSequence(SEQ, ruth.id, BIN);
   await US.host.call('placeClips', { seqId: seq.id, clips: [{ id: ruth.id, in: 5, out: 65, at: 10 }, { id: wav.id, in: 0, out: 60, at: 10, a: 1, video: false }] });
   await S.setScope(job, { kind: 'sequence', seqId: seq.id, seqName: SEQ, inOut: false });
+  // lines from the interview's transcript (if the project holds two transcripts of it, Build still finds them in the sequence)
   const lines = L.filter(l => l.start >= 7 && l.end <= 60).slice(1, 3);
   T.assert(lines.length === 2, 'two lines to build');
   const look = Object.assign(S.lookOptions(), { handles: 0.5, themeNames: 'marker', strong: { first: false, highlight: false } });
   const r = await S.buildSequence(job, { name: 'Test – Story every layer selects', groups: [{ name: 'Layers', label: 3, lineIds: lines.map(l => l.id) }], look });
   const info = await US.host.call('sequenceInfo', { seqId: r.seq.id });
+  // the same file (a project can hold the interview twice, e.g. after relinking)
+  const isFile = (c, it) => c.itemId === it.id || (c.path && it.path && real(c.path).toLowerCase() === real(it.path).toLowerCase()) || c.name === it.name;
   const v1 = info.video[0].clips, a1 = info.audio[0].clips, a2 = (info.audio[1] || { clips: [] }).clips;
   out.layers = { v1: v1.map(c => [c.name, +c.start.toFixed(2), +c.in.toFixed(2)]), a1: a1.map(c => [c.name, +c.start.toFixed(2), +c.in.toFixed(2)]), a2: a2.map(c => [c.name, +c.start.toFixed(2), +c.in.toFixed(2)]) };
-  T.assert(v1.length === 2 && v1.every(c => c.itemId === ruth.id), 'V1: the camera, twice: ' + JSON.stringify(out.layers.v1));
-  T.assert(a1.length === 2 && a1.every(c => c.itemId === ruth.id), 'A1: the camera’s own sound, twice: ' + JSON.stringify(out.layers.a1));
-  T.assert(a2.length === 2 && a2.every(c => c.itemId === wav.id), 'A2: the other recording, twice: ' + JSON.stringify(out.layers.a2));
+  T.assert(v1.length === 2 && v1.every(c => isFile(c, ruth)), 'V1: the camera, twice: ' + JSON.stringify(out.layers.v1));
+  T.assert(a1.length === 2 && a1.every(c => isFile(c, ruth)), 'A1: the camera’s own sound, twice: ' + JSON.stringify(out.layers.a1));
+  T.assert(a2.length === 2 && a2.every(c => isFile(c, wav)), 'A2: the other recording, twice: ' + JSON.stringify(out.layers.a2));
   lines.forEach((l, i) => {
     T.near(v1[i].in, l.start - 0.5, 0.05, `line ${i + 1}: camera from the line (less its handle)`);
     T.near(a1[i].in, l.start - 0.5, 0.05, `line ${i + 1}: its sound from the same moment`);

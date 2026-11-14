@@ -333,6 +333,13 @@ test('working on a sequence (Premiere): each line comes from it – the multicam
     const own = calls.filter(c => c[0] === 'storyPlace');
     assert.deepStrictEqual(own.map(c => c[1].clips.map(x => x.id)), [['item1']], 'own: ' + JSON.stringify(calls.map(c => c[0])));
     assert.ok(/aren’t heard in “Concert multicam edit”/.test(r.notes.join(' ')), r.notes.join(' | '));
+    // a second transcript of the same recording (read again after the media moved): its lines are found in the sequence too
+    calls.length = 0;
+    const twin = { key: 'twin', name: t0.name, path: t0.path, itemId: t0.itemId, source: 'file', lines: t0.lines.map(l => Object.assign({}, l, { id: 'tw-' + l.id })) };
+    st.transcripts.push(twin); S.reindex();
+    await S.buildSequence(US.jobs.testJob(), { name: 'Selects', groups: [{ name: 'A', label: 1, lineIds: heard.map(l => 'tw-' + l.id) }], look: Object.assign(S.lookOptions(), { handles: 0.5, strong: { first: false, highlight: false } }) });
+    assert.strictEqual(calls.filter(c => c[0] === 'storyPlaceFromSequence').reduce((n, c) => n + c[1].ranges.length, 0), 2, 'the twin’s lines come from the sequence too');
+    st.transcripts.pop(); S.reindex();
     // switched off: from the clips, as before
     calls.length = 0; US.settings.set('story.fromSequence', false);
     await S.buildSequence(US.jobs.testJob(), { name: 'Selects', groups: [{ name: 'A', label: 1, lineIds: heard.map(l => l.id) }], look: S.lookOptions() });

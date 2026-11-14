@@ -881,9 +881,11 @@
     if (fromSequenceOn()) {
       job.set({ who: 'premiere', msg: 'Finding each line in the sequence' });
       const tl = await timelineTranscript(job, { seqId: scopeOf().seqId, tracks: 'auto' });
-      const at = new Map();
-      for (const e of tl.result.entries) if (!at.has(e.lineId)) at.set(e.lineId, e);
-      for (const c of plan.clips) { const e = at.get(c.lineId); if (e) c.range = sequenceRange(c, e); }
+      // by the line, or by its recording and start time (two transcripts of the same recording – read again after the
+      // media moved – give the same line different ids)
+      const at = new Map(), same = id => { const l = lineById.get(id), t = clipOfLine.get(id); return l && t ? `${t.path ? US.pathKey(t.path) : t.name}|${Math.round(l.start * 10)}` : ''; };
+      for (const e of tl.result.entries) { if (!at.has(e.lineId)) at.set(e.lineId, e); const k = same(e.lineId); if (k && !at.has(k)) at.set(k, e); }
+      for (const c of plan.clips) { const e = at.get(c.lineId) || at.get(same(c.lineId)); if (e) c.range = sequenceRange(c, e); }
       if (plan.clips.some(c => c.range)) src = tl.info;
     }
     const notes = [];
