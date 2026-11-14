@@ -487,3 +487,22 @@ test('resolve story: a timeline’s transcript is in timeline time, and its line
   const cue = await run('storyCue', { id, seconds: 5 });
   assert.strictEqual(cue.path, '/m/Cam A.mov'); near(cue.fileSeconds, 100 / fps + 5, 'media time of the clip under it', 0.05);
 });
+
+test('resolve story: working on a timeline – each line brings every switched-on track (the multicam clip as the multicam clip); the multicam clips a timeline uses', async () => {
+  const { F, run } = setup();
+  const mc = F.addMedia('/m/Concert MC', { frames: 9000, type: 'Multicam Video + Audio' }), w = F.addMedia('/m/Lav.wav', { type: 'Audio', frames: 9000 });
+  const edit = F.addTimeline('Concert edit', [{ item: mc, in: 0, out: 3000, at: 0 }, { item: w, in: 25, out: 3025, at: 0, track: 2, mediaType: 2 }]);
+  const R = HOST.connect({ api: F.resolve }).R, fps = R.fps(edit), f = s => Math.round(s * fps);
+  const out = F.addTimeline('Selects', []);
+  const r = await run('storyPlaceFromSequence', { seqId: out.GetUniqueId(), srcSeqId: edit.GetUniqueId(), cursor: 0, ranges: [{ start: 10, end: 14 }, { start: 30, end: 31 }] });
+  assert.deepStrictEqual(r.placed, [{ start: 0, end: 4 }, { start: 4, end: 5 }]);
+  assert.strictEqual(r.cursor, 5);
+  const items = ['video', 'audio'].flatMap(type => [1, 2].flatMap(k => R.list(out.GetItemListInTrack(type, k)).map(ti => [type, k, ti.GetMediaPoolItem().GetName(), ti.GetSourceStartFrame(), ti.GetStart() - out.GetStartFrame()])));
+  assert.deepStrictEqual(items.sort(), [
+    ['audio', 1, 'Concert MC', f(10), 0], ['audio', 1, 'Concert MC', f(30), f(4)], ['audio', 2, 'Lav.wav', 25 + f(10), 0], ['audio', 2, 'Lav.wav', 25 + f(30), f(4)],
+    ['video', 1, 'Concert MC', f(10), 0], ['video', 1, 'Concert MC', f(30), f(4)]
+  ].sort(), 'the multicam clip and the lav, from the same moments, on the same tracks');
+  const m = await run('storyMulticamsIn', { seqId: edit.GetUniqueId() });
+  assert.deepStrictEqual(m.multicams.map(x => [x.itemId === mc.GetUniqueId(), x.name, x.uses]), [[true, 'Concert MC', 1]]);
+  assert.strictEqual(m.self, false);
+});

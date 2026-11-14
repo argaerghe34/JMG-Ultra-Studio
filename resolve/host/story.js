@@ -512,6 +512,41 @@ module.exports = (R, fns) => {
     },
 
     /**
+     * Lines with everything in the timeline they're heard in (as Premiere): every clip on its switched-on tracks between
+     * each range's start and end, laid on the same tracks one after another from a.cursor – a multicam clip comes as the
+     * multicam clip. a: {seqId, srcSeqId, cursor, ranges:[{start, end}]} -> {cursor, placed, how:'tracks', layers, missing}
+     */
+    storyPlaceFromSequence(a) {
+      const tl = R.needSeq(a.seqId), src = R.needSeq(a.srcSeqId);
+      let cursor = R.num(a.cursor) || 0, layers = 0;
+      const placed = [];
+      for (const r of a.ranges || []) {
+        const s0 = R.num(r.start), s1 = R.num(r.end);
+        if (s0 == null || s1 == null || s1 <= s0) { placed.push(null); continue; }
+        const got = placeTimelineRange(tl, src, s0, s1, cursor);
+        layers += got.length;
+        placed.push(got.length ? { start: cursor, end: cursor + (s1 - s0) } : null);
+        cursor += s1 - s0;
+      }
+      return { cursor, placed, how: 'tracks', layers, missing: [] };
+    },
+    /**
+     * The multicam clips used in a timeline, most used first (Resolve: a multicam clip has no timeline of its own –
+     * Story reads the multicam clip itself). a: {seqId} -> {self: false, multicams:[{id: '', itemId, name, uses, seconds}]}
+     */
+    storyMulticamsIn(a) {
+      const tl = R.needSeq(a.seqId), found = new Map(), fps = R.fps(tl);
+      for (let k = 1, n = tl.GetTrackCount('video'); k <= n; k++) for (const ti of R.list(tl.GetItemListInTrack('video', k)).filter(Boolean)) {
+        const m = tryCall(() => ti.GetMediaPoolItem(), null);
+        if (!m || sourceKind(m) !== 'multicam') continue;
+        const id = R.id(m);
+        if (!found.has(id)) found.set(id, { id: '', itemId: id, name: String(m.GetName() || ''), uses: 0, seconds: 0 });
+        const f = found.get(id); f.uses++; f.seconds += (ti.GetEnd() - ti.GetStart()) / fps;
+      }
+      return { self: false, multicams: Array.from(found.values()).sort((x, y) => y.seconds - x.seconds) };
+    },
+
+    /**
      * Theme names over a built timeline. Resolve can't make adjustment clips by script, so each theme gets a range
      * marker the length of its section, named after it, in its colour (the clips carry the colour already).
      * a: {seqId, sections:[{name, start, end, label?}]} -> {kind:'markers', how, track:-1, placed, renamed, log}
