@@ -839,6 +839,6 @@ var UStudio = (function () {
     return {
         fn: fn, run: run, err: err, TICKS: TICKS, project: project, walk: walk, itemById: itemById, needItem: needItem, needSeq: needSeq,
         seqById: seqById, seqFps: seqFps, itemInfo: itemInfo, ensureBin: ensureBin, binPath: binPath, secToTicks: secToTicks, ticksToSec: ticksToSec,
-        timeObj: timeObj, framesToTC: framesToTC, tcToSec: tcToSec, secToFrames: secToFrames, openAndQE: openAndQE, findPreset: findPreset, contains: contains, columns: columns
+        timeObj: timeObj, framesToTC: framesToTC, tcToSec: tcToSec, secToFrames: secToFrames, openAndQE: openAndQE, findPreset: findPreset, contains: contains, columns: columns, ensureTracks: ensureTracks
     };
 })();

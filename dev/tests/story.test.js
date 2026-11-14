@@ -297,3 +297,47 @@ test('a theme of yours added twice becomes one when Find themes runs, keeping th
   assert.strictEqual(g.length, 1, g.map(t => t.id).join(','));
   assert.ok(g[0].lineIds.includes(L[5].id) && g[0].manual.includes(L[5].id));
 });
+
+test('working on a sequence (Premiere): each line comes from it – the multicam clip and every audio layer, not just the transcribed sound', async () => {
+  const st = fresh();
+  const t0 = st.transcripts[0], end = t0.lines[t0.lines.length - 1].end;
+  // the interview's sound on A2 from 100 s in the sequence, starting 5 s into the recording; a multicam clip on V1, another mic on A1
+  const info = { id: 's1', itemId: 'seqItem', name: 'Concert multicam edit', fps: 25, frame: 0.04, duration: 100 + end, markers: [], inPoint: 0, outPoint: 100 + end,
+    video: [{ index: 0, name: 'V1', clips: [{ name: 'Concert MC', start: 0, end: 100 + end, in: 0, out: 100 + end, speed: 1, itemId: 'mc', isSequence: true }] }],
+    audio: [{ index: 0, name: 'A1', clips: [{ name: 'Room mic', start: 0, end: 100 + end, in: 0, out: 100 + end, speed: 1, path: '/media/room.wav', itemId: 'room' }] },
+            { index: 1, name: 'A2', clips: [{ name: 'I001', start: 100, end: 95 + end, in: 5, out: end, speed: 1, path: '/media/I001_interview.srt', itemId: 'item0' }] }] };
+  const calls = [], was = US.host.call, toast = US.ui.toast;
+  US.ui.toast = () => {};
+  US.host.call = async (fn, a) => {
+    calls.push([fn, a]);
+    if (fn === 'sequenceInfo') return info;
+    if (fn === 'storySequenceTiming') return { zero: 0, fps: 25 };
+    if (fn === 'storyClips') return st.transcripts.map(t => ({ id: t.itemId, name: t.name, path: t.path }));
+    if (fn === 'itemsInfo') return a.ids.map(id => ({ id, duration: end }));
+    if (fn === 'newSequence') return { id: 'out', name: a.name };
+    if (fn === 'storyPlaceFromSequence') { let c = a.cursor; return { how: 'tracks', layers: a.ranges.length * 3, missing: [], placed: a.ranges.map(r => { const p = { start: c, end: c + r.end - r.start }; c = p.end; return p; }), cursor: c }; }
+    if (fn === 'storyPlace') { let c = a.cursor; return { placed: a.clips.map(x => { const p = { start: c, end: c + x.out - x.in }; c = p.end; return p; }), cursor: c }; }
+    return {};
+  };
+  try {
+    await S.setScope(null, { kind: 'sequence', seqId: 's1', inOut: false });
+    const heard = t0.lines.filter(l => l.start >= 5 && l.end <= end).slice(2, 4), other = st.transcripts[1].lines.find(l => l.text.indexOf('?') < 0 && l.text.split(' ').length > 12);
+    const r = await S.buildSequence(US.jobs.testJob(), { name: 'Selects', groups: [{ name: 'A', label: 1, lineIds: heard.map(l => l.id).concat(other.id) }], look: Object.assign(S.lookOptions(), { handles: 0.5, strong: { first: false, highlight: false } }) });
+    assert.deepStrictEqual(calls.find(c => c[0] === 'newSequence')[1].likeId, 'seqItem', 'the selects take the sequence’s own settings');
+    const fromSeq = calls.filter(c => c[0] === 'storyPlaceFromSequence');
+    assert.strictEqual(fromSeq.length, 1);
+    assert.strictEqual(fromSeq[0][1].srcSeqId, 's1');
+    // each line where it's heard on the sequence: 100 s in, less the 5 s it starts into the recording, with its handles
+    { const got = fromSeq[0][1].ranges.map(x => [+x.start.toFixed(2), +x.end.toFixed(2)]), exp = heard.map(l => [+(95 + l.start - 0.5).toFixed(2), +(95 + l.end + 0.5).toFixed(2)]); assert.deepStrictEqual(got, exp, 'ranges ' + JSON.stringify(got) + ' vs ' + JSON.stringify(exp)); }
+    // a line from an interview that isn't in the sequence: from its own clip, as before
+    const own = calls.filter(c => c[0] === 'storyPlace');
+    assert.deepStrictEqual(own.map(c => c[1].clips.map(x => x.id)), [['item1']], 'own: ' + JSON.stringify(calls.map(c => c[0])));
+    assert.ok(/aren’t heard in “Concert multicam edit”/.test(r.notes.join(' ')), r.notes.join(' | '));
+    // switched off: from the clips, as before
+    calls.length = 0; US.settings.set('story.fromSequence', false);
+    await S.buildSequence(US.jobs.testJob(), { name: 'Selects', groups: [{ name: 'A', label: 1, lineIds: heard.map(l => l.id) }], look: S.lookOptions() });
+    assert.ok(!calls.some(c => c[0] === 'storyPlaceFromSequence') && calls.some(c => c[0] === 'storyPlace'));
+    assert.deepStrictEqual(S.sequenceRange({ in: 10, out: 20 }, { start: 50, end: 55, srcIn: 12, srcOut: 22 }), { start: 49, end: 54 }, 'a clip at double speed');
+  } finally { US.host.call = was; US.ui.toast = toast; US.settings.set('story.fromSequence', true); }
+  await S.setScope(null, { kind: 'all' });
+});

@@ -240,6 +240,113 @@
         return { cursor: cursor, placed: placed, method: 'subclips' };
     }
 
+    /* ---------- lines with everything in the sequence they're heard in (multicam, every audio layer) ----------
+       The transcript belongs to one audio clip, but the editor works in a sequence: a multicam clip on V1 and several
+       mics on the audio tracks, or the multicam's own source sequence. Each line is taken from that sequence:
+       - the multicam's source sequence: the multicam clip itself, cut to the line (its angles can still be switched,
+         its audio comes with it);
+       - any other sequence: everything on every track at that moment, each on the same track.
+       Premiere lays both halves of a clip that has picture and sound; the half that isn't wanted is taken away again,
+       and as that can cut into a layer placed before, every layer is checked afterwards and laid again if it was. */
+    function trackIds(track) { var o = {}; for (var k = 0; k < track.clips.numItems; k++) o[track.clips[k].nodeId] = true; return o; }
+    function snapshot(seq) {
+        var s = { v: [], a: [] }, t;
+        for (t = 0; t < seq.videoTracks.numTracks; t++) s.v.push(trackIds(seq.videoTracks[t]));
+        for (t = 0; t < seq.audioTracks.numTracks; t++) s.a.push(trackIds(seq.audioTracks[t]));
+        return s;
+    }
+    /** Is this timeline clip one of the wanted layers, exactly (same clip, track, place and length)? */
+    function wanted(c, isVideo, t, want) {
+        var id = null; try { id = c.projectItem.nodeId; } catch (e) { return false; }
+        for (var i = 0; i < want.length; i++) {
+            var w = want[i];
+            if (w.video === isVideo && w.index === t && w.item.nodeId === id && Math.abs(c.start.seconds - w.at) < 0.02 && Math.abs(c.end.seconds - (w.at + (w.to - w.from) / (w.speed || 1))) < 0.03) return true;
+        }
+        return false;
+    }
+    /** Remove the clips that weren't there before on the tracks of one kind (the half overwriteClip laid that we don't
+        want) – unless it landed exactly where that half is wanted anyway (a camera clip's own sound on its track). */
+    function removeNew(tracks, before, isVideo, want) {
+        for (var t = 0; t < tracks.numTracks; t++) {
+            var old = before[t] || {};
+            for (var k = tracks[t].clips.numItems - 1; k >= 0; k--) {
+                var c = tracks[t].clips[k];
+                if (old[c.nodeId] || wanted(c, isVideo, t, want)) continue;
+                try { c.remove(false, false); } catch (e) { }
+            }
+        }
+    }
+    /** Place one wanted layer: p {item, from, to, at, video, index} – video or audio only, on that track. */
+    function placeHalf(seq, p, want) {
+        var it = p.item, hadIn = 0, hadOut = 0;
+        try { hadIn = it.getInPoint().seconds; hadOut = it.getOutPoint().seconds; } catch (e) { }
+        var before = snapshot(seq), track = p.video ? seq.videoTracks[p.index] : seq.audioTracks[p.index];
+        try {
+            it.setInPoint(p.from, 4); it.setOutPoint(p.to, 4);
+            track.overwriteClip(it, p.at);
+            removeNew(p.video ? seq.audioTracks : seq.videoTracks, p.video ? before.a : before.v, !p.video, want);
+        } finally {
+            try { it.clearInPoint(); it.clearOutPoint(); if (hadIn > 0.0001) it.setInPoint(hadIn, 4); if (hadOut > hadIn + 0.05) it.setOutPoint(hadOut, 4); } catch (e) { }
+        }
+    }
+    /** Is the wanted layer there, whole? */
+    function isThere(seq, p) {
+        var track = p.video ? seq.videoTracks[p.index] : seq.audioTracks[p.index], len = (p.to - p.from) / (p.speed || 1);
+        for (var k = 0; k < track.clips.numItems; k++) {
+            var c = track.clips[k];
+            if (Math.abs(c.start.seconds - p.at) > 0.02 || Math.abs(c.end.seconds - (p.at + len)) > 0.03) continue;
+            try { if (c.projectItem && c.projectItem.nodeId === p.item.nodeId) return true; } catch (e) { }
+        }
+        return false;
+    }
+    function isMulticamSeq(src) { try { return !!src.projectItem.isMulticamClip(); } catch (e) { return false; } }
+    /**
+     * a: {seqId, srcSeqId, cursor, ranges:[{start, end}] (seconds on the source sequence)} -> {cursor, placed:[{start,end}|null],
+     * how: 'multicam'|'tracks', layers, missing:[names]}. One range after another from a.cursor.
+     */
+    fn.storyPlaceFromSequence = function (a) {
+        var seq = U.needSeq(a.seqId), src = U.needSeq(a.srcSeqId), cursor = a.cursor || 0, placed = [], missing = [], i, t, k, q;
+        if (isMulticamSeq(src)) {
+            for (i = 0; i < a.ranges.length; i++) {
+                var r = fn.placeClips({ seqId: a.seqId, clips: [{ id: src.projectItem.nodeId, 'in': a.ranges[i].start, out: a.ranges[i].end }], cursor: cursor });
+                placed.push(r.placed[0]); cursor = r.cursor;
+            }
+            return { cursor: cursor, placed: placed, how: 'multicam', layers: a.ranges.length, missing: missing };
+        }
+        U.ensureTracks(seq, src.videoTracks.numTracks, src.audioTracks.numTracks);
+        // every layer of every range: picture first, then sound (sound-only files lay nothing else)
+        var want = [], perRange = [];
+        for (i = 0; i < a.ranges.length; i++) {
+            var s0 = a.ranges[i].start, s1 = a.ranges[i].end, mine = [];
+            var kinds = [{ tracks: src.videoTracks, video: true }, { tracks: src.audioTracks, video: false }];
+            for (q = 0; q < kinds.length; q++) {
+                var coll = kinds[q].tracks;
+                for (t = 0; t < coll.numTracks; t++) for (k = 0; k < coll[t].clips.numItems; k++) {
+                    var c = coll[t].clips[k], cs = c.start.seconds, ce = c.end.seconds;
+                    if (ce <= s0 + 0.001 || cs >= s1 - 0.001 || c.disabled) continue;
+                    var pi = null; try { pi = c.projectItem; } catch (e) { }
+                    var sp = 1; try { sp = c.getSpeed() || 1; } catch (e) { }
+                    if (!pi || sp < 0) { missing.push(c.name); continue; }
+                    var from = Math.max(s0, cs), to = Math.min(s1, ce);
+                    mine.push({ item: pi, name: c.name, video: kinds[q].video, index: t, speed: sp, at: cursor + (from - s0), from: c.inPoint.seconds + (from - cs) * sp, to: c.inPoint.seconds + (to - cs) * sp });
+                }
+            }
+            want = want.concat(mine); perRange.push(mine);
+            placed.push(mine.length ? { start: cursor, end: cursor + (s1 - s0) } : null);
+            cursor += s1 - s0;
+        }
+        for (i = 0; i < want.length; i++) if (!isThere(seq, want[i])) placeHalf(seq, want[i], want);
+        // a layer cut into by another clip's unwanted half: laid again (a few rounds at most)
+        for (var round = 0; round < 3; round++) {
+            var again = [];
+            for (i = 0; i < want.length; i++) if (!isThere(seq, want[i])) again.push(want[i]);
+            if (!again.length) break;
+            for (i = 0; i < again.length; i++) placeHalf(seq, again[i], want);
+        }
+        for (i = 0; i < want.length; i++) if (!isThere(seq, want[i])) missing.push(want[i].name);
+        return { cursor: cursor, placed: placed, how: 'tracks', layers: want.length, missing: missing };
+    };
+
     /* ---------- theme names above the clips (adjustment layer, or invisible label clips) ---------- */
     var LABEL_CLIP_NAME = 'Ultra Studio theme label';
     function isAdj(it) { try { return !!it.isAdjustmentLayer(); } catch (e) { return false; } }

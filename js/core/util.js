@@ -1,4 +1,4 @@
-/* JMG Ultra Studio – small shared helpers. Everything hangs off the global US namespace. */
+﻿/* JMG Ultra Studio – small shared helpers. Everything hangs off the global US namespace. */
 (function () {
   'use strict';
   const US = (window.US = window.US || {});
@@ -8,8 +8,8 @@
       const fs = require('fs'), path = require('path');
       let p = decodeURIComponent(location.pathname); if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
       const m = /ExtensionBundleVersion="([^"]+)"/.exec(fs.readFileSync(path.join(path.dirname(p), 'CSXS', 'manifest.xml'), 'utf8'));
-      return m ? m[1] : '1.3.34.1';
-    } catch (e) { return '1.3.34.1'; }
+      return m ? m[1] : '1.3.34.2';
+    } catch (e) { return '1.3.34.2'; }
   })();
   /** An unpublished copy – one copied in to try before a release (dev/try-in-premiere.sh leaves unpublished.json), or
       Premiere using the source folder itself (dev link) – or null for a released install. {from, at, dev} */

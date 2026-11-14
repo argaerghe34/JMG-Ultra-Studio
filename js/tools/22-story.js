@@ -807,6 +807,16 @@
     });
     return { clips, skipped };
   }
+  /**
+   * Where a planned clip (times in its interview clip, handles and trims included) is on the sequence the line is heard
+   * in: entry is the line's place there (timelineTranscript: start/end on the sequence, srcIn/srcOut in the clip). -> {start, end}
+   */
+  function sequenceRange(c, e) {
+    const k = (e.end - e.start) / ((e.srcOut - e.srcIn) || 1) || 1;
+    return { start: Math.max(0, e.start + (c.in - e.srcIn) * k), end: e.start + (c.out - e.srcIn) * k };
+  }
+  /** Story works on a sequence (Premiere): each line comes with everything in that sequence – the multicam clip, every audio layer. */
+  const fromSequenceOn = () => !RES && scopeOf().kind === 'sequence' && !!scopeOf().seqId && US.settings.get('story.fromSequence', true) !== false;
   /** Theme sections from what was placed: [{name, label, start, end}] in timeline order. */
   function sectionsFrom(groups, clips) {
     const out = [];
@@ -842,24 +852,49 @@
     const durById = new Map(infos.filter(Boolean).map(i => [i.id, i.duration]));
     const plan = planBuild(groups, { handles: look.handles, colour: look.colour, strong: look.strong, itemFor: id => items.get(clipOfLine.get(id).key), durOf: id => durById.get(id), inOrder: !!look.inOrder, orderOf: projectOrder() });
     if (!plan.clips.length) throw new US.UserError('NOT_FOUND', { title: 'None of these lines’ interviews are in the project.', action: 'Link each transcript to its clip in Story › 1 Interviews › Interviews and speakers, then try again.' });
-    const seq = await US.host.call('newSequence', { name, binPath: binBase(), likeId: plan.clips[0].id });
+    // working on a sequence: each line is taken from it, with the multicam clip and every audio layer
+    let src = null;
+    if (fromSequenceOn()) {
+      job.set({ who: 'premiere', msg: 'Finding each line in the sequence' });
+      const tl = await timelineTranscript(job, { seqId: scopeOf().seqId, tracks: 'auto' });
+      const at = new Map();
+      for (const e of tl.result.entries) if (!at.has(e.lineId)) at.set(e.lineId, e);
+      for (const c of plan.clips) { const e = at.get(c.lineId); if (e) c.range = sequenceRange(c, e); }
+      if (plan.clips.some(c => c.range)) src = tl.info;
+    }
+    const notes = [];
+    const seq = await US.host.call('newSequence', { name, binPath: binBase(), likeId: src && src.itemId ? src.itemId : plan.clips[0].id });
     job.log(`Made sequence “${seq.name}”`);
-    let cursor = 0;
+    let cursor = 0, how = '', layers = 0;
+    const missing = new Set();
     const total = plan.clips.length;
-    for (let i = 0; i < total; i += 6) {
+    for (let i = 0; i < total;) {
       job.check();
-      const chunk = plan.clips.slice(i, i + 6);
+      // up to 6 lines at a time, all from the sequence or all from their clips
+      const fromSeq = !!plan.clips[i].range;
+      let j = i; while (j < total && j - i < 6 && !!plan.clips[j].range === fromSeq) j++;
+      const chunk = plan.clips.slice(i, j);
       const g = groups[chunk[0].group];
-      job.progress(i / total * 0.85, `Placing line ${i + 1} of ${total}${g && g.name ? ' · ' + g.name : ''}`);
-      const r = await US.host.call('storyPlace', { seqId: seq.id, cursor, method: look.method, binPath: `${binBase()}/Story clips – ${seq.name}`, clips: chunk.map(c => ({ id: c.id, in: c.in, out: c.out, label: c.label, name: c.name })) });
+      job.progress(i / total * 0.85, `Placing line ${i + 1} of ${total}${g && g.name ? ' · ' + g.name : ''}${fromSeq ? ' with everything in the sequence' : ''}`);
+      const r = fromSeq
+        ? await US.host.call('storyPlaceFromSequence', { seqId: seq.id, srcSeqId: src.id, cursor, ranges: chunk.map(c => c.range) })
+        : await US.host.call('storyPlace', { seqId: seq.id, cursor, method: look.method, binPath: `${binBase()}/Story clips – ${seq.name}`, clips: chunk.map(c => ({ id: c.id, in: c.in, out: c.out, label: c.label, name: c.name })) });
+      if (fromSeq) { how = r.how; layers += r.layers || 0; (r.missing || []).forEach(n => missing.add(n)); }
       chunk.forEach((c, k) => { c.placed = r.placed[k]; });
       cursor = r.cursor;
+      i = j;
+    }
+    if (src) {
+      const n = plan.clips.filter(c => c.range).length;
+      job.log(how === 'multicam' ? `${US.plural(n, 'line')} cut from the multicam clip “${src.name}” (its sound comes with it; switch angles as usual)` : `${US.plural(n, 'line')} with everything in “${src.name}” – ${US.plural(layers, 'layer')} (picture and every audio track)`);
+      if (missing.size) notes.push(`Some layers couldn’t be copied from “${src.name}”: ${Array.from(missing).slice(0, 5).join(', ')}${missing.size > 5 ? ` and ${missing.size - 5} more` : ''}.`);
+      if (n < plan.clips.length) notes.push(`${US.plural(plan.clips.length - n, 'line')} aren’t heard in “${src.name}”, so they came from their interview clip alone.`);
     }
     const placedN = plan.clips.filter(c => c.placed).length;
     state.builds = (state.builds || []).filter(b => b.seqId !== seq.id).concat([{ seqId: seq.id, name: seq.name, lineIds: plan.clips.filter(c => c.placed).map(c => c.lineId), at: Date.now() }]).slice(-30);
     saveNow();
     const sections = sectionsFrom(groups, plan.clips);
-    const markers = [], notes = [];
+    const markers = [];
     // (Resolve: with 'both', the theme's range marker carries its name – a second marker on its first frame isn't added)
     if (look.themeNames === 'marker' || (look.themeNames === 'both' && !RES)) for (const s of sections) markers.push({ start: s.start, name: s.name, color: s.label != null && look.colour ? LABEL_TO_MARKER[s.label] : 2 });
     // idea notes on the board become markers where they sit
@@ -2525,7 +2560,7 @@
   US.tools.register({
     id: 'story', name: 'Story', short: 'Story', icon: 'story', group: 'cut', order: 22,
     blurb: 'Step by step from your interviews to a cut: themes, specific lines and moments, a sequence or a narrative, and documents to share.',
-    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyDropSwap', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe', 'storySources', 'storyReadTranscript', 'storyMakeMulticam'] : []),
+    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyPlaceFromSequence', 'storyDropSwap', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe', 'storySources', 'storyReadTranscript', 'storyMakeMulticam'] : []),
     create() {
       const v = ui.toolView({
         icon: 'story', title: 'Story', blurb: 'From your interviews to a cut, step by step: themes, the lines you need, a sequence or narrative, and documents to share.',
@@ -3541,7 +3576,8 @@
           ui.field('Length', targetIn, (() => { const t = parseLength(US.settings.get('story.buildTarget', '')); return t ? `About ${US.fmtDur(t)} (±10%): the weakest lines are left out until it fits – pinned lines and each theme’s best line stay.` : 'Any length – every line. Type a length like 3:00 to fit the cut to it.'; })()),
           ui.section('In the timeline', lookControls({ withNames: true }), { open: false, hint: 'colours, ★ strongest lines, theme names' }),
           ui.section('Soundbites', biteControls(), { open: false, hint: 'whole sentences, no interviewer, shortest bite, why' }),
-          ui.section('Options', [ui.slider({ label: 'Handles', min: 0, max: 2, step: 0.1, value: L.handles, fmt: x => `${x.toFixed(1)} s each side`, onChange: x => US.settings.set('story.handles', x) })], { open: false }),
+          ui.section('Options', [ui.slider({ label: 'Handles', min: 0, max: 2, step: 0.1, value: L.handles, fmt: x => `${x.toFixed(1)} s each side`, onChange: x => US.settings.set('story.handles', x) }),
+            RES ? null : ui.toggle({ label: 'With everything in the sequence', hint: 'When Story works on a sequence: each line brings what’s in it at that moment – the multicam clip (from a multicam’s own sequence) or every video and audio track – not just the transcribed sound.', value: US.settings.get('story.fromSequence', true) !== false, onChange: x => US.settings.set('story.fromSequence', x) })].filter(Boolean), { open: false }),
           ui.actionButton(BOARD ? 'Build sequence from the board' : 'Build sequence', () => US.actions.run('story.build', { source: BOARD ? 'wall' : 'themes' }), { icon: 'film' })));
         el.appendChild(beatCard());
         el.appendChild(narrativeCard());
@@ -4387,6 +4423,7 @@
   // for Home, tests and the Assistant
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' }, script: { tab: 'build', section: 'script' } };
   US.story = {
+    sequenceRange,
     /** for other tabs (Word cloud): play a line, who said it, which interview, and the lines to work on */
     readReference, matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), dragLines: (e, lines) => dragLines(e, lines), placeAtPlayhead: lines => placeAtPlayhead(lines), openInSource: l => openInSource(l), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
     scoreBeats, boardGroups, findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
