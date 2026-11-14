@@ -120,3 +120,14 @@ test('the multicam’s own sequence: each line is the multicam clip itself, cut 
   assert.deepStrictEqual(lay(P.out._a[0]), [['Concert MC', 4, 14, 10], ['Concert MC', 14, 19, 50]]);
   assert.strictEqual(r.cursor, 19);
 });
+
+test('the multicam clips used in an edit, with their own sequence – most used first; a multicam’s own sequence says so', () => {
+  const P = makePremiere({ multicam: true });
+  // the edit ("out") uses the multicam clip twice (60 s in all) and camera A once (10 s)
+  const mk = (it, s, e) => ({ nodeId: 'e' + s, projectItem: it, name: it.name, start: { seconds: s }, end: { seconds: e } });
+  P.out._v[0]._clips.push(mk(P.mcItem, 0, 40), mk(P.camA, 40, 50), mk(P.mcItem, 50, 70));
+  const r = P.call('storyMulticamsIn', { seqId: 'out' });
+  assert.strictEqual(r.self, false);
+  assert.deepStrictEqual(r.multicams.map(m => [m.id, m.name, m.uses, m.seconds]), [['src', 'Concert edit', 2, 60]]);
+  assert.strictEqual(P.call('storyMulticamsIn', { seqId: 'src' }).self, true);
+});

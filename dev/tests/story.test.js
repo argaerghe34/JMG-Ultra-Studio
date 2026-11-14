@@ -341,3 +341,29 @@ test('working on a sequence (Premiere): each line comes from it – the multicam
   } finally { US.host.call = was; US.ui.toast = toast; US.settings.set('story.fromSequence', true); }
   await S.setScope(null, { kind: 'all' });
 });
+
+test('“Its multicam’s own sequence”: Story works on the multicam used most in the edit; a multicam’s own sequence as it is; none – a plain message', async () => {
+  const st = fresh();
+  const t0 = st.transcripts[0], end = t0.lines[t0.lines.length - 1].end;
+  const mcInfo = { id: 'mcSeq', itemId: 'mcItem', name: 'Concert MC', fps: 25, frame: 0.04, duration: end, markers: [], inPoint: 0, outPoint: end, video: [{ index: 0, name: 'V1', clips: [] }],
+    audio: [{ index: 0, name: 'A1', clips: [{ name: 'I001', start: 0, end, in: 0, out: end, speed: 1, path: '/media/I001_interview.srt', itemId: 'item0' }] }] };
+  let found = { self: false, multicams: [{ id: 'mcSeq', name: 'Concert MC', uses: 4, seconds: 300 }, { id: 'mc2', name: 'Encore MC', uses: 1, seconds: 20 }] };
+  const was = US.host.call;
+  US.host.call = async (fn, a) => (fn === 'storyMulticamsIn' ? found : fn === 'sequenceInfo' ? Object.assign({}, mcInfo, { id: a.seqId }) : fn === 'storySequenceTiming' ? { zero: 0, fps: 25 } : {});
+  try {
+    const r = await S.setMulticamScope(null, { seqId: 'edit', seqName: 'Concert – final edit' });
+    assert.strictEqual(S.scopeOf ? S.scopeOf().seqId : st.scope.seqId, 'mcSeq');
+    assert.deepStrictEqual(st.scope.via, { id: 'edit', name: 'Concert – final edit' });
+    assert.ok(st.scope.multicam);
+    assert.strictEqual(S.scopeLabel(), 'Lines in the multicam “Concert MC” (used in “Concert – final edit”)');
+    assert.strictEqual(S.scopeLines().length, t0.lines.length);
+    assert.ok(/also in it: “Encore MC”/.test(r.summary), r.summary);
+    found = { self: true, multicams: [] };
+    await S.setMulticamScope(null, { seqId: 'mcSeq', seqName: 'Concert MC' });
+    assert.strictEqual(st.scope.seqId, 'mcSeq'); assert.ok(!st.scope.via);
+    found = { self: false, multicams: [] };
+    await assert.rejects(S.setMulticamScope(null, { seqId: 'edit', seqName: 'Rough cut' }), e => /no multicam clip in “Rough cut”/.test(e.title));
+    assert.strictEqual(st.scope.seqId, 'mcSeq', 'a failed choice keeps the one before');
+  } finally { US.host.call = was; }
+  await S.setScope(null, { kind: 'all' });
+});

@@ -304,6 +304,26 @@
      * a: {seqId, srcSeqId, cursor, ranges:[{start, end}] (seconds on the source sequence)} -> {cursor, placed:[{start,end}|null],
      * how: 'multicam'|'tracks', layers, missing:[names]}. One range after another from a.cursor.
      */
+    /**
+     * The multicam clips used in a sequence, each with its own (source) sequence – most used first. a: {seqId} ->
+     * {self: true when the sequence is itself a multicam's own sequence, multicams:[{id (sequenceID), name, itemId, uses, seconds}]}
+     */
+    fn.storyMulticamsIn = function (a) {
+        var seq = U.needSeq(a.seqId), out = { self: isMulticamSeq(seq), multicams: [] }, found = {}, t, k;
+        if (out.self) return out;
+        var bySeqItem = {}, seqs = U.project().sequences;
+        for (t = 0; t < seqs.numSequences; t++) { try { bySeqItem[seqs[t].projectItem.nodeId] = seqs[t]; } catch (e) { } }
+        for (t = 0; t < seq.videoTracks.numTracks; t++) for (k = 0; k < seq.videoTracks[t].clips.numItems; k++) {
+            var c = seq.videoTracks[t].clips[k], pi = null, mc = false;
+            try { pi = c.projectItem; mc = !!pi.isMulticamClip(); } catch (e) { }
+            if (!mc) continue;
+            var src = bySeqItem[pi.nodeId], key = pi.nodeId;
+            if (!found[key]) { found[key] = { id: src ? src.sequenceID : '', name: src ? src.name : pi.name, itemId: pi.nodeId, uses: 0, seconds: 0 }; out.multicams.push(found[key]); }
+            found[key].uses++; found[key].seconds += c.end.seconds - c.start.seconds;
+        }
+        out.multicams.sort(function (x, y) { return y.seconds - x.seconds; });
+        return out;
+    };
     fn.storyPlaceFromSequence = function (a) {
         var seq = U.needSeq(a.seqId), src = U.needSeq(a.srcSeqId), cursor = a.cursor || 0, placed = [], missing = [], i, t, k, q;
         if (isMulticamSeq(src)) {

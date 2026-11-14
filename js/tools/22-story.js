@@ -501,7 +501,7 @@
   function scopeLabel() {
     const s = scopeOf(), n = state.transcripts.length;
     if (s.kind === 'interviews') return `${s.keys.filter(k => state.transcripts.some(t => t.key === k)).length} of ${US.plural(n, 'interview')}`;
-    if (s.kind === 'sequence') return `Lines in “${s.seqName || 'a sequence'}”${s.inOut ? ' between In and Out' : ''}`;
+    if (s.kind === 'sequence') return `Lines in ${s.via ? `the multicam “${s.seqName || 'a sequence'}” (used in “${s.via.name}”)` : `“${s.seqName || 'a sequence'}”`}${s.inOut ? ' between In and Out' : ''}`;
     return n === 1 ? 'The interview' : `All ${US.plural(n, 'interview')}`;
   }
   /** A sequence's In and Out points, or null when none are set (Premiere then reports the whole sequence). */
@@ -525,6 +525,20 @@
     state.scope = Object.assign(s, { seqName: tl.info.name, ids, range, at: Date.now() });
     linesStamp++; saveNow();
     return scopeLines();
+  }
+  /**
+   * Work on the multicam's own sequence of a multicam clip used in an edit (Premiere): Build then gives each line as the
+   * multicam clip with all its sound. The one used most in the edit when there are several. -> setScope's {lines, summary}
+   */
+  async function setMulticamScope(job, { seqId, seqName = '', inOut = false }) {
+    job && job.set({ who: 'premiere', msg: 'Finding the multicam clip in the sequence' });
+    const r = await US.host.call('storyMulticamsIn', { seqId });
+    if (r.self) return setScope(job, { kind: 'sequence', seqId, seqName, inOut, multicam: true });
+    const mc = (r.multicams || []).find(m => m.id);
+    if (!mc) throw new US.UserError('NOTHING_FOUND', { title: `There’s no multicam clip in “${seqName || 'that sequence'}”.`, action: 'Choose the edit that uses your multicam clip – or choose “This sequence”.' });
+    const out = await setScope(job, { kind: 'sequence', seqId: mc.id, seqName: mc.name, inOut, multicam: true, via: { id: seqId, name: seqName } });
+    const others = r.multicams.filter(m => m !== mc && m.id);
+    return Object.assign(out, { multicam: mc, summary: out.summary + (others.length ? ` · the multicam used most; also in it: ${others.map(m => `“${m.name}”`).join(', ')}` : '') });
   }
   /** Choose what to work on. -> {lines, summary} */
   async function setScope(job, scope) {
@@ -2560,7 +2574,7 @@
   US.tools.register({
     id: 'story', name: 'Story', short: 'Story', icon: 'story', group: 'cut', order: 22,
     blurb: 'Step by step from your interviews to a cut: themes, specific lines and moments, a sequence or a narrative, and documents to share.',
-    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyPlaceFromSequence', 'storyDropSwap', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe', 'storySources', 'storyReadTranscript', 'storyMakeMulticam'] : []),
+    hostFns: ['storyClips', 'storyCue', 'storyProjectFile', 'storyTiming', 'storyPlace', 'storyPlaceFromSequence', 'storyMulticamsIn', 'storyDropSwap', 'storyThemeLayers', 'storyCaptions'].concat(RES ? ['storyTranscribe', 'storySources', 'storyReadTranscript', 'storyMakeMulticam'] : []),
     create() {
       const v = ui.toolView({
         icon: 'story', title: 'Story', blurb: 'From your interviews to a cut, step by step: themes, the lines you need, a sequence or narrative, and documents to share.',
@@ -2729,15 +2743,22 @@
             body.append(h('div.row', ui.button('All', { small: true, kind: 'ghost', onClick: () => { apply({ kind: 'interviews', keys: state.transcripts.map(t => t.key) }); draw(); } }), ui.button('None', { small: true, kind: 'ghost', onClick: () => { apply({ kind: 'interviews', keys: [] }); draw(); } })),
               h('div.story-scope-list', state.transcripts.slice().sort((a, b) => a.name.localeCompare(b.name)).map(t => h('label.story-scope-item', h('input', { type: 'checkbox', checked: keys.has(t.key), onchange: e => tick(t, e.target.checked) }), h('span.grow', t.name), h('span.field-hint', US.plural(t.lines.length, 'line'))))));
           } else if (kind === 'sequence') {
-            let seqId = scopeOf().seqId || (US.ctx.sequence && US.ctx.sequence.id) || '', inOut = !!scopeOf().inOut;
+            let seqId = (scopeOf().via && scopeOf().via.id) || scopeOf().seqId || (US.ctx.sequence && US.ctx.sequence.id) || '', inOut = !!scopeOf().inOut, from = scopeOf().multicam ? 'multicam' : 'sequence';
             const sel = ui.select({ options: [], placeholder: 'Choose a sequence…', onChange: x => { seqId = x; } });
             const fill = seqs => { scopeSeqs = seqs; sel.setOptions(seqs.map(q => ({ value: q.id, label: q.name + (US.ctx.sequence && q.id === US.ctx.sequence.id ? '  (open)' : '') })), seqId); };
             if (scopeSeqs) fill(scopeSeqs);
             US.host.call('listSequences').then(fill).catch(() => {});
-            body.append(h('div.field-hint', 'Story reads which lines are heard in the sequence – your selects or a rough cut – and works only on those. Themes, Find more and Moments read it again each time, so changes to the cut count; Search uses it as last read (Read again updates it).'),
+            body.append(...[h('div.field-hint', 'Story reads which lines are heard in the sequence – your selects or a rough cut – and works only on those. Themes, Find more and Moments read it again each time, so changes to the cut count; Search uses it as last read (Read again updates it).'),
               ui.field('Sequence', sel),
+              RES ? null : ui.field('Lines from', ui.segmented({ options: [{ value: 'sequence', label: 'This sequence' }, { value: 'multicam', label: 'Its multicam’s own sequence' }], value: from, onChange: x => { from = x; } }),
+                'For a concert or event cut from a multicam clip: Story works on the multicam’s own sequence, so Build gives each line as the multicam clip – still switchable – with all its sound. Choose the edit that uses it (or the multicam’s sequence itself); In and Out are read from the multicam’s sequence.'),
               ui.toggle({ label: 'Only between its In and Out points', hint: 'Mark In and Out in the Timeline (I and O) around the part you want.', value: inOut, onChange: x => { inOut = x; } }),
-              ui.actionButton('Use this sequence', () => { const id = sel.get() || seqId; if (!id) { ui.toast({ type: 'info', title: 'Choose a sequence first.' }); return; } apply({ kind: 'sequence', seqId: id, seqName: ((scopeSeqs || []).find(q => q.id === id) || {}).name || '', inOut }); }, { icon: 'target', block: false }));
+              ui.actionButton('Use this sequence', () => {
+                const id = sel.get() || seqId; if (!id) { ui.toast({ type: 'info', title: 'Choose a sequence first.' }); return; }
+                const name = ((scopeSeqs || []).find(q => q.id === id) || {}).name || '';
+                if (from === 'multicam' && !RES) US.jobs.run({ title: 'Finding the multicam', tool: 'story' }, job => setMulticamScope(job, { seqId: id, seqName: name, inOut })).then(r => { if (r && r.summary) ui.toast({ type: 'ok', title: 'Working on the multicam', text: r.summary }); render(); });
+                else apply({ kind: 'sequence', seqId: id, seqName: name, inOut });
+              }, { icon: 'target', block: false })].filter(Boolean));
           }
           showStatus();
         }
@@ -4423,7 +4444,7 @@
   // for Home, tests and the Assistant
   const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' }, script: { tab: 'build', section: 'script' } };
   US.story = {
-    sequenceRange,
+    sequenceRange, setMulticamScope,
     /** for other tabs (Word cloud): play a line, who said it, which interview, and the lines to work on */
     readReference, matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), dragLines: (e, lines) => dragLines(e, lines), placeAtPlayhead: lines => placeAtPlayhead(lines), openInSource: l => openInSource(l), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
     scoreBeats, boardGroups, findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
