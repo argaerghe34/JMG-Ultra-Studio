@@ -18,7 +18,9 @@ ppro_running() { ps -axo comm= | grep -Eq '/Contents/MacOS/Adobe Premiere Pro( [
 # an update while Premiere is open: only the panel's files change, so they're replaced where they are and the panel's
 # ↻ (Reload) picks them up – no need to quit. Premiere reads the manifest only when it starts, so if that changed
 # (anything but the version number), Premiere has to be quit after all.
-same_manifest() { diff -q <(sed -E 's/Version="[^"]*"//g' "$SRC/CSXS/manifest.xml") <(sed -E 's/Version="[^"]*"//g' "$DEST/CSXS/manifest.xml") >/dev/null 2>&1; }
+# (a byte-order mark or Windows line endings, from a file saved on a PC, don't count as a change)
+strip_manifest() { LC_ALL=C sed -E $'1s/^\xEF\xBB\xBF//; s/\r$//; s/Version="[^"]*"//g' "$1"; }
+same_manifest() { diff -q <(strip_manifest "$SRC/CSXS/manifest.xml") <(strip_manifest "$DEST/CSXS/manifest.xml") >/dev/null 2>&1; }
 if ppro_running && [ -d "$DEST" ] && [ ! -L "$DEST" ] && [ -f "$DEST/CSXS/manifest.xml" ] && same_manifest; then
   if rsync -a --delete "$SRC/" "$DEST/"; then
     xattr -dr com.apple.quarantine "$DEST" 2>/dev/null

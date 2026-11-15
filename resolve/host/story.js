@@ -208,9 +208,10 @@ module.exports = (R, fns) => {
   }
   /**
    * A line from a synced timeline: every clip on its switched-on tracks between in and out, laid on the same tracks
-   * of tl at `at`, picture and sound linked again where they were one clip. -> [TimelineItem]
+   * of tl at `at`, picture and sound linked again where they were one clip. Titles, generators and clips with a speed
+   * change can't be copied as they are: their names go in `missing` (when given). -> [TimelineItem]
    */
-  function placeTimelineRange(tl, src, inSec, outSec, at) {
+  function placeTimelineRange(tl, src, inSec, outSec, at, missing) {
     R.open(tl);
     const sf = R.fps(src), tf = R.fps(tl), r0 = src.GetStartFrame() + Math.round(inSec * sf), r1 = src.GetStartFrame() + Math.round(outSec * sf);
     const rec0 = R.tlFrame(tl, at), got = [];
@@ -220,10 +221,16 @@ module.exports = (R, fns) => {
         const a = Math.max(ti.GetStart(), r0), b = Math.min(ti.GetEnd(), r1);
         if (b <= a) continue;
         const m = tryCall(() => ti.GetMediaPoolItem(), null);
-        if (!m) continue;                          // titles, generators: not media
+        const name = () => String(tryCall(() => ti.GetName(), '') || '');
+        if (!m) { if (missing && !missing.includes(name())) missing.push(name()); continue; }   // titles, generators: not media
         // source frames are the clip's own (a 25 fps clip in a 24 fps timeline): timeline frames -> clip frames
         const cf = R.clipFps(m) || sf, s0 = Number(ti.GetSourceStartFrame()) + (a - ti.GetStart()) * cf / sf;
         if (!isFinite(s0)) continue;
+        // a speed change (slow motion, a ramp): the source it uses is longer or shorter than its place on the timeline
+        const se = Number(tryCall(() => ti.GetSourceEndFrame(), NaN)), len = ti.GetEnd() - ti.GetStart();
+        if (isFinite(se) && len > 0 && Math.abs((se - Number(ti.GetSourceStartFrame())) * sf / cf - len) > Math.max(2, len * 0.02)) {
+          const n = name() + ' (speed changed)'; if (missing && !missing.includes(n)) missing.push(n); continue;
+        }
         ensureTracks(tl, type, k);
         const info = { mediaPoolItem: m, startFrame: Math.round(s0), endFrame: Math.round(s0 + (b - a) * cf / sf), mediaType: type === 'video' ? 1 : 2, trackIndex: k, recordFrame: Math.round(rec0 + (a - r0) * tf / sf) };
         const placed = R.list(R.pool().AppendToTimeline([info])).filter(Boolean);
@@ -519,16 +526,16 @@ module.exports = (R, fns) => {
     storyPlaceFromSequence(a) {
       const tl = R.needSeq(a.seqId), src = R.needSeq(a.srcSeqId);
       let cursor = R.num(a.cursor) || 0, layers = 0;
-      const placed = [];
+      const placed = [], missing = [];
       for (const r of a.ranges || []) {
         const s0 = R.num(r.start), s1 = R.num(r.end);
         if (s0 == null || s1 == null || s1 <= s0) { placed.push(null); continue; }
-        const got = placeTimelineRange(tl, src, s0, s1, cursor);
+        const got = placeTimelineRange(tl, src, s0, s1, cursor, missing);
         layers += got.length;
         placed.push(got.length ? { start: cursor, end: cursor + (s1 - s0) } : null);
         cursor += s1 - s0;
       }
-      return { cursor, placed, how: 'tracks', layers, missing: [] };
+      return { cursor, placed, how: 'tracks', layers, missing };
     },
     /**
      * The multicam clips used in a timeline, most used first (Resolve: a multicam clip has no timeline of its own –

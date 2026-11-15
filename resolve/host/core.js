@@ -543,7 +543,36 @@ module.exports = (R) => {
       if (!paths.length) throw R.err('NOTHING_FOUND', 'Not on disk: ' + missing.join(', '), missing.length > 1 ? 'Those files aren’t there any more.' : 'That file isn’t there any more.', 'Check the drive is connected, then try again.');
       const got = R.inFolder(folder, () => R.list(R.pool().ImportMedia(paths)).filter(Boolean));
       // the same details as a bin listing (duration, size, fps…), so a clip can be placed straight away
-      return got.map(it => { const base = { id: R.id(it), name: String(it.GetName() || ''), path: String(R.prop(it, 'File Path') || '') }; try { return Object.assign(base, R.itemInfo(it) || {}); } catch (e) { return base; } });
+      const info = it => { const base = { id: R.id(it), name: String(it.GetName() || ''), path: String(R.prop(it, 'File Path') || '') }; try { return Object.assign(base, R.itemInfo(it) || {}); } catch (e) { return base; } };
+      const fresh = got.map(info), tryInfo = it => { try { return R.itemInfo(it) || {}; } catch (e) { return {}; } };
+      // a file Resolve didn't import again (it's already in the project): the clip that's there, marked existing – the
+      // one with the file's own name first, then one in this folder; never a subclip or multicam clip. In a.paths' order.
+      const norm = x => String(x || '').replace(/\\/g, '/').toLowerCase(), byPath = new Map();
+      for (const f of fresh) { const k = norm(f.path); if (!byPath.has(k)) byPath.set(k, []); byPath.get(k).push(f); }
+      const left = new Map();
+      for (const p of paths) if (!byPath.has(norm(p)) && !left.has(norm(p))) left.set(norm(p), { file: p.replace(/^.*[\\/]/, ''), best: null, score: -1 });
+      if (left.size) {
+        R.forget();
+        const fid = folder ? R.id(folder) : '';
+        for (const c of R.index().clips) {
+          const l = left.get(norm(R.prop(c.item, 'File Path')));
+          if (!l) continue;
+          const type = String(R.prop(c.item, 'Type') || '');
+          if (/multicam|compound|timeline/i.test(type) || tryInfo(c.item).subclip) continue;
+          const score = (String(c.item.GetName() || '') === l.file ? 2 : 0) + (fid && c.folder && R.id(c.folder) === fid ? 1 : 0);
+          if (score > l.score) { l.best = c.item; l.score = score; }
+        }
+      }
+      const out = [], used = new Set();
+      for (const p of paths) {
+        const k = norm(p);
+        if (used.has(k)) continue;
+        used.add(k);
+        if (byPath.has(k)) out.push(...byPath.get(k));
+        else if (left.get(k) && left.get(k).best) out.push(Object.assign(info(left.get(k).best), { existing: true }));
+      }
+      for (const f of fresh) if (!used.has(norm(f.path))) out.push(f);
+      return out;
     },
 
     /** Up to a.max (default 200) clips from anywhere in the project, for self-tests and pickers. */

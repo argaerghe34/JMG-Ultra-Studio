@@ -23,7 +23,10 @@ if running; then
 fi
 # the old panels can hold their debug ports for a moment; a new Premiere that finds them taken never opens them
 for i in $(seq 1 30); do lsof -nP -iTCP:8890 -iTCP:8891 -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 1; done
-open -a "Adobe Premiere Pro 2026" "$PROJ"
+# the newest Premiere installed (PPRO_APP="Adobe Premiere Pro 2026" picks one)
+NEWEST="$(ls -d /Applications/Adobe\ Premiere\ Pro\ 20* 2>/dev/null | sort | tail -1)"
+APP="${PPRO_APP:-${NEWEST##*/}}"
+open -a "${APP:-Adobe Premiere Pro 2026}" "$PROJ"
 for i in $(seq 1 90); do curl -s --max-time 1 http://127.0.0.1:8891/json >/dev/null 2>&1 && break; sleep 2; done
 # wait until the project is really open before opening the panel
 echo '(function(){ return app.project && app.project.path ? "ready" : "wait"; })()' > "$TMP/ready.jsx"

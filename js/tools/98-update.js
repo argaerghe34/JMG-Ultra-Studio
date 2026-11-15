@@ -180,7 +180,7 @@
     } catch (e) { return false; }
   }
   const same = (a, b) => { try { return fs.readFileSync(a).equals(fs.readFileSync(b)); } catch (e) { return false; } };
-  const stripVer = f => { try { return fs.readFileSync(f, 'utf8').replace(/Version="[^"]*"|<Version>[^<]*<\/Version>/g, ''); } catch (e) { return null; } };
+  const stripVer = f => { try { return fs.readFileSync(f, 'utf8').replace(/^\uFEFF/, '').replace(/\r/g, '').replace(/Version="[^"]*"|<Version>[^<]*<\/Version>/g, ''); } catch (e) { return null; } };
 
   /**
    * Download the release and put it in place of this copy. -> {version, restart} (restart: the editor must be

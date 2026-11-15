@@ -655,9 +655,41 @@ var UStudio = (function () {
         if (!paths.length) throw err('NOTHING_FOUND', 'Not on disk: ' + missing.join(', '), missing.length > 1 ? 'Those files aren’t there any more.' : 'That file isn’t there any more.', 'Check the drive is connected, then try again.');
         walk(bin, function (c) { before[c.nodeId] = true; });
         project().importFiles(paths, true, bin, !!a.asNumberedStills);
-        var out = [];
         // each new clip with the same details as a bin listing (duration, size, fps…) – a test or tool that places it right away needs them
-        walk(bin, function (c) { if (!before[c.nodeId] && c.type !== 2) { var o = null; try { o = itemInfo(c); } catch (e) { o = null; } out.push(o || { id: c.nodeId, name: c.name, path: (function () { try { return c.getMediaPath(); } catch (e2) { return ''; } })() }); } });
+        var info = function (c) { var o = null; try { o = itemInfo(c); } catch (e) { o = null; } return o || { id: c.nodeId, name: c.name, path: (function () { try { return c.getMediaPath(); } catch (e2) { return ''; } })() }; };
+        var fresh = [];
+        walk(bin, function (c) { if (!before[c.nodeId] && c.type !== 2) fresh.push(info(c)); });
+        // Premiere (2027 and later) doesn't import a file that's already in the project: hand back the clip that's there,
+        // marked existing – a whole clip of the file (never a subclip, a merged or multicam clip), the one with the
+        // file's own name first, then one in this bin. Results come in the order of a.paths.
+        var norm = function (x) { return String(x || '').replace(/\\/g, '/').toLowerCase(); };
+        var byPath = {}, g, q;
+        for (g = 0; g < fresh.length; g++) { var fk = norm(fresh[g].path); (byPath[fk] = byPath[fk] || []).push(fresh[g]); }
+        var left = {}, nLeft = 0;
+        for (q = 0; q < paths.length; q++) if (!byPath[norm(paths[q])] && !left[norm(paths[q])]) { left[norm(paths[q])] = { file: paths[q].replace(/^.*[\/\\]/, ''), best: null, score: -1 }; nLeft++; }
+        if (nLeft) {
+            var inBin = {};
+            walk(bin, function (c) { inBin[c.nodeId] = true; });
+            walk(project().rootItem, function (c) {
+                if (c.type === 2) return;
+                var m = ''; try { m = c.getMediaPath(); } catch (e) { return; }
+                var l = left[norm(m)]; if (!l) return;
+                try { if (c.isMulticamClip() || c.isMergedClip()) return; } catch (e1) { }
+                try { var md = c.getProjectMetadata(); if (/SubclipStart>[^<]+</.test(md) && /SubclipEnd>[^<]+</.test(md)) return; } catch (e2) { }
+                var score = (c.name === l.file ? 2 : 0) + (inBin[c.nodeId] ? 1 : 0);
+                if (score > l.score) { l.best = c; l.score = score; }
+            });
+        }
+        var out = [], used = {};
+        for (q = 0; q < paths.length; q++) {
+            var key = norm(paths[q]);
+            if (used[key]) continue;
+            used[key] = true;
+            if (byPath[key]) { for (g = 0; g < byPath[key].length; g++) out.push(byPath[key][g]); }
+            else if (left[key] && left[key].best) { var ex = info(left[key].best); ex.existing = true; out.push(ex); }
+        }
+        // anything Premiere made that isn't one of the paths (a file it renamed): kept, after the rest
+        for (g = 0; g < fresh.length; g++) if (!used[norm(fresh[g].path)]) out.push(fresh[g]);
         return out;
     };
 

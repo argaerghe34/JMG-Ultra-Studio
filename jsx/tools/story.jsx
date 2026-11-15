@@ -346,7 +346,8 @@
                     if (ce <= s0 + 0.001 || cs >= s1 - 0.001 || c.disabled) continue;
                     var pi = null; try { pi = c.projectItem; } catch (e) { }
                     var sp = 1; try { sp = c.getSpeed() || 1; } catch (e) { }
-                    if (!pi || sp < 0) { missing.push(c.name); continue; }
+                    // a speed change (slow motion, a ramp) can't be copied as it is: the layer is listed as not copied
+                    if (!pi || Math.abs(sp - 1) > 0.001) { missing.push(c.name + (pi ? ' (speed changed)' : '')); continue; }
                     var from = Math.max(s0, cs), to = Math.min(s1, ce);
                     mine.push({ item: pi, name: c.name, video: kinds[q].video, index: t, speed: sp, at: cursor + (from - s0), from: c.inPoint.seconds + (from - cs) * sp, to: c.inPoint.seconds + (to - cs) * sp });
                 }

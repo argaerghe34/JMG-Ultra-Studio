@@ -64,5 +64,5 @@ try {
   return out;
 } finally {
   Object.assign(st, saved); S.save();
-  US.settings.set('story.binBase', prevBase);
+  if (prevBase != null) US.settings.set('story.binBase', prevBase); else if (US.settings.get('story.binBase') != null) { delete US.settings.all()['story.binBase']; US.settings.set('lastTool', US.settings.get('lastTool')); }
 }

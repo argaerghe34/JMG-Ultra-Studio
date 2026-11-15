@@ -372,7 +372,7 @@
           ui.field('Quality', quality), qHint),
         ui.card(setupBox, go, signedLine, h('div.field-hint', 'Only download videos you own or have permission to use.')));
       count(); showFolder(); drawSetup(); drawSignedIn(); showWhere();
-      return { el: v.el, onShow() { o = opts(); fillBins(); showFolder(); drawSetup(); drawSignedIn(); showWhere(); } };
+      return { el: v.el, onShow() { o = opts(); where.set(o.toBin === false ? 'folder' : 'bin'); quality.set(QUALITY[o.quality] ? o.quality : 'premiere'); qHint.textContent = (QUALITY[o.quality] || QUALITY.premiere).hint; fillBins(); showFolder(); drawSetup(); drawSignedIn(); showWhere(); } };
     }
   });
   US.actions && US.actions.register && US.actions.register({ id: 'youtube.open', tool: 'youtube', title: 'Download videos from the web', changes: false, describe: 'Opens the Download tab: paste links from YouTube, Vimeo, Instagram, TikTok, Facebook, X and more – they’re downloaded and imported into a bin.', examples: ['download this youtube video', 'import from vimeo', 'download an instagram reel', 'get this tiktok'], match: t => (/\b(youtube|youtu\.be|vimeo|instagram|insta|reels?|tiktok|facebook|fb|twitter|x\.com|reddit|linkedin|dailymotion|twitch|soundcloud|bandcamp)\b/i.test(t) && /\b(download|import|get|grab)\b/i.test(t) ? {} : null), run: async () => { US.tools.open('youtube'); return { summary: 'Download is open – paste the links there.' }; } });

@@ -1,3 +1,20 @@
+## What's new in 1.3.35.1
+
+- **Updating while Premiere is open works again.** 1.3.35's files were saved on Windows with an invisible mark at the start (a "byte-order mark"), so the Mac installer and Settings › Updates thought the panel's setup had changed and asked for Premiere to be quit. The mark is gone, the installers and Settings › Updates now ignore it (and Windows line endings), and a check stops it coming back. Updating *from* 1.3.35 may still ask once, because that's 1.3.35's own updater doing the checking; from 1.3.35.1 on it won't. On Windows, the installer's "update while Premiere is open" check was also fixed (it never matched before).
+- **Importing a file that's already in the project** (Premiere 2027 doesn't import it twice): Ultra Studio now uses the clip that's already there – a whole clip of the file named like it (never a subclip, multicam or merged clip), the one in the chosen bin when there's a choice – instead of finding nothing. Download, Story and the other tools that import carry on as normal. The same in Resolve.
+- **Story › Build with everything in the sequence:** a layer with a speed change (slow motion, a ramp) isn't copied at the wrong length any more – it's named in Build's notice as *not copied (speed changed)*, in Premiere and Resolve. In Resolve, titles and generators that can't be copied are now named in that notice too, as in Premiere.
+- **Download:** the *A folder and a bin / A folder only* and quality buttons show your saved choice when you come back to the tab.
+
+## What's new in 1.3.35
+
+- **Story builds selects with everything in your sequence** (Premiere and Resolve). When Story › 1 Interviews › What to work on is *A sequence*, Build takes each line from that sequence at the moment it's heard: the multicam clip, every audio layer (other mics, the room, the desk) and anything above, each on its own track, lined up. Lines from interviews that aren't in the sequence come from their own clip, and Build says how many. Build › Options › *With everything in the sequence* switches it off.
+- **Lines from › Its multicam's own sequence** (Premiere) / **Its multicam clip** (Resolve): choose an edit cut from a multicam and Story works on the multicam instead, so each line comes as the multicam clip itself – still switchable – with all its sound.
+- Good to know: Premiere's scripting can't read which angle each cut of a multicam uses, so a multicam clip copied from an *edit* shows the multicam's current angle (the multicam option avoids this). Copied layers aren't linked to each other.
+
+## What's new in 1.3.34.1
+
+- **Download: a folder and a bin, or a folder only.** Keep **A folder and a bin** to save each video and import it into the bin you pick, or choose **A folder only** to just save the videos – nothing is added to the project. Your choice is remembered.
+
 ## What's new in 1.3.34
 
 - **The YouTube tab is now Download, and takes links from almost any video site:** YouTube, Vimeo, Instagram (reels and posts), TikTok, Facebook, X (Twitter), Threads, Reddit, LinkedIn, Dailymotion, Twitch, SoundCloud, Bandcamp and most others. Paste links from different sites together: it says how many it found from each (*3 links found – 2 Instagram, 1 Vimeo*). The same video shared twice, for example with and without the share code after the link, downloads once.

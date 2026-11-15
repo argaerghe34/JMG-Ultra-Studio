@@ -506,3 +506,20 @@ test('resolve story: working on a timeline – each line brings every switched-o
   assert.deepStrictEqual(m.multicams.map(x => [x.itemId === mc.GetUniqueId(), x.name, x.uses]), [[true, 'Concert MC', 1]]);
   assert.strictEqual(m.self, false);
 });
+
+test('resolve story: working on a timeline – a clip with a speed change and a title are named as not copied (as in Premiere)', async () => {
+  const { F, run } = setup();
+  const cam = F.addMedia('/m/Cam.mov', { frames: 9000 }), slow = F.addMedia('/m/Slow.mov', { frames: 9000 });
+  const edit = F.addTimeline('Edit', [{ item: cam, in: 0, out: 3000, at: 0 }, { item: slow, in: 0, out: 3000, at: 0, track: 2, mediaType: 1 }]);
+  const R = HOST.connect({ api: F.resolve }).R;
+  const [sl] = R.list(edit.GetItemListInTrack('video', 2));
+  sl.GetSourceEndFrame = () => sl.GetSourceStartFrame() + (sl.GetEnd() - sl.GetStart()) * 2;   // 200%: twice as much source as timeline
+  const title = { GetStart: () => edit.GetStartFrame(), GetEnd: () => edit.GetStartFrame() + 3000, GetMediaPoolItem: () => null, GetName: () => 'Text+ title' };
+  const list = edit.GetItemListInTrack.bind(edit);
+  edit.GetItemListInTrack = (type, k) => (type === 'video' && k === 3 ? [title] : list(type, k));
+  const tc = edit.GetTrackCount.bind(edit); edit.GetTrackCount = type => (type === 'video' ? Math.max(3, tc(type)) : tc(type));
+  const out = F.addTimeline('Selects', []);
+  const r = await run('storyPlaceFromSequence', { seqId: out.GetUniqueId(), srcSeqId: edit.GetUniqueId(), cursor: 0, ranges: [{ start: 10, end: 14 }, { start: 20, end: 21 }] });
+  assert.deepStrictEqual(r.missing.sort(), ['Slow.mov (speed changed)', 'Text+ title'], JSON.stringify(r.missing));
+  assert.ok(R.list(out.GetItemListInTrack('video', 1)).length === 2 && !R.list(out.GetItemListInTrack('video', 2) || []).length, 'the camera laid, the slow clip not');
+});

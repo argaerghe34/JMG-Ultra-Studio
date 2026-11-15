@@ -481,3 +481,38 @@ test('resolve core: no project / no timeline give the plain errors', async () =>
   assert.strictEqual((await run('selectionSummary', {}).catch(e => e.res.error.code)), 'NO_PROJECT');
   assert.strictEqual((await run('listBins').catch(e => e.res.error.code)), 'NO_PROJECT');
 });
+
+test('resolve core: importFiles of a file already in the project hands back that clip (the one in the bin first), marked existing', async () => {
+  const { F, run } = setup();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'us-resolve-dup-'));
+  const a = path.join(dir, 'Song.wav'), b = path.join(dir, 'New.mp4');
+  fs.writeFileSync(a, 'x'); fs.writeFileSync(b, 'x');
+  await run('importFiles', { paths: [a], binPath: 'Elsewhere' });
+  const [inBin] = await run('importFiles', { paths: [a], binPath: 'Test' });
+  // like Resolve with a file it already has: nothing new for that one
+  const real = F.pool.ImportMedia;
+  F.pool.ImportMedia = items => real(items.filter(p => (typeof p === 'string' ? p : p.FilePath) !== a));
+  try {
+    const got = await run('importFiles', { paths: [a, b], binPath: 'Test' });
+    assert.deepStrictEqual(got.map(x => [x.name, !!x.existing]), [['Song.wav', true], ['New.mp4', false]]);
+    assert.strictEqual(got[0].id, inBin.id, 'the copy in the bin asked for');
+  } finally { F.pool.ImportMedia = real; }
+});
+
+test('resolve core: importFiles of a file already there – never a subclip; the clip named like the file first; results in the order asked', async () => {
+  const { F, run } = setup();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'us-resolve-dup2-'));
+  const a = path.join(dir, 'Interview.mov'), b = path.join(dir, 'Other.mov');
+  fs.writeFileSync(a, 'x'); fs.writeFileSync(b, 'x');
+  const [master] = await run('importFiles', { paths: [a], binPath: 'Elsewhere' });
+  const [copy] = await run('importFiles', { paths: [a], binPath: 'Test' });
+  const it = HOST.connect({ api: F.resolve }).R.itemById(copy.id);
+  it.SetName && it.SetName('Ruth – best bit');   // a renamed copy in the bin
+  const real = F.pool.ImportMedia;
+  F.pool.ImportMedia = items => real(items.filter(p => (typeof p === 'string' ? p : p.FilePath) !== a));
+  try {
+    const got = await run('importFiles', { paths: [a, b], binPath: 'Test' });
+    assert.deepStrictEqual(got.map(x => [x.name, !!x.existing]), [['Interview.mov', true], ['Other.mov', false]], 'in the order asked');
+    assert.strictEqual(got[0].id, master.id, 'the clip with the file’s own name beats a renamed one in the bin');
+  } finally { F.pool.ImportMedia = real; }
+});

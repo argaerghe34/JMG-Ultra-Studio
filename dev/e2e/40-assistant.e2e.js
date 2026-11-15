@@ -11,7 +11,6 @@ const ROUTES = {
   'hide the safe zones': 'safezones.hide',
   'make youtube chapters': 'deliver.chapters',
   'split the concert into songs': 'songs.split',
-  'check the sound levels': 'sound.check',
   'lines about volunteering': 'story.search',
   'find where they talk about faith': 'story.search',
   'find the themes': 'story.themes',
@@ -36,7 +35,8 @@ T.assert(p.steps.length === 1 && p.rejected[0] === 'format.drive', 'unknown acti
 
 // run a read-only command from the chat screen: type, see the plan, press Run, see "done"
 US.tools.open('assistant');
-const view = document.querySelector('.chat').closest('.tool');
+// the Assistant's own chat (Story › Ask has one too): the tool view that has the chat box and is showing
+const view = Array.from(document.querySelectorAll('.chat-input')).map(i => i.closest('.tool')).find(v => v && !v.closest('.hidden') && v.offsetParent !== null) || document.querySelector('.chat-input').closest('.tool');
 const input = view.querySelector('.chat-input');
 // the plan cards are Anything mode's (the editor's own mode may be My interviews or Edit – the runner puts it back)
 const anything = Array.from(view.querySelectorAll('.chat-mode .seg')).find(b => b.textContent === 'Anything'); if (anything) anything.click();

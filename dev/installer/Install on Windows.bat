@@ -17,7 +17,7 @@ rem Reload button picks them up. If the manifest changed (anything but the versi
 tasklist /FI "IMAGENAME eq Adobe Premiere Pro.exe" 2>nul | find /I "Adobe Premiere Pro.exe" >nul
 if errorlevel 1 goto waitppro
 if not exist "%DEST%\CSXS\manifest.xml" goto waitppro
-powershell -NoProfile -Command "$a=(Get-Content -Raw '%SRC%\CSXS\manifest.xml') -replace 'Version=\"[^\"]*\"',''; $b=(Get-Content -Raw '%DEST%\CSXS\manifest.xml') -replace 'Version=\"[^\"]*\"',''; if ($a -eq $b) { exit 0 } else { exit 1 }"
+powershell -NoProfile -Command "$a=(Get-Content -Raw '%SRC%\CSXS\manifest.xml') -replace 'Version=\x22[^\x22]*\x22','' -replace '[\r\uFEFF]',''; $b=(Get-Content -Raw '%DEST%\CSXS\manifest.xml') -replace 'Version=\x22[^\x22]*\x22','' -replace '[\r\uFEFF]',''; if ($a -ceq $b) { exit 0 } else { exit 1 }"
 if errorlevel 1 goto waitppro
 robocopy "%SRC%" "%DEST%" /MIR /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 (

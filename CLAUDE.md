@@ -10,16 +10,17 @@ Release attaches both zips. A change to a Premiere command (`jsx/`) needs the sa
 other way round; Home › Check my setup lists any tool whose commands are missing.
 
 ## GitHub is the shared copy – keep it in step (the user asked for this)
-The repository is private on GitHub and the user works on both a Mac and a PC.
+The repository is on GitHub (public since 1.3.30) and the user works on both a Mac and a PC.
 - **Before starting work:** get the latest – `git pull --rebase` (or tell the user to Fetch/Pull in GitHub Desktop if there are no command-line credentials).
 - **After every change you make:** commit with a plain message and push, so the other computer can pull it. Don't leave work only on one computer.
 - **When a version is built and installed** (`dev/monday.sh` on the Mac): commit, tag it `v<version>`, push the tag, and publish a GitHub Release with `dist/JMG-Ultra-Studio-<version>.zip` and `dist/JMG-Ultra-Studio-Resolve-<version>.zip` attached.
-- Repository: https://github.com/argaerghe34/JMG-Ultra-Studio (private). On the Mac the GitHub CLI is at `~/.local/bin/gh` (not on PATH by default), logged in as argaerghe34; git uses it for credentials. On the PC, install Git and the GitHub CLI and log in once (`gh auth login --web`, then `gh auth setup-git`).
+- Repository: https://github.com/argaerghe34/JMG-Ultra-Studio (public). On the Mac the GitHub CLI is at `~/.local/bin/gh` (not on PATH by default), logged in as argaerghe34; git uses it for credentials. On the PC, install Git and the GitHub CLI and log in once (`gh auth login --web`, then `gh auth setup-git`).
 - **Mac and PC talk through GitHub.** On the PC, testing follows `dev/WINDOWS-TESTING.md`: problems become issues
   labelled `windows` + `from-pc`, fixes come as a pull request from a branch (not straight to `main`), and the results
   go in `dev/WINDOWS-REPORT.md`. On the Mac, at the start of work check `gh issue list --label from-pc` and
   `gh pr list`, test any PC pull request here before merging, and answer on the issue. Issues found on the Mac that
   need checking on Windows get `windows` + `from-mac`.
+- Save text files as UTF-8 **without** a byte-order mark (Windows PowerShell 5.1 adds one with `-Encoding UTF8`: use `[IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding $false))`, or `-Encoding utf8NoBOM` in PowerShell 7); `dev/tests/no-bom.test.js` checks.
 - Never commit API keys, `dist/`, `node_modules`, the test project's generated files, or the large test clips listed in `.gitignore`.
 
 ## Rules that always apply
