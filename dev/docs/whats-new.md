@@ -1,3 +1,7 @@
+## What's new in 1.3.35.3
+
+- **Resolve – quitting with Ultra Studio open works.** Quitting DaVinci Resolve while the Ultra Studio window was open left Resolve stuck: its window went away but it never finished quitting, and the Ultra Studio window stayed. Ultra Studio now closes itself when Resolve quits, so Resolve closes normally.
+
 ## What's new in 1.3.35.2
 
 - **Resolve – Story › Build with everything in the timeline:** a clip that runs past the end of its media on the timeline (for example a camera clip a little shorter than the synced timeline) was mistaken for a speed change and left out – with every other layer of the line – since 1.3.35.1. It's copied again; real speed changes are still left out and named. Sound files are measured correctly too.

@@ -8,7 +8,7 @@ const makeBase = require('./base');
 const PLUGIN_ID = 'com.jmgphotography.ultrastudio';
 
 /** Resolve's own module ships with Resolve Studio; the installer copies it next to the plugin. */
-function resolveApi(pluginDir) {
+function resolveApi(pluginDir, onQuit) {
   const where = [path.join(pluginDir, 'WorkflowIntegration.node'), path.join(pluginDir, 'resolve', 'plugin', 'WorkflowIntegration.node')];
   const file = where.find(f => fs.existsSync(f));
   if (!file) throw Object.assign(new Error('WorkflowIntegration.node is missing'), { usCode: 'HOST_SCRIPT', usTitle: 'Ultra Studio isn’t fully installed in Resolve.', usAction: 'Run the installer again, then restart Resolve.' });
@@ -16,6 +16,9 @@ function resolveApi(pluginDir) {
   if (!WI.Initialize(PLUGIN_ID)) throw Object.assign(new Error('WorkflowIntegration.Initialize failed'), { usCode: 'HOST_SCRIPT', usTitle: 'Resolve didn’t let Ultra Studio connect.', usAction: 'Open Ultra Studio from Workspace › Workflow Integrations in DaVinci Resolve Studio.' });
   const api = WI.GetResolve();
   if (!api) throw Object.assign(new Error('GetResolve returned nothing'), { usCode: 'HOST_SCRIPT' });
+  // Resolve waits for its plugins to close when it quits: without this the panel stayed open and Resolve never finished
+  // quitting (measured in 21.2, 15 Nov 2026)
+  if (onQuit) { try { WI.RegisterCallback('ResolveQuit', () => onQuit()); } catch (e) { /* older Resolve */ } }
   return { api, cleanUp: () => { try { WI.CleanUp(); } catch (e) { /* closing */ } } };
 }
 
@@ -25,12 +28,13 @@ function modules(dir) {
 }
 
 /**
- * connect({pluginDir}) in the panel, or connect({api}) with a stand-in Resolve for unit tests.
+ * connect({pluginDir, onQuit}) in the panel (onQuit: Resolve is quitting), or connect({api}) with a stand-in Resolve for
+ * unit tests.
  * Returns {run(name, args) → Promise<{ok, data} | {ok:false, error}>, fns, modules, R}.
  */
-function connect({ pluginDir, api } = {}) {
+function connect({ pluginDir, api, onQuit } = {}) {
   let cleanUp = () => {};
-  if (!api) ({ api, cleanUp } = resolveApi(pluginDir));
+  if (!api) ({ api, cleanUp } = resolveApi(pluginDir, onQuit));
   const R = makeBase(api);
   const fns = {};
   const files = modules(__dirname);

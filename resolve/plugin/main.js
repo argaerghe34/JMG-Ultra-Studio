@@ -34,7 +34,7 @@ ipcMain.handle('ultra-studio:load', () => {
     const dir = hostDir();
     for (const k of Object.keys(require.cache)) if (k.startsWith(dir)) delete require.cache[k];
     const H = require(path.join(dir, 'index.js'));
-    host = host ? H.connect({ api: host.R.api }) : H.connect({ pluginDir: __dirname });
+    host = host ? H.connect({ api: host.R.api }) : H.connect({ pluginDir: __dirname, onQuit: resolveQuitting });
     if (!cleanUp) cleanUp = host.cleanUp;
     return { ok: true, modules: host.modules };
   } catch (e) {
@@ -42,7 +42,15 @@ ipcMain.handle('ultra-studio:load', () => {
   }
 });
 ipcMain.handle('ultra-studio:run', (e, name, args) => (host ? host.run(name, args) : { ok: false, error: { code: 'HOST_SCRIPT', detail: 'The Resolve commands aren’t loaded.' } }));
-app.on('will-quit', () => { if (cleanUp) cleanUp(); });
+app.on('will-quit', () => { if (cleanUp && !resolveGone) cleanUp(); });
+// Resolve is quitting: close the panel so Resolve can finish (it waits for its plugins). Resolve's connection is going
+// away, so don't wait on it; and if anything still holds the panel open, leave anyway after a moment.
+let resolveGone = false;
+function resolveQuitting() {
+  resolveGone = true;
+  setTimeout(() => app.exit(0), 3000);
+  app.quit();
+}
 
 // file dialogs for the panel (US.app.pickFiles): answers the chosen paths, or [] when cancelled
 ipcMain.on('ultra-studio:open-dialog', (e, opts) => {
