@@ -81,6 +81,17 @@ test('resolve selects: selectsStills – a still per frame from a scratch timeli
   const r2 = await run('selectsStills', { stills: [{ id: b.GetUniqueId(), seconds: 1, out: path.join(dir, 'c.png') }] });
   assert.deepStrictEqual(r2, [path.join(dir, 'c.png')]);
   assert.strictEqual(F.resolve.GetCurrentPage(), 'edit');
+  // Resolve saving the frame before it's decoded (black, a few KB): saved again; a real picture is kept at once
+  const png = (w, h, size) => { const b = Buffer.alloc(size); Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').copy(b); b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20); return b; };
+  let calls = 0;
+  F.project.ExportCurrentFrameAsStill = f => { calls++; fs.writeFileSync(f, calls === 1 ? png(1920, 1080, 8000) : png(1920, 1080, 400000)); return true; };
+  const r3 = await run('selectsStills', { stills: [{ id: b.GetUniqueId(), seconds: 1, out: path.join(dir, 'd.png') }] });
+  assert.deepStrictEqual(r3, [path.join(dir, 'd.png')]);
+  assert.strictEqual(calls, 2, 'a black first try is saved again');
+  assert.ok(fs.statSync(path.join(dir, 'd.png')).size === 400000, 'the real picture is what’s left');
+  calls = 1;   // every save a real picture: once only
+  await run('selectsStills', { stills: [{ id: b.GetUniqueId(), seconds: 1, out: path.join(dir, 'e.png') }] });
+  assert.strictEqual(calls, 2);
 });
 
 test('resolve broll: brollPlace – a new top track whose audio track is free too, named, sound kept if asked', async () => {

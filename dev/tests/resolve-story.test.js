@@ -523,3 +523,22 @@ test('resolve story: working on a timeline – a clip with a speed change and a 
   assert.deepStrictEqual(r.missing.sort(), ['Slow.mov (speed changed)', 'Text+ title'], JSON.stringify(r.missing));
   assert.ok(R.list(out.GetItemListInTrack('video', 1)).length === 2 && !R.list(out.GetItemListInTrack('video', 2) || []).length, 'the camera laid, the slow clip not');
 });
+
+test('resolve story: working on a timeline – a clip longer on the timeline than its media is not taken for a speed change (Resolve 21.2)', async () => {
+  // measured in 21.2: a 1272-frame clip laid for 1440 frames reports GetSourceEndFrame 1270 (the media's end)
+  const { F, run } = setup();
+  const cam = F.addMedia('/m/Short.mov', { frames: 1272 }), lav = F.addMedia('/m/Lav.wav', { frames: 1124, type: 'Audio' });
+  const edit = F.addTimeline('Edit', [{ item: cam, in: 0, out: 1440, at: 0 }, { item: lav, in: 0, out: 1392, at: 0, track: 2, mediaType: 2 }]);
+  const R = HOST.connect({ api: F.resolve }).R;
+  const [ti] = R.list(edit.GetItemListInTrack('video', 1)), [la] = R.list(edit.GetItemListInTrack('audio', 2));
+  ti.GetSourceEndFrame = () => 1270;
+  la.GetSourceEndFrame = () => 1123;
+  // a sound file answers Frames "" and only its Duration (measured in 21.2)
+  const lm = la.GetMediaPoolItem(), lp = lm.GetClipProperty.bind(lm), fps = Number(lp('FPS')) || 25;
+  lm.GetClipProperty = k => { const p = Object.assign({}, lp(), { Frames: '', Duration: R.framesToTC(1124, fps) }); return k ? p[k] : p; };
+  const out = F.addTimeline('Selects', []);
+  const r = await run('storyPlaceFromSequence', { seqId: out.GetUniqueId(), srcSeqId: edit.GetUniqueId(), cursor: 0, ranges: [{ start: 2, end: 6 }, { start: 30, end: 33 }] });
+  assert.deepStrictEqual(r.missing, [], JSON.stringify(r.missing));
+  assert.strictEqual(R.list(out.GetItemListInTrack('video', 1)).length, 2, 'both lines laid');
+  assert.strictEqual(R.list(out.GetItemListInTrack('audio', 2)).length, 2, 'and the sound file with them');
+});

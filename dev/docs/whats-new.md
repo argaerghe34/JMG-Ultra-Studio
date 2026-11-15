@@ -1,3 +1,8 @@
+## What's new in 1.3.35.2
+
+- **Resolve – Story › Build with everything in the timeline:** a clip that runs past the end of its media on the timeline (for example a camera clip a little shorter than the synced timeline) was mistaken for a speed change and left out – with every other layer of the line – since 1.3.35.1. It's copied again; real speed changes are still left out and named. Sound files are measured correctly too.
+- **Resolve – Selects › Stills of the best frames:** straight after heavy work Resolve could save a still before it had loaded the frame, giving a black picture. A still that comes out black is now saved again after a moment.
+
 ## What's new in 1.3.35.1
 
 - **Updating while Premiere is open works again.** 1.3.35's files were saved on Windows with an invisible mark at the start (a "byte-order mark"), so the Mac installer and Settings › Updates thought the panel's setup had changed and asked for Premiere to be quit. The mark is gone, the installers and Settings › Updates now ignore it (and Windows line endings), and a check stops it coming back. Updating *from* 1.3.35 may still ask once, because that's 1.3.35's own updater doing the checking; from 1.3.35.1 on it won't. On Windows, the installer's "update while Premiere is open" check was also fixed (it never matched before).

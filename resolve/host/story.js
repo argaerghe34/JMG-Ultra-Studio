@@ -227,8 +227,11 @@ module.exports = (R, fns) => {
         const cf = R.clipFps(m) || sf, s0 = Number(ti.GetSourceStartFrame()) + (a - ti.GetStart()) * cf / sf;
         if (!isFinite(s0)) continue;
         // a speed change (slow motion, a ramp): the source it uses is longer or shorter than its place on the timeline
+        // (not when the clip runs past the end of its media: Resolve then gives the media's last frame as the source end)
         const se = Number(tryCall(() => ti.GetSourceEndFrame(), NaN)), len = ti.GetEnd() - ti.GetStart();
-        if (isFinite(se) && len > 0 && Math.abs((se - Number(ti.GetSourceStartFrame())) * sf / cf - len) > Math.max(2, len * 0.02)) {
+        const cp = tryCall(() => m.GetClipProperty(), {}) || {};   // a sound file has no Frames, only its Duration
+        const frames = Number(cp['Frames']) || R.tcToFrames(cp['Duration'], cf) || NaN, atEnd = isFinite(frames) && frames > 0 && se >= frames - 3;
+        if (isFinite(se) && len > 0 && !atEnd && Math.abs((se - Number(ti.GetSourceStartFrame())) * sf / cf - len) > Math.max(2, len * 0.02)) {
           const n = name() + ' (speed changed)'; if (missing && !missing.includes(n)) missing.push(n); continue;
         }
         ensureTracks(tl, type, k);

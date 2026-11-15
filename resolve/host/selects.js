@@ -4,6 +4,18 @@ const fs = require('fs');
 
 const STILL = /\.(jpe?g|png|tiff?|psd|ai|bmp|gif|heic|webp|dng|exr|tga|svg)$/i;
 
+/** A PNG so small for its size it can only be one flat colour (a 1920×1080 black frame is a few KB; a picture is far more). */
+function tinyPng(file) {
+  try {
+    const fd = fs.openSync(file, 'r'), b = Buffer.alloc(24);
+    fs.readSync(fd, b, 0, 24, 0); fs.closeSync(fd);
+    const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
+    return w > 0 && h > 0 && fs.statSync(file).size < w * h / 150;
+  } catch (e) { return false; }
+}
+/** Wait without giving up the thread (Resolve's calls are synchronous). */
+function pause(ms) { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (e) { /* no wait */ } }
+
 module.exports = (R) => {
   const trackOf = ti => { try { return R.list(ti.GetTrackTypeAndIndex()); } catch (e) { return []; } };
   const span = (tl, ti) => ({ start: R.tlSec(tl, ti.GetStart()), end: R.tlSec(tl, ti.GetEnd()) });
@@ -104,6 +116,9 @@ module.exports = (R) => {
             let ok = pr.ExportCurrentFrameAsStill(file);
             // some Resolve versions export stills only from the Color page
             if ((!ok || !R.exists(file)) && R.api.OpenPage) { try { R.api.OpenPage('color'); ok = pr.ExportCurrentFrameAsStill(file); } catch (e) { ok = false; } }
+            // straight after heavy work Resolve can save the frame before it has decoded it: a black picture, a PNG of
+            // a few KB (seen once in 21.2, 15 Nov 2026). Give it a moment and save it again.
+            for (let k = 0; k < 2 && ok && R.exists(file) && tinyPng(file); k++) { pause(400); try { fs.unlinkSync(file); } catch (e) { /* replaced */ } ok = pr.ExportCurrentFrameAsStill(file); }
             out.push(ok && R.exists(file) ? file : null);
           } catch (e) { out.push(null); }
         }
