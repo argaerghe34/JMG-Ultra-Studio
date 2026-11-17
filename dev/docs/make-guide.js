@@ -4,12 +4,12 @@ const dir = __dirname;
 let md = fs.readFileSync(path.join(dir, 'guide.md'), 'utf8');
 // the Tools section: every "### Name – …" section from tools-*.md, in the order of the panel's rail (later files win)
 const sections = {};
-for (const f of ['tools-cut.md', 'tools-find.md', 'tools-finish.md', 'tools-story.md', 'tools-broll.md', 'tools-cameras.md', 'tools-colour.md', 'tools-ask.md']) {
+for (const f of ['tools-cut.md', 'tools-find.md', 'tools-finish.md', 'tools-story.md', 'tools-broll.md', 'tools-cameras.md', 'tools-colour.md', 'tools-ask.md', 'tools-memorybox.md']) {
   const text = fs.readFileSync(path.join(dir, f), 'utf8');
   for (const part of text.split(/^(?=### )/m)) { const m = /^### ([^–\n]+?) –/.exec(part); if (m) sections[m[1].trim()] = part.trim(); }
 }
 const ORDER = [[null, ['Story']], ['Selects & clips', ['Selects', 'Subclip Maker', 'Take Sets', 'MC Selects']], ['Find the good bits', ['Story wiki', 'Word cloud', 'Producer', 'Song Splitter']], ['Cut faster', ['Agent', 'Podcast', 'Silence Cut', 'Beat Cut', 'B-roll', 'Camera Switch']],
-  ['Finish & deliver', ['Colour', 'Quick effects', 'mVFX', 'Markers', 'Safe Zones', 'Sound Check', 'Final Check', 'Deliver']], ['Ask', ['Assistant']]];
+  ['Finish & deliver', ['Colour', 'Quick effects', 'mVFX', 'Markers', 'Safe Zones', 'Sound Check', 'Final Check', 'Deliver']], ['Ask', ['Assistant']], ['Memory Box', ['Memory Box']]];
 const tools = ORDER.map(([group, names]) => (group ? `**${group}**\n\n` : '') + names.map(n => { if (!sections[n]) throw new Error('No guide section for ' + n); return sections[n]; }).join('\n\n')).join('\n\n');
 md = md.replace('{{TOOLS}}', tools);
 const aiCosts = fs.existsSync(path.join(dir, 'ai-costs.md')) ? fs.readFileSync(path.join(dir, 'ai-costs.md'), 'utf8') : '';

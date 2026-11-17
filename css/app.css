@@ -369,3 +369,6 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 .advanced-crumb { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; margin: 0 0 8px; }
 .link-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
+
+/* Memory Box: pickers side by side, sharing the width */
+.row.wrap > .field { flex: 1 1 160px; min-width: 0; }
