@@ -31,7 +31,7 @@
 
   const KEYS_PAGE = 'Memory Box › Team members › Access keys for editing programs';
   const plainError = (status, detail, said) => {
-    const more = said ? ` Memory Box said: “${said}”` : '';
+    const more = said ? ` · Memory Box said: “${said}”` : '';
     if (status === 401) return new US.UserError('MEMORY_BOX', { title: 'Memory Box didn’t accept the access key.', action: `Make a new key in ${KEYS_PAGE} and paste it in the Memory Box tab (Change).`, detail: detail + more });
     if (status === 403) return new US.UserError('MEMORY_BOX', { title: 'This access key can’t open that.', action: 'Ask an admin to make you a key.', detail: detail + more });
     if (status === 404) return new US.UserError('MEMORY_BOX', { title: 'Memory Box doesn’t have that any more.', action: 'Press Check for updates: it may have been deleted or hidden.', detail: detail + more });
