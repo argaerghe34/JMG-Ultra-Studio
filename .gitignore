@@ -20,6 +20,7 @@ desktop.ini
 /dev/test-project/*.prin
 /dev/test-project/relinked/
 /dev/test-project/tidy/
+/dev/test-project/memorybox/
 
 # Test media too large for GitHub (copy these by hand if you need the full Premiere test suite):
 #   real/ – a real Lumix V-Log clip (777 MB); the ProRes whip-pan clip is over GitHub's 100 MB limit

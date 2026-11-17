@@ -1,3 +1,8 @@
+## What's new in 1.3.36
+
+- **New: the Memory Box tab** (Premiere and Resolve). Connect once to Memory Box with its address and an access key, choose the family, and see what's there: photos, videos, the people named, and what's **new or changed since you last brought it in**. Find anything by person, decade, chapter, tag or the family's own words. **Bring it into Premiere** (or Resolve): the originals are saved in full resolution in a folder you choose – never downloaded twice – and go in one bin in story order, each clip carrying its story, people, date, place, occasion, chapters, questions and answers, and voice note. Bring it in again later and the same clips are updated, never duplicated. **Open in Memory Box** takes you to the family on the Memory Box site for everything else. A team download (folder or ZIP parts) works too, without the internet. Photos, videos, voice notes and faces never go to any AI.
+- Needs Memory Box 1.3.4 or later and an access key, made by an admin in Memory Box (*Team members › Access keys for editing programs*). A team download from Memory Box 1.3.3 or later works without one (**Open a download instead…**).
+
 ## What's new in 1.3.35.3
 
 - **Resolve – quitting with Ultra Studio open works.** Quitting DaVinci Resolve while the Ultra Studio window was open left Resolve stuck: its window went away but it never finished quitting, and the Ultra Studio window stayed. Ultra Studio now closes itself when Resolve quits, so Resolve closes normally.

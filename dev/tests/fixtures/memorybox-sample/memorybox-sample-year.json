@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "generator": {
+    "app": "Memory Box",
+    "version": "1.3.3"
+  },
+  "family": {
+    "id": "LMPcBxhHLWRB2FfN",
+    "name": "Family Sample Cohen"
+  },
+  "export": {
+    "downloadId": "sample",
+    "asOf": "2026-11-17T10:32:35.704Z",
+    "structure": "year",
+    "scope": "everything",
+    "parts": 1,
+    "privateNotes": false,
+    "includeHidden": false
+  },
+  "chapters": [],
+  "tags": [
+    {
+      "id": "FYgWMNWPoEM39WaP",
+      "label": "Seaside holidays",
+      "kind": "tag"
+    }
+  ],
+  "people": [
+    {
+      "id": "rrFKNWhLmnRhiNUa",
+      "name": "Grandma Ruth",
+      "label": "Grandma Ruth",
+      "relation": "Grandma",
+      "familyNotes": ""
+    },
+    {
+      "id": "JFvHqPBmnw2M4r3K",
+      "name": "Grandpa Harry",
+      "label": "Grandpa Harry",
+      "relation": "Grandpa",
+      "familyNotes": ""
+    },
+    {
+      "id": "3GaFtPpDv5ySKSkb",
+      "name": "Uncle David",
+      "label": "Uncle David",
+      "relation": "Grandma Ruth’s brother",
+      "familyNotes": ""
+    }
+  ],
+  "mergedPeople": [],
+  "items": [
+    {
+      "id": "DWANNNaiKbxknDieTU",
+      "seq": 4,
+      "storyOrder": 1,
+      "type": "photo",
+      "contentType": "image/jpeg",
+      "originalName": "old-scan-1950s.jpg",
+      "bytes": 19305,
+      "sha256": "b77227150198f84e0bad464786a4169f2bf59645013e62a7127a6073db1e3d4c",
+      "file": {
+        "path": "Photos/1950s (year unknown)/old-scan-1950s.jpg",
+        "part": 1
+      },
+      "alsoAt": [],
+      "voiceNote": null,
+      "width": 1600,
+      "height": 1200,
+      "durationSeconds": null,
+      "coverSeconds": null,
+      "uploadedAt": "2026-10-28T18:31:54.929Z",
+      "uploadedBy": "Sample",
+      "batch": 1,
+      "hidden": false,
+      "people": [],
+      "date": {
+        "mode": "decade",
+        "year": null,
+        "month": null,
+        "day": null,
+        "decade": 1950,
+        "source": "family"
+      },
+      "suggestedDate": null,
+      "place": "",
+      "occasion": "",
+      "story": "",
+      "group": "Seaside holidays",
+      "chapters": [],
+      "tags": [
+        "FYgWMNWPoEM39WaP"
+      ],
+      "team": null,
+      "questions": [],
+      "nearCopyOf": null,
+      "pins": [],
+      "faces": []
+    },
+    {
+      "id": "8MM68ukgV2JdfKwqdP",
+      "seq": 2,
+      "storyOrder": 2,
+      "type": "photo",
+      "contentType": "image/jpeg",
+      "originalName": "seaside-holiday.jpg",
+      "bytes": 20363,
+      "sha256": "d57f5b9597343a6335eb298fa0e6db008bf75c9377e61da2032f83dd7b95889b",
+      "file": {
+        "path": "Photos/1960s (year unknown)/seaside-holiday.jpg",
+        "part": 1
+      },
+      "alsoAt": [
+        {
+          "path": "People/Grandpa Harry/seaside-holiday.jpg",
+          "part": 1,
+          "preview": true
+        },
+        {
+          "path": "People/Uncle David/seaside-holiday.jpg",
+          "part": 1,
+          "preview": true
+        }
+      ],
+      "voiceNote": null,
+      "width": 1600,
+      "height": 1200,
+      "durationSeconds": null,
+      "coverSeconds": null,
+      "uploadedAt": "2026-10-28T18:31:54.891Z",
+      "uploadedBy": "Sample",
+      "batch": 1,
+      "hidden": false,
+      "people": [
+        {
+          "personId": "JFvHqPBmnw2M4r3K",
+          "maybe": false
+        },
+        {
+          "personId": "3GaFtPpDv5ySKSkb",
+          "maybe": true
+        }
+      ],
+      "date": {
+        "mode": "decade",
+        "year": null,
+        "month": null,
+        "day": null,
+        "decade": 1960,
+        "source": "family"
+      },
+      "suggestedDate": null,
+      "place": "Blackpool",
+      "occasion": "",
+      "story": "",
+      "group": "Seaside holidays",
+      "chapters": [],
+      "tags": [
+        "FYgWMNWPoEM39WaP"
+      ],
+      "team": null,
+      "questions": [],
+      "nearCopyOf": null,
+      "pins": [],
+      "faces": []
+    },
+    {
+      "id": "DWXSptcnZLM3jQALjS",
+      "seq": 3,
+      "storyOrder": 3,
+      "type": "photo",
+      "contentType": "image/jpeg",
+      "originalName": "garden-party.jpg",
+      "bytes": 19284,
+      "sha256": "4c93c689d8ac116472507212ef0967d0c749e4555fbfbcbd2831ea52dc11ac20",
+      "file": {
+        "path": "Photos/1960s (year unknown)/garden-party.jpg",
+        "part": 1
+      },
+      "alsoAt": [
+        {
+          "path": "People/Uncle David/garden-party.jpg",
+          "part": 1,
+          "preview": true
+        }
+      ],
+      "voiceNote": null,
+      "width": 1600,
+      "height": 1200,
+      "durationSeconds": null,
+      "coverSeconds": null,
+      "uploadedAt": "2026-10-28T18:31:54.912Z",
+      "uploadedBy": "Sample",
+      "batch": 1,
+      "hidden": false,
+      "people": [
+        {
+          "personId": "3GaFtPpDv5ySKSkb",
+          "maybe": false
+        }
+      ],
+      "date": {
+        "mode": "decade",
+        "year": null,
+        "month": null,
+        "day": null,
+        "decade": 1960,
+        "source": "family"
+      },
+      "suggestedDate": null,
+      "place": "Blackpool",
+      "occasion": "",
+      "story": "",
+      "group": "Seaside holidays",
+      "chapters": [],
+      "tags": [
+        "FYgWMNWPoEM39WaP"
+      ],
+      "team": null,
+      "questions": [],
+      "nearCopyOf": null,
+      "pins": [],
+      "faces": []
+    },
+    {
+      "id": "6oMkiJE6mgsRRaM92V",
+      "seq": 1,
+      "storyOrder": 4,
+      "type": "photo",
+      "contentType": "image/jpeg",
+      "originalName": "wedding-1972.jpg",
+      "bytes": 20043,
+      "sha256": "2ef5b2f9ec53662f61048760f4377a09776fa2839545c390e049d0228c5b96e0",
+      "file": {
+        "path": "Photos/1972/wedding-1972.jpg",
+        "part": 1
+      },
+      "alsoAt": [
+        {
+          "path": "People/Grandma Ruth/wedding-1972.jpg",
+          "part": 1,
+          "preview": true
+        },
+        {
+          "path": "People/Grandpa Harry/wedding-1972.jpg",
+          "part": 1,
+          "preview": true
+        }
+      ],
+      "voiceNote": null,
+      "width": 1600,
+      "height": 1200,
+      "durationSeconds": null,
+      "coverSeconds": null,
+      "uploadedAt": "2026-10-28T18:31:54.872Z",
+      "uploadedBy": "Sample",
+      "batch": 1,
+      "hidden": false,
+      "people": [
+        {
+          "personId": "rrFKNWhLmnRhiNUa",
+          "maybe": false
+        },
+        {
+          "personId": "JFvHqPBmnw2M4r3K",
+          "maybe": false
+        }
+      ],
+      "date": {
+        "mode": "year",
+        "year": 1972,
+        "month": null,
+        "day": null,
+        "decade": 1970,
+        "source": "family"
+      },
+      "suggestedDate": null,
+      "place": "Manchester",
+      "occasion": "Wedding",
+      "story": "Grandma always said it rained all morning and the sun came out just for the photos.",
+      "group": "Seaside holidays",
+      "chapters": [],
+      "tags": [
+        "FYgWMNWPoEM39WaP"
+      ],
+      "team": null,
+      "questions": [],
+      "nearCopyOf": null,
+      "pins": [],
+      "faces": []
+    },
+    {
+      "id": "MKaoCDxLck23XukKg8",
+      "seq": 5,
+      "storyOrder": 5,
+      "type": "photo",
+      "contentType": "image/jpeg",
+      "originalName": "birthday-cake.jpg",
+      "bytes": 19784,
+      "sha256": "8909136b23782125cb94541eff180e002c23d2436a23f2df4f7221ce543d1d51",
+      "file": {
+        "path": "Photos/Date unknown/birthday-cake.jpg",
+        "part": 1
+      },
+      "alsoAt": [],
+      "voiceNote": null,
+      "width": 1600,
+      "height": 1200,
+      "durationSeconds": null,
+      "coverSeconds": null,
+      "uploadedAt": "2026-10-28T18:31:54.946Z",
+      "uploadedBy": "Sample",
+      "batch": 1,
+      "hidden": false,
+      "people": [],
+      "date": {
+        "mode": "unknown",
+        "year": null,
+        "month": null,
+        "day": null,
+        "decade": null,
+        "source": null
+      },
+      "suggestedDate": null,
+      "place": "",
+      "occasion": "",
+      "story": "",
+      "group": "Seaside holidays",
+      "chapters": [],
+      "tags": [
+        "FYgWMNWPoEM39WaP"
+      ],
+      "team": null,
+      "questions": [],
+      "nearCopyOf": null,
+      "pins": [],
+      "faces": []
+    },
+    {
+      "id": "Pk9YPjfL62Qe2Km2v9",
+      "seq": 6,
+      "storyOrder": 6,
+      "type": "photo",
+      "contentType": "image/jpeg",
+      "originalName": "shabbat-table.jpg",
+      "bytes": 18922,
+      "sha256": "9f52cf494329a6ae264e9a87c0ff2ddd3c30642b1ce257a3bd9e80146f91a8a2",
+      "file": {
+        "path": "Photos/Date unknown/shabbat-table.jpg",
+        "part": 1
+      },
+      "alsoAt": [],
+      "voiceNote": null,
+      "width": 1600,
+      "height": 1200,
+      "durationSeconds": null,
+      "coverSeconds": null,
+      "uploadedAt": "2026-10-28T18:31:54.962Z",
+      "uploadedBy": "Sample",
+      "batch": 1,
+      "hidden": false,
+      "people": [],
+      "date": {
+        "mode": "unknown",
+        "year": null,
+        "month": null,
+        "day": null,
+        "decade": null,
+        "source": null
+      },
+      "suggestedDate": null,
+      "place": "",
+      "occasion": "",
+      "story": "",
+      "group": "",
+      "chapters": [],
+      "tags": [],
+      "team": null,
+      "questions": [],
+      "nearCopyOf": null,
+      "pins": [],
+      "faces": []
+    }
+  ]
+}

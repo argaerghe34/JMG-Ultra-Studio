@@ -8,6 +8,8 @@
 //   await host.run('listBins')                           // → { ok: true, data: [...] }
 'use strict';
 const fs = require('fs'), path = require('path');
+/** Metadata fields the stand-in accepts (a subset of Resolve's Metadata panel). */
+const METADATA_FIELDS = new Set(['Description', 'Comments', 'Keywords', 'People', 'Scene', 'Shot', 'Take', 'Good Take', 'Location', 'Date Recorded']);
 
 /**
  * Like Resolve 21.1 (measured): an odd value sent to the API (undefined / null / NaN, as an argument or inside a dict or
@@ -98,8 +100,15 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     // so the stand-in treats both as fatal
     it.GetClipProperty = k => { if (/^subtitle$/i.test(m.type) && (k || /\.srt$/i.test(it._name))) { crashes.push('GetClipProperty of subtitle ' + it._name); throw new Error('Resolve would abort: GetMediaFrameExtentsWithFrameRate'); } return k ? it._props()[k] : it._props(); };
     it.SetClipProperty = (k, v) => { if (k === 'Clip Name') { it._name = v; return true; } return false; };
-    it.GetMetadata = () => ({});
-    it.SetMetadata = () => true;
+    // metadata: Resolve's known fields only (an unknown one makes the whole dict fail, as in Resolve), and third-party
+    // metadata (any key), both strings
+    it._md = {}; it._tp = {};
+    it.GetMetadata = k => (k == null ? Object.assign({}, it._md) : it._md[k] || '');
+    it.SetMetadata = (md, v) => { const o = typeof md === 'string' ? { [md]: v } : md; if (Object.keys(o).some(k => !METADATA_FIELDS.has(k)) || Object.values(o).some(x => typeof x !== 'string')) return false; Object.assign(it._md, o); return true; };
+    it.GetThirdPartyMetadata = k => (k == null ? Object.assign({}, it._tp) : it._tp[k] || '');
+    it.SetThirdPartyMetadata = (md, v) => { const o = typeof md === 'string' ? { [md]: v } : md; if (Object.values(o).some(x => typeof x !== 'string')) return false; Object.assign(it._tp, o); return true; };
+    // like the README: the clip's asset and metadata are replaced
+    it.ReplaceClip = p => { if (!media[p] && !fs.existsSync(p)) return false; file = p; it._md = {}; it._tp = {}; return true; };
     it.GetUniqueId = () => it._id;
     it.GetMediaId = () => 'media-' + file;
     it.GetClipColor = () => it._color;

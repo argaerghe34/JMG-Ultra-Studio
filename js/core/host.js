@@ -23,6 +23,7 @@
     AI_REFUSED: ['The AI declined that request.', 'Try rephrasing it, or use one of the built-in commands.'],
     BAD_INPUT: ['Something in the settings doesn’t look right.', 'Check the highlighted settings and try again.'],
     NOTHING_FOUND: ['Nothing matched.', 'Try looser settings.'],
+    MEMORY_BOX: ['Couldn’t reach Memory Box.', 'Check your internet connection and the Memory Box connection (address and access key), then try again.'],
     BUSY: ['Something else is still running.', 'Wait for it to finish, or press Stop in the status bar.'],
     CANCELLED: ['Stopped.', 'Nothing more was changed.'],
     UNKNOWN: ['Something went wrong.', 'Try again. If it keeps happening, open the activity log (☰) and send the details.']
