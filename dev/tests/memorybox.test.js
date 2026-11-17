@@ -24,6 +24,8 @@ test('parse: story order, merged people followed, unnamed people labelled, priva
   assert.ok(!JSON.stringify(MB.fields(m, one)).includes('PRIVATE'));
   const priv = sample(); priv.export.privateNotes = true;
   assert.strictEqual(MB.parse(priv).people.find(p => p.id === 'p-ruth').teamNotes, 'PRIVATE – must not appear');
+  const mp = MB.parse(priv);
+  assert.ok(MB.fields(mp, mp.byId.get('it-1')).logNote.includes('Team notes about Grandma Ruth: PRIVATE'), 'in the Log Note when asked for');
   assert.strictEqual(m.byId.get('it-4').path, null, '"../escape.png" is refused');
   assert.ok(m.warnings.some(w => /escape\.png/.test(w)));
   assert.strictEqual(one.place, 'Leeds Town Hall', 'the team’s place wins');
@@ -118,41 +120,50 @@ function standIn() {
   for (const it of json.items) if (it.file && MB.safeRel(it.file.path) && it.type !== 'other') files[it.id] = fs.readFileSync(path.join(FIX, ...it.file.path.split('/')));
   files['it-1#voice'] = fs.readFileSync(path.join(FIX, 'Voice notes', 'IMG_0001 - voice.m4a'));
   let other;   // a second server standing in for signed storage (another address)
-  const storage = http.createServer((req, res) => { seen.push({ host: 'storage', url: req.url, auth: req.headers.authorization || '' }); const k = decodeURIComponent(req.url.slice(1)); if (!files[k]) { res.statusCode = 404; return res.end(); } res.end(files[k]); });
+  const S = { busyOnce: false, expireOnce: new Set(), dropOnce: new Set() };
+  const storage = http.createServer((req, res) => {
+    seen.push({ host: 'storage', url: req.url, auth: req.headers.authorization || '', range: req.headers.range || '' });
+    const k = decodeURIComponent(req.url.slice(1)); if (!files[k]) { res.statusCode = 404; return res.end(); }
+    if (S.expireOnce.delete(k)) { res.statusCode = 403; return res.end('<Error>Request has expired</Error>'); }
+    const m = /^bytes=(\d+)-$/.exec(req.headers.range || ''), from = m ? Number(m[1]) : 0, body = files[k].subarray(from);
+    res.statusCode = m ? 206 : 200; res.setHeader('Content-Length', body.length);
+    if (S.dropOnce.delete(k)) { res.write(body.subarray(0, Math.floor(body.length / 2))); return setTimeout(() => res.socket.destroy(), 20); }
+    res.end(body);
+  });
   const api = http.createServer((req, res) => {
     seen.push({ host: 'api', url: req.url, auth: req.headers.authorization || '' });
-    if (req.headers.authorization !== 'Bearer test-key') { res.statusCode = 401; return res.end('{"error":"bad key"}'); }
+    if (req.headers.authorization !== 'Bearer mbk_test') { res.statusCode = 401; return res.end('{"error":"That key is switched off"}'); }
     const u = req.url.replace('/api/editor/v1', '');
     const etag = '"v1-' + crypto.createHash('md5').update(JSON.stringify(json)).digest('hex') + '"';
     if (u === '/me') return res.end(JSON.stringify({ app: 'Memory Box', version: '1.3.4', keyName: 'Test' }));
-    if (u === '/families') return res.end(JSON.stringify([{ id: 'fam-test', name: 'The Test family', items: 5, portalUrl: 'http://localhost/admin/families/fam-test' }]));
+    if (u === '/families') { if (S.busyOnce) { S.busyOnce = false; res.statusCode = 429; res.setHeader('Retry-After', '2'); return res.end('{"error":"Too many requests"}'); } return res.end(JSON.stringify([{ id: 'fam-test', name: 'The Test family', itemCount: 5, photoCount: 3, videoCount: 1, portalUrl: 'http://localhost/admin/families/fam-test' }])); }
     if (u.startsWith('/families/fam-test/memorybox.json')) { if (req.headers['if-none-match'] === etag) { res.statusCode = 304; return res.end(); } res.setHeader('ETag', etag); return res.end(JSON.stringify(json)); }
     const m = /^\/items\/([^/]+)\/(original|voice-note)$/.exec(u);
     if (m) { res.statusCode = 302; res.setHeader('Location', `http://127.0.0.1:${other}/${encodeURIComponent(m[1] + (m[2] === 'voice-note' ? '#voice' : ''))}`); return res.end(); }
     res.statusCode = 404; res.end();
   });
-  return new Promise(r => storage.listen(0, '127.0.0.1', () => { other = storage.address().port; api.listen(0, '127.0.0.1', () => r({ url: `http://127.0.0.1:${api.address().port}`, json, seen, close: () => { api.close(); storage.close(); } })); }));
+  return new Promise(r => storage.listen(0, '127.0.0.1', () => { other = storage.address().port; api.listen(0, '127.0.0.1', () => r(Object.assign(S, { url: `http://127.0.0.1:${api.address().port}`, json, seen, close: () => { api.close(); storage.close(); } }))); }));
 }
 
 test('connection: families, the family’s memorybox.json with ETag (304 = unchanged), a wrong key said plainly', async () => {
   const S = await standIn();
   try {
-    MB.net.setConn(S.url, 'test-key');
+    MB.net.setConn(S.url, 'mbk_test');
     assert.strictEqual((await MB.net.me()).keyName, 'Test');
     const fams = await MB.net.families();
-    assert.deepStrictEqual(fams.map(f => [f.id, f.items]), [['fam-test', 5]]);
+    assert.deepStrictEqual(fams.map(f => [f.id, f.items, f.photos, f.videos]), [['fam-test', 5, 3, 1]], 'itemCount, photoCount, videoCount');
     const r = await MB.net.family('fam-test');
     assert.strictEqual(r.json.family.id, 'fam-test'); assert.ok(r.etag);
     assert.ok((await MB.net.family('fam-test', { etag: r.etag })).notModified);
     MB.net.setConn(S.url, 'wrong');
-    await assert.rejects(MB.net.families(), e => /didn’t accept the access key/.test(e.title));
+    await assert.rejects(MB.net.families(), e => /didn’t accept the access key/.test(e.title) && /That key is switched off/.test(e.detail), 'Memory Box’s own words in the details');
   } finally { S.close(); MB.net.setConn('', ''); }
 });
 
 test('connection: originals saved once in <folder>/<family>/<path>, checked (size, sha256), the key never sent to storage', async () => {
   const S = await standIn(), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-dl-'));
   try {
-    MB.net.setConn(S.url, 'test-key');
+    MB.net.setConn(S.url, 'mbk_test');
     const m = MB.parse((await MB.net.family('fam-test')).json), src = { kind: 'online', folder: dir };
     const job = { cancelled: false, check() {}, progress() {}, set() {} };
     const r1 = await MB.net.ensureLocal(m, m.items, src, { job });
@@ -190,7 +201,7 @@ test('bring in: downloads, scans, applies in the editor and remembers the sync (
     throw new Error('unexpected ' + name);
   };
   try {
-    MB.net.setConn(S.url, 'test-key');
+    MB.net.setConn(S.url, 'mbk_test');
     const m = MB.parse((await MB.net.family('fam-test')).json), job = { cancelled: false, check() {}, progress() {}, set() {} };
     const r = await MB.bringIn(m, m.items, { kind: 'online', folder: dir }, { voiceNotes: true }, job);
     assert.strictEqual(r.added, 4); assert.strictEqual(r.skipped.length, 2);
@@ -200,4 +211,38 @@ test('bring in: downloads, scans, applies in the editor and remembers the sync (
     assert.deepStrictEqual(Object.keys(snap.items).sort(), ['it-1', 'it-2', 'it-3']);
     assert.strictEqual(MB.diff(m, snap).changed.length, 0);
   } finally { US.host.call = saved; US.ctx.project = ctx; S.close(); MB.net.setConn('', ''); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('connection: busy (429) waits Retry-After and asks again; an expired storage link and a dropped download are asked for again and resumed', async () => {
+  const S = await standIn(), dir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'mb-retry-'));
+  const scale = MB.net.waitScale; MB.net.waitScale = 5;
+  try {
+    MB.net.setConn(S.url, 'mbk_test');
+    S.busyOnce = true;
+    assert.strictEqual((await MB.net.families()).length, 1, 'answered after waiting');
+    const m = MB.parse((await MB.net.family('fam-test')).json), job = { cancelled: false, check() {}, progress() {}, set() {} };
+    S.expireOnce.add('it-1'); S.dropOnce.add('it-3');
+    const r = await MB.net.ensureLocal(m, m.items, { kind: 'online', folder: dir }, { job });
+    assert.deepStrictEqual([r.downloaded, r.missing.length], [4, 0], JSON.stringify(r.missing));
+    const vid = S.seen.filter(x => x.host === 'storage' && x.url === '/it-3');
+    assert.strictEqual(vid.length, 2); assert.ok(/^bytes=\d+-$/.test(vid[1].range), 'resumed with Range: ' + vid[1].range);
+    assert.strictEqual(fs.readFileSync(MB.localPath(dir, m, 'Videos/VID_0003.mp4'), 'utf8'), fs.readFileSync(path.join(FIX, 'Videos', 'VID_0003.mp4'), 'utf8'), 'the resumed file is whole');
+  } finally { MB.net.waitScale = scale; S.close(); MB.net.setConn('', ''); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Memory Box’s real samples (1.3.3, the sample family): read, in story order, with people and tags', () => {
+  for (const f of ['memorybox-sample-year.json', 'memorybox-sample-story.json']) {
+    const m = MB.parse(fs.readFileSync(path.join(ROOT, 'dev', 'tests', 'fixtures', 'memorybox-sample', f), 'utf8'));
+    assert.strictEqual(m.family.name, 'Family Sample Cohen');
+    assert.deepStrictEqual(m.items.map(x => x.order), [1, 2, 3, 4, 5, 6]);
+    assert.ok(m.items.every(x => x.path && x.type === 'photo'), 'every path is safe');
+    const wed = m.items.find(x => x.originalName === 'wedding-1972.jpg');
+    assert.deepStrictEqual(wed.people.map(p => p.label), ['Grandma Ruth', 'Grandpa Harry']);
+    assert.strictEqual(wed.dateText, '1972'); assert.strictEqual(wed.place, 'Manchester');
+    const sea = m.items.find(x => x.originalName === 'seaside-holiday.jpg');
+    assert.deepStrictEqual(sea.people.map(p => [p.label, p.maybe]), [['Grandpa Harry', false], ['Uncle David', true]]);
+    assert.ok(MB.facets(m).tags.some(t => t.label === 'Seaside holidays'));
+    const plan = MB.plan(m, m.items, { local: it => '/x/' + it.path });
+    assert.strictEqual(plan.add.length, 6); assert.strictEqual(plan.add[0].name, '001 – old-scan-1950s.jpg');
+  }
 });

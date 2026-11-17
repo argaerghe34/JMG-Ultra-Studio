@@ -132,7 +132,7 @@
         chapterIds: chs.map(c => c.id), chapters: chs.map(c => c.label), chapterOrder: chs.length ? chs[0].order : Infinity,
         tagIds: tg.map(t => t.id), tags: tg.map(t => t.label),
         questions: (it.questions || []).filter(q => q && str(q.question)).map(q => ({ q: str(q.question), a: str(q.answer) })),
-        teamNote: str(team && team.note), nearCopyOf: it.nearCopyOf ? String(it.nearCopyOf) : null, facesMayBeStale: !!it.facesMayBeStale
+        teamNote: str(team && team.note), nearCopyOf: it.nearCopyOf ? String(it.nearCopyOf) : null
       };
       items.push(o);
       for (const p of o.people) { const pp = people.get(p.id); if (pp) pp.items++; }
@@ -180,6 +180,8 @@
     for (const q of it.questions) lines.push(`Q: ${q.q}` + (q.a ? `\nA: ${q.a}` : ' (not answered yet)'));
     if (it.voice && !voice) add('Voice note', it.voice);
     add('Team note', it.teamNote);
+    // the team's private notes about the people in it: only in a download that was asked to include them
+    if (model.privateNotes) for (const p of it.people) { const pp = model.person(p.id); if (pp && pp.teamNotes) add(`Team notes about ${pp.label}`, pp.teamNotes); }
     if (it.nearCopyOf && model.byId.get(it.nearCopyOf)) add('Looks like a copy of', MB.clipName(model.byId.get(it.nearCopyOf)));
     lines.push(`Memory Box: ${model.family.name} · photo ${it.seq != null ? it.seq : '?'}${it.uploadedBy ? ` · uploaded by ${it.uploadedBy}` : ''}`);
     const keywords = [...it.people.filter(p => !p.maybe && p.named).map(p => p.label), it.place, it.occasion, ...it.chapters, ...it.tags, it.decade != null ? `${it.decade}s` : ''].filter(Boolean);

@@ -9,8 +9,10 @@
   const US = window.US, h = US.h, ui = US.ui, MB = US.memoryBox, net = MB.net;
   const path = require('path');
 
-  const opts = () => Object.assign({ familyId: '', folder: '', voiceNotes: true, scope: 'all', source: 'online', downloadRoot: '' }, US.settings.get('memoryBox', {}));
+  const opts = () => Object.assign({ familyId: '', folder: '', voiceNotes: true, privateNotes: false, scope: 'all', source: 'online', downloadRoot: '' }, US.settings.get('memoryBox', {}));
   const saveOpts = o => US.settings.set('memoryBox', o);
+  /** Memory Box's live site (the address can be changed, e.g. to the staging copy). */
+  const LIVE = 'https://memorybox-ciix.onrender.com';
   const defaultFolder = () => path.join(US.fsx.exportsDir(), 'Memory Box');
   /** What this project has from each family: {[familyId]: {snapshot, etag, json, at}} – kept with the project only. */
   const store = () => US.projectStore((US.ctx.project && US.ctx.project.path) || 'none');
@@ -71,7 +73,7 @@
     hostFns: ['mbScan', 'mbApply', 'importFiles'],
     create() {
       const v = ui.toolView({ icon: 'cloud', title: 'Memory Box', blurb: 'Bring a family’s photos and videos in from Memory Box – in full resolution, in story order, each with its story, people, date and place.',
-        help: 'Connect once with Memory Box’s address and an access key (made in Memory Box: Settings › Editing programs). Pick the family. The originals are saved in the folder you choose – a file that’s already there is never downloaded again – and go in one bin, named in story order. Everything the family wrote is in each clip’s details (Description, Comment, Log Note, Scene = chapter, Shot = date). Bring it in again whenever the family adds more: new clips are added and the ones you have are updated, never duplicated. Photos, videos, voice notes and faces never go to any AI.' });
+        help: 'Connect once with Memory Box’s address and an access key (an admin makes it in Memory Box: Team members › Access keys for editing programs; it starts with mbk_). Pick the family. The originals are saved in the folder you choose – a file that’s already there is never downloaded again – and go in one bin, named in story order. Everything the family wrote is in each clip’s details (Description, Comment, Log Note, Scene = chapter, Shot = date). Bring it in again whenever the family adds more: new clips are added and the ones you have are updated, never duplicated. Photos, videos, voice notes and faces never go to any AI.' });
       let o = opts(), families = [], model = null, diff = null, source = null, filt = { q: '', only: '', type: '', person: '', decade: '', chapter: '', tag: '' };
       const set = patch => { Object.assign(o, patch); saveOpts(o); };
 
@@ -86,17 +88,20 @@
             ui.button('Open a download instead…', { small: true, kind: 'ghost', icon: 'folder', onClick: openFolder })));
           return;
         }
-        const url = ui.input({ value: c.url, placeholder: 'https://memorybox.example.com' });
+        const url = ui.input({ value: c.url || LIVE, placeholder: LIVE });
         const key = ui.input({ value: '', placeholder: c.key ? 'Saved – paste a new key to change it' : 'Paste the access key', type: 'password' });
         connBox.append(
           ui.field('Memory Box address', url),
-          ui.field('Access key', key, 'Made in Memory Box: Settings › Editing programs › New access key. It stays on this computer.'),
+          ui.field('Access key', key, 'An admin makes it in Memory Box: Team members › Access keys for editing programs. It starts with mbk_ and stays on this computer.'),
           h('div.row', ui.button('Connect', { kind: 'primary', icon: 'cloud', onClick: async () => {
             try {
               net.checkUrl(/^https?:/i.test(url.value.trim()) ? url.value.trim() : 'https://' + url.value.trim());
+              const k = key.value.trim();
+              if (k && !/^mbk_/.test(k)) throw new US.UserError('BAD_INPUT', { title: 'That doesn’t look like a Memory Box access key.', action: 'Keys start with mbk_. Copy it again from Memory Box (Team members › Access keys for editing programs).' });
+              if (!k && !c.key) throw new US.UserError('BAD_INPUT', { title: 'Paste the access key first.', action: 'An admin makes one in Memory Box: Team members › Access keys for editing programs.' });
               net.setConn(url.value, key.value.trim() ? key.value.trim() : undefined);
               const m = await net.me();
-              ui.toast({ type: 'ok', title: 'Connected to Memory Box', text: m && m.keyName ? `Key: ${m.keyName}` : '' });
+              ui.toast({ type: 'ok', title: 'Connected to Memory Box', text: m && m.keyName ? `Key: ${m.keyName}${m.owner ? ' (' + m.owner + ')' : ''}${m.version ? ' · Memory Box ' + m.version : ''}` : '' });
               drawConn(false); loadFamilies();
             } catch (e) { ui.showError(e); }
           } }),
@@ -137,12 +142,12 @@
         const n = ++loadN, id = o.familyId; if (!id) { model = null; return drawAll(); }
         US.clear(overview); overview.appendChild(h('div.field-hint', 'Reading the family from Memory Box…'));
         try {
-          const prev = famState(id), cache = prev && prev.json && prev.etag ? prev : null;
-          const r = await net.family(id, { etag: cache && !force ? cache.etag : undefined });
+          const prev = famState(id), cache = prev && prev.json && prev.etag && !!prev.privateNotes === !!o.privateNotes ? prev : null;
+          const r = await net.family(id, { etag: cache && !force ? cache.etag : undefined, privateNotes: !!o.privateNotes });
           if (n !== loadN) return;
           const json = r.notModified ? cache.json : r.json;
           model = MB.parse(json);
-          if (!r.notModified) saveFam(id, { json, etag: r.etag || '' });
+          if (!r.notModified) saveFam(id, { json, etag: r.etag || '', privateNotes: !!o.privateNotes });
           source = { kind: 'online', folder: o.folder || defaultFolder() };
           diff = MB.diff(model, prev && prev.snapshot);
           if (force) ui.toast({ type: 'ok', title: 'Memory Box checked', text: diff.added.length || diff.changed.length ? `${diff.added.length} new · ${diff.changed.length} changed since you last brought it in` : 'Nothing new since you last brought it in.' });
@@ -241,10 +246,11 @@
         const lbl = go.querySelector && go.querySelector('span'); const txt = model ? `Bring ${US.plural(n, 'item')} into ${editor()}` : `Bring into ${editor()}`;
         if (lbl) lbl.textContent = US.say(txt);
       }
+      const priv = ui.toggle({ label: 'Private team notes', hint: 'The team’s private notes about people, in each clip’s Log Note. Off unless you need them.', value: !!o.privateNotes, onChange: x => { set({ privateNotes: x }); if (o.source === 'online') loadFamily({ force: true }); } });
       const voice = ui.toggle({ label: 'Voice notes too', hint: 'Each voice note goes right after its photo in the bin.', value: !!o.voiceNotes, onChange: x => set({ voiceNotes: x }) });
 
       function drawAll() { drawConn(false); drawFam(); drawOverview(); drawBrowse(); drawFolder(); goLabel(); }
-      v.body.append(ui.card(connBox, famBox), overview, ui.card(browse), ui.card(folderLine, voice, ui.field('Bring in', scope)), go);
+      v.body.append(ui.card(connBox, famBox), overview, ui.card(browse), ui.card(folderLine, voice, priv, ui.field('Bring in', scope)), go);
       drawAll();
       return { el: v.el, onShow() { if (o.source === 'folder' && o.downloadRoot && !model) { net.openDownload([o.downloadRoot]).then(d => { model = MB.parse(d.json); source = { kind: 'folder', root: d.root }; diff = MB.diff(model, (famState(model.family.id) || {}).snapshot); drawAll(); }).catch(() => { set({ source: 'online' }); drawAll(); }); } else if (!families.length) loadFamilies(); } };
     }

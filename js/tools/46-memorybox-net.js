@@ -29,19 +29,31 @@
     return p;
   }
 
-  const plainError = (status, detail) => {
-    if (status === 401) return new US.UserError('MEMORY_BOX', { title: 'Memory Box didn’t accept the access key.', action: 'Make a new key in Memory Box (Settings › Editing programs) and paste it in Memory Box › Connection.', detail });
-    if (status === 403) return new US.UserError('MEMORY_BOX', { title: 'This access key can’t open that family.', action: 'Ask an admin for a key with access to every family.', detail });
-    if (status === 404) return new US.UserError('MEMORY_BOX', { title: 'Memory Box doesn’t have that any more.', action: 'Press Check for updates; it may have been deleted or moved.', detail });
-    if (status === 429) return new US.UserError('MEMORY_BOX', { title: 'Memory Box is busy.', action: 'Wait a minute, then try again.', detail });
-    return new US.UserError('MEMORY_BOX', { detail });
+  const KEYS_PAGE = 'Memory Box › Team members › Access keys for editing programs';
+  const plainError = (status, detail, said) => {
+    const more = said ? ` Memory Box said: “${said}”` : '';
+    if (status === 401) return new US.UserError('MEMORY_BOX', { title: 'Memory Box didn’t accept the access key.', action: `Make a new key in ${KEYS_PAGE} and paste it in the Memory Box tab (Change).`, detail: detail + more });
+    if (status === 403) return new US.UserError('MEMORY_BOX', { title: 'This access key can’t open that.', action: 'Ask an admin to make you a key.', detail: detail + more });
+    if (status === 404) return new US.UserError('MEMORY_BOX', { title: 'Memory Box doesn’t have that any more.', action: 'Press Check for updates: it may have been deleted or hidden.', detail: detail + more });
+    if (status === 429) return new US.UserError('MEMORY_BOX', { title: 'Memory Box is busy.', action: 'Wait a minute, then try again.', detail: detail + more });
+    if (status === 503) return new US.UserError('MEMORY_BOX', { title: 'Memory Box can’t hand out files right now.', action: 'Try again later. If it keeps happening, tell whoever looks after Memory Box.', detail: detail + more });
+    return new US.UserError('MEMORY_BOX', { detail: detail + more });
   };
+  /** Memory Box's own words from an error body {"error": "…"}. */
+  const saidIn = body => { try { const j = JSON.parse(String(body || '')); return j && typeof j.error === 'string' ? j.error.slice(0, 300) : ''; } catch (e) { return ''; } };
+  /** sha256 of a file, read in pieces (videos can be gigabytes). */
+  const hashFile = f => new Promise((resolve, reject) => { const hh = crypto.createHash('sha256'); fs.createReadStream(f).on('data', d => hh.update(d)).on('error', reject).on('end', () => resolve(hh.digest('hex'))); });
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  /** Seconds to wait after a 429 (Retry-After, 1–60 s). */
+  const retryAfter = r => Math.max(1, Math.min(60, Number(r.headers && r.headers['retry-after']) || 10));
+  MB.net = MB.net || {};
+  MB.net.waitScale = 1000;   // tests make the waits short
 
   /**
-   * One request. Redirects are followed (a file usually comes from a signed storage address), but the access key is
-   * only ever sent to Memory Box's own address. -> {status, headers, body (Buffer) | stream when opts.stream}
+   * One request. Redirects are followed (a file comes from a signed storage address), but the access key is only ever
+   * sent to Memory Box's own address. -> {status, headers, body (Buffer) | stream when opts.stream, hops}
    */
-  function request(u, { key, headers = {}, stream = false, timeout = 30000, hops = 0, origin } = {}) {
+  function request(u, { key, headers = {}, stream = false, timeout = 90000, hops = 0, origin } = {}) {
     return new Promise((resolve, reject) => {
       const p = new URL(u), mod = p.protocol === 'http:' ? require('http') : require('https');
       origin = origin || p.origin;
@@ -56,10 +68,10 @@
           if (!/^https:/.test(next) && !(/^http:/.test(next) && isLocal(new URL(next).hostname))) return reject(new US.UserError('MEMORY_BOX', { detail: 'Redirected to an address that isn’t https: ' + next }));
           return resolve(request(next, { key, headers: Object.assign({}, headers, { 'If-None-Match': null }), stream, timeout, hops: hops + 1, origin }));
         }
-        if (stream && res.statusCode >= 200 && res.statusCode < 300) return resolve({ status: res.statusCode, headers: res.headers, stream: res });
+        if (stream && res.statusCode >= 200 && res.statusCode < 300) return resolve({ status: res.statusCode, headers: res.headers, stream: res, hops });
         const chunks = [];
         res.on('data', c => chunks.push(c));
-        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks), hops }));
         res.on('error', reject);
       });
       req.setTimeout(timeout, () => req.destroy(new Error('No answer from Memory Box in ' + Math.round(timeout / 1000) + ' s')));
@@ -68,24 +80,31 @@
     });
   }
 
+  /** A JSON answer from the editor API. The free site sleeps: the first request may take up to a minute (90 s allowed). */
   async function getJSON(pathname, { etag } = {}) {
     const c = conn();
-    if (!c.url || !c.key) throw new US.UserError('MEMORY_BOX', { title: 'Memory Box isn’t connected yet.', action: 'Add Memory Box’s address and an access key in Memory Box › Connection.' });
+    if (!c.url || !c.key) throw new US.UserError('MEMORY_BOX', { title: 'Memory Box isn’t connected yet.', action: 'Add Memory Box’s address and an access key in the Memory Box tab.' });
     checkUrl(c.url);
-    const r = await request(c.url + API + pathname, { key: c.key, headers: etag ? { 'If-None-Match': etag } : {} });
+    let r;
+    for (let attempt = 0; ; attempt++) {
+      r = await request(c.url + API + pathname, { key: c.key, headers: etag ? { 'If-None-Match': etag } : {} });
+      if (r.status !== 429 || attempt >= 2) break;
+      await sleep(retryAfter(r) * MB.net.waitScale);
+    }
     if (r.status === 304) return { notModified: true, etag };
-    if (r.status < 200 || r.status >= 300) throw plainError(r.status, `${r.status} from ${pathname}: ${String(r.body || '').slice(0, 300)}`);
+    if (r.status < 200 || r.status >= 300) throw plainError(r.status, `${r.status} from ${pathname}`, saidIn(r.body));
     let data; try { data = JSON.parse(String(r.body).replace(/^﻿/, '')); } catch (e) { throw new US.UserError('MEMORY_BOX', { title: 'Memory Box gave an answer Ultra Studio can’t read.', action: 'Check the address is Memory Box itself (not a login page), then try again.', detail: e.message }); }
     return { data, etag: r.headers.etag || '' };
   }
 
-  /** "Test connection": who Memory Box says we are. */
+  /** "Test connection": {app, version, keyName, owner, portalUrl} */
   const me = async () => (await getJSON('/me')).data;
+  const count = (...v) => { for (const x of v) if (x != null && isFinite(Number(x))) return Number(x); return 0; };
   /** Every family the key can open: [{id, name, items, photos, videos, lastUploadAt, updatedAt, portalUrl}] */
   async function families() {
     const d = (await getJSON('/families')).data;
     const list = Array.isArray(d) ? d : (d && d.families) || [];
-    return list.filter(f => f && f.id).map(f => ({ id: String(f.id), name: String(f.name || 'Family'), items: Number(f.items) || 0, photos: Number(f.photos) || 0, videos: Number(f.videos) || 0, lastUploadAt: f.lastUploadAt || '', updatedAt: f.updatedAt || '', portalUrl: f.portalUrl || '' }));
+    return list.filter(f => f && f.id).map(f => ({ id: String(f.id), name: String(f.name || 'Family'), items: count(f.itemCount, f.items), photos: count(f.photoCount, f.photos), videos: count(f.videoCount, f.videos), lastUploadAt: f.lastUploadAt || '', updatedAt: f.updatedAt || '', portalUrl: f.portalUrl || '' }));
   }
   /** A family's memorybox.json -> {json, etag} or {notModified} when nothing changed since etag. */
   async function family(id, { etag, privateNotes = false } = {}) {
@@ -95,30 +114,53 @@
   }
 
   /**
-   * Save one file from Memory Box at dest: written to "<dest>.part" and only renamed when its size (and sha256, when
-   * Memory Box gives one) are right, so a stopped download never leaves a broken file in the folder.
+   * Save one file from Memory Box at dest. Memory Box answers with a link to its storage (valid 15 minutes); the file
+   * is written to "<dest>.part" and only renamed when its size (and sha256, when Memory Box gives one) are right, so a
+   * stopped download never leaves a broken file in the folder. A link that expires or a connection that drops is asked
+   * for again and the download carries on from where it stopped (Range).
    */
   async function downloadFile(itemId, voice, dest, { bytes = null, sha256 = null, onBytes, job } = {}) {
     const c = conn(); checkUrl(c.url);
-    const r = await request(`${c.url}${API}/items/${encodeURIComponent(itemId)}/${voice ? 'voice-note' : 'original'}`, { key: c.key, stream: true, timeout: 120000 });
-    if (!r.stream) throw plainError(r.status, `${r.status} downloading ${itemId}${voice ? ' (voice note)' : ''}`);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    const part = dest + '.part', out = fs.createWriteStream(part), hash = crypto.createHash('sha256');
-    let got = 0;
-    await new Promise((resolve, reject) => {
-      r.stream.on('data', ch => {
-        got += ch.length; hash.update(ch);
-        if (onBytes) onBytes(ch.length);
-        if (job && job.cancelled) r.stream.destroy(new US.UserError('CANCELLED'));
-      });
-      r.stream.on('error', e => { out.destroy(); reject(e); });
-      out.on('error', e => reject(new US.UserError('DISK', { detail: e.message })));
-      out.on('finish', resolve);
-      r.stream.pipe(out);
-    }).catch(e => { try { fs.unlinkSync(part); } catch (x) { /* already gone */ } throw e instanceof US.UserError ? e : new US.UserError('MEMORY_BOX', { title: 'A download from Memory Box stopped part-way.', action: 'Try again: files already saved are kept.', detail: e.message }); });
-    if ((bytes && got !== bytes) || (sha256 && !voice && hash.digest('hex') !== String(sha256).toLowerCase())) {
+    const part = dest + '.part', label = `${itemId}${voice ? ' (voice note)' : ''}`;
+    try { fs.unlinkSync(part); } catch (x) { /* none */ }
+    let lastErr = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (job) job.check();
+      const have = US.fsx.size(part);
+      const r = await request(`${c.url}${API}/items/${encodeURIComponent(itemId)}/${voice ? 'voice-note' : 'original'}`, { key: c.key, stream: true, timeout: 120000, headers: have ? { Range: `bytes=${have}-` } : {} });
+      if (!r.stream) {
+        // Memory Box itself said no: final, except "busy". The storage address said no: the link expired – ask again.
+        if (r.hops === 0 && r.status !== 429) throw plainError(r.status, `${r.status} downloading ${label}`, saidIn(r.body));
+        lastErr = plainError(r.status, `${r.status} from ${r.hops ? 'storage' : 'Memory Box'} downloading ${label}`, saidIn(r.body));
+        await sleep((r.status === 429 ? retryAfter(r) : 1) * MB.net.waitScale);
+        continue;
+      }
+      const resumed = have > 0 && r.status === 206;
+      if (have && !resumed) { try { fs.unlinkSync(part); } catch (x) { /* none */ } }
+      try {
+        await new Promise((resolve, reject) => {
+          const out = fs.createWriteStream(part, { flags: resumed ? 'a' : 'w' });
+          r.stream.on('data', ch => { if (onBytes) onBytes(ch.length); if (job && job.cancelled) r.stream.destroy(new US.UserError('CANCELLED')); });
+          r.stream.on('error', e => { out.end(); reject(e); });
+          r.stream.on('aborted', () => reject(new Error('connection closed')));
+          out.on('error', e => reject(new US.UserError('DISK', { detail: e.message })));
+          out.on('finish', resolve);
+          r.stream.pipe(out);
+        });
+        lastErr = null;
+        break;
+      } catch (e) {
+        if (e instanceof US.UserError && (e.code === 'CANCELLED' || e.code === 'DISK')) { try { fs.unlinkSync(part); } catch (x) { /* gone */ } throw e; }
+        lastErr = new US.UserError('MEMORY_BOX', { title: 'A download from Memory Box stopped part-way.', action: 'Try again: files already saved are kept.', detail: `${label}: ${e.message}` });
+      }
+    }
+    if (lastErr) { try { fs.unlinkSync(part); } catch (x) { /* gone */ } throw lastErr; }
+    const got = US.fsx.size(part);
+    const sum = sha256 && !voice ? await hashFile(part) : '';
+    if ((bytes && got !== bytes) || (sum && sum !== String(sha256).toLowerCase())) {
       try { fs.unlinkSync(part); } catch (x) { /* gone */ }
-      throw new US.UserError('MEMORY_BOX', { title: 'A file from Memory Box didn’t arrive whole.', action: 'Try again.', detail: `${itemId}: ${got} bytes${bytes ? ' of ' + bytes : ''}` });
+      throw new US.UserError('MEMORY_BOX', { title: 'A file from Memory Box didn’t arrive whole.', action: 'Try again.', detail: `${label}: ${got} bytes${bytes ? ' of ' + bytes : ''}` });
     }
     fs.renameSync(part, dest);
     return { bytes: got };
@@ -213,5 +255,5 @@
     return { json: fs.readFileSync(jf, 'utf8'), root: path.dirname(jf) };
   }
 
-  Object.assign(MB, { net: { API, conn, setConn, connected, checkUrl, request, me, families, family, downloadFile, ensureLocal, local, haveFile, openDownload, findJson, zipBase } });
+  Object.assign(MB.net, { API, conn, setConn, connected, checkUrl, request, me, families, family, downloadFile, ensureLocal, local, haveFile, openDownload, findJson, zipBase, KEYS_PAGE });
 })();

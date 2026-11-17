@@ -4,9 +4,12 @@
 they were taken, and the story behind them. The **Memory Box** tab brings a family into your project: the originals in
 full resolution, in one bin, in the order of the film, each clip carrying everything the family told you.
 
-**Connect once.** In Memory Box, an admin makes an access key (**Settings › Editing programs › New access key**). In
-Ultra Studio's Memory Box tab, paste Memory Box's address and the key and press **Connect**. The key stays on this
-computer. Ultra Studio only ever *reads* from Memory Box – it never changes anything there.
+**Connect once.** In Memory Box, an admin makes an access key (**Team members › Access keys for editing programs**,
+named after the computer, e.g. "Jo's Mac"). It starts with `mbk_` and is shown once. In Ultra Studio's Memory Box tab,
+check the address (Memory Box's live site is filled in) and paste the key, then press **Connect**. The key stays on
+this computer. Ultra Studio only ever *reads* from Memory Box – it never changes anything there. Each file it fetches
+is noted in the family's activity log in Memory Box, with the key's name. Memory Box sometimes sleeps when nobody has
+used it for a while: the first answer can take up to a minute.
 
 1. **Family**: choose the family you're working on. **Open in Memory Box** takes you to that family in the Memory Box
    site, for anything else (people, chapters, settings, inviting the family).
@@ -18,7 +21,8 @@ computer. Ultra Studio only ever *reads* from Memory Box – it never changes an
 4. **Save the originals in**: the folder for the files (*Documents › JMG Ultra Studio › Memory Box* unless you choose
    another), one folder per family. A file that's already there is never downloaded again, so nothing is duplicated
    on your computer. Each download is checked before it's kept.
-5. **Voice notes too** puts each voice note right after its photo.
+5. **Voice notes too** puts each voice note right after its photo. **Private team notes** adds the team's private
+   notes about the people in each photo to its Log Note (off unless you need them).
 6. **Bring in** *Everything* or *Just what's shown*, then press **Bring … into Premiere**.
 
 **The bin.** Everything goes in *JMG Ultra Studio › Memory Box – <family>*, named in story order (`001 – IMG_0012.jpg`),
@@ -38,6 +42,10 @@ so sorting by name gives the film's order. Each clip carries:
 with the family's latest details (renamed into the new story order only if you haven't renamed them yourself), and a
 clip whose file was moved is relinked to the new download. Nothing is ever imported twice – clips are found by their
 Memory Box id even if you moved them to another bin.
+
+Downloads are fetched one at a time and checked; if Memory Box is busy, a link expires or the connection drops,
+Ultra Studio waits, asks again and carries on from where it stopped. Photos deleted or hidden in Memory Box are
+listed as no longer there; the clips stay in your bin.
 
 **Without the internet:** **Open a download instead…** reads a team download from Memory Box (the unzipped folder, or
 the ZIP parts, which it unzips next to them). The files are used where they are.
