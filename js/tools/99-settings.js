@@ -145,6 +145,7 @@
             h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
           ], { open: true })),
         sentCard(),
+        layoutCard(),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
         US.app.is('resolve') ? null : ui.card(h('div.card-title', 'Listening to sound'),
           ui.toggle({ label: 'Render sound in the background (Media Encoder)', value: US.settings.get('audio.background', true) !== false, onChange: x => US.settings.set('audio.background', !!x), hint: 'When a tool needs to hear a clip or sequence that isn’t a plain WAV – Tell the voices apart, Silence Cut, Beat Cut, Song Splitter, Podcast – Media Encoder renders its sound while you carry on editing in Premiere. Off (or if Media Encoder isn’t there): Premiere renders it itself, and is busy until it’s done.' })),
@@ -164,6 +165,12 @@
         about(),
         codeCard()
       );
+      /* Layout: the rail as places (default) or one button per tool as before (UI review, 18 Nov 2026) */
+      function layoutCard() {
+        return h('div', { dataset: { section: 'layout' } }, ui.card(h('div.card-title', 'Layout'),
+          ui.toggle({ label: 'Classic rail – one button per tool', value: US.classicRail(), hint: 'Off: the rail has eight places in the order of the work (Home, Bring in, Story, Cut, Finish, Deliver, Ask, Advanced) and each place shows its tools as tabs. On: the rail as it was before, one button for each tool.',
+            onChange: x => { US.settings.set('ui.classicRail', !!x); US.rebuildRail && US.rebuildRail(); } })));
+      }
       /* Updates: one button checks GitHub for a newer version and installs it (js/tools/98-update.js) */
       function updatesCard() {
         if (!US.update) return null;

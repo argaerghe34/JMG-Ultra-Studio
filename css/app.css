@@ -372,3 +372,23 @@ body.focus .main { grid-template-columns: minmax(0, 1fr); }
 
 /* Memory Box: pickers side by side, sharing the width */
 .row.wrap > .field { flex: 1 1 160px; min-width: 0; }
+
+/* ---------- New layout (UI review, 18 Nov 2026) ---------- */
+/* the view sits under the place's tabs */
+.content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.content > .view { flex: 1; min-height: 0; }
+/* a place's tools as tabs along the top: one line, scrolls sideways when there are many */
+.place-tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--bg); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; flex: none; }
+.place-tabs::-webkit-scrollbar { display: none; }
+.place-tab { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-2); padding: 5px 10px 7px; cursor: pointer; white-space: nowrap; font-size: 12px; }
+.place-tab:hover { color: var(--text); }
+.place-tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.place-tab.on .icon { color: var(--accent-hi); }
+/* the rail as places: fewer buttons, so wider and easier to read */
+.main.places { grid-template-columns: 60px minmax(0, 1fr); }
+.rail.places .rail-btn { font-size: 10.5px; padding: 9px 0 7px; gap: 4px; }
+/* tool descriptions: two lines, click for the rest */
+.tool-blurb { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; cursor: pointer; }
+.tool-blurb.open { display: block; -webkit-line-clamp: unset; }
+/* the long wordmark goes before the project and sequence names are squeezed */
+@media (max-width: 600px) { .brand-name { display: none; } }

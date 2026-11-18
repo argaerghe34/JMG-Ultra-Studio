@@ -135,6 +135,17 @@
 
       function renderTiles() {
         US.clear(groups);
+        const tile = d => h('button.tile', { onclick: () => US.tools.open(d.id) }, h('div.tool-icon', US.icon(d.icon, 17)), h('div', h('div.tile-name', d.name), h('div.tile-blurb', d.blurb || '')));
+        // the rail as places: the same places here, in the same order (Classic rail keeps the groups below)
+        if (US.PLACES && US.classicRail && !US.classicRail()) {
+          for (const p of US.PLACES.filter(p => p.id !== 'home')) {
+            const tools = (p.id === 'advanced' ? [US.tools.get('advanced')].filter(Boolean) : US.placeTools(p.id)).filter(d => d.id !== US.FEATURED);
+            if (!tools.length) continue;
+            groups.appendChild(h('div.group-title', p.name));
+            groups.appendChild(h('div.tiles', tools.map(tile)));
+          }
+          return;
+        }
         for (const g of US.GROUPS) {
           const tools = US.tools.list().filter(d => d.group === g.id && US.onRail(d) && d.id !== US.FEATURED);
           if (!tools.length) continue;

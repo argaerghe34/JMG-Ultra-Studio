@@ -17,6 +17,42 @@
   US.onRail = d => !!d && !d.hidden && !US.PAUSED_TOOLS.includes(d.id) && !US.ADVANCED_TOOLS.includes(d.id);
   /** The tab a tool is reached from: Advanced for the tools kept there. */
   US.homeTabOf = id => (US.tools.get('advanced') && (US.ADVANCED_TOOLS.includes(id) || US.PAUSED_TOOLS.includes(id)) ? 'advanced' : id);
+  /**
+   * The rail's places, in the order of the work (UI review, 18 Nov 2026): Home › Bring in › Story › Cut › Finish › Deliver,
+   * then Ask and Advanced. A place with several tools shows them as tabs along the top of the view. A tool joins a place
+   * with `place: 'cut'` in its definition (or is listed here); one with neither goes by its group, and a tool that still
+   * has no place gets a rail button of its own – so nothing on the rail is ever lost. Settings › Classic rail brings back
+   * one button per tool (US.classicRail()).
+   */
+  US.PLACES = [
+    { id: 'home', name: 'Home', icon: 'home', tools: ['home'] },
+    { id: 'bring', name: 'Bring in', icon: 'download', tools: ['youtube'], blurb: 'Get material into the project' },
+    { id: 'story', name: 'Story', icon: 'story', tools: ['story', 'wiki', 'words', 'producer'], blurb: 'From interviews to a cut' },
+    { id: 'cut', name: 'Cut', icon: 'scissors', tools: ['silence', 'beats', 'agent'], blurb: 'Make the edit faster' },
+    { id: 'finish', name: 'Finish', icon: 'wand', tools: ['quickfx', 'markers', 'safezones', 'check'], blurb: 'Polish and check before export' },
+    { id: 'deliver', name: 'Deliver', icon: 'deliver', tools: ['deliver'], blurb: 'Everything out in one go' },
+    { id: 'ask', name: 'Ask', icon: 'ask', tools: ['assistant'], blurb: 'Plain English' },
+    { id: 'advanced', name: 'Advanced', icon: 'folder', tools: ['advanced'], blurb: 'More tools, and the ones in development' }
+  ];
+  const GROUP_PLACE = { find: 'story', cut: 'cut', finish: 'finish', selects: 'bring' };
+  US.classicRail = () => !!(US.settings && US.settings.get('ui.classicRail', false));
+  /** The place a tool belongs to (null for Settings and other hidden screens). Advanced's own tools belong to Advanced. */
+  US.placeOf = id => {
+    const d = US.tools.get(id);
+    if (!d || (d.hidden && id !== 'advanced')) return null;
+    if (id === 'advanced' || US.homeTabOf(id) === 'advanced') return 'advanced';
+    if (d.place && US.PLACES.some(p => p.id === d.place)) return d.place;
+    const p = US.PLACES.find(x => x.tools.includes(id));
+    if (p) return p.id;
+    return GROUP_PLACE[d.group] || null;
+  };
+  /** The tools shown as tabs in a place, in the place's order (then by tool order). */
+  US.placeTools = pid => {
+    const p = US.PLACES.find(x => x.id === pid); if (!p) return [];
+    const listed = p.tools.map(id => US.tools.get(id)).filter(d => d && US.onRail(d) && US.placeOf(d.id) === pid);
+    const extra = US.tools.list().filter(d => US.onRail(d) && !p.tools.includes(d.id) && US.placeOf(d.id) === pid);
+    return listed.concat(extra);
+  };
   US.tools = {
     /** register({id, name, short, icon, group, blurb, order, apps?: ['premiere'] (only there), create: () => ({el, onShow?, onHide?})}) */
     register(def) {
@@ -162,7 +198,8 @@
 
     els.rail = h('div.rail');
     els.view = h('div.view');
-    app.append(header, els.status, h('div.main', els.rail, els.view));
+    els.placeTabs = h('div.place-tabs.hidden', { role: 'tablist' });
+    app.append(header, els.status, h('div.main', els.rail, h('div.content', els.placeTabs, els.view)));
     drawAIChip();
     buildRail();
     buildLogDrawer();
@@ -171,6 +208,9 @@
 
   function buildRail() {
     US.clear(els.rail);
+    els.rail.classList.toggle('places', !US.classicRail());
+    if (els.rail.parentNode) els.rail.parentNode.classList.toggle('places', !US.classicRail());
+    if (!US.classicRail()) return buildPlaces();
     const add = d => els.rail.appendChild(h('button.rail-btn', { dataset: { id: d.id }, title: d.name + (d.blurb ? ' – ' + d.blurb : ''), onclick: () => open(d.id) }, US.icon(d.icon, 19), h('span', d.short || d.name)));
     const list = US.tools.list().filter(US.onRail);
     const home = list.find(d => d.id === 'home'); if (home) add(home);
@@ -186,6 +226,47 @@
     const rest = list.filter(d => d.id !== 'home' && d.id !== US.FEATURED && !US.GROUPS.some(g => g.id === d.group));
     if (rest.length) { els.rail.appendChild(h('div.rail-sep')); rest.forEach(add); }
   }
+
+  /** The rail as places: one labelled button per place that has a tool, then any tool no place claims. */
+  function buildPlaces() {
+    for (const p of US.PLACES) {
+      const tools = p.id === 'advanced' ? [US.tools.get('advanced')].filter(Boolean) : US.placeTools(p.id);
+      if (!tools.length) continue;
+      if (p.id === 'story' || p.id === 'ask') els.rail.appendChild(h('div.rail-sep'));
+      const title = p.name + (tools.length > 1 ? ' – ' + tools.map(d => d.name).join(', ') : tools[0].blurb ? ' – ' + tools[0].blurb : '');
+      els.rail.appendChild(h('button.rail-btn', { dataset: { place: p.id }, title, onclick: () => openPlace(p.id) }, US.icon(p.icon, 19), h('span', p.name)));
+    }
+    // a tool on the rail that no place claims keeps a button of its own
+    for (const d of US.tools.list().filter(d => US.onRail(d) && !US.placeOf(d.id))) {
+      els.rail.appendChild(h('button.rail-btn', { dataset: { id: d.id }, title: d.name + (d.blurb ? ' – ' + d.blurb : ''), onclick: () => open(d.id) }, US.icon(d.icon, 19), h('span', d.short || d.name)));
+    }
+    if (currentId) markRail(currentId);
+  }
+  /** Open a place: the tool last used there, or its first. */
+  function openPlace(pid) {
+    const tools = pid === 'advanced' ? [US.tools.get('advanced')].filter(Boolean) : US.placeTools(pid);
+    if (!tools.length) return;
+    const last = US.settings.get('place.last.' + pid, null);
+    open(tools.some(d => d.id === last) ? last : tools[0].id);
+  }
+  US.openPlace = openPlace;
+  /** Light the rail button for a tool, and show its place's tabs. */
+  function markRail(id) {
+    if (!els.rail) return;
+    const classic = US.classicRail(), pid = classic ? null : US.placeOf(id);
+    const railId = classic ? US.homeTabOf(id) : pid;
+    US.$$('.rail-btn', els.rail).forEach(b => b.classList.toggle('on', classic ? b.dataset.id === railId : (b.dataset.place ? b.dataset.place === railId : b.dataset.id === id)));
+    drawPlaceTabs(pid, id);
+  }
+  function drawPlaceTabs(pid, id) {
+    if (!els.placeTabs) return;
+    US.clear(els.placeTabs);
+    const tools = pid && pid !== 'advanced' ? US.placeTools(pid) : [];
+    els.placeTabs.classList.toggle('hidden', tools.length < 2);
+    if (tools.length < 2) return;
+    tools.forEach(d => els.placeTabs.appendChild(h('button.place-tab' + (d.id === id ? '.on' : ''), { dataset: { tool: d.id }, role: 'tab', title: d.blurb || d.name, onclick: () => open(d.id) }, US.icon(d.icon, 14), h('span', d.name))));
+  }
+  US.rebuildRail = () => { if (els.rail) buildRail(); if (currentId) markRail(currentId); };
 
   function open(id, opts) {
     const def = US.tools.get(id) || US.tools.get('home');
@@ -207,10 +288,10 @@
     }
     m.el.classList.remove('hidden');
     currentId = def.id;
-    const railId = US.homeTabOf(def.id);
-    US.$$('.rail-btn', els.rail).forEach(b => b.classList.toggle('on', b.dataset.id === railId));
+    markRail(def.id);
     els.view.scrollTop = 0;
     if (!def.hidden) US.settings.set('lastTool', def.id);
+    const pid = US.placeOf(def.id); if (pid && pid !== 'advanced') US.settings.set('place.last.' + pid, def.id);
     m.onShow && m.onShow(opts);
   }
 
@@ -226,6 +307,12 @@
   }
 
   /* ---------- status bar ---------- */
+  /** "Camera Switch: " when the job belongs to a tool other than the one on screen, so the status line never seems to
+      be about the wrong tab (UI review). */
+  function otherTool(job) {
+    const d = job && job.tool && job.tool !== currentId && US.tools.get(job.tool);
+    return d && !d.hidden && d.id !== 'home' ? d.name + ': ' : '';
+  }
   let resultTimer = null;
   function setIdleStatus() {
     els.status.className = 'status';
@@ -239,7 +326,7 @@
     clearTimeout(resultTimer);
     els.status.className = 'status running';
     els.statusWho.textContent = US.say(job.who);
-    els.statusMsg.textContent = US.say('· ' + job.title + (job.msg ? ' — ' + job.msg : ''));
+    els.statusMsg.textContent = US.say('· ' + otherTool(job) + job.title + (job.msg ? ' — ' + job.msg : ''));
     els.statusMsg.title = job.about || '';
     els.statusBar.classList.toggle('indeterminate', job.indeterminate);
     els.statusFill.style.width = (job.frac * 100).toFixed(1) + '%';
@@ -256,13 +343,14 @@
     clearInterval(tick); markRailBusy(job.tool, false);
     els.status.className = 'status ' + (r.ok ? 'ok' : r.cancelled ? '' : 'error');
     els.statusWho.textContent = r.ok ? 'Done' : r.cancelled ? 'Stopped' : 'Didn’t finish';
-    els.statusMsg.textContent = US.say('· ' + job.title + ' — ' + r.summary);
+    els.statusMsg.textContent = US.say('· ' + otherTool(job) + job.title + ' — ' + r.summary);
     els.statusTime.textContent = US.fmtDur(job.elapsed);
     resultTimer = setTimeout(setIdleStatus, r.ok ? 12000 : 20000);
     pollContext(true);
   });
   function markRailBusy(toolId, on) {
-    const b = els.rail && els.rail.querySelector(`.rail-btn[data-id="${toolId}"]`);
+    const pid = !US.classicRail() && US.placeOf(toolId);
+    const b = els.rail && (els.rail.querySelector(`.rail-btn[data-id="${toolId}"]`) || (pid && els.rail.querySelector(`.rail-btn[data-place="${pid}"]`)));
     if (!b) return;
     const d = b.querySelector('.busy-dot');
     if (on && !d) b.appendChild(h('span.busy-dot')); else if (!on && d) d.remove();

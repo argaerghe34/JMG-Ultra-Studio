@@ -149,7 +149,8 @@
 
   /** Standard tool screen: header + scrollable body. Returns {el, body, setSubtitle} */
   ui.toolView = function ({ icon, title, blurb, help }) {
-    const sub = h('div.tool-blurb', blurb);
+    // a long description shows two lines; a click shows the rest (and hides it again) – nothing is cut, only folded
+    const sub = h('div.tool-blurb', { title: 'Click to read more', onclick: () => sub.classList.toggle('open') }, blurb);
     const body = h('div.tool-body');
     const el = h('div.tool',
       h('div.tool-head', h('div.tool-icon', US.icon(icon, 20)), h('div.tool-titles', h('div.tool-title', title), sub),
