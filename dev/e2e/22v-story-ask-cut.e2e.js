@@ -30,7 +30,8 @@ try {
   // a run of lines in the cut, the first line after it, and a stretch outside the cut (two lines, neither heard)
   const run = [inIdx[0]]; while (heard.has((L[run[run.length - 1] + 1] || {}).id)) run.push(run[run.length - 1] + 1);
   const after = run[run.length - 1] + 1;
-  const out = L.findIndex((l, i) => i > after && !heard.has(l.id) && L[i + 1] && !heard.has(L[i + 1].id) && !heard.has((L[i - 1] || {}).id));
+  // (not right after the straddling clip: clips next to each other in one group are joined into one)
+  const out = L.findIndex((l, i) => i > after + 1 && !heard.has(l.id) && L[i + 1] && !heard.has(L[i + 1].id) && !heard.has((L[i - 1] || {}).id));
   T.assert(out > 0 && !heard.has(L[after].id), 'lines to test with');
   const item = (a, b, note) => ({ key: tr.key, from: L[a].id, to: L[b].id, lead: '', note, score: 0.8 });
   const groups = () => [{ name: 'In the cut', summary: '', label: 1, items: [item(run[0], run[run.length - 1], 'used')] }, { name: 'Mixed', summary: '', label: 2, items: [item(run[run.length - 1], after, 'straddles the cut'), item(out, out + 1, 'not used')] }];
