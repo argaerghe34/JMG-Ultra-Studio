@@ -57,7 +57,10 @@ const names = r.files.map(f => path.basename(f));
 T.assert(names.join('|') === 'E2E Title Opening.mp4|E2E Title Teaser.mp4', 'files named after the titles: ' + names.join(', '));
 async function dur(f) { const v = document.createElement('video'); v.muted = true; v.src = T.fileUrl(f); await new Promise(res => { v.onloadedmetadata = res; v.onerror = res; setTimeout(res, 5000); }); const d = v.duration; v.removeAttribute('src'); v.load(); return d; }
 T.near(await dur(r.files[0]), 2, 0.15, 'opening is its 2 s'); T.near(await dur(r.files[1]), 4, 0.15, 'teaser is its 4 s');
-T.assert(!(await US.host.call('renderRanges', { seqId: seq.id, kinds: 'text' })).hidden, 'the titles’ track is on again');
+// read in the open timeline (Resolve 21.2 tells track states only there)
+await T.open(seq.id);
+const on = await T.devEval('const t = R.needSeq(' + JSON.stringify(seq.id) + '); const o = []; for (let i = 1; i <= t.GetTrackCount("video"); i++) if (/^renders$/i.test(t.GetTrackName("video", i))) o.push(t.GetIsTrackEnabled("video", i)); return o');
+T.assert(on.length && on.every(x => x === true), 'the titles’ track is on again: ' + JSON.stringify(on));
 
 got = await list();
 await US.host.call('removeRenderRange', { seqId: seq.id, track: 'Renders', nodeId: got[1].nodeId });

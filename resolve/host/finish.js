@@ -390,13 +390,30 @@ module.exports = function (R) {
     },
     /** Switch the text tracks of a group on or off, so titles used as ranges don't show in the renders.
         a: {seqId, track, on} → {track, was} (was: 1 shown, 0 hidden, -1 no such track) */
-    rangeTrackOutput(a) {
+    async rangeTrackOutput(a) {
       const tl = R.needSeq(a.seqId), ts = textTracks(tl, a.track || RENDERS);
       if (!ts.length) return { track: -1, was: -1 };
-      const states = ts.map(t => !!tl.GetIsTrackEnabled('video', t)), was = states.some(Boolean) ? 1 : 0;
-      // putting back: each track as it was (a.states from the switch-off), not all on
-      ts.forEach((t, k) => tl.SetTrackEnable('video', t, a.states && a.states.length === ts.length ? !!a.states[k] : !!a.on));
-      return { track: ts[0] - 1, was, states };
+      // Resolve 21.2 reads and switches tracks only in the open timeline on the Edit page ("No sequence scene"
+      // otherwise – e.g. straight after rendering): opened for this, checked, retried, then put back as it was
+      const pr = P(), before = pr.GetCurrentTimeline(), api = R.api, page = tryCall(() => api.GetCurrentPage(), '');
+      try {
+        if (!/^(edit|cut)$/.test(page || '')) tryCall(() => api.OpenPage('edit'), false);
+        R.open(tl);
+        const states = ts.map(t => tryCall(() => tl.GetIsTrackEnabled('video', t), true) !== false), was = states.some(Boolean) ? 1 : 0;
+        // putting back: each track as it was (a.states from the switch-off), not all on
+        const want = ts.map((t, k) => (a.states && a.states.length === ts.length ? !!a.states[k] : !!a.on));
+        const done = () => ts.every((t, k) => tryCall(() => tl.GetIsTrackEnabled('video', t), null) === want[k]);
+        for (let i = 0; i < 10 && !done(); i++) {
+          if (i) await new Promise(r => setTimeout(r, 200));
+          R.open(tl);
+          ts.forEach((t, k) => tryCall(() => tl.SetTrackEnable('video', t, want[k]), false));
+        }
+        if (!done()) throw R.err('HOST_SCRIPT', 'SetTrackEnable not taken on V' + ts.join(', V'), `Resolve didn’t switch the “${a.track || RENDERS}” track ${want.some(Boolean) ? 'on' : 'off'}.`, `Switch it ${want.some(Boolean) ? 'on' : 'off'} in the Timeline (the eye/monitor button on the track).`);
+        return { track: ts[0] - 1, was, states };
+      } finally {
+        if (before && R.id(before) !== R.id(tl)) await R.restoreTimeline(before);
+        if (page && tryCall(() => api.GetCurrentPage(), page) !== page) tryCall(() => api.OpenPage(page), false);
+      }
     },
     /**
      * Premiere's “new track on top for render ranges”. Range markers: a group needs nothing made – just a name no other

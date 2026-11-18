@@ -298,3 +298,21 @@ test('Text+ words in Resolve 21.2: its Fusion tools have no GetInput/SetInput, s
   assert.strictEqual(S.F.currentTimeline, other, 'the open timeline is put back');
   assert.strictEqual(x.range.name, 'Opening', 'read while it was open');
 });
+
+test('titles’ track switched off and on again even when another timeline is open (Resolve 21.2: “No sequence scene”); the open timeline and page put back', async () => {
+  const S = withTimeline(), tl = S.tl;
+  tl.AddTrack('video'); tl.SetTrackName('video', 2, 'Renders');
+  const get = tl.GetIsTrackEnabled, set = tl.SetTrackEnable;
+  const scene = () => { if (S.F.currentTimeline !== tl || !/^(edit|cut)$/.test(S.F.resolve.GetCurrentPage())) throw new Error('Execute: GetIsTrackEnabled: Error response (errorStr:No sequence scene) (errorCode:1)'); };
+  tl.GetIsTrackEnabled = (k, i) => { scene(); return get(k, i); };
+  tl.SetTrackEnable = (k, i, on) => { scene(); return set(k, i, on); };
+  const other = S.F.addTimeline('Other', []); S.F.project.SetCurrentTimeline(other); S.F.resolve.OpenPage('deliver');
+  const off = await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: false });
+  assert.deepStrictEqual(off, { track: 1, was: 1, states: [true] });
+  assert.strictEqual(tl._vOn[1], false);
+  assert.strictEqual(S.F.currentTimeline, other); assert.strictEqual(S.F.resolve.GetCurrentPage(), 'deliver');
+  await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: true, states: off.states });
+  assert.strictEqual(tl._vOn[1], true, 'on again');
+  tl.SetTrackEnable = () => true;   // refused without saying so
+  await assert.rejects(S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: false }), e => /didn’t switch/.test(e.title));
+});
