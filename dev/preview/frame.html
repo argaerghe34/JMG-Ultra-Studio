@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ultra Studio Preview</title>
+<style>
+  :root { --bg: #161616; --bar: #222; --line: #333; --text: #ddd; --dim: #8a8a8a; --on: #3b82f6; --bad: #e5484d; --ok: #30a46c; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 12px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 6px 12px; background: var(--bar); border-bottom: 1px solid var(--line); }
+  .title { font-weight: 650; margin-right: 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: var(--dim); padding: 4px 10px; font: inherit; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--on); color: #fff; }
+  .btn { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 10px; font: inherit; cursor: pointer; }
+  .btn:hover, .seg button:hover:not(.on) { color: var(--text); background: #2c2c2c; }
+  .lbl { color: var(--dim); }
+  .spacer { flex: 1; }
+  .live { color: var(--dim); }
+  .live i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); margin-right: 5px; vertical-align: 0; }
+  .live.on i { background: var(--ok); }
+  .errs { display: none; background: var(--bad); color: #fff; border: 0; border-radius: 10px; padding: 3px 9px; font: inherit; cursor: pointer; }
+  .errs.show { display: inline-block; }
+  .stage { flex: 1; display: flex; justify-content: center; min-height: 0; padding: 10px; overflow: auto; }
+  iframe { border: 1px solid var(--line); border-radius: 4px; background: #232323; height: 100%; width: 100%; }
+  .note { color: var(--dim); padding: 0 12px 6px; background: var(--bar); border-bottom: 1px solid var(--line); }
+  .list { display: none; position: fixed; right: 12px; top: 44px; width: min(560px, calc(100vw - 24px)); max-height: 60vh; overflow: auto; background: #1d1d1d; border: 1px solid var(--line); border-radius: 6px; padding: 8px; z-index: 5; white-space: pre-wrap; font: 11px/1.4 ui-monospace, Menlo, monospace; }
+  .list.show { display: block; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="title">Ultra Studio · Preview</span>
+  <span class="lbl">Editor</span>
+  <span class="seg" id="app"><button data-v="premiere">Premiere</button><button data-v="resolve">Resolve</button></span>
+  <span class="lbl">Width</span>
+  <span class="seg" id="width"><button data-v="340">Narrow</button><button data-v="480">Panel</button><button data-v="760">Wide</button><button data-v="0">Full</button></span>
+  <button class="btn" id="reload" title="Load the panel again">Reload</button>
+  <button class="btn" id="reset" title="Put the sample project back as it was (your preview settings stay)">Reset sample project</button>
+  <button class="btn" id="wipe" title="Also forget the preview's settings and Story work">Start fresh</button>
+  <span class="spacer"></span>
+  <button class="errs" id="errs"></button>
+  <span class="live" id="live"><i></i>live reload</span>
+</div>
+<div class="note">A preview with a pretend editor and sample project. AI, downloads and updates are off; nothing is sent online, and everything it saves goes to a temp folder – not your real settings.</div>
+<div class="list" id="list"></div>
+<div class="stage"><iframe id="panel" title="JMG Ultra Studio panel"></iframe></div>
+<script>
+(function () {
+  const PANEL = '__PANEL__';
+  const get = (k, d) => { try { return localStorage.getItem('usPreview.' + k) || d; } catch (e) { return d; } };
+  const put = (k, v) => { try { localStorage.setItem('usPreview.' + k, v); } catch (e) { /* not kept */ } };
+  const q = new URLSearchParams(location.search);
+  let app = q.get('app') || get('app', 'premiere'), width = q.get('width') || get('width', '480');
+  const frame = document.getElementById('panel');
+  function seg(id, val, on) {
+    const el = document.getElementById(id);
+    const mark = v => el.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    mark(val);
+    el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; mark(b.dataset.v); on(b.dataset.v); });
+  }
+  function load() { errors = []; drawErrs(); frame.src = PANEL + '?app=' + app + '&t=' + Date.now(); }
+  function size() { frame.style.width = width === '0' ? '100%' : width + 'px'; frame.style.flex = width === '0' ? '1' : '0 0 auto'; }
+  seg('app', app, v => { app = v; put('app', v); load(); });
+  seg('width', width, v => { width = v; put('width', v); size(); });
+  document.getElementById('reload').onclick = load;
+  document.getElementById('reset').onclick = () => fetch('/__preview/reset', { method: 'POST' }).then(load);
+  document.getElementById('wipe').onclick = () => { if (confirm('Forget the preview’s settings and Story work, and start the sample project again?')) fetch('/__preview/reset?all=1', { method: 'POST' }).then(load); };
+  // errors in the panel: a red count here (the shim reports them)
+  let errors = [];
+  const errsBtn = document.getElementById('errs'), list = document.getElementById('list');
+  function drawErrs() { errsBtn.textContent = errors.length + (errors.length === 1 ? ' error' : ' errors'); errsBtn.classList.toggle('show', errors.length > 0); list.textContent = errors.join('\n\n'); if (!errors.length) list.classList.remove('show'); }
+  errsBtn.onclick = () => list.classList.toggle('show');
+  window.addEventListener('message', e => { if (e.data && e.data.usPreviewError) { errors.push(e.data.usPreviewError); drawErrs(); } });
+  // live reload: the panel's files changed in the checkout
+  const live = document.getElementById('live');
+  function listen() {
+    const es = new EventSource('/__preview/events');
+    es.onopen = () => live.classList.add('on');
+    es.addEventListener('reload', e => { live.title = 'Last change: ' + JSON.parse(e.data).file; load(); });
+    es.onerror = () => { live.classList.remove('on'); };
+  }
+  size(); load(); listen();
+})();
+</script>
+</body>
+</html>
