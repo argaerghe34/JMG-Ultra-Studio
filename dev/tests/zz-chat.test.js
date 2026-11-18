@@ -6,7 +6,7 @@
 const assert = require('assert');
 const { load, test } = require('./harness');
 global.ResizeObserver = global.ResizeObserver || function () { return { observe() {} }; };
-const US = load(['time', 'audio', 'dsp', 'transcript', 'ui', 'app', 'ai', 'js/tools/22-story-glossary.js', 'js/tools/22-story-board.js', 'js/tools/22-story-export.js', 'js/tools/22-story-timeline.js', 'js/tools/22-story-narrative.js', 'js/tools/22-story-moments.js', 'js/tools/22-story-ai.js', 'js/tools/22-story-context.js', 'js/tools/22-story-ask.js', 'js/tools/22-story-voices.js', 'js/tools/22-story.js', 'js/tools/40-assistant-chat.js', 'js/tools/41-edit.js', 'js/tools/43-agent.js']);
+const US = load(['time', 'audio', 'dsp', 'transcript', 'ui', 'app', 'ai', 'js/tools/22-story-glossary.js', 'js/tools/22-story-board.js', 'js/tools/22-story-export.js', 'js/tools/22-story-timeline.js', 'js/tools/22-story-narrative.js', 'js/tools/22-story-moments.js', 'js/tools/22-story-ai.js', 'js/tools/22-story-context.js', 'js/tools/22-story-ask.js', 'js/tools/22-story-voices.js', 'js/tools/22-story.js', 'js/tools/40-assistant-chat.js', 'js/tools/41-edit.js']);
 const C = US.chat;
 C._tick = 2;
 
@@ -180,7 +180,7 @@ test('a sequence by name or id, one that isn’t there, a step that fails, a too
     const log = [], chat = C.newChat();
     await C.send(chat, 'keep reading', hooksFor(log), { mode: 'ask', maxSteps: 3 });
     assert.strictEqual(x.ai.length, 3);
-    assert.ok(/stopped after 3 steps/.test(log[log.length - 1].text) && chat.status === 'idle' && /step limit/.test(chat.pendingResult));
+    assert.ok(/Stopped after 3 steps/.test(log[log.length - 1].text) && chat.status === 'idle' && /step limit/.test(chat.pendingResult));
   } finally { x.restore(); }
   x = setup([T('project'), T('project', {}, '', { wait: 30 }), T('finish', { reply: 'never' })]);
   try {
@@ -190,6 +190,78 @@ test('a sequence by name or id, one that isn’t there, a step that fails, a too
     assert.ok(/Stopped/.test(log[log.length - 1].text) && !log.some(i => i.k === 'end') && chat.status === 'idle');
     assert.ok(x.ai.length <= 2, 'nothing more was asked of the AI');
   } finally { x.restore(); }
+});
+
+test('spending: the chat keeps count and stops to ask at the limit – carry on (as much again), no limit for this chat, or stop; no limit set never asks', async () => {
+  const reads = n => Array.from({ length: n }, () => T('project', {}, '', { usd: 0.4 })).concat([T('finish', { reply: 'Read it all.' }, '', { usd: 0.4 })]);
+  // stop at the limit: $1 a request, 40¢ a turn → asked after the third turn
+  let x = setup(reads(8));
+  try {
+    const log = [], asked = [], chat = C.newChat();
+    await C.send(chat, 'read a lot', Object.assign(hooksFor(log), { limit: async l => { asked.push(l); return 'stop'; } }), { mode: 'never', budget: 1 });
+    assert.strictEqual(asked.length, 1);
+    assert.deepStrictEqual([asked[0].kind, asked[0].limit, Math.round(asked[0].used * 100), Math.round(asked[0].total * 100)], ['money', 1, 120, 120]);
+    assert.ok(/Stopped at the spending limit for one request \(\$1\.00; this request used about \$1\.20\)/.test(log[log.length - 1].text), log[log.length - 1].text);
+    assert.strictEqual(x.ai.length, 3, 'nothing more was sent');
+    assert.ok(/spending limit/.test(chat.pendingResult));
+  } finally { x.restore(); }
+  // carry on: as much again each time it asks
+  x = setup(reads(5));
+  try {
+    const log = [], asked = [], chat = C.newChat();
+    await C.send(chat, 'read a lot', Object.assign(hooksFor(log), { limit: async l => { asked.push(l.limit); return 'more'; } }), { mode: 'never', budget: 1 });
+    assert.deepStrictEqual(asked, [1, 2], 'asked at $1, then at $2');
+    const end = log[log.length - 1];
+    assert.ok(end.k === 'end' && Math.abs(end.spent - 2.4) < 1e-9 && Math.abs(end.total - 2.4) < 1e-9, 'it finished, and the report says what it cost');
+  } finally { x.restore(); }
+  // no limit for this chat: asked once, never again – in this request or the next
+  x = setup(reads(6).concat(reads(4)));
+  try {
+    const log = [], asked = [], chat = C.newChat();
+    const hooks = Object.assign(hooksFor(log), { limit: async l => { asked.push(l.kind); return 'free'; } });
+    await C.send(chat, 'read a lot', hooks, { mode: 'never', budget: 1, maxSteps: 4 });
+    await C.send(chat, 'and again', hooks, { mode: 'never', budget: 1, maxSteps: 4 });
+    assert.deepStrictEqual(asked, ['money'], 'once');
+    assert.strictEqual(log.filter(i => i.k === 'end').length, 2);
+    assert.ok(Math.abs(chat.spent - 4.8) < 1e-9, 'the chat’s running total: ' + chat.spent);
+  } finally { x.restore(); }
+  // budget 0 = no spending limit; the step limit asks the same way
+  x = setup(reads(5));
+  try {
+    const log = [], asked = [], chat = C.newChat();
+    await C.send(chat, 'read a lot', Object.assign(hooksFor(log), { limit: async l => { asked.push(l.kind); return 'more'; } }), { mode: 'never', budget: 0, maxSteps: 4 });
+    assert.deepStrictEqual(asked, ['steps']);
+    assert.strictEqual(log[log.length - 1].k, 'end');
+    assert.strictEqual(US.ai.budgetLeft({ id: chat.id }), null, 'its account with the AI layer is closed afterwards');
+  } finally { x.restore(); }
+});
+
+test('a cut from a goal, in the chat: search → read lines → build a new sequence (asked first) → keep a version → report', async () => {
+  const x = setup([
+    T('search', { query: 'bakery oven', limit: 10 }, 'Searching.', { understood: 'A short film about the bakery.', plan: ['Find the lines', 'Build it'] }),
+    T('lines', { ids: ['r1', 'zz'], around: 1 }),
+    T('themes', {}),
+    T('build', { name: 'Bakery', sections: [{ name: 'Then', lineIds: ['r1', 'nope'] }], targetSeconds: 60 }),
+    T('version', { name: 'v1' }),
+    T('finish', { reply: 'A short cut about the bakery.' })]);
+  const was = US.story.buildSequence; let built = null;
+  US.story.buildSequence = async (j, o) => { built = o; return { seq: { id: 'built', name: o.name }, summary: `Built “${o.name}” · 1 line · 0:03` }; };
+  try {
+    const log = [], chat = C.newChat();
+    await C.send(chat, 'a short film about the bakery', hooksFor(log), { mode: 'ask' });
+    const res = i => x.ai[i + 1].turns[i].user;
+    assert.ok(/r1\tRuth interview\tRuth\t0:00–0:03\tThe bakery oven/.test(res(0)), res(0));
+    assert.ok(/>r1\t/.test(res(1)) && /zz: no such line/.test(res(1)));
+    assert.ok(/No themes yet/.test(res(2)));
+    assert.deepStrictEqual([built.name, built.target, built.groups.map(g => [g.name, g.lineIds])], ['Ask – Bakery', 60, [['Then', ['r1']]]]);
+    assert.ok(/Built “Ask – Bakery”/.test(res(3)) && /1 unknown line ids were left out/.test(res(3)));
+    const cards = log.filter(i => i.k === 'approve?').map(i => [i.card.risk, i.card.title]);
+    assert.deepStrictEqual(cards.map(c => c[0]), ['new', 'new'], 'building and keeping a version make new things: asked first');
+    assert.ok(/A new sequence “Ask – Bakery” from 1 line/.test(log.find(i => i.k === 'approve?').card.detail));
+    assert.ok(x.host.some(h => h[0] === 'cloneSequence' && h[1].seqId === 'built' && h[1].binPath === 'JMG Ultra Studio/Ask/Versions'));
+    assert.deepStrictEqual(chat.versions.map(v => v.why), ['built from the interviews', 'kept as a version']);
+    assert.ok(!US.agent && !US.tools.get('agent') && !US.actions.get('agent.run'), 'there is no Agent any more');
+  } finally { US.story.buildSequence = was; x.restore(); }
 });
 
 test('two chats at once: both think side by side, their steps in the editor take turns, each finishes with its own report and its own AI', async () => {

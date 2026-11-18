@@ -53,6 +53,6 @@ T.assert(!US.jobs.current, 'Premiere is free again');
 US.tools.open('assistant');
 await T.sleep(100);
 const view = Array.from(document.querySelectorAll('.chat-input')).map(i => i.closest('.tool')).find(v => v && v.offsetParent !== null) || document.querySelector('.chat-input').closest('.tool');
-T.assert(view.querySelector('.chat-tab.chat-new') && !view.querySelector('.chat-mode') && view.querySelectorAll('.chat-opts select').length === 2, 'one chat box: chats as tabs, how often it asks, which AI');
+T.assert(view.querySelector('.chat-tab.chat-new') && !view.querySelector('.chat-mode') && view.querySelectorAll('.chat-opts select').length === 3 && !US.tools.get('agent'), 'one chat box: chats as tabs, how often it asks, which AI, the spending limit – and no Agent tab');
 await US.host.call('deleteSequence', { seqId: a.work.seqId }).catch(() => {});
 return { cards: cards.map(c => `${c.k}: ${c.risk} – ${c.steps.join(' | ')}`), waited: [...new Set(states)].join(' '), a: endA.reply, b: endB.reply };

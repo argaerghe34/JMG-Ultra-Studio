@@ -17,7 +17,6 @@
   const US = window.US;
   const RES = () => !!(US.app && US.app.is && US.app.is('resolve'));
   const E = () => US.editAsk;
-  const AG = () => (US.agent && !US.agent.off ? US.agent : null);
   const clip = (s, n) => { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '…' : s; };
   const fmtT = s => { s = Math.max(0, +s || 0); const m = Math.floor(s / 60), ss = Math.round(s - m * 60); return `${m}:${ss < 10 ? '0' : ''}${ss}`; };
   const cancelled = e => e instanceof US.UserError && (e.code === 'CANCELLED' || e.code === 'STOPPED');
@@ -53,8 +52,8 @@
     { id: 'never', label: 'Don’t ask', hint: 'It works straight through. Copies are still made unless you say otherwise.' }
   ];
   const READS = new Set(['project', 'timeline', 'selection', 'bin', 'search', 'lines', 'themes', 'ask', 'finish']);
-  /** The tools on offer here (the transcript tools come with the Agent; with it switched off they aren't offered). */
-  function toolsHere() { const t = Object.assign({}, TOOLS); if (!AG()) { delete t.search; delete t.lines; delete t.themes; delete t.build; delete t.version; } return t; }
+  /** The tools on offer here. */
+  function toolsHere() { return Object.assign({}, TOOLS); }
 
   /**
    * How much a step touches: 'read' (nothing changes) · 'ai' (reads, but a bigger AI request) · 'new' (makes new
@@ -89,8 +88,8 @@
     const ps = Object.entries(a.params || {}).map(([k, p]) => `${k}${p.options ? ` (${p.options.join('|')})` : ` (${p.type})`}${p.default !== undefined && p.default !== '' ? ` = ${JSON.stringify(p.default)}` : ''}${p.desc ? ': ' + p.desc : ''}`);
     return `- ${a.id} [${a.tool}] – ${US.say ? US.say(a.title) : a.title}${a.changes ? ' (changes the project)' : ''}. ${US.say ? US.say(a.describe || '') : a.describe || ''}${ps.length ? `\n    settings: ${ps.join('; ')}` : ''}`;
   }
-  // the chat's own tools do these better; the Agent hand-over would only open another tab
-  const NOT_ACTIONS = new Set(['story.ask', 'edit.ask', 'agent.run']);
+  // the chat's own tools do these better
+  const NOT_ACTIONS = new Set(['story.ask', 'edit.ask']);
   const actionsHere = () => (US.actions ? US.actions.list().filter(a => !NOT_ACTIONS.has(a.id)) : []);
   function rules({ resolve = RES(), actions = [], ops = { timeline: [], items: [] }, tools = TOOLS, opsInfo = (E() || {}).OPS || {} } = {}) {
     const ed = resolve ? 'DaVinci Resolve' : 'Adobe Premiere Pro';
@@ -119,10 +118,16 @@
   }
   /** The first message of a chat: where the editor is (the project as text, cached for the conversation). */
   function brief({ editor, project, sequence, selection = 0, story = null, mode = 'ask' }) {
-    const ag = AG(), out = [`EDITOR: ${editor}`, `PROJECT: ${project || '(none open)'}`];
+    const out = [`EDITOR: ${editor}`, `PROJECT: ${project || '(none open)'}`];
     out.push(sequence ? `OPEN SEQUENCE: “${sequence.name}”${sequence.duration ? ` – ${fmtT(sequence.duration)}` : ''}${sequence.clips != null ? `, ${sequence.clips} clips` : ''}` : 'OPEN SEQUENCE: none');
     out.push(`SELECTED IN THE PROJECT PANEL: ${selection || 0} clips`);
-    if (ag) out.push(ag.brief({ editor, sequence, story }).split('\n').slice(2).join('\n'));
+    if (!story || !story.interviews.length) out.push('INTERVIEWS: none transcribed in Story yet (search, lines, interviews and build won’t find anything – say so if they’re needed: Story › 1 Interviews reads them).');
+    else {
+      out.push(`INTERVIEWS (${story.interviews.length}, ${story.lines} lines):`, ...story.interviews.slice(0, 80).map(i => `- ${i.name}: ${i.lines} lines${i.speakers.length ? ` – ${i.speakers.join(', ')}` : ''}`));
+      if (story.interviews.length > 80) out.push(`…and ${story.interviews.length - 80} more`);
+      if (story.themes.length) out.push(`THEMES FOUND: ${story.themes.map(t => `${t.name} (${t.n})`).join(', ')}`);
+      if (story.brief) out.push(`THE EDITOR’S BRIEF FOR THIS PROJECT: ${story.brief}`);
+    }
     out.push(`PERMISSION: ${{ ask: 'the editor approves each step that changes something', own: 'the editor approves changes to their own sequences and clips, and exports; the rest just runs', never: 'the editor has asked not to be asked – work straight through' }[mode] || mode}.`);
     return out.join('\n');
   }
@@ -153,6 +158,24 @@
       build: () => `Build “${clip(a.name, 40)}” from ${US.plural(US.sum((a.sections || []).map(x => (x.lineIds || []).length)), 'line')}${a.targetSeconds ? `, aiming for ${fmtT(a.targetSeconds)}` : ''}`,
       open: () => `Open “${clip(a.sequence, 40)}”`, version: () => `Keep a version “${clip(a.name, 30)}”`, ask: () => 'Ask you a question', finish: () => 'Report'
     }[tool] || (() => tool))();
+  }
+
+  /* ---------- the interviews, as the AI reads them ---------- */
+  /** The rows for transcript lines: id, interview, speaker, time, text. */
+  function lineRows(lines, { text = 220 } = {}) {
+    return lines.map(l => [l.id, clip(l.interview, 40), l.speaker || '', `${fmtT(l.start)}–${fmtT(l.end)}`, clip(String(l.text || '').replace(/\s+/g, ' '), text)].join('\t')).join('\n');
+  }
+  function storyLine(l) {
+    const S = US.story, t = S.interviewOf ? S.interviewOf(l.id) : null;
+    return { id: l.id, interview: t ? t.name : '', speaker: S.speakerName ? S.speakerName(l.speaker) : l.speaker, start: l.start, end: l.end, text: l.text, asked: S.isInterviewer ? !!S.isInterviewer(l) : false };
+  }
+  /** What Story has, in a few lines, for the brief: {interviews:[{name, lines, speakers}], lines, themes:[{name, n}], brief} or null. */
+  function storySummary() {
+    try {
+      const S = US.story; S.loadState && S.loadState();
+      const st = S.state(), interviews = (st.transcripts || []).map(t => ({ name: t.name, lines: (t.lines || []).length, speakers: [...new Set((t.lines || []).map(l => S.speakerName(l.speaker)).filter(Boolean))].slice(0, 6) }));
+      return { interviews, lines: US.sum(interviews.map(i => i.lines)), themes: (st.themes || []).filter(t => t.name !== 'Other' && t.lineIds && t.lineIds.length).map(t => ({ name: t.name, n: t.lineIds.length })).slice(0, 40), brief: String(US.settings.get('story.brief', '') || '').trim() };
+    } catch (e) { return null; }
   }
 
   /* ---------- chats ---------- */
@@ -249,7 +272,7 @@
 
   /** One tool call → the text the AI reads back. hooks: {event, approve, choose}. */
   async function callTool(chat, st, hooks, opts) {
-    const a = st.args || {}, ed = E(), ag = AG(), tool = st.tool;
+    const a = st.args || {}, ed = E(), tool = st.tool;
     const note = text => { hooks.event({ k: 'result', text }); return text; };
     const title = describeCall(tool, a);
     const withHands = fn => { chat.status = 'working'; hooks.status(); return hands(chat, title, fn, t => { chat.status = 'waiting'; chat.waitingFor = t; hooks.status(); }, () => { if (chat.status !== 'working') { chat.status = 'working'; hooks.status(); } }); };
@@ -293,16 +316,67 @@
         note(`${US.plural(m.items.length, 'clip')} in ${a.bin ? `“${scope.binName}”` : 'the project'}`);
         return rows(ed.outline(Object.assign({}, m, { project: null })), 500);
       });
-      case 'search': case 'lines': case 'themes': case 'version':
-        if (!ag) return 'That tool isn’t available here.';
-        if (tool === 'version') { const ok = await approve('new', { detail: `A copy of “${chat.work ? chat.work.name : 'the working sequence'}” to compare later.` }); if (!ok.ok) return refusedNow(); }
-        return withHands(job => ag.callTool(job, chat, { tool, args: a }, e => { if (e.type === 'result') note(e.text); }));
+      case 'search': return withHands(async job => {
+        if (!US.story) return 'Story isn’t available here.';
+        US.story.loadState && US.story.loadState();
+        job.set({ who: 'studio', msg: `Searching the interviews for “${clip(a.query, 40)}”` });
+        const lines = await US.story.linesInScope(job), lim = Math.max(5, Math.min(60, +a.limit || 25));
+        let pool = lines;
+        if (a.speaker) { const sp = String(a.speaker).toLowerCase(); pool = lines.filter(l => String(US.story.speakerName(l.speaker)).toLowerCase().includes(sp) || String((US.story.interviewOf(l.id) || {}).name || '').toLowerCase().includes(sp)); }
+        const hits = a.query ? US.transcript.search(String(a.query), pool, { limit: lim * 2 }).map(h => h.line) : pool.slice(0, lim);
+        const found = hits.map(storyLine).filter(l => !l.asked).slice(0, lim);
+        note(`${US.plural(found.length, 'line')} for “${clip(a.query || a.speaker, 40)}”`);
+        return found.length ? `${found.length} lines (id, interview, speaker, time, text):\n${lineRows(found)}` : 'Nothing found. Try other words, a person’s name, or a broader topic.';
+      });
+      case 'lines': {
+        const S = US.story, ids = (Array.isArray(a.ids) ? a.ids : []).slice(0, 30), around = Math.max(0, Math.min(4, +a.around || 0)), out = [];
+        if (!S) return 'Story isn’t available here.';
+        S.loadState && S.loadState();
+        for (const id of ids) {
+          const l = S.lineOf(id), t = l && S.interviewOf(id);
+          if (!l || !t) { out.push(`${id}: no such line`); continue; }
+          const i = t.lines.findIndex(x => x.id === id), from = Math.max(0, i - around), to = Math.min(t.lines.length, i + around + 1);
+          out.push(`— ${id} in ${t.name}:`, lineRows(t.lines.slice(from, to).map(storyLine).map(x => Object.assign(x, { id: x.id === id ? `>${x.id}` : x.id })), { text: 600 }));
+        }
+        note(`Read ${US.plural(ids.length, 'line')}`);
+        return out.join('\n') || 'Give line ids.';
+      }
+      case 'themes': {
+        const S = US.story; if (!S) return 'Story isn’t available here.';
+        S.loadState && S.loadState();
+        const lim = Math.max(1, Math.min(12, +a.limit || 6)), th = (S.state().themes || []).filter(t => t.name !== 'Other' && t.lineIds && t.lineIds.length);
+        note(US.plural(th.length, 'theme'));
+        if (!th.length) return 'No themes yet (Story › Find themes). Use search instead.';
+        return th.slice(0, 30).map(t => `THEME “${t.name}” (${t.lineIds.length} lines):\n${lineRows(t.lineIds.slice(0, lim).map(id => S.lineOf(id)).filter(Boolean).map(storyLine))}`).join('\n');
+      }
+      case 'version': {
+        if (!chat.work) return 'There is no working sequence yet.';
+        const ok = await approve('new', { detail: `A copy of “${chat.work.name}” to compare later.` }); if (!ok.ok) return refusedNow();
+        return withHands(async () => {
+          const nm = `${chat.work.name} – ${clip(String(a.name || `v${chat.versions.length + 1}`).replace(/[\\/:*?"<>|]/g, ''), 30)}`;
+          const c = await US.host.call('cloneSequence', { seqId: chat.work.seqId, name: nm, binPath: 'JMG Ultra Studio/Ask/Versions' });
+          chat.versions.push({ seqId: c.id, name: c.name, why: 'kept as a version' });
+          await US.host.call('openSequence', { seqId: chat.work.seqId }).catch(() => {});
+          note(`Kept “${c.name}”`);
+          return `Kept a copy “${c.name}”. You carry on working in “${chat.work.name}”.`;
+        });
+      }
       case 'build': {
-        if (!ag) return 'That tool isn’t available here.';
-        const n = US.sum((a.sections || []).map(x => (x.lineIds || []).length));
-        const ok = await approve('new', { detail: `A new sequence “${clip(a.name || chat.title, 50)}” from ${US.plural(n, 'line')} of the interviews${(a.sections || []).length > 1 ? `, in ${US.plural(a.sections.length, 'section')}: ${a.sections.map(x => x.name).filter(Boolean).slice(0, 6).join(' · ')}` : ''}. Your clips and sequences aren’t changed.` });
+        const S = US.story; if (!S) return 'Story isn’t available here.';
+        S.loadState && S.loadState();
+        const sections = (Array.isArray(a.sections) ? a.sections : []).map((x, i) => ({ name: String(x.name || '').slice(0, 60), label: [9, 5, 7, 4, 6, 10, 15, 2][i % 8], lineIds: (x.lineIds || []).map(String).filter(id => S.lineOf(id)) })).filter(x => x.lineIds.length);
+        const unknown = US.sum((a.sections || []).map(x => (x.lineIds || []).filter(id => !S.lineOf(String(id))).length));
+        if (!sections.length) return 'ERROR: none of those line ids exist. Use ids from search, lines or themes.';
+        const name = `Ask – ${clip(String(a.name || chat.title).replace(/[\\/:*?"<>|]/g, ''), 50)}`, n = US.sum(sections.map(x => x.lineIds.length));
+        const ok = await approve('new', { detail: `A new sequence “${name}” from ${US.plural(n, 'line')} of the interviews${sections.length > 1 ? `, in ${US.plural(sections.length, 'section')}: ${sections.map(x => x.name).filter(Boolean).slice(0, 6).join(' · ')}` : ''}${+a.targetSeconds ? `, aiming for ${fmtT(a.targetSeconds)}` : ''}. Your clips and sequences aren’t changed.` });
         if (!ok.ok) return refusedNow();
-        return withHands(job => ag.callTool(job, Object.assign(chat, { goal: chat.title }), { tool, args: a }, e => { if (e.type === 'result') note(e.text); }));
+        return withHands(async job => {
+          const out = await S.buildSequence(job, { name, groups: sections, target: Math.max(0, +a.targetSeconds || 0) });
+          chat.work = { seqId: out.seq.id, name: out.seq.name, ours: true };
+          chat.versions.push({ seqId: out.seq.id, name: out.seq.name, why: 'built from the interviews' });
+          note(out.summary);
+          return `${out.summary}.${unknown ? ` ${unknown} unknown line ids were left out.` : ''} It is now your working sequence – read it with "timeline" to check it.`;
+        });
       }
       case 'open': return withHands(async () => {
         const s = await seqFor(chat, a.sequence); if (s.error) return s.error;
@@ -396,7 +470,8 @@
    */
   async function send(chat, text, hooks, opts = {}) {
     const o = Object.assign({ mode: 'ask', maxSteps: 25, budget: 2 }, opts);
-    const h = Object.assign({ event() {}, status() {}, approve: async () => ({ ok: true }), choose: async () => null }, hooks);
+    // limit({kind: 'money'|'steps', used, limit, total}) -> 'more' (as much again), 'free' (no limit in this chat) or 'stop'
+    const h = Object.assign({ event() {}, status() {}, approve: async () => ({ ok: true }), choose: async () => null, limit: async () => 'stop' }, hooks);
     const show = item => { const it = Object.assign({ at: Date.now() }, item); if (it.k === 'result') { const last = chat.items[chat.items.length - 1]; if (last && last.k === 'step' && !last.result) { last.result = it.text; h.event(Object.assign({}, it, { on: last })); return; } } chat.items.push(it); h.event(it); };
     const hk = { event: show, status: () => h.status(chat), approve: h.approve, choose: h.choose };
     if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
@@ -411,21 +486,31 @@
     const schema = Object.assign({}, STEP_SCHEMA, { properties: Object.assign({}, STEP_SCHEMA.properties, { tool: { type: 'string', enum: Object.keys(tools) } }) });
     const now = () => { const c = US.ctx || {}; return `Now: open sequence ${c.sequence ? `“${c.sequence.name}”` : 'none'}${chat.work ? `; your working sequence “${chat.work.name}”` : ''}; ${c.selection || 0} clips selected in the Project panel.`; };
     if (!chat.context) {
-      const c = US.ctx || {}, ag = AG();
-      let story = null; try { story = ag && US.story ? (() => { US.story.loadState && US.story.loadState(); const S = US.story, st = S.state(); const interviews = (st.transcripts || []).map(t => ({ name: t.name, lines: (t.lines || []).length, speakers: [...new Set((t.lines || []).map(l => S.speakerName(l.speaker)).filter(Boolean))].slice(0, 6) })); return { interviews, lines: US.sum(interviews.map(i => i.lines)), themes: (st.themes || []).filter(t => t.name !== 'Other' && t.lineIds && t.lineIds.length).map(t => ({ name: t.name, n: t.lineIds.length })).slice(0, 40), brief: String(US.settings.get('story.brief', '') || '').trim() }; })() : null; } catch (e) { story = null; }
+      const c = US.ctx || {}, story = US.story ? storySummary() : null;
       chat.context = brief({ editor: RES() ? 'DaVinci Resolve' : 'Premiere Pro', project: c.project && c.project.name, sequence: c.sequence ? { name: c.sequence.name, duration: c.sequence.duration } : null, selection: c.selection, story, mode: o.mode });
       chat.first = `The editor says: “${text}”`;
     } else {
       chat.turns.push({ assistant: chat.last || '{}', user: `${chat.pendingResult || ''}\n\n${now()}\nThe editor says: “${text}”\nSay what you understand by it and your plan, then carry on.`.trim() });
       chat.pendingResult = '';
     }
-    const startSteps = chat.steps, startSpent = chat.spent;
-    let fresh = true, done = false;
+    const startSteps = chat.steps, startSpent = chat.spent, usd = x => (US.ai.fmtUSD ? US.ai.fmtUSD(x) : '$' + x.toFixed(2));
+    let fresh = true, done = false, stepsAllowed = o.maxSteps, moneyAllowed = o.budget;
+    // the chat keeps its own account (and asks at its limit), so single requests don't each stop to ask; the monthly limit still holds
+    if (US.ai.setBudget) US.ai.setBudget(1e6, as);
+    const atLimit = async (kind, used, limit) => {
+      chat.status = 'asking'; hk.status();
+      const r = await h.limit({ kind, used, limit, total: chat.spent });
+      if (r === 'free') { chat.noLimit = true; return true; }
+      if (r === 'more') { if (kind === 'money') moneyAllowed += o.budget; else stepsAllowed += o.maxSteps; return true; }
+      show({ k: 'warn', text: kind === 'money' ? `Stopped at the spending limit for one request (${usd(limit)}; this request used about ${usd(used)}). What’s made so far is kept. Say “carry on” to let me finish.` : `Stopped after ${limit} steps – the most for one request. Say “carry on” if you want more.` });
+      chat.pendingResult = `You were stopped at the ${kind === 'money' ? 'spending' : 'step'} limit. Carry on from where you were if the editor asks.`;
+      return false;
+    };
     try {
       while (!done) {
         if (chat.stop) throw new US.UserError('CANCELLED');
-        if (chat.steps - startSteps >= o.maxSteps) { show({ k: 'warn', text: `I’ve stopped after ${o.maxSteps} steps – the most for one request. Say “carry on” if you want more.` }); chat.pendingResult = 'You were stopped at the step limit. Carry on from where you were if the editor asks.'; break; }
-        if (o.budget > 0 && chat.spent - startSpent >= o.budget) { show({ k: 'warn', text: `I’ve stopped at this request’s spending limit (${US.ai.fmtUSD ? US.ai.fmtUSD(o.budget) : '$' + o.budget}). What’s made so far is kept. Say “carry on” to let me finish.` }); chat.pendingResult = 'You were stopped at the spending limit. Carry on from where you were if the editor asks.'; break; }
+        if (!chat.noLimit && chat.steps - startSteps >= stepsAllowed && !(await atLimit('steps', chat.steps - startSteps, stepsAllowed))) break;
+        if (!chat.noLimit && o.budget > 0 && chat.spent - startSpent >= moneyAllowed && !(await atLimit('money', chat.spent - startSpent, moneyAllowed))) break;
         chat.status = 'thinking'; hk.status();
         let r;
         try { r = await US.ai.json({ system, user: [{ text: chat.context, cache: '1h' }, chat.first], turns: compact(chat.turns), schema, maxTokens: 6000, effort: 'medium', feature: 'Ask', as, use: chat.model && chat.model !== 'auto' ? chat.model : undefined, onUsage: u => { chat.spent += u.usd || 0; chat.usedModel = u.name; } }); }
@@ -448,7 +533,7 @@
         if (st.bad) result = `ERROR: ${st.bad} Try again.`;
         else if (st.tool === 'finish') {
           const a = st.args, list = x => (Array.isArray(x) ? x : []).map(String).map(s => s.trim()).filter(Boolean).slice(0, 10);
-          show({ k: 'end', reply: String(a.reply || st.say || '').trim(), done: list(a.done), notDone: list(a.notDone), check: list(a.check), next: list(a.next).slice(0, 3), versions: (chat.versions || []).slice(), work: chat.work, model: chat.usedModel || US.ai.label(), spent: chat.spent - startSpent, steps: chat.steps - startSteps });
+          show({ k: 'end', total: chat.spent, reply: String(a.reply || st.say || '').trim(), done: list(a.done), notDone: list(a.notDone), check: list(a.check), next: list(a.next).slice(0, 3), versions: (chat.versions || []).slice(), work: chat.work, model: chat.usedModel || US.ai.label(), spent: chat.spent - startSpent, steps: chat.steps - startSteps });
           chat.pendingResult = ''; done = true; break;
         } else {
           if (st.tool !== 'ask') show({ k: 'step', tool: st.tool, text: describeCall(st.tool, st.args) });
@@ -466,11 +551,11 @@
       if (!cancelled(e)) throw e;
       show({ k: 'warn', text: 'Stopped. What was made so far is kept.' });
       chat.pendingResult = 'The editor pressed Stop before you finished. Wait for what they say next.';
-    } finally { chat.status = 'idle'; chat.job = null; chat.updated = Date.now(); hk.status(); }
+    } finally { if (US.ai.endBudget) US.ai.endBudget(as); chat.status = 'idle'; chat.job = null; chat.updated = Date.now(); hk.status(); }
     return chat;
   }
   /** Stop a chat: after its current step (and the step itself, if it is the one running). */
   function stop(chat) { chat.stop = true; if (chat.job && US.jobs.current === chat.job) US.jobs.cancel(); }
 
-  US.chat = { TOOLS, STEP_SCHEMA, MODES, toolsHere, riskOf, asksFirst, rules, brief, parseStep, compact, titleOf, describeCall, actionCard, actionsHere, newChat, toStored, fromStored, hands, findSequence, prepareEdit, callTool, send, stop };
+  US.chat = { lineRows, storySummary, TOOLS, STEP_SCHEMA, MODES, toolsHere, riskOf, asksFirst, rules, brief, parseStep, compact, titleOf, describeCall, actionCard, actionsHere, newChat, toStored, fromStored, hands, findSequence, prepareEdit, callTool, send, stop };
 })();

@@ -74,3 +74,12 @@
 .chat-list.no li::marker { color: var(--warn); }
 .chat-why { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
 .chat-why.hidden { display: none; }
+/* steps, narration and warnings in a chat */
+.bubble.agent-say { background: transparent; border: none; padding: 2px 4px; color: var(--text); }
+.bubble.agent-tool { background: var(--surface-2); border: 1px solid var(--border); padding: 6px 10px; display: block; font-size: 12px; }
+.agent-step { font-weight: 600; color: var(--text); }
+.agent-res { color: var(--text-2); }
+.bubble.agent-warn { border-color: var(--warn); color: var(--text); }
+.agent-plan-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
+.agent-seqs { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.chat-cost { text-align: right; padding-top: 2px; min-height: 14px; }

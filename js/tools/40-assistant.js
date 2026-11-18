@@ -150,6 +150,14 @@
         modelSel.title = 'Which AI this chat uses. Only text is sent – never footage.';
         modelSel.disabled = !aiOn();
       }
+      // what one request may spend before it stops to ask (0 = no limit: the cost is still shown as it goes)
+      const LIMITS = [0.5, 2, 5, 10, 0];
+      let budget = +US.settings.get('assistant.budget', 2); if (!LIMITS.includes(budget)) budget = 2;
+      const usd = x => (US.ai && US.ai.fmtUSD ? US.ai.fmtUSD(x) : '$' + x.toFixed(2));
+      const limitSel = ui.select({ options: LIMITS.map(x => ({ value: String(x), label: x ? `Stop to ask at $${x % 1 ? x.toFixed(2) : x} a request` : 'No spending limit' })), value: String(budget), onChange: x => { budget = +x; US.settings.set('assistant.budget', budget); } });
+      limitSel.title = 'How much one request may spend on AI before it stops and asks you. It never stops silently: you can let it carry on, or lift the limit for the chat. Your monthly AI limit in Settings always holds. Gemini’s free allowance and a local model cost nothing.';
+      const costLine = h('div.field-hint.chat-cost');
+      function drawCost() { const c = cur, m = US.ai && US.ai.spending ? US.ai.spending().cost : 0; costLine.textContent = c && c.spent > 0.004 ? `AI cost – this chat: ${usd(c.spent)} · this month: ${usd(m)}` : m > 0.004 ? `AI cost this month: ${usd(m)}` : ''; costLine.title = 'What the AI has cost: this chat so far, and everything this month (Settings shows it by feature and by key).'; }
       const DOT = { thinking: 'The AI is thinking', working: 'Working in the editor', waiting: 'Waiting its turn', asking: 'Waiting for you' };
       function drawTabs() {
         US.clear(tabs);
@@ -168,6 +176,7 @@
         counter.textContent = busy ? `${US.plural(busy, 'chat')} working` : '';
         const mine = cur && cur.status !== 'idle';
         stopBtn.classList.toggle('hidden', !mine); sendBtn.classList.toggle('hidden', !!mine && !cur.pending);
+        drawCost();
       }
       /** Chats kept with the project: the open ones and, under Earlier, the ones closed (the newest 30). */
       // in the project's own store (not projectSettings: that falls back to the last project's value, and chats belong to one project)
@@ -237,6 +246,22 @@
           drawTabs();
         });
       }
+      /** At a limit: say what's been spent and let the editor decide. -> 'more' | 'free' | 'stop' */
+      function limit(c, l) {
+        return new Promise(res => {
+          const status = h('div.plan-status');
+          const done = (r, text) => { c.pending = null; box.classList.add('chat-card-done'); status.textContent = text; drawTabs(); res(r); };
+          const money = l.kind === 'money';
+          const box = bubble(c, 'bot wide chat-card', h('div.plan', h('div.row', h('div.field-label.grow', money ? 'Spending check' : 'Still going'), ui.pill(money ? usd(l.used) + ' so far' : `${l.used} steps`, 'var(--warn)')),
+            h('div', money ? `This request has used about ${usd(l.used)} of AI – the amount you set it to stop and ask at (${usd(l.limit)}). I’m not finished.` : `This request has taken ${l.used} steps and I’m not finished.`),
+            h('div.field-hint', `This chat altogether: ${usd(l.total)}. Nothing is lost if you stop – what’s made so far is kept.`),
+            h('div.row.chat-card-btns', ui.button(money ? `Carry on (up to ${usd(l.limit + budget)})` : 'Carry on', { kind: 'primary', small: true, onClick: () => done('more', 'Carrying on.') }),
+              ui.button('No limit for this chat', { small: true, title: 'This chat won’t stop to ask again. The cost keeps showing under the chat box, and your monthly limit in Settings still holds.', onClick: () => done('free', 'No limit for this chat – the cost keeps showing below.') }),
+              ui.button('Stop here', { kind: 'ghost', small: true, onClick: () => done('stop', 'Stopped here.') })), status));
+          c.pending = v => { if (v == null) done('stop', 'Stopped.'); else if (/^(y|yes|ok|okay|go|carry on|continue|more|sure)\b/i.test(v)) done('more', 'Carrying on.'); else done('stop', 'Stopped here.'); };
+          drawTabs();
+        });
+      }
       /** A question with answers to pick from (or type one). -> the answer, or null */
       function choose(c, q) {
         return new Promise(res => {
@@ -270,7 +295,7 @@
           u ? h('div', h('div.field-label', 'What I understood'), h('div', u.text)) : null,
           plans.length ? h('div', h('div.field-label', 'The plan'), h('ol.agent-plan-list', plans[plans.length - 1].plan.map(p => h('li', p)))) : null,
           steps.length ? h('div', h('div.field-label', 'What I did'), h('ol.agent-plan-list', steps.map(s => h('li', s.text, s.result ? h('span.agent-res', ' → ' + s.result) : null)))) : null,
-          h('div.field-hint', `${end.model || 'AI'} · ${US.plural(end.steps || 0, 'step')}${end.spent > 0.004 ? ` · about ${US.ai.fmtUSD ? US.ai.fmtUSD(end.spent) : '$' + end.spent.toFixed(2)}` : ''} · only text was sent`));
+          h('div.field-hint', `${end.model || 'AI'} · ${US.plural(end.steps || 0, 'step')}${end.spent > 0.004 ? ` · about ${usd(end.spent)}` : ''} · only text was sent`));
         return h('div', h('button.btn.small.ghost.chat-why-btn', { onclick: () => body.classList.toggle('hidden') }, 'How I got there'), body);
       }
       function render(c, it, old = false) {
@@ -291,6 +316,7 @@
           bubble(c, 'bot wide chat-end', it.reply ? h('div.chat-reply', it.reply) : null, list('Done', it.done, '.ok'), list('Not done', it.notDone, '.no'), list('Worth checking', it.check),
             seqs.length ? h('div', h('div.field-label', US.say('Sequences I made (yours are untouched)')), h('div.agent-seqs', seqs.map(x => h('div.row', h('span.grow', x.name, h('span.field-hint', ` – ${x.why}`)), ui.button('Open', { small: true, kind: 'ghost', onClick: () => US.host.call('openSequence', { seqId: x.seqId }).catch(err => ui.showError(err)) }))))) : null,
             it.next && it.next.length && !old ? h('div.chat-chips', it.next.map(x => h('button.chip', { onclick: () => { input.value = x; submit(); } }, x))) : null,
+            it.spent > 0.004 ? h('div.field-hint', `This request: about ${usd(it.spent)} of AI (${it.model || 'AI'})${it.total > it.spent + 0.004 ? ` · this chat: ${usd(it.total)}` : ''}`) : null,
             h('div.row', reasoning(c, it), asked && (it.steps || 0) > 1 && !old ? ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Ask for this again later, on any project, in one go', onClick: () => saveRecipe([{ edit: asked, where: 'sequence' }], asked.slice(0, 40)) }) : null));
         }
       }
@@ -316,7 +342,7 @@
         if (/^(help|what can you do\??|\?)$/i.test(text)) { bubble(c, 'me', text); showAll(c); return; }
         // a built-in command, word for word: free and instant, with or without AI (in a new chat; a conversation goes to the AI)
         const off = matchOffline(text), fresh = !c.context;
-        const own = s => s.action !== 'story.ask' && s.action !== 'edit.ask' && s.action !== 'agent.run';
+        const own = s => s.action !== 'story.ask' && s.action !== 'edit.ask';
         if (off.steps.length === 1 && own(off.steps[0]) && (!aiOn() || (fresh && quick(text)))) { note(c, text); showPlan(c, { reply: 'Here’s what I’ll do:', steps: off.steps }); return; }
         if (!aiOn()) {
           note(c, text);
@@ -333,7 +359,7 @@
       function note(c, text) { if (c.title === 'New chat') c.title = C.titleOf(text); const it = { k: 'me', text, at: Date.now() }; c.items.push(it); render(c, it); drawTabs(); keep(); }
       async function converse(c, text) {
         try {
-          await C.send(c, text, { event: it => { render(c, it); keep(); }, status: () => drawTabs(), approve: card => approve(c, card), choose: q => choose(c, q) }, { mode, maxSteps: +US.settings.get('assistant.maxSteps', 25), budget: +US.settings.get('assistant.budget', 2) });
+          await C.send(c, text, { event: it => { render(c, it); keep(); drawCost(); }, status: () => drawTabs(), approve: card => approve(c, card), choose: q => choose(c, q), limit: l => limit(c, l) }, { mode, maxSteps: +US.settings.get('assistant.maxSteps', 25), budget });
         } catch (e) { ui.showError(e); }
         finally { c.pending = null; drawTabs(); keep(); if (c !== cur && US.ui.toast) ui.toast({ type: 'ok', title: `“${c.title}” has finished`, timeout: 5000, action: { label: 'Show', fn: () => { US.tools.open('assistant'); show(c); } } }); }
       }
@@ -406,7 +432,7 @@
       }
 
       /* ----- putting it together ----- */
-      v.body.append(h('div.chat-top', tabs, counter), h('div.row.chat-opts', modeSel, modelSel), logs, h('div.chat-bar', input, sendBtn, stopBtn));
+      v.body.append(h('div.chat-top', tabs, counter), h('div.row.chat-opts', modeSel, modelSel, limitSel), logs, h('div.chat-bar', input, sendBtn, stopBtn), costLine);
       function load() {
         for (const c of chats) c.logEl.remove();
         chats = [];
