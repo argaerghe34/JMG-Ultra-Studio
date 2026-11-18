@@ -231,7 +231,8 @@ module.exports = function makeBase(api) {
     /** every item on a track type: [{ti, track (1-based), type}] */
     trackItems(tl, type) {
       const out = [];
-      for (let t = 1, n = tl.GetTrackCount(type); t <= n; t++) for (const ti of list(tl.GetItemListInTrack(type, t))) if (ti) out.push({ ti, track: t, type });
+      // Resolve 21.1+ lists transitions among a track's items (measured in 21.2): they aren't clips
+      for (let t = 1, n = tl.GetTrackCount(type); t <= n; t++) for (const ti of list(tl.GetItemListInTrack(type, t))) if (ti && !(typeof ti.GetType === 'function' && (() => { try { return ti.GetType() === 'transition'; } catch (e) { return false; } })())) out.push({ ti, track: t, type });
       return out;
     },
     /**

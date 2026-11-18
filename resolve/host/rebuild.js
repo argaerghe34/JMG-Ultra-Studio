@@ -267,7 +267,7 @@ function make(R) {
       }
       // find each new part by track and start, then give it back what the original had
       const at = new Map();
-      for (const type of ['video', 'audio']) for (let t = 1, n = tl.GetTrackCount(type); t <= n; t++) for (const ti of R.list(tl.GetItemListInTrack(type, t))) if (ti) at.set(`${type}:${t}:${ti.GetStart() - t0}`, ti);
+      for (const type of ['video', 'audio']) for (let t = 1, n = tl.GetTrackCount(type); t <= n; t++) for (const ti of R.list(tl.GetItemListInTrack(type, t))) if (ti && String(tryCall(() => ti.GetType(), '')) !== 'transition') at.set(`${type}:${t}:${ti.GetStart() - t0}`, ti);
       const missing = [], linkSets = new Map(), byOrig = new Map();
       for (const p of parts) {
         const m = p.m, ti = at.get(`${m.type}:${m.track}:${p.rec}`) || at.get(`${m.type}:${m.track}:${p.rec - 1}`) || at.get(`${m.type}:${m.track}:${p.rec + 1}`);

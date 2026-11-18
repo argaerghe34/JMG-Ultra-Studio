@@ -4,7 +4,7 @@ const assert = require('assert');
 const { load, test } = require('./harness');
 global.addEventListener = global.addEventListener || (() => {});
 global.ResizeObserver = global.ResizeObserver || function () { return { observe() {} }; };
-const US = load(['time', 'ui', 'app', 'js/tools/41-edit.js']);
+const US = load(['time', 'ui', 'app', 'js/tools/36-quickfx.js', 'js/tools/41-edit.js']);
 const E = US.editAsk;
 const job = { set() { return job; }, progress() {}, check() {}, log() {} };
 
@@ -57,7 +57,10 @@ test('the plan checked: unknown edits and empty picks left out (and said); cuts 
   assert.deepStrictEqual(E.runOrder(p.steps).map(s => s.op), ['razor', 'transition', 'remove']);
   assert.strictEqual(E.describe(p.steps[1]), 'Cross Dissolve at the start (12 frames) · 3 clips on V1');
   assert.deepStrictEqual(E.clipTargets(m, { op: 'label', targets: [{ start: 5.2, end: 8.8, line: 'l2' }] }).map(t => t.id), ['c1', 'c3', 'c7'], 'a line stands for the clips under it');
-  assert.ok(E.opsFor('timeline', true).every(k => E.OPS[k].resolve) && !E.opsFor('timeline', true).includes('transition'), 'Resolve: only what Resolve allows');
+  assert.ok(E.opsFor('timeline', true, '21.0').every(k => E.OPS[k].resolve) && !E.opsFor('timeline', true, '21.0').includes('transition'), 'Resolve: only what Resolve allows');
+  assert.deepStrictEqual(['transition', 'speed', 'volume', 'effect', 'rename', 'zoom', 'text', 'razor'].filter(k => E.opsFor('timeline', true, '21.2.0.6').includes(k)), ['transition', 'speed', 'volume', 'effect', 'rename'], 'Resolve 21.2: transitions, speed, volume, effects and names too – never keyframes, text or cuts');
+  assert.deepStrictEqual(['transition', 'effect', 'rename'].filter(k => E.opsFor('timeline', true, '21.1').includes(k)), ['transition', 'rename'], 'effects came with 21.1.2');
+  assert.ok(E.opsFor('items', true, '19.0').includes('rename') && !E.opsFor('timeline', true, '19.0').includes('rename'), 'renaming bin clips works in any Resolve; timeline clips from 20.2');
   assert.ok(E.opsFor('items', false).includes('move') && !E.opsFor('items', false).includes('transition'));
   assert.ok(!E.opsFor('timeline', false).includes('label') && E.opsFor('items', false).includes('label') && E.opsFor('timeline', true).includes('label'), 'colour labels: in a bin everywhere; on a timeline only in Resolve');
 });
@@ -136,8 +139,11 @@ test('Ask › Edit in Resolve: framing, opacity, colour, on/off, markers, delete
   const it1 = tl.GetItemListInTrack('video', 1)[1];
   assert.deepStrictEqual([it1.GetProperty('Opacity'), it1.GetClipColor(), it0.GetClipEnabled()], [50, 'Orange', false]);
   assert.strictEqual((await run('editApply', { seqId, op: 'marker', params: { name: 'Look', color: 1 }, targets: [v1(4)] })).done, 1);
+  // the stand-in is Resolve 20.3: no AddTransition on its clips, so a transition is refused plainly with nothing changed
   const no = await run('editApply', { seqId, op: 'transition', params: { name: 'Cross Dissolve' }, targets: [v1(0)] });
-  assert.ok(no.unsupported && /Resolve doesn’t let add-ons add transitions/.test(no.why) && no.done === 0);
+  assert.ok(no.unsupported && /Resolve 21\.1 or later lets add-ons make transitions/.test(no.why) && no.done === 0, no.why);
+  const kf = await run('editApply', { seqId, op: 'zoom', params: { from: 100, to: 110 }, targets: [v1(0)] });
+  assert.ok(kf.unsupported && /keyframed zooms/.test(kf.why));
   assert.strictEqual((await run('editApply', { seqId, op: 'remove', params: { ripple: false }, targets: [v1(4)] })).done, 1);
   assert.strictEqual(tl.GetItemListInTrack('video', 1).length, 1);
   assert.deepStrictEqual((await run('editSelection', { seqId })).map(x => [x.name, x.underPlayhead]), [['A.mp4', true]], 'Resolve has no timeline selection: the clip under the playhead');

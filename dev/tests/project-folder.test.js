@@ -76,3 +76,82 @@ test('the project’s own choices (a script typed in, crops per person) live wit
     assert.strictEqual(read(path.join(dir, 'JMG Ultra Studio', 'One – Project.json'))['set.takes.script'], 'One’s script', 'and travels with it');
   } finally { US.ctx.project = keep; }
 });
+
+// Resolve: the project's folder is found as soon as the project opens (not only when Story asks), with the same guess
+// (storyProjectFile, next to the media); Home › Choose the project's folder… keeps a chosen one for that project.
+async function asResolve(fn) {
+  const keep = { is: US.app.is, call: US.host.call, ctx: US.ctx.project }, calls = [];
+  US.app.is = id => id === 'resolve';
+  try { return await fn(calls, answer => { US.host.call = async (name, a) => { calls.push([name, a]); return answer(a || {}); }; }); }
+  finally { US.app.is = keep.is; US.host.call = keep.call; US.ctx.project = keep.ctx; }
+}
+const tick = () => new Promise(r => setTimeout(r, 0));
+
+test('Resolve: the project’s folder is attached as soon as the project opens, with the guess from its media', () => asResolve(async (calls, host) => {
+  const media = tmp(), ident = path.join(tmp(), 'Resolve projects', 'Docs [abc].drp');
+  host(a => (a.prefer ? { path: path.join(a.prefer, 'Docs'), folder: a.prefer, found: false, reason: '' } : { path: path.join(media, 'Docs'), folder: media, found: false, reason: '' }));
+  const seen = [];
+  US.bus.on('project-folder', f => seen.push(f));
+  US.ctx.project = { name: 'Docs', path: ident };
+  US.bus.emit('context', US.ctx); await tick(); await tick();
+  assert.deepStrictEqual(calls.map(c => c[0]), ['storyProjectFile'], 'asked once, without Story');
+  assert.strictEqual(calls[0][1].prefer, undefined, 'nothing remembered yet: the guess');
+  const st = US.projectStore(ident);
+  assert.strictEqual(st.sharedFile(), path.join(media, 'JMG Ultra Studio', 'Docs – Project.json'));
+  assert.ok(fs.existsSync(path.join(media, 'JMG Ultra Studio', 'Read me.txt')), 'the folder is made with its note');
+  assert.strictEqual(st.get('storyFolder'), media, 'remembered so it doesn’t move');
+  assert.strictEqual(seen.length, 1); assert.strictEqual(seen[0].ident, ident); assert.strictEqual(seen[0].chosen, false);
+  assert.strictEqual(US.projectFolder.known(ident).folder, media);
+  // polled again with the same project: not asked again; Story's question gets the same answer
+  US.bus.emit('context', US.ctx); await tick();
+  const again = await US.projectFolder.ask(ident);
+  assert.strictEqual(calls.length, 1); assert.strictEqual(again.folder, media);
+}));
+
+test('Resolve: Choose the project’s folder… is remembered for that project, and its data moves there', () => asResolve(async (calls, host) => {
+  const media = tmp(), mine = tmp(), ident = path.join(tmp(), 'Film [def].drp');
+  host(a => { const f = a.prefer && fs.existsSync(a.prefer) ? a.prefer : media; return { path: path.join(f, 'Film'), folder: f, found: false, reason: '' }; });
+  US.ctx.project = { name: 'Film', path: ident };
+  await US.projectFolder.ask(ident);
+  const st = US.projectStore(ident);
+  st.set('memoryBox', { m: 1 });
+  const r = await US.projectFolder.choose(mine, ident);
+  assert.strictEqual(calls[calls.length - 1][1].prefer, mine, 'Resolve is asked with the chosen folder');
+  assert.deepStrictEqual([r.folder, r.chosen], [mine, true]);
+  assert.strictEqual(st.sharedFile(), path.join(mine, 'JMG Ultra Studio', 'Film – Project.json'));
+  st.flush();
+  assert.deepStrictEqual(read(st.sharedFile()).memoryBox, { m: 1 }, 'the project’s data is written in the chosen folder');
+  assert.ok(!('storyFolder' in read(st.sharedFile())) && !('folderChosen' in read(st.sharedFile())), 'the choice is about this computer');
+  // opened again later: asked with the remembered folder
+  const n = calls.length;
+  await US.projectFolder.ask(ident, { again: true });
+  assert.strictEqual(calls[n][1].prefer, mine);
+  assert.strictEqual(US.projectFolder.known(ident).chosen, true);
+}));
+
+test('Resolve: no media and no folder chosen – kept on this computer; a failed answer is asked again', () => asResolve(async (calls, host) => {
+  const ident = path.join(tmp(), 'Empty [123].drp');
+  host(() => ({ path: '', folder: '', found: false, reason: 'nomedia' }));
+  const r = await US.projectFolder.ask(ident);
+  assert.strictEqual(r.reason, 'nomedia');
+  assert.strictEqual(US.projectStore(ident).sharedFile(), '', 'nothing beside the project');
+  const id2 = path.join(tmp(), 'Busy [456].drp');
+  host(() => { throw new Error('Resolve is busy'); });
+  await assert.rejects(US.projectFolder.ask(id2));
+  host(() => ({ path: '', folder: '', found: false, reason: 'nomedia' }));
+  assert.strictEqual((await US.projectFolder.ask(id2)).reason, 'nomedia', 'asked again after the failure');
+}));
+
+test('Premiere: the project folder is the .prproj’s, and Resolve is never asked', async () => {
+  const keep = US.host.call; let asked = 0;
+  US.host.call = async () => { asked++; return {}; };
+  try {
+    const dir = tmp(), prproj = path.join(dir, 'P.prproj');
+    assert.strictEqual(await US.projectFolder.ask(prproj), null);
+    assert.strictEqual(await US.projectFolder.choose(dir, prproj), null);
+    const keepCtx = US.ctx.project; US.ctx.project = { name: 'P', path: prproj };
+    US.bus.emit('context', US.ctx); await tick(); US.ctx.project = keepCtx;
+    assert.strictEqual(asked, 0);
+    assert.strictEqual(US.projectStore(prproj).sharedFile(), path.join(dir, 'JMG Ultra Studio', 'P – Project.json'));
+  } finally { US.host.call = keep; }
+});

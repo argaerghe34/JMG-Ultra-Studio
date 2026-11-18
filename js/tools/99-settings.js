@@ -190,7 +190,9 @@
         tourCard(),
         layoutCard(),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
-        US.app.is('resolve') ? null : ui.card(h('div.card-title', 'Listening to sound'),
+        US.app.is('resolve') ? ui.card(h('div.card-title', 'Listening to sound'),
+          ui.toggle({ label: 'Read sound straight from the media files', value: US.settings.get('audio.fromFiles', true) !== false, onChange: x => US.settings.set('audio.fromFiles', !!x), hint: 'When a tool needs to hear a clip or timeline – Tell the voices apart, Silence Cut, Beat Cut, Song Splitter, Podcast – Ultra Studio reads the sound from the media files on this computer (with ffmpeg when it’s installed), laid out as the timeline plays them, and Resolve stays free to edit in. Nested timelines, compound or generated clips and files it can’t read are rendered by Resolve instead. Off: Resolve renders it each time, and is busy until it’s done.' }))
+        : ui.card(h('div.card-title', 'Listening to sound'),
           ui.toggle({ label: 'Render sound in the background (Media Encoder)', value: US.settings.get('audio.background', true) !== false, onChange: x => US.settings.set('audio.background', !!x), hint: 'When a tool needs to hear a clip or sequence that isn’t a plain WAV – Tell the voices apart, Silence Cut, Beat Cut, Song Splitter, Podcast – Media Encoder renders its sound while you carry on editing in Premiere. Off (or if Media Encoder isn’t there): Premiere renders it itself, and is busy until it’s done.' })),
         ui.card(h('div.card-title', 'Markers'),
           ui.field('Markers go on', ui.segmented({ options: [{ value: 'sequence', label: 'Timeline' }, { value: 'clips', label: 'Clips' }, { value: 'both', label: 'Both' }], value: US.settings.get('markers.where', 'sequence'), onChange: x => US.settings.set('markers.where', x) }),

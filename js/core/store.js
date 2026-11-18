@@ -104,7 +104,7 @@
      Each value carries when it was last changed; the two copies are merged value by value, the newer one winning. */
   const PROJECT_FOLDER = 'JMG Ultra Studio';
   // about this computer only: which copy of Story it last saw, where it found the project's folder
-  const LOCAL_ONLY = new Set(['storySync', 'storyFolder', 'projectPath', 'created']);
+  const LOCAL_ONLY = new Set(['storySync', 'storyFolder', 'folderChosen', 'projectPath', 'created']);
   const safeName = s => String(s || 'Project').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/[. ]+$/, '') || 'Project';
   /** The shared copy for a project whose Story base is base ("<folder>/<project name>", or the .prproj itself). */
   const sharedProjectFile = base => path.join(path.dirname(base), PROJECT_FOLDER, safeName(path.basename(base).replace(/\.prproj$/i, '')) + ' – Project.json');
@@ -186,6 +186,56 @@
   };
   US.projectStore.sharedFile = sharedProjectFile;
   US.projectStore.FOLDER = PROJECT_FOLDER;
+
+  /* ---------- Resolve: the project's folder ----------
+     A Resolve project lives in a database, so its "JMG Ultra Studio" folder goes next to its media (storyProjectFile in
+     resolve/host/story.js guesses it). It's found as soon as the project opens – not only when Story asks – and the
+     person can choose it on Home (Choose the project's folder…): remembered for that project on this computer
+     (storyFolder, with folderChosen), and Story follows it ('project-folder' on US.bus). Premiere: the .prproj's folder,
+     attached by US.projectStore itself; nothing here runs. */
+  const isResolve = () => !!(US.app && US.app.is && US.app.is('resolve'));
+  const folderAsks = new Map(), folderAnswers = new Map();   // project -> the pending question / the last answer
+  const openIdent = () => (US.ctx && US.ctx.project && (US.ctx.project.path || US.ctx.project.name)) || '';
+  US.projectFolder = {
+    /** Where this Resolve project's folder is, attached to its store. again: ask Resolve again (after a choice).
+        -> Promise<{folder, path, found, reason, chosen}> (rejects when Resolve couldn't answer; asked again next time) */
+    ask(ident = openIdent(), { again = false } = {}) {
+      if (!ident || !isResolve()) return Promise.resolve(null);
+      if (!again && folderAsks.has(ident)) return folderAsks.get(ident);
+      const st = US.projectStore(ident);
+      const p = US.host.call('storyProjectFile', { prefer: st.get('storyFolder', '') || undefined }).then(r => {
+        r = r || {};
+        if (r.folder && r.folder !== st.get('storyFolder', '')) { st.set('storyFolder', r.folder); st.set('folderChosen', false); }   // so it doesn't move
+        if (r.path) st.attach(sharedProjectFile(r.path));
+        const out = Object.assign({}, r, { chosen: !!(r.folder && st.get('folderChosen', false)) });
+        folderAnswers.set(ident, out);
+        if (US.bus) US.bus.emit('project-folder', Object.assign({ ident }, out));
+        return out;
+      }, e => {
+        if (folderAsks.get(ident) === p) folderAsks.delete(ident);
+        throw e;
+      });
+      folderAsks.set(ident, p);
+      return p;
+    },
+    /** The last answer for a project (null until Resolve has answered). */
+    known(ident = openIdent()) { return folderAnswers.get(ident) || null; },
+    /** The person chose the folder (Home): remembered for this project, and everything moves there. */
+    choose(folder, ident = openIdent()) {
+      if (!ident || !folder || !isResolve()) return Promise.resolve(null);
+      const st = US.projectStore(ident);
+      st.set('storyFolder', folder); st.set('folderChosen', true);
+      return US.projectFolder.ask(ident, { again: true });
+    }
+  };
+  // as soon as a Resolve project is open (and again whenever another one is)
+  let lastFolderIdent = '';
+  if (US.bus) US.bus.on('context', () => {
+    const ident = openIdent();
+    if (!isResolve() || !ident || ident === lastFolderIdent) return;
+    lastFolderIdent = ident;
+    US.projectFolder.ask(ident).catch(e => { lastFolderIdent = ''; if (US.log) US.log('warn', 'Couldn’t find this project’s folder in Resolve – its Ultra Studio data is kept on this computer for now', (US.errors && US.errors.explain(e).detail) || String(e && e.message || e), 'project'); });
+  });
 
   /** The open project's own choices (a script typed in, crops per person…): they travel with the project. Until a
       project has its own, the value last used anywhere is the starting point. */

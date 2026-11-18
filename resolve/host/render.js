@@ -405,6 +405,55 @@ module.exports = function (R) {
   const E = engine(R);
   const P = () => R.project();
 
+  /**
+   * Save stills of a timeline: list [{seconds (from its start), file}] → [{ok, file, tried}]. The playhead, the current
+   * timeline and the page are put back after.
+   */
+  async function stills(tl, list) {
+    const pr = P(), api = R.api;
+    const page = api.GetCurrentPage ? api.GetCurrentPage() : '', was = pr.GetCurrentTimeline();
+    const out = list.map(x => ({ ok: false, file: x.file, tried: [] }));
+    let before = '';
+    try {
+      if (!/^(edit|cut|color)$/.test(page || '')) api.OpenPage('edit');   // the playhead can't be set on the Media or Fusion page
+      R.open(tl);
+      before = tl.GetCurrentTimecode() || '';
+      const fps = R.fps(tl);
+      list.forEach((x, i) => {
+        const o = out[i];
+        fs.mkdirSync(path.dirname(x.file), { recursive: true });
+        try { fs.unlinkSync(x.file); } catch (e) { /* not there */ }
+        const f = Math.max(tl.GetStartFrame(), Math.min(R.tlFrame(tl, x.seconds), tl.GetEndFrame() - 1));
+        const tc = R.framesToTC(f, fps, R.dropFrame(tl));
+        const attempt = where => { o.tried.push(where); try { tl.SetCurrentTimecode(tc); return !!pr.ExportCurrentFrameAsStill(x.file) && R.exists(x.file); } catch (e) { o.tried.push(e.message); return false; } };
+        o.ok = attempt(api.GetCurrentPage ? api.GetCurrentPage() : 'edit');
+        if (!o.ok) { try { api.OpenPage('color'); } catch (e) { /* tried anyway */ } o.ok = attempt('color'); }   // some versions export stills from the Color page only
+      });
+    } finally {
+      try { if (before) tl.SetCurrentTimecode(before); } catch (e) { /* leave it */ }
+      if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was);
+      try { if (page && api.GetCurrentPage && api.GetCurrentPage() !== page) api.OpenPage(page); } catch (e) { /* stays */ }
+    }
+    return out;
+  }
+  /** Stills of a Media Pool clip at media times, from a temporary timeline (exportFrame with an id). */
+  async function clipStills(a) {
+    const item = R.needItem(a.id), info = R.itemInfo(item);
+    if (!info.hasVideo) throw R.err('BAD_INPUT', 'exportFrame: ' + info.name + ' has no picture', 'That clip has no picture.', 'Choose a video clip, then try again.');
+    const times = (Array.isArray(a.times) ? a.times : [a.seconds]).map(t => Number(t) || 0);
+    const base = String(a.outBase || '').replace(/\.png$/i, ''), from = info.subclip ? info.rangeStart : 0;
+    const was = P().GetCurrentTimeline();
+    let tl = null;
+    try {
+      tl = E.scratchTimeline(item, { whole: true, mediaType: 1 });
+      const r = await stills(tl, times.map((t, i) => ({ seconds: Math.max(0, t - from), file: `${base}-${i + 1}.png` })));
+      return r.map(x => (x.ok ? x.file : null));
+    } finally {
+      if (was) await R.restoreTimeline(was);   // before the scratch timeline goes: never delete the current one
+      if (tl) E.dropScratch(tl);
+    }
+  }
+
   return {
     /** The presets the panel checks for (Premiere: .epr files). */
     presets() {
@@ -446,29 +495,15 @@ module.exports = function (R) {
     /**
      * One frame of a timeline as a PNG (Resolve's "Export current frame as still"). a: {seqId, seconds, outBase} → path.
      * The playhead, timeline and page are put back. The still is only ever written to this computer.
+     * Resolve only, for clips the panel can't decode (Footage): a: {id, times: [media seconds], outBase} → [path | null]
+     * – the clip goes on a temporary timeline (deleted after), one still per time (outBase-1.png, -2…).
      */
     async exportFrame(a) {
-      const tl = R.needSeq(a.seqId), pr = P(), api = R.api;
+      if (a.id && !a.seqId) return clipStills(a);
+      const tl = R.needSeq(a.seqId);
       const file = String(a.outBase || '').replace(/\.png$/i, '') + '.png';
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      try { fs.unlinkSync(file); } catch (e) { /* not there */ }
-      const page = api.GetCurrentPage ? api.GetCurrentPage() : '', was = pr.GetCurrentTimeline();
-      let before = '', ok = false, tried = [];
-      try {
-        if (!/^(edit|cut|color)$/.test(page || '')) api.OpenPage('edit');   // the playhead can't be set on the Media or Fusion page
-        R.open(tl);
-        before = tl.GetCurrentTimecode() || '';
-        const fps = R.fps(tl), f = Math.max(tl.GetStartFrame(), Math.min(R.tlFrame(tl, Number(a.seconds) || 0), tl.GetEndFrame() - 1));
-        const tc = R.framesToTC(f, fps, R.dropFrame(tl));
-        const attempt = where => { tried.push(where); try { tl.SetCurrentTimecode(tc); return !!pr.ExportCurrentFrameAsStill(file) && R.exists(file); } catch (e) { tried.push(e.message); return false; } };
-        ok = attempt(api.GetCurrentPage ? api.GetCurrentPage() : 'edit');
-        if (!ok) { try { api.OpenPage('color'); } catch (e) { /* tried anyway */ } ok = attempt('color'); }   // some versions export stills from the Color page only
-      } finally {
-        try { if (before) tl.SetCurrentTimecode(before); } catch (e) { /* leave it */ }
-        if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was);
-        try { if (page && api.GetCurrentPage && api.GetCurrentPage() !== page) api.OpenPage(page); } catch (e) { /* stays */ }
-      }
-      if (!ok) throw R.err('RENDER_FAILED', 'ExportCurrentFrameAsStill failed on ' + tried.join(', ') + ' → ' + file, 'Resolve couldn’t save the frame.', 'Check the timeline has a picture at the playhead, then try again.');
+      const [r] = await stills(tl, [{ seconds: Number(a.seconds) || 0, file }]);
+      if (!r.ok) throw R.err('RENDER_FAILED', 'ExportCurrentFrameAsStill failed on ' + r.tried.join(', ') + ' → ' + file, 'Resolve couldn’t save the frame.', 'Check the timeline has a picture at the playhead, then try again.');
       return file;
     },
 

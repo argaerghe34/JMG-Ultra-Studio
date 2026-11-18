@@ -5,7 +5,8 @@
 
    Who looks is the editor's choice: Claude or Gemini (small stills leave the computer – only when that is switched on
    for the project), or a model on this computer (nothing leaves; an optional download, never made by default).
-   Stills are grabbed inside the panel, or with ffmpeg when it is installed. Media Encoder is never started for this:
+   Stills are grabbed inside the panel, or with ffmpeg when it is installed; in Resolve, a clip neither can read has
+   its stills saved by Resolve itself (exportFrame on a temporary timeline). Media Encoder is never started for this:
    a clip that can't be read is left out and listed, for Overnight prep's Selects step to make a copy of.
 
    Pure logic first (unit-tested), then grabbing stills, describing and the actions. No screen of its own: Settings ›
@@ -165,6 +166,7 @@
   let ffmpegPath;
   function ffmpeg() {
     if (ffmpegPath !== undefined) return ffmpegPath;
+    if (US.audio && US.audio.ffmpeg) return (ffmpegPath = US.audio.ffmpeg());   // one search, shared with the sound tools
     const fs = require('fs'), cp = require('child_process');
     const tries = process.platform === 'win32' ? ['C:\\ffmpeg\\bin\\ffmpeg.exe', 'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe'] : ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'];
     ffmpegPath = tries.find(p => { try { return fs.existsSync(p); } catch (e) { return false; } }) || '';
@@ -212,7 +214,28 @@
       for (const t of times) { const b = await viaFfmpeg(item.path, t, width); if (b) out.push({ t, data: b.toString('base64'), w: width, h: Math.round(width * 9 / 16) }); }
       if (out.length) return { stills: out, how: 'ffmpeg' };
     }
+    // Resolve can always show its own clips: it saves the stills (on a temporary timeline, put back after)
+    if (US.app.is('resolve') && item.id) {
+      const out = await viaResolve(item, times, width);
+      if (out.length) return { stills: out, how: 'resolve' };
+    }
     return { stills: [], why: 'needs a copy' };
+  }
+  /** Stills saved by Resolve (exportFrame with a clip id), made small here; the PNGs are deleted after. */
+  async function viaResolve(item, times, width) {
+    const fs = require('fs'), path = require('path'), out = [];
+    let files = [];
+    try { files = await US.host.call('exportFrame', { id: item.id, times, outBase: path.join(US.fsx.tempDir(), 'look-' + US.fsx.hash(item.id + '|' + Date.now())) }); }
+    catch (e) { US.log('info', 'Resolve couldn’t save stills of ' + item.name, String(e && (e.detail || e.message) || e)); return out; }
+    for (let i = 0; i < times.length; i++) {
+      const f = files && files[i];
+      if (!f) continue;
+      try {
+        const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('image')); im.src = US.vision.fileUrl(f); });
+        out.push(Object.assign({ t: times[i] }, drawSmall(img, img.naturalWidth, img.naturalHeight, width)));
+      } catch (e) { /* that one's missing */ } finally { try { fs.unlinkSync(f); } catch (e) { /* gone */ } }
+    }
+    return out;
   }
 
   /* ---------- describing, kept per file ---------- */

@@ -183,11 +183,32 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', leg
       const tools = {};
       const comp = strict({ GetToolList: () => Object.assign({}, tools), FindTool: n => tools[n] || null, _add: (n, inputs) => { tools[n] = strict({ _inputs: Object.assign({}, inputs), GetInput: k => tools[n]._inputs[k], SetInput: (k, v) => { tools[n]._inputs[k] = v; return true; }, GetAttrs: () => ({ TOOLS_Name: n }) }); return tools[n]; } });
       ti._comp = comp; ti.GetFusionCompCount = () => 1; ti.GetFusionCompByIndex = i => (i === 1 ? comp : null); ti.GetFusionCompNameList = () => ['Composition 1'];
+      // Resolve's own Text+ title: one TextPlus tool ("Template") holding the words; a title can be as long as you like
+      if (name === 'Text+') comp._add('Template', { StyledText: 'Custom Title' });
+      // like Resolve 21.2's JavaScript API (measured 19 Nov 2026), with F.luaOnly: Fusion tools come back without
+      // GetInput/SetInput; the comp's Execute runs Lua (here: just the two scripts Ultra Studio sends) – only in the
+      // open timeline – and then throws because its result can't be passed back
+      if (F.luaOnly) {
+        comp.GetToolList = () => Object.fromEntries(Object.keys(tools).map((k, i) => [String(i), {}]));
+        comp.Execute = lua => {
+          if (currentTl === tl) {
+            const set = /SetInput\("StyledText", \[(=*)\[([\s\S]*?)\]\1\]\)/.exec(lua), get = /io\.open\(\[(=*)\[([\s\S]*?)\]\1\], "w"\)/.exec(lua);
+            if (set && tools.Template) tools.Template._inputs.StyledText = set[2];
+            if (get) fs.writeFileSync(get[2], tools.Template ? String(tools.Template._inputs.StyledText || '') : '');
+          }
+          throw new Error('Execute: Parse - Unknown object type detected for key:result (type:-1)');
+        };
+      }
+      // like a title in Resolve: no Media Pool clip behind it (its name stays)
+      ti._title = true; ti._name = name; ti.GetMediaPoolItem = () => null;
       tl._v[track - 1].push(ti);
       return ti;
     };
     tl.InsertFusionTitleIntoTimeline = insertFusion('title');
     tl.InsertFusionGeneratorIntoTimeline = insertFusion('generator');
+    tl.InsertTitleIntoTimeline = name => (F.noPlainTitles ? null : insertFusion('plain title')(name));
+    // Resolve 21.1.2: Timeline.MoveItems (here one item) – fails when the place is taken
+    tl.MoveItems = (its, pos) => its.every(it => it.SetPosition(pos));
     tl.Export = (file) => { fs.writeFileSync(file, 'fake export of ' + tl._name); return true; };
     markerHost(tl, () => 'timeline:' + tl._name);
     // the timeline's own Media Pool entry
@@ -197,7 +218,9 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', leg
   }
   function timelineItem(tl, type, track, mpi, startFrame, endFrame, recordFrame) {
     const ti = { _id: uid('item'), _type: type, _track: track, _mpi: mpi, _srcStart: startFrame, _srcEnd: endFrame, _start: recordFrame, _end: recordFrame + (endFrame - startFrame) /* endFrame is exclusive here (measured in Resolve 21) */, _enabled: true, _color: '', _props: { ZoomX: 1, ZoomY: 1, Pan: 0, Tilt: 0, Opacity: 100 } };
-    ti.GetName = () => (ti._name || (mpi ? mpi._name : 'Item'));
+    ti.GetName = () => (ti._name != null ? ti._name : mpi ? mpi._name : 'Item');
+    // Resolve 20.2: a timeline item's own name
+    ti.SetName = n => { if (F.fail.itemNames) return false; ti._name = String(n); return true; };
     ti.GetUniqueId = () => ti._id;
     ti.GetStart = () => ti._start;
     ti.GetEnd = () => ti._end;
@@ -205,8 +228,10 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', leg
     ti.GetSourceStartFrame = () => ti._srcStart;
     ti.GetSourceEndFrame = () => ti._srcStart + (ti._end - ti._start);
     ti.GetLeftOffset = () => ti._srcStart;
-    ti._rightHandle = 100000;   // a title or generator can be stretched (a Media Pool clip only as far as its media)
-    ti.GetRightOffset = () => (mpi && mpi._m ? Math.max(0, mpi._m.frames - (ti._srcStart + (ti._end - ti._start))) : ti._rightHandle);
+    // a title or generator (no Media Pool clip – or one made by insertFusion, flagged _title) can be stretched far;
+    // a Media Pool clip only as far as its media
+    const isTitle = () => !!ti._title || !mpi;
+    ti.GetRightOffset = () => (isTitle() ? 100000 - (ti._srcStart + ti._end - ti._start) : Math.max(0, ((mpi._m && mpi._m.frames) || 0) - (ti._srcStart + (ti._end - ti._start))));
     ti.GetMediaPoolItem = () => mpi;
     ti.GetTrackTypeAndIndex = () => [ti._type, ti._track];
     ti.GetType = () => ti._type;
@@ -225,19 +250,26 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', leg
       for (const x of targets) { if (opts.allVideoAttributes) { x._nodes = ti._nodes; x._fx = ti._fx; x._luts = Object.assign({}, ti._luts); Object.assign(x._props, ti._props); } if (opts.allAudioAttributes) x._audio = ti._audio; }
       log.push(['CopyAttributes', targets.length, Object.keys(opts).join(',')]); return true;
     };
-    // Resolve 21.1.2+: moving and trimming (refused when the place is taken, like Timeline.MoveItems)
+    // Resolve 21.1.2+: its position and edit points (refused when the place is taken, like Timeline.MoveItems);
+    // F.noMoves / F.noTrims refuse them, make({legacy: true}) is a Resolve without them
     const room = (track, s, e) => !((ti._type === 'video' ? tl._v : tl._a)[track - 1] || []).some(o => o !== ti && o._start < e && o._end > s);
     if (!legacy) {
       ti.GetPosition = () => ({ trackType: ti._type, trackIndex: ti._track, startFrame: ti._start });
       ti.SetPosition = (pos) => {
-        const track = pos.trackIndex != null ? pos.trackIndex : ti._track, start = pos.startFrame != null ? pos.startFrame : ti._start, len = ti._end - ti._start;
+        if (F.noMoves || F.fail.SetPositionQuietly) return false;
+        const track = pos.trackIndex || ti._track, start = pos.startFrame != null ? Math.round(pos.startFrame) : ti._start, len = ti._end - ti._start;
         const a = ti._type === 'video' ? tl._v : tl._a;
-        if (!a[track - 1] || F.fail.SetPositionQuietly || !room(track, start, start + len)) return false;
+        if (!a[track - 1] || !room(track, start, start + len)) return false;
         a[ti._track - 1].splice(a[ti._track - 1].indexOf(ti), 1); a[track - 1].push(ti);
         ti._track = track; ti._start = start; ti._end = start + len; log.push(['SetPosition', ti.GetName()]); return true;
       };
-      ti.SetLeftOffset = x => { const d = x - ti.GetLeftOffset(); if (x < 0 || ti._start + d >= ti._end || (d < 0 && !room(ti._track, ti._start + d, ti._start))) return false; ti._start += d; ti._srcStart += d; return true; };
-      ti.SetRightOffset = x => { if (F.fail.SetRightOffsetQuietly) return false; const d = x - ti.GetRightOffset(); if (x < 0 || ti._end - d <= ti._start || (d < 0 && !room(ti._track, ti._end, ti._end - d))) return false; ti._end -= d; if (!mpi) ti._rightHandle = x; return true; };
+      ti.SetLeftOffset = x => { if (F.noTrims) return false; const d = x - ti.GetLeftOffset(); if (x < 0 || ti._start + d >= ti._end || (d < 0 && !room(ti._track, ti._start + d, ti._start))) return false; ti._start += d; ti._srcStart += d; return true; };
+      ti.SetRightOffset = x => {
+        if (F.noTrims || F.fail.SetRightOffsetQuietly) return false;
+        const end = ti._end - (x - ti.GetRightOffset());
+        if (x < 0 || end <= ti._start || (end > ti._end && !room(ti._track, ti._end, end))) return false;
+        ti._end = end; return true;
+      };
     }
     ti.SetClipEnabled = on => { ti._enabled = !!on; return true; };
     ti.GetClipEnabled = () => ti._enabled;
@@ -286,7 +318,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', leg
         const c = c0 && c0.mediaPoolItem ? c0 : { mediaPoolItem: c0, startFrame: c0._start, endFrame: c0._end + 1 };
         // like Resolve 21.1.2: laying a subtitle file by script aborts the app (28 Oct 2026, overnight prep)
         if (/^subtitle$/i.test(c.mediaPoolItem._m.type)) { crashes.push('AppendToTimeline of subtitle ' + c.mediaPoolItem._name); throw new Error('Resolve would abort: GetMediaFrameExtentsWithFrameRate'); }
-        const m = c.mediaPoolItem._m, hasV = /video|still|timeline/i.test(m.type), hasA = /audio/i.test(m.type) || m.audioCh > 0;
+        const m = c.mediaPoolItem._m, hasV = /video|still|timeline|multicam/i.test(m.type), hasA = /audio/i.test(m.type) || m.audioCh > 0;
         const track = c.trackIndex || 1;
         const end = Math.max(tl._start, ...((c.mediaType === 2 ? tl._a : tl._v)[track - 1] || []).map(i => i._end));
         const at = c.recordFrame != null ? Math.round(c.recordFrame) : end;
@@ -397,7 +429,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', leg
     /** A title / generator (no Media Pool clip) on a timeline: F.addTitle(tl, {track, at, len, name}) in frames */
     addTitle(tl, { track = 2, at = 0, len = 125, name = 'Title' } = {}) {
       while (tl._v.length < track) tl.AddTrack('video');
-      const ti = timelineItem(tl, 'video', track, null, 0, len, tl._start + at); ti._name = name; tl._v[track - 1].push(ti); return ti;
+      const ti = timelineItem(tl, 'video', track, null, 0, len, tl._start + at); ti._name = name; ti._title = true; tl._v[track - 1].push(ti); return ti;
     },
     addTimeline(name, parts = []) {
       const tl = pool.CreateEmptyTimeline(name);

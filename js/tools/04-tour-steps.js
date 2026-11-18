@@ -70,7 +70,7 @@
     ],
     quickfx: [
       { target: 'text:Transitions', title: 'One click, many clips', text: 'Select clips in the Timeline, then click a button: it goes on every selected clip, or every clip.' },
-      { target: '.pad-grid', title: 'Your favourites', text: 'Star a button to keep it at the top.', tip: 'Undo works as usual: ⌘Z / Ctrl+Z in Premiere.' }
+      { target: '.pad-grid', title: 'Your favourites', text: 'Star a button to keep it at the top.', tip: 'Undo works as usual: ⌘Z / Ctrl+Z in Premiere. A greyed-out button says why when you click it.' }
     ],
     markers: [
       { target: 'text:Marker pad', title: 'Marker pad', text: 'Each pad adds a marker at the playhead – press its number key for speed.' },

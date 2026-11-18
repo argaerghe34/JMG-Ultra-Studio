@@ -309,7 +309,9 @@
       setMode(mode);
       US.bus.on('context', () => { draw(); refreshStatus(); });
       // Resolve saves a frame through its viewer (it may have to switch page for a moment), so there the preview frame
-      // is only fetched when you press “Use current frame”
+      // is only fetched when you press “Use current frame”. Checked again for 1.3.39: an automatic frame would need
+      // the current page in context() and an exportFrame that never falls back to the Color page; without both, opening
+      // the tab from the Media, Fusion, Fairlight or Deliver page (or where Edit refuses the still) would switch pages.
       return { el: v.el, onShow() { draw(); refreshStatus(); const s = US.ctx.sequence; if (s && !US.app.is('resolve') && bgFor !== s.id + '@' + (s.playhead || 0)) grabFrame(); } };
     }
   });

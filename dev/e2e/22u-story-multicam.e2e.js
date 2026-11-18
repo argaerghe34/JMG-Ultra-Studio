@@ -1,4 +1,4 @@
-// premiere-only
+// premiere-only – Resolve: 22u2-story-multicam-resolve
 // Story › Build while working on a sequence, in real Premiere: (1) an edit with the interview camera on V1 (its own
 // sound on A1) and another recording on A2 – each line brings every layer, from the same moments; (2) "Its multicam's
 // own sequence" – from an edit cut from a multicam clip, Story works on the multicam's own sequence and Build gives each

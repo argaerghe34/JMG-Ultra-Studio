@@ -133,10 +133,32 @@
         const text = st.where === 'project' ? 'Story is saved with the project, so it opens the same on your other computer.'
           : st.reason === 'off' ? 'Story is kept on this computer only (Settings › Story).'
           : st.reason === 'unwritable' ? 'Story is kept on this computer only: the project’s folder can’t be written to.'
-          : st.reason === 'nomedia' ? 'Story is kept on this computer only until the project has media.'
+          : st.reason === 'nomedia' ? (US.app.is('resolve') ? 'Story is kept on this computer only until the project has media, or you choose the project’s folder.' : 'Story is kept on this computer only until the project has media.')
           : st.reason === 'unreadable' ? 'The Story copy next to the project couldn’t be read, so this computer’s copy is used.' : '';
         return text ? h('div.field-hint', text) : null;
       }
+      /** Resolve: where the project's “JMG Ultra Studio” folder is (a Resolve project has no file of its own), and a
+          button to choose it – remembered for this project (US.projectFolder in js/core/store.js). */
+      function folderLine() {
+        if (!US.app.is('resolve') || !US.ctx.project || !US.projectFolder) return null;
+        const f = US.projectFolder.known();
+        const text = !f ? ['Looking for the project’s folder…']
+          : f.folder ? [f.chosen ? 'Project folder (you chose it): ' : 'Project folder (next to its media): ', US.keep(f.folder)]
+          : ['No project folder yet: Ultra Studio keeps this project’s work on this computer until the project has media, or you choose its folder.'];
+        return h('div.row', { dataset: { section: 'project-folder' } }, h('div.field-hint', text),
+          ui.button('Choose the project’s folder…', { small: true, kind: 'ghost', icon: 'folder', title: 'Where this project’s “JMG Ultra Studio” folder goes, so it opens the same on your other computer', onClick: chooseFolder }));
+      }
+      async function chooseFolder() {
+        const f = US.projectFolder.known();
+        const [dir] = US.app.pickFiles({ title: 'Choose the project’s folder', folder: true, start: (f && f.folder) || '' });
+        if (!dir) return;
+        try {
+          const r = await US.projectFolder.choose(dir);
+          ui.toast({ type: 'ok', title: 'Project folder chosen', text: r && r.folder ? [US.keep(r.folder), ' – Story and the tools’ data for this project are kept there.'] : 'Kept for this project.', timeout: 4000 });
+        } catch (e) { ui.showError(e, { context: 'Choosing the project’s folder' }); }
+        renderFeatured();
+      }
+      US.bus.on('project-folder', () => { if (US.tools.current === 'home') renderFeatured(); });
       const openSection = s => (US.story && US.story.open) ? US.story.open(s) : US.tools.open(US.FEATURED, { tab: s });
       function renderFeatured() {
         US.clear(featuredCard);
@@ -150,6 +172,7 @@
           c ? ui.stats(ui.stat(c.interviews, 'interviews read'), ui.stat(c.lines.toLocaleString(), 'lines'), ui.stat(c.themes, 'themes'), ui.stat(c.narratives, c.narratives === 1 ? 'narrative' : 'narratives'))
             : h('div.field-hint', US.ctx.project ? 'Open Story to read this project’s transcripts.' : 'Open a project in Premiere to begin.'),
           c && c.interviews ? storyWhere() : null,
+          folderLine(),
           h('div.row',
             step(hasTranscripts ? 'Read transcripts again' : (US.app.is('resolve') ? 'Read transcripts from Resolve' : 'Read Premiere’s transcripts'), 'refresh', () => (US.app.is('resolve') && US.story && US.story.transcribeResolve ? US.story.transcribeResolve() : US.actions.run('story.read', {})).then(renderFeatured), !hasTranscripts),
             step('2 Themes', 'story', () => openSection('themes'), hasTranscripts && !c.themes),

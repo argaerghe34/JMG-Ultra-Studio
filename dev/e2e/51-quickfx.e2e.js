@@ -1,4 +1,5 @@
-// In Resolve: the moves and opacity work, and the buttons Resolve can't do (transitions, effects, speed) say so plainly
+// In Resolve: the moves, flip and opacity work in any version, Punch in every other from the playhead takes the whole
+// track; from Resolve 21.1 transitions, speed and volume, from 21.1.2 effects; keyframes are refused plainly.
 // Quick effects in real Premiere: three clips in a fresh sequence; then, on every clip: a cross dissolve at the cuts
 // (read back from Premiere's Final Cut XML), a punch-in, black & white, half speed, a slow zoom, a sound fade and
 // louder sound. Each button's report must match what Premiere did.
@@ -12,18 +13,47 @@ await T.open(seq.id);
 const p = id => Q.PRESETS.find(x => x.id === id) || (() => { throw new Error('no preset ' + id); })();
 const notes = [];
 if (US.app.is('resolve')) {
-  let refused = '';
-  try { await Q.apply(p('dissolve'), { scope: 'all', seconds: 0.5, where: 'cuts' }); } catch (e) { refused = e.title || e.message; }
-  T.assert(/Resolve doesn’t let add-ons/.test(refused), 'transitions refused plainly: ' + refused);
-  const r = await Q.apply(p('punch110'), { scope: 'all' });
-  notes.push('punch110: ' + r.summary, 'dissolve: ' + refused);
-  const info = await US.host.call('editRead', { seqId: seq.id });
-  T.assert(info.video[0].clips.every(c => Math.abs(c.scale - 110) < 0.6), 'every clip at 110% in Resolve: ' + info.video[0].clips.map(c => c.scale));
+  const RE = US.resolveEdits, v = (US.premiere && US.premiere.version) || '', read = () => US.host.call('editRead', { seqId: seq.id });
+  const refused = async (id, opts = {}) => { try { await Q.apply(p(id), Object.assign({ scope: 'all' }, opts)); return ''; } catch (e) { return e.title || e.message; } };
+  notes.push('Resolve ' + v);
+  // 1. moves and opacity (every Resolve)
+  const r = await Q.apply(p('punch110'), { scope: 'all' }); notes.push('punch110: ' + r.summary);
+  T.assert((await read()).video[0].clips.every(c => Math.abs(c.scale - 110) < 0.6), 'every clip at 110% in Resolve: ' + (await read()).video[0].clips.map(c => c.scale));
   const h = await Q.apply(p('half'), { scope: 'all' }); notes.push('half: ' + h.summary);
   await Q.apply(p('reset'), { scope: 'all' });
-  const a = await Q.apply(p('punchAlt'), { scope: 'all' }); notes.push('punchAlt: ' + a.summary);
-  const sc = (await US.host.call('editRead', { seqId: seq.id })).video[0].clips.map(c => Math.round(c.scale));
-  T.assert(sc.join() === '100,110,100', 'every other clip at 110% in Resolve: ' + sc);
+  // 2. punch in every other from the clip under the playhead (nothing selected): the whole of its track, not 1 clip
+  await US.host.call('setPlayhead', { seqId: seq.id, seconds: 1 });
+  const a = await Q.apply(p('punchAlt'), { scope: 'selection' }); notes.push('punchAlt: ' + a.summary);
+  const sc = (await read()).video[0].clips.map(c => Math.round(c.scale));
+  T.assert(sc.join() === '100,110,100', 'every other clip at 110% from the playhead, in Resolve: ' + sc + ' – ' + a.summary);
+  await Q.apply(p('reset'), { scope: 'all' });
+  // 3. the flip: an Inspector switch, read back as Premiere names it
+  const f = await Q.apply(p('flip'), { scope: 'all' }); notes.push('flip: ' + f.summary);
+  T.assert((await read()).video[0].clips.every(c => (c.effects || []).includes('Horizontal Flip')), 'every clip flipped: ' + JSON.stringify((await read()).video[0].clips.map(c => c.effects)));
+  // 4. never by script: keyframes
+  const kf = await refused('zoomIn'); notes.push('zoomIn: ' + kf);
+  T.assert(/keyframed zooms/.test(kf), 'a slow zoom is refused plainly: ' + kf);
+  if (!RE.atLeast(v, '21.1')) {
+    const no = await refused('dissolve'); notes.push('dissolve: ' + no);
+    T.assert(/Resolve 21\.1 or later/.test(no), 'transitions need Resolve 21.1, said plainly: ' + no);
+    return notes;
+  }
+  // 5. Resolve 21.1+: a dissolve at the two cuts, sound louder, an effect (21.1.2), then half speed last (it moves what follows)
+  const d = await Q.apply(p('dissolve'), { scope: 'all', seconds: 0.5, where: 'cuts' }); notes.push('dissolve: ' + d.summary);
+  T.assert(d.result && d.result.done === 2, 'a dissolve at both cuts: ' + d.summary + ' ' + JSON.stringify(d.result && d.result.skipped));
+  const l = await Q.apply(p('louder'), { scope: 'all' }); notes.push('louder: ' + l.summary);
+  const vol = (await read()).audio[0].clips.map(c => c.volume);
+  T.assert(vol.length === 3 && vol.every(x => Math.abs(x - 3) < 0.11), 'the sound 3 dB louder: ' + vol);
+  if (RE.atLeast(v, '21.1.2')) {
+    const b = await Q.apply(p('blur'), { scope: 'all' }); notes.push('blur: ' + b.summary);
+    T.assert((await read()).video[0].clips.every(c => (c.effects || []).includes('Gaussian Blur')), 'Gaussian Blur on every clip: ' + JSON.stringify((await read()).video[0].clips.map(c => c.effects)));
+    const bw = await refused('bw'); notes.push('bw: ' + bw);
+    T.assert(/Color page/.test(bw), 'Black & White says where Resolve does it: ' + bw);
+  }
+  const s2 = await Q.apply(p('slow'), { scope: 'all' }); notes.push('slow: ' + s2.summary);
+  const after = (await read()).video[0].clips;
+  notes.push('after slow: ' + after.map(c => `${c.start}–${c.end} ×${c.speed}`).join(', '));
+  T.assert(after.length === 3 && Math.abs(after[0].end - after[0].start - 8) < 0.1, 'half speed: the first clip twice as long: ' + notes[notes.length - 1]);
   return notes;
 }
 async function hit(id, opts = {}) {

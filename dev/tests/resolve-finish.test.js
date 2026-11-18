@@ -212,8 +212,8 @@ test('render ranges from Text titles in Resolve: Text+ on a track named like the
   assert.deepStrictEqual((await S.run('rangeTracks', { seqId: S.seqId, kinds: 'both' })).tracks.map(t => [t.name, t.count]), [['Renders', 3]]);
   const t1 = (await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).ranges[0];
   await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId, label: 5 });
-  assert.strictEqual(tl._v[1][0]._color, 'Green');
-  await assert.rejects(S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId, name: 'New' }), e => e.code === 'BAD_INPUT', 'titles are renamed in the Timeline');
+  assert.strictEqual(tl._v[1][0]._color, 'Olive', 'a clip colour (Premiere label 5 → Olive), read back as 5');
+  assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).ranges[0].label, 5);
   assert.deepStrictEqual(await S.run('rangeTrackOutput', { seqId: S.seqId, track: 'Renders', on: false }), { track: 1, was: 1, states: [true] });
   assert.strictEqual(tl.GetIsTrackEnabled('video', 2), false);
   assert.strictEqual((await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).hidden, true);
@@ -221,4 +221,80 @@ test('render ranges from Text titles in Resolve: Text+ on a track named like the
   assert.strictEqual(tl.GetIsTrackEnabled('video', 2), true, 'put back as it was');
   await S.run('removeRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: t1.nodeId });
   assert.deepStrictEqual((await only('text')).map(x => x[0]), ['Lower third']);
+});
+
+test('Text+ render ranges added, renamed, moved and recoloured by script; the edit underneath never moves', async () => {
+  const S = withTimeline(), tl = S.tl, edit = () => v(tl, 1).map(i => [i.GetStart(), i.GetEnd()]).join();
+  const was = edit();
+  S.F.resolve.OpenPage('color');
+  const a = await S.run('addRenderRange', { seqId: S.seqId, name: 'Hook', start: 1, end: 3, as: 'text' });
+  assert.deepStrictEqual([a.kind, a.track, a.named, a.placed], ['text', 1, true, 1], JSON.stringify(a));
+  assert.strictEqual(tl.GetTrackName('video', 2), 'Renders', 'a track named Renders made on top');
+  assert.strictEqual(S.F.resolve.GetCurrentPage(), 'color', 'the page is put back');
+  const b = await S.run('addRenderRange', { seqId: S.seqId, name: 'Teaser', start: 5, end: 9, as: 'text', label: 5 });
+  assert.strictEqual(b.track, 1, 'the second goes on the same track');
+  const list = async () => (await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).ranges;
+  let r = await list();
+  assert.deepStrictEqual(r.map(x => [x.name, x.start, x.end, x.kind, x.label]), [['Hook', 1, 3, 'text', 6], ['Teaser', 5, 9, 'text', 5]], 'Pink by default (labels 6 and 11 share it, read back as 6)');
+  assert.strictEqual(v(tl, 2)[0]._comp.FindTool('Template').GetInput('StyledText'), 'Hook', 'the title shows its name');
+  assert.strictEqual(edit(), was, 'nothing on V1 moved');
+  // overlapping: a second Renders track rather than over the first
+  const c = await S.run('addRenderRange', { seqId: S.seqId, name: 'Over', start: 2, end: 4, as: 'text' });
+  assert.strictEqual(c.track, 2); assert.strictEqual(tl.GetTrackName('video', 3), 'Renders');
+  assert.strictEqual((await list()).length, 3);
+  await S.run('removeRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: (await list()).find(x => x.name === 'Over').nodeId });
+  // renamed, moved and recoloured in place: the same title
+  const hook = r[0];
+  let x = await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: hook.nodeId, name: 'Hook 2' });
+  assert.strictEqual(x.range.name, 'Hook 2'); assert.strictEqual(x.range.nodeId, hook.nodeId);
+  x = await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: hook.nodeId, start: 0.4, end: 4.4, label: 13 });
+  assert.deepStrictEqual([x.range.start, x.range.end, x.range.label, x.range.nodeId], [0.4, 4.4, 13, hook.nodeId]);
+  // longer, into the Teaser: moved to a free Renders track instead of failing
+  x = await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: hook.nodeId, end: 6 });
+  assert.deepStrictEqual([x.range.start, x.range.end], [0.4, 6]);
+  assert.strictEqual(edit(), was, 'still nothing on V1 moved');
+  // both still listed
+  r = await list();
+  assert.deepStrictEqual(r.map(x => x.name).sort(), ['Hook 2', 'Teaser']);
+});
+
+test('Text+ render ranges: where Resolve won’t place or trim a title, a range marker instead and nothing left behind', async () => {
+  const S = withTimeline(), tl = S.tl;
+  S.F.noTrims = true;
+  const a = await S.run('addRenderRange', { seqId: S.seqId, name: 'Hook', start: 1, end: 3, as: 'text' });
+  assert.strictEqual(a.kind, 'marker'); assert.ok(/didn’t place the title/.test(a.log.join(' ')), a.log.join('; '));
+  assert.deepStrictEqual(v(tl, 1).map(i => i.GetName()), ['I001.mp4'], 'the stray title is gone');
+  assert.deepStrictEqual((await S.run('renderRanges', { seqId: S.seqId })).ranges.map(x => [x.name, x.kind]), [['Hook', 'marker']]);
+  S.F.noTrims = false; S.F.noMoves = true;
+  const b = await S.run('addRenderRange', { seqId: S.seqId, name: 'Teaser', start: 5, end: 9, as: 'text' });
+  assert.strictEqual(b.kind, 'marker');
+  assert.strictEqual(tl.GetTrackCount('video'), 1, 'no empty track left behind');
+});
+
+test('addRangeTrack: a new group of markers is just a name; for titles a real track on top', async () => {
+  const S = withTimeline(), tl = S.tl;
+  await S.run('addRenderRange', { seqId: S.seqId, name: 'Hook', start: 1, end: 3 });
+  assert.deepStrictEqual(await S.run('addRangeTrack', { seqId: S.seqId, name: 'Renders' }), { index: -1, name: 'Renders 2', named: true, log: [] });
+  const t = await S.run('addRangeTrack', { seqId: S.seqId, name: 'Renders', kinds: 'text' });
+  assert.deepStrictEqual([t.index, t.name, t.named], [1, 'Renders 2', true]);
+  assert.strictEqual(tl.GetTrackName('video', 2), 'Renders 2');
+  const c = await S.run('addRenderRange', { seqId: S.seqId, name: 'On it', start: 4, end: 5, as: 'text', track: 'Renders 2' });
+  assert.deepStrictEqual([c.kind, c.track], ['text', 1]);
+});
+
+test('Text+ words in Resolve 21.2: its Fusion tools have no GetInput/SetInput, so Lua in the comp sets and reads them (in the open timeline)', async () => {
+  const S = withTimeline(), tl = S.tl;
+  S.F.luaOnly = true; S.F.fail.itemNames = 'no names';   // only the words can name it
+  const a = await S.run('addRenderRange', { seqId: S.seqId, name: 'Hook ]] "quoted"', start: 1, end: 3, as: 'text' });
+  assert.strictEqual(a.kind, 'text');
+  const ti = v(tl, 2)[0];
+  assert.strictEqual(ti._comp.FindTool('Template').GetInput('StyledText'), 'Hook ]] "quoted"', 'set through Lua, brackets and quotes kept');
+  const list = async () => (await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).ranges;
+  assert.deepStrictEqual((await list()).map(r => r.name), ['Hook ]] "quoted"'], 'read back through Lua');
+  // renamed from another open timeline: opened for the edit, then put back
+  const other = S.F.addTimeline('Other', []); S.F.project.SetCurrentTimeline(other);
+  const x = await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: (await list())[0].nodeId, name: 'Opening' });
+  assert.strictEqual(ti._comp.FindTool('Template').GetInput('StyledText'), 'Opening');
+  assert.strictEqual(S.F.currentTimeline, other, 'the open timeline is put back');
+  assert.strictEqual(x.range.name, 'Opening', 'read while it was open');
 });
