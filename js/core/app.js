@@ -198,7 +198,7 @@
       // wide tools (Story's board, and any tool that asks) use the panel's full width instead of a reading width
       if (def.wide || def.id === US.FEATURED) m.el.classList.add('wide');
       // a tool kept in Advanced: a way back there, and for one in development a plain warning
-      if (US.homeTabOf(def.id) === 'advanced') {
+      if (def.id !== 'advanced' && US.homeTabOf(def.id) === 'advanced') {
         const dev = US.PAUSED_TOOLS.includes(def.id);
         m.el.prepend(h('div.advanced-crumb', h('button.link-btn', { onclick: () => open('advanced') }, '‹ Advanced' + (dev ? ' › In development' : '')),
           dev ? h('span.field-hint', ' – still being made: parts may not work yet') : null));
