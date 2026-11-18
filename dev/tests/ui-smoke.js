@@ -32,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '39-mvfx-fusion', '39-mvfx-looks', '39-mvfx-motion', '39-mvfx-pack', '39-mvfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '14-footage', '40-assistant-chat', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '39-mvfx-fusion', '39-mvfx-looks', '39-mvfx-motion', '39-mvfx-pack', '39-mvfx', '37-producer', '38-wiki']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -301,6 +301,9 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     for (const want of ['Without AI – what still works', 'Never use AI', 'Needs AI', 'By API key', 'About']) if (!txt.includes(want)) errors.push('Settings: no “' + want + '”');
     if (set.el.querySelector('[data-section="without-ai"] .section.closed')) errors.push('Settings: Without AI didn’t open when asked');
     if (!set.el.querySelector('.settings-code input')) errors.push('Settings: no code box');
+    { const ft = set.el.querySelector('[data-section="footage"]');
+      if (!ft || !/Footage – what the AI may see/.test(ft.textContent) || !/small stills may be sent to Claude or Gemini/.test(ft.textContent) || !/Models on this computer \(optional\)/.test(ft.textContent) || !/Nothing here is downloaded unless you press Download/.test(ft.textContent)) errors.push('Settings: no Footage section – ' + (ft ? ft.textContent.slice(0, 200) : 'missing'));
+      else if (ft.querySelector('.section:not(.closed)')) errors.push('Settings: Footage should start closed'); }
     if (!set.el.querySelector('[data-section="sent"]') || !/What was sent to AI/.test(set.el.textContent)) errors.push('Settings: no “What was sent to AI”');
     set.el.remove();
     // two requests of one job: one row with what it was about, opening to show both
@@ -314,30 +317,46 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     set2.el.remove();
     checks.push('sent to AI: grouped by job, with what it was about, opens to each request');
   }
-  // the Ask tab in My interviews mode: the welcome, examples and earlier asks
+  // the Ask tab: one chat box – no modes; chats as tabs, how often it asks, which AI; recipes on the welcome
   {
-    US.settings.set('assistant.mode', 'interviews');
     const as = US.tools.get('assistant').create(); w.document.body.appendChild(as.el); as.onShow && as.onShow();
     const txt = as.el.textContent;
-    if (!/Ask anything about what your interviews say/.test(txt) || !/Earlier:/.test(txt)) errors.push('Ask tab (interviews): ' + txt.slice(0, 200));
-    US.settings.set('assistant.mode', 'auto'); as.el.remove();
+    if (as.el.querySelector('.chat-mode') || as.el.querySelector('.edit-where')) errors.push('Ask tab: the old modes are still there');
+    if (!as.el.querySelector('.chat-tab.chat-new') || as.el.querySelectorAll('.chat-opts select').length !== 3 || !/Stop to ask at \$2 a request/.test(as.el.querySelector('.chat-opts').textContent) || US.tools.get('agent') || !/Ask before changes/.test(txt)) errors.push('Ask tab: no chats bar or options');
+    if (!/Recipes/.test(txt) || !/Get interviews ready/.test(txt)) errors.push('Ask tab: no recipes');
+    as.el.remove(); checks.push('ask: one chat box, recipes');
   }
-  // the Ask tab in Anything mode: recipes offered
+  // a conversation: what it understood, its plan, a question with answers to pick, a step, the report – and a second chat beside it
   {
-    US.settings.set('assistant.mode', 'auto');
-    const as = US.tools.get('assistant').create(); w.document.body.appendChild(as.el); as.onShow && as.onShow();
-    if (!/Recipes/.test(as.el.textContent) || !/Get interviews ready/.test(as.el.textContent)) errors.push('Ask tab: no recipes');
-    as.el.remove(); checks.push('ask recipes');
-  }
-  // the Ask tab in Edit mode: where it acts, and examples
-  {
-    US.settings.set('assistant.mode', 'edit');
-    const as = US.tools.get('assistant').create(); w.document.body.appendChild(as.el); as.onShow && as.onShow();
-    const where = as.el.querySelector('.edit-where'), txt = as.el.textContent;
-    if (!where || where.classList.contains('hidden') || !['This sequence', 'Selected clips', 'Transcript lines', 'A bin', 'Whole project'].every(x => where.textContent.includes(x))) errors.push('Ask tab (edit): no Where bar');
-    if (!/Tell me what to change/.test(txt) || !/cross dissolve on every cut/i.test(txt)) errors.push('Ask tab (edit): ' + txt.slice(0, 200));
-    US.settings.set('assistant.mode', 'auto'); as.el.remove();
-    checks.push('ask edit: where bar + examples');
+    const wasAI = US.ai, wasCall = US.host.call, script = [
+      { say: 'Let me check which you mean.', understood: 'You want the drone clips coloured, but two bins have drone clips.', plan: ['Ask which bin', 'Colour its clips green'], tool: 'ask', argsJson: JSON.stringify({ question: 'Which bin?', options: ['Drone', 'Drone B-roll'], kind: 'choice' }) },
+      { say: 'Colouring them now.', understood: '', plan: [], tool: 'edit', argsJson: JSON.stringify({ where: 'bin', bin: 'Drone', steps: [{ op: 'label', targets: {}, params: { label: 13 }, why: 'green' }] }) },
+      { say: '', understood: '', plan: [], tool: 'finish', argsJson: JSON.stringify({ reply: 'Both drone clips are green now.', done: ['2 clips coloured green'], notDone: [], check: [], next: ['Put them in a Selects bin'] }) }];
+    let turn = 0; const labelled = [];
+    US.ai = Object.assign({}, wasAI, { available: () => true, label: () => 'Claude', provider: () => 'claude', choices: () => [{ id: 'auto', label: 'Automatic' }], json: async () => script[turn++] });
+    US.host.call = async (fn, a) => (fn === 'listBins' ? [{ id: 'b1', path: 'Drone' }, { id: 'b2', path: 'Drone B-roll' }] : fn === 'binItems' ? [{ id: 'x1', name: 'DJI_001.MP4', kind: 'video', bin: 'Drone', label: 3 }, { id: 'x2', name: 'DJI_002.MP4', kind: 'video', bin: 'Drone', label: 3 }] : fn === 'editProject' ? { bins: ['Drone', 'Drone B-roll'], sequences: [], clips: [] } : fn === 'setLabels' ? (labelled.push(...a.items), a.items.length) : wasCall(fn, a));
+    try {
+      US.chat._tick = 5;
+      const as = US.tools.get('assistant').create(); w.document.body.appendChild(as.el); as.onShow && as.onShow();
+      const wait = async (sel, n = 1) => { for (let i = 0; i < 200 && as.el.querySelectorAll(sel).length < n; i++) await new Promise(r => setTimeout(r, 10)); return as.el.querySelectorAll(sel); };
+      const run = as._submit('colour the drone clips green and tell me how many there were');
+      const opts = await wait('.chat-option', 2);
+      if (opts.length !== 2 || !/You want the drone clips coloured/.test(as.el.textContent) || !/Ask which bin/.test(as.el.textContent)) errors.push('Ask chat: no understanding, plan or question – ' + as.el.textContent.slice(-300));
+      if (!as.el.querySelector('.chat-dot.asking')) errors.push('Ask chat: the tab doesn’t show it is waiting for you');
+      // while it waits, a second chat is there to use
+      as._show(as._add()); if (as.el.querySelectorAll('.chat-tab:not(.chat-new)').length !== 2) errors.push('Ask chat: no second chat');
+      as._show(as._chats()[0]);
+      opts[0].click();
+      const card = (await wait('.chat-card .btn.primary'))[0];   // changes the editor's own clips: asked first
+      if (!card || !/May I\?/.test(as.el.textContent) || !/changes your own work/.test(as.el.textContent) || !/Colour .* · 2 clips/.test(as.el.textContent)) errors.push('Ask chat: no approval card – ' + as.el.textContent.slice(-300));
+      else card.click();
+      await run;
+      const end = as.el.querySelector('.chat-end');
+      if (!end || !/Both drone clips are green now/.test(end.textContent) || !/2 clips coloured green/.test(end.textContent) || !/How I got there/.test(end.textContent) || !/Put them in a Selects bin/.test(end.textContent)) errors.push('Ask chat: no report – ' + (end ? end.textContent : as.el.textContent.slice(-300)));
+      if (labelled.length !== 2 || labelled[0].label !== 13) errors.push('Ask chat: the clips weren’t coloured – ' + JSON.stringify(labelled));
+      if (as._chats()[0].status !== 'idle' || as.el.querySelector('.chat-dot')) errors.push('Ask chat: still shown as working');
+      as.el.remove(); checks.push('ask chat: understood → question → approval → done, with a second chat');
+    } catch (e) { errors.push('Ask chat: ' + (e.stack || e)); } finally { US.ai = wasAI; US.host.call = wasCall; }
   }
   // Search › Find more renders results with reasons (lines not yet selected)
   st.picky = { s: S.PICKY_LEVELS.all };
@@ -594,31 +613,6 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       if (mv.length !== 1 || mv[0][1].keys.length !== 2 || mv[0][1].keys[1].scale !== 112 || mv[0][1].targets[0].start !== 4) errors.push('mvfx: push in keys ' + JSON.stringify(mv.map(c => c[1])));
     } finally { US.host.call = wasCall; for (const k of Object.keys(US.settings.all()).filter(k => k.startsWith('mvfx.'))) US.settings.set(k, undefined); }
     checks.push(`mvfx: ${tiles.length} animated names, ${groups.length} groups, Ruled → 125 frames as one clip, Tag → 2 text layers, Push in → keyframes`);
-  }
-  // Agent: a goal → its plan shown → Go → steps listed → what it made, with the sequences to open; then a follow-up
-  {
-    const at = US.tools.get('agent').create();
-    w.document.body.appendChild(at.el);
-    if (at.el.querySelectorAll('.chat-chips .chip').length !== US.agent.GOALS.length) errors.push('agent: no starting goals');
-    const wasAI = US.ai, wasCall = US.host.call, turns = [];
-    const T = (tool, args = {}, say = '', plan = []) => ({ say, plan, tool, argsJson: JSON.stringify(args) });
-    const script = [T('plan', {}, 'My plan.', ['Search', 'Build', 'Finish']), T('themes'), T('version', { name: 'v1' }), T('finish', { summary: 'Made it.', check: ['Look at the ending'] }), T('finish', { summary: 'Shorter.' })];
-    US.ai = Object.assign({}, wasAI, { available: () => true, label: () => 'Claude', provider: () => 'gemini', spending: () => ({ cost: 0 }), json: async req => { turns.push(req); return script[turns.length - 1]; } });
-    US.host.call = async (fn, a) => (fn === 'cloneSequence' ? { id: 'v1', name: a.name } : fn === 'editRead' ? { id: 's1', name: 'Cut', duration: 30, video: [], audio: [] } : wasCall(fn, a));
-    try {
-      at.onShow({ goal: 'A 2-minute film about the bakery' });
-      Array.from(at.el.querySelectorAll('.btn')).find(b => b.textContent === 'Make plan').click(); await new Promise(r => setTimeout(r, 50));
-      const plan = at.el.querySelector('.agent-plan');
-      if (!plan || plan.querySelectorAll('li').length !== 3) errors.push('agent: plan not shown');
-      else { Array.from(plan.querySelectorAll('.btn')).find(b => b.textContent === 'Go').click(); await new Promise(r => setTimeout(r, 80)); }
-      if (at.el.querySelectorAll('.agent-tool').length < 2) errors.push('agent: steps not listed');
-      if (!/What it made/.test(at.el.textContent) || !/Made it\./.test(at.el.textContent) || !/Look at the ending/.test(at.el.textContent)) errors.push('agent: no report');
-      if (!Array.from(at.el.querySelectorAll('.agent-seqs .btn')).some(b => b.textContent === 'Open')) errors.push('agent: the version to open is missing');
-      at.el.querySelector('#agent-follow').value = 'shorter';
-      Array.from(at.el.querySelectorAll('.btn')).find(b => b.textContent === 'Carry on').click(); await new Promise(r => setTimeout(r, 60));
-      if (turns.length !== 5 || !/The editor follows up: “shorter”/.test(turns[4].turns[turns[4].turns.length - 1].user) || !/Shorter\./.test(at.el.textContent)) errors.push('agent: follow-up not carried on');
-    } finally { US.ai = wasAI; US.host.call = wasCall; }
-    checks.push(`agent: ${US.agent.GOALS.length} goals, plan → Go → ${at.el.querySelectorAll('.agent-tool').length} steps → report → follow-up`);
   }
   if (errors.length) { console.log('✗ UI smoke test\n  ' + errors.join('\n  ')); process.exit(1); }
   console.log('✓ UI smoke test · ' + checks.join(' · '));

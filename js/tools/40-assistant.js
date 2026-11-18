@@ -1,5 +1,6 @@
-/* JMG Ultra Studio – Assistant: say what you want in plain English. Built-in commands work with no key;
-   with a Claude or Gemini key it plans anything the tools can do. It always shows the plan and waits for Run. */
+/* JMG Ultra Studio – Assistant (the Ask tab): one chat box for everything. Built-in commands work with no key (a plan,
+   then Run); with a Claude, Gemini or local AI the chat in 40-assistant-chat.js understands anything, reads the
+   project, asks when unsure, and does it – several chats at once. This file: the offline matching and the screen. */
 (function () {
   'use strict';
   const US = window.US, h = US.h, ui = US.ui;
@@ -116,149 +117,260 @@
 
   US.assistant = { matchOffline, premiereWords, suggest, planWithAI, validatePlan, planSchema, catalogue, describeStep };
 
-  /* ---------- the screen ---------- */
+  /* ---------- the screen: one chat box for everything, several chats at once ---------- */
   US.tools.register({
     id: 'assistant', name: 'Assistant', short: 'Ask', icon: 'ask', order: 40,
     hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips'],
-    blurb: 'Say what you want in plain English – run a tool, or ask anything about your interviews.',
+    blurb: 'Say what you want in plain English – it reads your project, asks when it isn’t sure, shows what it will do and does it.',
     create() {
-      const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'Tell it what you want. It shows a plan first and only acts when you press Run.' });
-      const log = h('div.chat');
-      const PLACEHOLDER = { auto: 'e.g. cut the silences · markers on every beat · find the best shots in Concert · check the cut', interviews: 'e.g. every story about Grandma, in order · where do Ruth and Sam disagree? · a 45-second opening about why they came', edit: 'e.g. a cross dissolve on every clip on V1 · punch in 110% where the speaker changes · colour the drone clips green' };
-      // Anything: commands, and questions about the interviews when the AI sees that's what you mean; My interviews: straight to the interviews
-      let mode = US.settings.get('assistant.mode', 'auto');
-      const modeSel = ui.segmented({ options: [{ value: 'auto', label: 'Anything', title: 'Run a tool, or ask about your interviews' }, { value: 'interviews', label: 'My interviews', title: 'Ask anything about what your interviews say – answered with clips you check before anything is built' }, { value: 'edit', label: 'Edit', title: 'Change your sequence or project in plain English – transitions, effects, framing, labels, markers… – checked before it runs, on a copy' }], value: mode, onChange: x => { mode = x; US.settings.set('assistant.mode', x); input.placeholder = PLACEHOLDER[x]; whereBar.classList.toggle('hidden', x !== 'edit'); greet(); } });
-      modeSel.classList.add('chat-mode');
-      /* Edit: where it acts */
-      const E = US.editAsk;
-      let where = US.settings.get('editAsk.where', 'sequence'), whereBin = US.settings.get('editAsk.bin', ''), editConv = null, bins = [];
-      const whereSeg = ui.segmented({ options: [{ value: 'sequence', label: 'This sequence' }, { value: 'selection', label: 'Selected clips' }, { value: 'transcripts', label: 'Transcript lines' }, { value: 'bin', label: 'A bin' }, { value: 'project', label: 'Whole project' }], value: where, onChange: x => { where = x; US.settings.set('editAsk.where', x); editConv = null; drawWhere(); } });
-      const binSel = ui.select({ options: [], placeholder: 'Choose a bin…', onChange: x => { whereBin = x; US.settings.set('editAsk.bin', x); editConv = null; } });
-      const whereNote = h('div.field-hint'), whereBar = h('div.edit-where', h('div.field-label', 'Where'), whereSeg, binSel, whereNote);
-      function drawWhere() {
-        binSel.classList.toggle('hidden', where !== 'bin');
-        if (where === 'bin' && !bins.length) US.host.call('listBins').then(b => { bins = b.filter(x => x.path !== '(Project root)'); binSel.setOptions(bins.map(x => ({ value: x.id, label: x.path })), bins.some(x => x.id === whereBin) ? whereBin : ''); }).catch(() => {});
-        const seq = US.ctx.sequence ? `“${US.ctx.sequence.name}”` : 'the open sequence (none open)';
-        whereNote.textContent = { sequence: `Every clip in ${seq}. Edits run on a copy unless you say otherwise.`, selection: US.app.is('resolve') ? 'Resolve doesn’t say which clips are selected: the clip under the playhead is used.' : `Only the clips selected in ${seq}.`, transcripts: `The transcribed lines heard in ${seq} – for markers, text, cuts or the clips under them.`, bin: 'The clips in the bin (and bins inside it). Labels, names, bins, markers or a new sequence.', project: 'Every clip in the project. Labels, names, bins, markers or a new sequence.' }[where];
-      }
-      const scopeNow = () => ({ where, seqId: US.ctx.sequence && US.ctx.sequence.id, binId: whereBin, binName: (bins.find(b => b.id === whereBin) || {}).path || '' });
-      whereBar.classList.toggle('hidden', mode !== 'edit'); drawWhere();
-      US.bus.on('context', US.debounce(() => { if (mode === 'edit') drawWhere(); }, 500));
-      const input = h('textarea.input.chat-input', { rows: 2, placeholder: PLACEHOLDER[mode] || PLACEHOLDER.auto });
-      const send = ui.button('Send', { kind: 'primary', icon: 'chevron', onClick: () => submit() });
-      input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
-      v.body.append(modeSel, whereBar, log, h('div.chat-bar', input, send));
-      const history = [];
+      const C = US.chat, E = US.editAsk;
+      const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'One chat for everything: run a tool, change a sequence or the project, ask about your interviews or how to do something. It says what it understood and what it will do, and asks before it changes anything.',
+        help: h('div', h('p', 'Type what you want. It reads your project as text (names, times, tracks, labels, effects, transcripts, and the written descriptions of your footage), tells you what it understood and its plan, and works step by step. Before a step that changes something you get a card to approve; choose how often it asks with the first menu under the chats.'),
+          h('p', 'Start another chat with + while one is working: they think side by side and take turns in Premiere. A dot on a chat shows it is working, or waiting for you.'),
+          h('p', 'Common requests (cut the silences, add captions, check the cut…) work without any AI key.')) });
+      const aiOn = () => !!(US.ai && US.ai.available());
+      const PLACEHOLDER = 'e.g. cut the silences · a cross dissolve on every cut on V1 · every story about Grandma, in order · put the drone clips in a Drone bin';
+      const EXAMPLES = ['Organise this project into bins by kind of clip', 'A cross dissolve on every cut on V1', 'Every story about family, in the order it happened', 'Which stories about family haven’t I used yet?', 'Tighten this cut: take out the pauses and check it', 'Lower thirds with the speaker’s name the first time each person talks', 'How do I export just the audio?'];
 
-      function bubble(who, ...kids) {
+      /* ----- the chats ----- */
+      let chats = [], cur = null;
+      const tabs = h('div.chat-tabs'), logs = h('div.chat-logs'), counter = h('span.field-hint.chat-count');
+      const input = h('textarea.input.chat-input', { rows: 2, placeholder: PLACEHOLDER });
+      const sendBtn = ui.button('Send', { kind: 'primary', icon: 'chevron', onClick: () => submit() });
+      const stopBtn = ui.button('Stop', { kind: 'ghost', onClick: () => { if (cur) { C.stop(cur); if (cur.pending) cur.pending(null); } } });
+      input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
+      let mode = US.settings.get('assistant.permission', 'ask');
+      const modeSel = ui.select({ options: C.MODES.map(m => ({ value: m.id, label: m.label })), value: mode, onChange: x => { mode = x; US.settings.set('assistant.permission', x); modeSel.title = (C.MODES.find(m => m.id === x) || {}).hint || ''; } });
+      modeSel.title = (C.MODES.find(m => m.id === mode) || {}).hint || '';
+      const modelSel = ui.select({ options: [], onChange: x => { if (cur) { cur.model = x; keep(); } US.settings.set('assistant.model', x); } });
+      function drawModels() {
+        const cs = US.ai && US.ai.choices ? US.ai.choices() : [{ id: 'auto', label: 'Automatic', hint: '' }];
+        const want = (cur && cur.model) || 'auto';
+        modelSel.setOptions(cs.map(c => ({ value: c.id, label: c.id === 'auto' ? `AI: automatic${aiOn() ? ` (${US.ai.label()})` : ''}` : `AI: ${c.label}` })), cs.some(c => c.id === want) ? want : 'auto');
+        modelSel.title = 'Which AI this chat uses. Text is sent; small stills only when you’ve allowed them for the project. Never video or sound.';
+        modelSel.disabled = !aiOn();
+      }
+      // what one request may spend before it stops to ask (0 = no limit: the cost is still shown as it goes)
+      const LIMITS = [0.5, 2, 5, 10, 0];
+      let budget = +US.settings.get('assistant.budget', 2); if (!LIMITS.includes(budget)) budget = 2;
+      const usd = x => (US.ai && US.ai.fmtUSD ? US.ai.fmtUSD(x) : '$' + x.toFixed(2));
+      const limitSel = ui.select({ options: LIMITS.map(x => ({ value: String(x), label: x ? `Stop to ask at $${x % 1 ? x.toFixed(2) : x} a request` : 'No spending limit' })), value: String(budget), onChange: x => { budget = +x; US.settings.set('assistant.budget', budget); } });
+      limitSel.title = 'How much one request may spend on AI before it stops and asks you. It never stops silently: you can let it carry on, or lift the limit for the chat. Your monthly AI limit in Settings always holds. Gemini’s free allowance and a local model cost nothing.';
+      const costLine = h('div.field-hint.chat-cost');
+      function drawCost() { const c = cur, m = US.ai && US.ai.spending ? US.ai.spending().cost : 0; costLine.textContent = c && c.spent > 0.004 ? `AI cost – this chat: ${usd(c.spent)} · this month: ${usd(m)}` : m > 0.004 ? `AI cost this month: ${usd(m)}` : ''; costLine.title = 'What the AI has cost: this chat so far, and everything this month (Settings shows it by feature and by key).'; }
+      const DOT = { thinking: 'The AI is thinking', working: 'Working in the editor', waiting: 'Waiting its turn', asking: 'Waiting for you' };
+      function drawTabs() {
+        US.clear(tabs);
+        for (const c of chats) {
+          tabs.appendChild(h('button.chat-tab' + (c === cur ? '.on' : ''), { title: c.status !== 'idle' ? `${c.title} – ${DOT[c.status] || ''}` : c.title, onclick: () => show(c) },
+            c.status !== 'idle' ? h('span.chat-dot.' + c.status) : null, h('span.chat-tab-name', c.title),
+            chats.length > 1 || c.items.length ? h('span.chat-tab-x', { title: c.status !== 'idle' ? 'Stop and close this chat' : 'Close this chat (it stays under Earlier)', onclick: e => { e.stopPropagation(); close(c); } }, '×') : null));
+        }
+        tabs.appendChild(h('button.chat-tab.chat-new', { title: 'New chat – it can work while the others do', onclick: () => show(add()) }, '+'));
+        const old = earlier();
+        if (old.length) {
+          const sel = ui.select({ options: old.slice(0, 30).map(o => ({ value: o.id, label: o.title })), placeholder: 'Earlier…', onChange: id => { const s = earlier().find(o => o.id === id); if (s) { const c = C.fromStored(s); chats.push(c); show(c); keep(); } } });
+          sel.classList.add('chat-earlier'); tabs.appendChild(sel);
+        }
+        const busy = chats.filter(c => c.status !== 'idle').length;
+        counter.textContent = busy ? `${US.plural(busy, 'chat')} working` : '';
+        const mine = cur && cur.status !== 'idle';
+        stopBtn.classList.toggle('hidden', !mine); sendBtn.classList.toggle('hidden', !!mine && !cur.pending);
+        drawCost();
+      }
+      /** Chats kept with the project: the open ones and, under Earlier, the ones closed (the newest 30). */
+      // in the project's own store (not projectSettings: that falls back to the last project's value, and chats belong to one project)
+      const pstore = () => US.projectStore((US.ctx && US.ctx.project && (US.ctx.project.path || US.ctx.project.name)) || 'none');
+      const stored = () => { let s = null; try { s = pstore().get('assistant.chats'); } catch (e) { s = null; } return s && Array.isArray(s.open) ? s : { open: [], closed: [] }; };
+      const store = val => pstore().set('assistant.chats', val);
+      const earlier = () => stored().closed.filter(o => !chats.some(c => c.id === o.id));
+      const keep = US.debounce(() => { try { const s = stored(); store({ open: chats.filter(c => c.items.length).map(C.toStored), closed: s.closed.filter(o => !chats.some(c => c.id === o.id)).slice(0, 30) }); } catch (e) { /* a convenience */ } }, 600);
+      function add() { const c = C.newChat({ model: US.settings.get('assistant.model', 'auto') }); chats.push(c); mount(c); return c; }
+      function mount(c) { c.logEl = h('div.chat.hidden'); c.bubbles = []; logs.appendChild(c.logEl); if (c.items.length) { for (const it of c.items) render(c, it, true); } else greet(c); }
+      function show(c) { cur = c; for (const x of chats) x.logEl.classList.toggle('hidden', x !== c); drawTabs(); drawModels(); const last = c.logEl.lastChild; if (last && last.scrollIntoView) last.scrollIntoView({ block: 'end' }); setTimeout(() => input.focus(), 30); }
+      function close(c) {
+        if (c.status !== 'idle') { C.stop(c); if (c.pending) c.pending(null); }
+        chats = chats.filter(x => x !== c); c.logEl.remove();
+        if (c.items.length) { try { const s = stored(); store({ open: s.open.filter(o => o.id !== c.id), closed: [C.toStored(c)].concat(s.closed.filter(o => o.id !== c.id)).slice(0, 30) }); } catch (e) { /* a convenience */ } }
+        if (!chats.length) add();
+        if (cur === c) show(chats[chats.length - 1]); else drawTabs();
+        keep();
+      }
+
+      /* ----- what a chat shows ----- */
+      function bubble(c, who, ...kids) {
         const b = h('div.bubble.' + who.replace(/ /g, '.'), kids);
-        log.appendChild(b); history.push(b);
-        while (history.length > 40) history.shift().remove();
-        b.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        c.logEl.appendChild(b); c.bubbles.push(b);
+        while (c.bubbles.length > 160) c.bubbles.shift().remove();
+        if (c === cur && b.scrollIntoView) b.scrollIntoView({ block: 'end', behavior: 'smooth' });
         return b;
       }
-      function chips(list) { return h('div.chat-chips', list.map(x => h('button.chip', { onclick: () => { input.value = US.say(x); submit(); } }, x))); }
+      const chips = list => h('div.chat-chips', list.map(x => h('button.chip', { onclick: () => { input.value = US.say(x); submit(); } }, x)));
       function exampleChips(n = 10) {
         const ex = []; const per = new Map();
         for (const a of US.actions.list()) for (const e of (a.examples || []).slice(0, 1)) { if (!per.has(a.tool)) per.set(a.tool, 0); if (per.get(a.tool) < 2) { ex.push(e); per.set(a.tool, per.get(a.tool) + 1); } }
         return ex.slice(0, n);
       }
-      const ASK_EXAMPLES = ['Every story about family, in the order it happened', 'Where do the interviewees disagree?', 'A 45-second opening about why they came', 'Who talks about their parents, and what do they say?', 'The funniest moments, best first'];
-      /** What the AI reads for an ask, and what it costs (the shared transcript). */
-      function readsLine() { try { US.story.loadState(); return US.story.contextLine(); } catch (e) { return ''; } }
-      const EDIT_EXAMPLES = ['A cross dissolve on every cut on V1', 'Punch in to 110% on each interview clip', 'Dip to black where the speaker changes', 'Lower thirds with the speaker’s name the first time each person talks', 'Audio fades of 12 frames on every music clip', 'Add the logo clip to the end of every sequence in the Shorts bin', 'Colour every clip longer than 20 seconds orange'];
-      function greet() {
-        US.clear(log); history.length = 0;
-        const aiOn = US.ai && US.ai.available();
-        if (mode === 'edit') {
-          editConv = null;
-          bubble('bot', h('div', 'Tell me what to change. I read the sequence (or bin, or project) as text – clip names, times, tracks, labels, effects and, if transcribed, who speaks – and show you a plan. I can also add a clip – a logo, an end card – to the end of many sequences at once. If I’m not sure what you mean, I ask first. Nothing changes until you press Run; sequence edits go on a copy, and adding to your own sequences is confirmed first.'), chips(EDIT_EXAMPLES),
-            aiOn ? h('div.field-hint', `Planned by ${US.ai.label()} – only text is sent, never footage.${US.app.is('resolve') ? ' In Resolve: framing, opacity, colours, on/off, deleting and markers (Resolve doesn’t let add-ons add transitions, effects or text).' : ''}`) : h('div.field-hint', 'This needs AI: add a Claude or Gemini key in Settings.'));
-          return;
-        }
-        if (mode === 'interviews') {
-          const earlier = (US.story && US.story.asks ? (() => { try { return US.story.asks(); } catch (e) { return []; } })() : []).slice(0, 4);
-          bubble('bot', h('div', 'Ask anything about what your interviews say. I answer in words and with clips, grouped – nothing changes in Premiere until you choose how it lands.'), chips(ASK_EXAMPLES),
-            aiOn ? h('div.field-hint', readsLine() || 'Only the text of the transcripts is sent – never footage.') : h('div.field-hint', 'This needs AI: add a Claude or Gemini key in Settings.'),
-            earlier.length ? h('div', h('div.field-hint', 'Earlier:'), h('div.chat-chips', earlier.map(a => h('button.chip', { onclick: () => { bubble('me', a.request); showAsk(a); } }, US.storyAsk.title(a.request))))) : null);
-          return;
-        }
-        bubble('bot', h('div', 'Hi! I can run any JMG Ultra Studio tool for you. Try one of these:'), chips(exampleChips()),
-          h('div.field-hint', aiOn ? `Anything else goes to ${US.ai.label()} (only your words are sent – never footage).` : 'These work without any AI. Add a Claude or Gemini key in Settings and I’ll understand free-form requests too.'),
-          recipeChips());
+      function greet(c) {
+        const asks = (US.story && US.story.asks ? (() => { try { return US.story.asks(); } catch (e) { return []; } })() : []).slice(0, 4);
+        if (aiOn()) bubble(c, 'bot', h('div', 'Tell me what you want – in your own words. I read your project, sequences and interviews as text, tell you what I understood and what I’ll do, ask when I’m not sure, and ask before I change anything.'), chips(EXAMPLES),
+          h('div.field-hint', `Worked out by ${US.ai.label()}. Text is sent – and a few small stills only if you’ve switched that on for this project (you’re asked each time); never video or sound. Start another chat with + while this one works.`),
+          asks.length ? h('div', h('div.field-hint', 'Earlier answers from your interviews:'), h('div.chat-chips', asks.map(a => h('button.chip', { onclick: () => { bubble(c, 'me', a.request); showAsk(c, a); } }, US.storyAsk.title(a.request))))) : null,
+          recipeChips(c));
+        else bubble(c, 'bot', h('div', 'Hi! I can run any JMG Ultra Studio tool for you. Try one of these:'), chips(exampleChips()),
+          h('div.field-hint', 'These work without any AI. Add a Claude or Gemini key in Settings and I’ll understand anything you ask – edits, questions about your interviews, several steps at once.'),
+          ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings') }), recipeChips(c));
       }
-
-      async function submit() {
-        const text = input.value.trim();
-        if (!text) return;
-        input.value = '';
-        bubble('me', text);
-        if (/^(help|what can you do\??|\?)$/i.test(text)) { showAll(); return; }
-        if (mode === 'interviews') { runAsk(text); return; }
-        if (mode === 'edit') { runEdit(text); return; }
-        const off = matchOffline(text);
-        if (off.steps.length === 1 && off.steps[0].action === 'edit.ask' && US.ai && US.ai.available()) { runEdit(text, { where: 'sequence' }); return; }
-        if (off.steps.length) { showPlan({ reply: 'Here’s what I’ll do:', steps: off.steps }); return; }
-        if (off.alternatives.length > 1) {
-          bubble('bot', h('div', 'That could mean a few things. Which one?'), h('div.chat-chips', off.alternatives.map(alt => { const a = US.actions.get(alt.action); return h('button.chip', { onclick: () => showPlan({ reply: 'Here’s what I’ll do:', steps: [{ action: alt.action, params: alt.params }] }) }, a.title); })));
-          return;
-        }
-        if (US.ai && US.ai.available()) {
-          const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai.label()} is thinking…`)));
-          const plan = await US.jobs.run({ title: 'Planning your request', tool: 'assistant', who: US.jobs.WHO.ai, about: US.storyContext && US.storyContext.about ? US.storyContext.about(text) : '' }, job => planWithAI(text, job));
-          thinking.remove();
-          if (!plan) { bubble('bot', h('div', 'I couldn’t reach the AI just now. The built-in commands still work:'), chips(exampleChips(6))); return; }
-          if (!plan.steps.length) { bubble('bot', h('div', plan.reply || 'I can’t do that with the tools I have.'), suggest(text).length ? chips(suggest(text).map(x => x.ex)) : null); return; }
-          // a question about the interviews changes nothing: answer it straight away
-          if (plan.steps.length === 1 && plan.steps[0].action === 'story.ask') { runAsk(plan.steps[0].params.request || text); return; }
-          if (plan.steps.length === 1 && plan.steps[0].action === 'edit.ask') { runEdit(plan.steps[0].params.request || text, { where: plan.steps[0].params.where || 'sequence' }); return; }
-          showPlan(plan);
-          return;
-        }
-        const near = suggest(text);
-        bubble('bot', h('div', 'I didn’t recognise that as one of my built-in commands.'), near.length ? h('div', h('div.field-hint', 'Did you mean:'), chips(near.map(x => x.ex))) : chips(exampleChips(6)),
-          h('div.field-hint', 'Add a Claude or Gemini key in Settings and I’ll handle free-form requests.'), ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings') }));
-      }
-
-      /* ---------- recipes: saved chains of steps ---------- */
-      function recipeChips() {
-        if (!US.recipes) return null;
-        const rs = US.recipes.list().slice(0, 6);
-        return h('div', h('div.field-label', 'Recipes'), h('div.chat-chips', rs.map(r => h('button.chip', { title: US.recipes.describe(r), onclick: () => { bubble('me', `Run “${r.name}”`); runRecipe(r); } }, r.name)),
-          h('button.chip.ghost', { onclick: () => showRecipes() }, 'All recipes…')));
-      }
-      function showRecipes() {
-        const rows = US.recipes.list().map(r => h('div.list-row',
-          h('div.list-main', h('div.list-title', r.name, r.starter ? ui.pill('starter', 'var(--text-2)') : null), h('div.list-sub', US.recipes.describe(r))),
-          h('div.songs-actions',
-            ui.button('Run', { small: true, kind: 'primary', onClick: () => { bubble('me', `Run “${r.name}”`); runRecipe(r); } }),
-            r.starter ? null : ui.button('Rename', { small: true, kind: 'ghost', onClick: async () => { const nm = await ui.promptText({ title: 'Recipe name', value: r.name, ok: 'Rename' }); if (nm) { US.recipes.rename(r.id, nm); showRecipes(); } } }),
-            r.starter ? null : ui.button('Delete', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: `Delete the recipe “${r.name}”?`, ok: 'Delete', danger: true })) { US.recipes.remove(r.id); showRecipes(); } } }))));
-        bubble('bot wide', h('div', h('div', 'Recipes run their steps one after another, on whatever project is open. Save one from any plan (“Save as a recipe” after it runs) or from an edit.'), h('div.list', rows)));
-      }
-      async function saveRecipe(steps, suggested) {
-        const nm = await ui.promptText({ title: 'Save as a recipe', label: 'Name it so you can run it again on another project', value: suggested || '', ok: 'Save' });
-        if (!nm) return;
-        try { const r = US.recipes.save({ name: nm, steps }); ui.toast({ type: 'ok', title: `Saved “${r.name}”`, text: US.recipes.describe(r), timeout: 5000 }); } catch (e) { ui.showError(e); }
-      }
-      async function runRecipe(r) {
-        if (US.jobs.current) { ui.toast({ type: 'warn', title: 'Something else is still running.', text: 'Wait for it to finish, or press Stop.' }); return; }
-        const status = h('div.plan-status', 'Starting…'), lines = h('ol.plan-steps', r.steps.map(s => h('li', s.edit != null ? `Edit: “${s.edit}”` : US.say((US.actions.get(s.action) || {}).title || s.action))));
-        bubble('bot', h('div.plan', h('b', r.name), lines, status));
-        const out = await US.recipes.run(r, {
-          onStep: (i, s, phase, res) => { const li = lines.children[i]; if (!li) return; if (phase === 'start') { status.textContent = `Step ${i + 1} of ${r.steps.length}…`; li.classList.add('running'); } else { li.classList.remove('running'); li.classList.add('done'); if (res && res.summary) li.appendChild(h('div.field-hint', res.summary)); } },
-          onEdit: s => new Promise(resolve => { if (mode !== 'edit') { mode = 'edit'; modeSel.set && modeSel.set('edit'); whereBar.classList.remove('hidden'); } editConv = null; runEdit(s.edit, { where: s.where || 'sequence' }, resolve); })
+      const goTo = (m, t, seqId) => { if (t.seqId) US.host.call('openSequence', { seqId: t.seqId }).then(() => (t.start != null ? US.host.call('setPlayhead', { seqId: t.seqId, seconds: t.start }) : null)).catch(e => ui.showError(e)); else if (m && m.kind === 'timeline' && t.start != null) US.host.call('setPlayhead', { seqId: seqId || m.seq.id, seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
+      const targetName = t => (t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId || t.sequence ? t.name : t.seqName ? `${t.seqName}: ${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)}` : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim());
+      const RISK = { new: ['makes something new', 'var(--info)'], own: ['changes your own work', 'var(--warn)'], out: ['writes files', 'var(--warn)'], sees: ['stills leave this computer', 'var(--warn)'] };
+      /** A card to approve before a step runs. -> {ok, always, steps} */
+      function approve(c, card) {
+        return new Promise(res => {
+          const steps = card.steps || [], on = steps.map(() => true);
+          const rowsEl = steps.length ? h('ol.plan-steps', steps.map((s, i) => {
+            const more = h('div.edit-targets.hidden', s.targets.slice(0, 40).map(t => h('button.chip', { title: 'Go there', onclick: () => goTo(card.model, t) }, targetName(t))), s.targets.length > 40 ? h('span.field-hint', `…and ${s.targets.length - 40} more`) : null);
+            return h('li.edit-step', h('label.row', h('input', { type: 'checkbox', checked: true, onchange: e => { on[i] = e.target.checked; } }), h('div.grow', h('b', E.describe(s)), s.why ? h('div.field-hint', s.why) : null)), h('button.btn.small.ghost', { onclick: () => more.classList.toggle('hidden') }, 'Which'), more);
+          })) : null;
+          const status = h('div.plan-status');
+          const done = (r, text) => { c.pending = null; box.classList.add('chat-card-done'); status.textContent = text; drawTabs(); res(r); };
+          const go = always => { const pick = steps.filter((x, i) => on[i]); if (steps.length && !pick.length) { status.textContent = 'Tick at least one, or press Skip.'; return; } done({ ok: true, always, steps: pick }, always ? 'Approved – I won’t ask again in this chat for steps like this.' : 'Approved.'); };
+          const box = bubble(c, 'bot wide chat-card', h('div.plan',
+            h('div.row', h('div.field-label.grow', 'May I?'), RISK[card.risk] ? ui.pill(RISK[card.risk][0], RISK[card.risk][1]) : null),
+            h('div', h('b', US.say(card.title))), card.detail ? h('div.field-hint.pre', US.say(card.detail)) : null, rowsEl,
+            card.dropped && card.dropped.length ? h('div.field-hint', 'Left out: ' + card.dropped.join(' · ')) : null,
+            h('div.row.chat-card-btns', ui.button('Proceed', { kind: 'primary', small: true, icon: 'play', onClick: () => go(false) }),
+              card.risk === 'new' ? ui.button('Always proceed', { small: true, title: 'Don’t ask again in this chat before steps that only make new things (copies, new sequences, markers). Changes to your own work and exports are still asked about.', onClick: () => go(true) }) : null,
+              ui.button('Skip', { kind: 'ghost', small: true, onClick: () => done({ ok: false }, 'Skipped – it didn’t run.') })), status));
+          c.pending = v => { if (v == null) done({ ok: false }, 'Stopped.'); else if (/^(y|yes|yep|ok|okay|go|go ahead|proceed|do it|sure|fine)\b/i.test(v)) { bubble(c, 'me', v); go(false); } else { bubble(c, 'me', v); done({ ok: false, note: v }, 'Not run – I’ll go by what you said instead.'); } };
+          drawTabs();
         });
-        status.textContent = out.stoppedAt < 0 ? `All ${US.plural(out.of, 'step')} done.` : `Stopped at step ${out.stoppedAt + 1} of ${out.of}. Nothing after it ran.`;
+      }
+      /** At a limit: say what's been spent and let the editor decide. -> 'more' | 'free' | 'stop' */
+      function limit(c, l) {
+        return new Promise(res => {
+          const status = h('div.plan-status');
+          const done = (r, text) => { c.pending = null; box.classList.add('chat-card-done'); status.textContent = text; drawTabs(); res(r); };
+          const money = l.kind === 'money';
+          const box = bubble(c, 'bot wide chat-card', h('div.plan', h('div.row', h('div.field-label.grow', money ? 'Spending check' : 'Still going'), ui.pill(money ? usd(l.used) + ' so far' : `${l.used} steps`, 'var(--warn)')),
+            h('div', money ? `This request has used about ${usd(l.used)} of AI – the amount you set it to stop and ask at (${usd(l.limit)}). I’m not finished.` : `This request has taken ${l.used} steps and I’m not finished.`),
+            h('div.field-hint', `This chat altogether: ${usd(l.total)}. Nothing is lost if you stop – what’s made so far is kept.`),
+            h('div.row.chat-card-btns', ui.button(money ? `Carry on (up to ${usd(l.limit + budget)})` : 'Carry on', { kind: 'primary', small: true, onClick: () => done('more', 'Carrying on.') }),
+              ui.button('No limit for this chat', { small: true, title: 'This chat won’t stop to ask again. The cost keeps showing under the chat box, and your monthly limit in Settings still holds.', onClick: () => done('free', 'No limit for this chat – the cost keeps showing below.') }),
+              ui.button('Stop here', { kind: 'ghost', small: true, onClick: () => done('stop', 'Stopped here.') })), status));
+          c.pending = v => { if (v == null) done('stop', 'Stopped.'); else if (/^(y|yes|ok|okay|go|carry on|continue|more|sure)\b/i.test(v)) done('more', 'Carrying on.'); else done('stop', 'Stopped here.'); };
+          drawTabs();
+        });
+      }
+      /** A question with answers to pick from (or type one). -> the answer, or null */
+      function choose(c, q) {
+        return new Promise(res => {
+          const pr = q.project || { bins: [], sequences: [], clips: [] };
+          const status = h('div.plan-status'), own = h('input.input', { placeholder: 'Or type your answer' });
+          const done = (ans, shown) => { c.pending = null; box.classList.add('chat-card-done'); if (ans != null) bubble(c, 'me', shown || ans); else status.textContent = 'Closed.'; drawTabs(); res(ans); };
+          let picker = null;
+          if (q.kind === 'clip' && pr.clips.length) {
+            const pick = list => list.slice(0, 500).map(x => ({ value: x.id, label: `${x.name}${x.bin && x.bin !== '(Project root)' ? `  –  ${x.bin}` : ''}` }));
+            const sel = ui.select({ options: pick(pr.clips), placeholder: 'Choose the clip…', onChange: id => { const x = pr.clips.find(y => y.id === id); if (x) done(`the clip “${x.name}” (${x.id}${x.bin ? `, in ${x.bin}` : ''})`, x.name); } });
+            const find = h('input.input', { placeholder: 'Type part of its name to find it' });
+            find.addEventListener('input', () => { const w = find.value.trim().toLowerCase(); sel.setOptions(pick(w ? pr.clips.filter(x => `${x.name} ${x.file}`.toLowerCase().includes(w)) : pr.clips), ''); });
+            picker = h('div.edit-question', find, sel);
+          } else if (q.kind === 'bin' && pr.bins.length) picker = ui.select({ options: pr.bins.slice().sort((a, b) => a.localeCompare(b)).map(b => ({ value: b, label: b })), placeholder: 'Choose the bin…', onChange: b => { if (b) done(`the bin “${b}”`, b); } });
+          else if (q.kind === 'sequence' && pr.sequences.length) picker = ui.select({ options: pr.sequences.map(x => ({ value: x.id, label: `${x.name}${x.bin && x.bin !== '(Project root)' ? `  –  ${x.bin}` : ''}` })), placeholder: US.say('Choose the sequence…'), onChange: id => { const x = pr.sequences.find(y => y.id === id); if (x) done(`the sequence “${x.name}” (${x.id})`, x.name); } });
+          else if (q.kind === 'track') { const n = Math.max(3, ...pr.sequences.map(x => x.video || 0)) + 1, a = Math.max(3, ...pr.sequences.map(x => x.audio || 0)) + 1; picker = ui.select({ options: [...Array(n).keys()].map(i => 'V' + (i + 1)).concat([...Array(a).keys()].map(i => 'A' + (i + 1))).map(t => ({ value: t, label: t })), placeholder: 'Choose the track…', onChange: t => { if (t) done(`track ${t}`, t); } }); }
+          const send = () => { if (own.value.trim()) done(own.value.trim()); };
+          own.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+          const box = bubble(c, 'bot wide chat-card', h('div.plan', h('div.field-label', 'A question first'), h('div', h('b', US.say(q.question))),
+            q.options.length ? h('div.chat-chips', q.options.map(o => h('button.chip.chat-option', { onclick: () => done(o) }, US.say(o)))) : null, picker,
+            h('div.row.chat-card-btns', h('div.grow', own), ui.button('Answer', { small: true, onClick: send })), status));
+          c.pending = v => done(v);
+          drawTabs();
+        });
+      }
+      /** How it got there: what it understood, the plan and every step since the request, the AI and what it cost. */
+      function reasoning(c, end) {
+        const from = c.items.map(x => x.k).lastIndexOf('me', c.items.indexOf(end) < 0 ? c.items.length : c.items.indexOf(end)), part = c.items.slice(from + 1).filter(x => x !== end);
+        const u = part.find(x => x.k === 'understood'), plans = part.filter(x => x.k === 'plan'), steps = part.filter(x => x.k === 'step');
+        const body = h('div.chat-why.hidden',
+          u ? h('div', h('div.field-label', 'What I understood'), h('div', u.text)) : null,
+          plans.length ? h('div', h('div.field-label', 'The plan'), h('ol.agent-plan-list', plans[plans.length - 1].plan.map(p => h('li', p)))) : null,
+          steps.length ? h('div', h('div.field-label', 'What I did'), h('ol.agent-plan-list', steps.map(s => h('li', s.text, s.result ? h('span.agent-res', ' → ' + s.result) : null)))) : null,
+          h('div.field-hint', `${end.model || 'AI'} · ${US.plural(end.steps || 0, 'step')}${end.spent > 0.004 ? ` · about ${usd(end.spent)}` : ''}${steps.some(x => x.tool === 'look') ? ' · text and the stills you approved were sent' : ' · only text was sent'}`));
+        return h('div', h('button.btn.small.ghost.chat-why-btn', { onclick: () => body.classList.toggle('hidden') }, 'How I got there'), body);
+      }
+      function render(c, it, old = false) {
+        if (it.k === 'me') bubble(c, 'me', it.text);
+        else if (it.k === 'understood') bubble(c, 'bot chat-understood', h('div.field-label', 'What I understand'), h('div', it.text));
+        else if (it.k === 'plan') bubble(c, 'bot chat-plan', h('div.field-label', 'Plan'), h('ol.agent-plan-list', it.plan.map(p => h('li', p))));
+        else if (it.k === 'say') bubble(c, 'bot agent-say', it.text);
+        else if (it.k === 'step') { it.el = bubble(c, 'bot agent-tool', h('span.agent-step', US.say(it.text)), it.result ? h('span.agent-res', ' → ' + it.result) : null); }
+        else if (it.k === 'result') { const el = it.on && it.on.el; if (el) el.appendChild(h('span.agent-res', ' → ' + it.text)); }
+        else if (it.k === 'warn') bubble(c, 'bot agent-warn', it.text);
+        else if (it.k === 'card' && it.card === 'ask') { try { const a = US.story.asks().find(x => x.id === it.askId); if (a) showAsk(c, a); } catch (e) { /* the answer is gone */ } }
+        else if (it.k === 'undo' && !old) bubble(c, 'bot agent-say', ui.button('Undo that', { small: true, kind: 'ghost', title: 'Puts labels, names and bins back as they were', onClick: () => US.jobs.run({ title: 'Putting it back', tool: 'assistant' }, async () => { await E.undoItems(it.undo); return { summary: 'Put back as it was' }; }) }));
+        else if (it.k === 'unplace' && !old) bubble(c, 'bot agent-say', ui.button('Take them out again', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Taking them out again', tool: 'assistant' }, async () => ({ summary: `Took out ${US.plural(await E.unplace(it.unplace), 'clip')}` })) }));
+        else if (it.k === 'end') {
+          const seqs = (it.versions || []).filter((x, i, a) => a.findIndex(y => y.seqId === x.seqId) === i);
+          const list = (label, xs, cls) => (xs && xs.length ? h('div', h('div.field-label', label), h('ul.chat-list' + (cls || ''), xs.map(x => h('li', x)))) : null);
+          const asked = (c.items.slice(0, c.items.indexOf(it)).reverse().find(x => x.k === 'me') || {}).text || '';
+          bubble(c, 'bot wide chat-end', it.reply ? h('div.chat-reply', it.reply) : null, list('Done', it.done, '.ok'), list('Not done', it.notDone, '.no'), list('Worth checking', it.check),
+            seqs.length ? h('div', h('div.field-label', US.say('Sequences I made (yours are untouched)')), h('div.agent-seqs', seqs.map(x => h('div.row', h('span.grow', x.name, h('span.field-hint', ` – ${x.why}`)), ui.button('Open', { small: true, kind: 'ghost', onClick: () => US.host.call('openSequence', { seqId: x.seqId }).catch(err => ui.showError(err)) }))))) : null,
+            it.next && it.next.length && !old ? h('div.chat-chips', it.next.map(x => h('button.chip', { onclick: () => { input.value = x; submit(); } }, x))) : null,
+            it.spent > 0.004 ? h('div.field-hint', `This request: about ${usd(it.spent)} of AI (${it.model || 'AI'})${it.total > it.spent + 0.004 ? ` · this chat: ${usd(it.total)}` : ''}`) : null,
+            h('div.row', reasoning(c, it), asked && (it.steps || 0) > 1 && !old ? ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Ask for this again later, on any project, in one go', onClick: () => saveRecipe([{ edit: asked, where: 'sequence' }], asked.slice(0, 40)) }) : null));
+        }
+      }
+      /** An answer from the interviews, as its card. Changing it (“shorter”, “only Ruth”) asks again in the same conversation with the transcripts, read from the cache. */
+      function showAsk(c, a) {
+        bubble(c, 'bot wide', US.story.askCard(a, { onRefine: async t => {
+          bubble(c, 'me', t);
+          const thinking = bubble(c, 'bot', h('div.row', h('div.spinner.small'), h('span.muted', `${aiOn() ? US.ai.label() : 'The AI'} is reading your interviews…`)));
+          const r = await US.jobs.run({ title: 'Changing the answer', tool: 'assistant', who: US.jobs.WHO.ai, about: US.storyContext && US.storyContext.about ? US.storyContext.about(t) : '' }, job => US.story.askInterviews(job, { request: t, askId: a.id }));
+          thinking.remove();
+          if (r && r.ask) showAsk(c, r.ask);
+        } }));
       }
 
-      function showAll() {
+      /* ----- sending ----- */
+      const quick = text => text.length <= 70 && !/\b(and then|then|after that|and also)\b|[;\n]/i.test(text);
+      async function submit(text = input.value.trim(), c = cur) {
+        if (!text || !c) return;
+        // a question or approval is waiting: what's typed answers it
+        if (c.pending && c.status === 'asking') { input.value = ''; const p = c.pending; if (/^(no|skip|stop|cancel|don’t|dont|don't)\b/i.test(text)) p(null); else p(text); return; }
+        if (c.status !== 'idle') { ui.toast({ type: 'warn', title: 'This chat is still working.', text: 'Wait for it, press Stop, or start another chat with +.' }); return; }
+        input.value = '';
+        if (/^(help|what can you do\??|\?)$/i.test(text)) { bubble(c, 'me', text); showAll(c); return; }
+        // a built-in command, word for word: free and instant, with or without AI (in a new chat; a conversation goes to the AI)
+        const off = matchOffline(text), fresh = !c.context;
+        const own = s => s.action !== 'story.ask' && s.action !== 'edit.ask';
+        if (off.steps.length === 1 && own(off.steps[0]) && (!aiOn() || (fresh && quick(text)))) { note(c, text); showPlan(c, { reply: 'Here’s what I’ll do:', steps: off.steps }); return; }
+        if (!aiOn()) {
+          note(c, text);
+          if (off.steps.length === 1 && !own(off.steps[0])) { bubble(c, 'bot', h('div', 'That one needs AI – it has to read your project or interviews and work it out.'), h('div.field-hint', 'Add a Claude or Gemini key (or a local model) in Settings.'), ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings') })); return; }
+          if (off.alternatives.filter(own).length > 1) { bubble(c, 'bot', h('div', 'That could mean a few things. Which one?'), h('div.chat-chips', off.alternatives.filter(own).map(alt => { const a = US.actions.get(alt.action); return h('button.chip', { onclick: () => showPlan(c, { reply: 'Here’s what I’ll do:', steps: [{ action: alt.action, params: alt.params }] }) }, a.title); }))); return; }
+          const near = suggest(text);
+          bubble(c, 'bot', h('div', 'I didn’t recognise that as one of my built-in commands.'), near.length ? h('div', h('div.field-hint', 'Did you mean:'), chips(near.map(x => x.ex))) : chips(exampleChips(6)),
+            h('div.field-hint', 'Add a Claude or Gemini key in Settings and I’ll handle anything you ask.'), ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings') }));
+          return;
+        }
+        return converse(c, text);
+      }
+      /** A request typed in a chat that the AI doesn't handle (a built-in command): shown, and kept with the chat. */
+      function note(c, text) { if (c.title === 'New chat') c.title = C.titleOf(text); const it = { k: 'me', text, at: Date.now() }; c.items.push(it); render(c, it); drawTabs(); keep(); }
+      async function converse(c, text) {
+        try {
+          await C.send(c, text, { event: it => { render(c, it); keep(); drawCost(); }, status: () => drawTabs(), approve: card => approve(c, card), choose: q => choose(c, q), limit: l => limit(c, l) }, { mode, maxSteps: +US.settings.get('assistant.maxSteps', 25), budget });
+        } catch (e) { ui.showError(e); }
+        finally { c.pending = null; drawTabs(); keep(); if (c !== cur && US.ui.toast) ui.toast({ type: 'ok', title: `“${c.title}” has finished`, timeout: 5000, action: { label: 'Show', fn: () => { US.tools.open('assistant'); show(c); } } }); }
+      }
+
+      /* ----- built-in commands: the plan, then Run ----- */
+      function showAll(c) {
         const byTool = new Map();
         for (const a of US.actions.list()) { const n = (US.tools.get(a.tool) || {}).name || a.tool; if (!byTool.has(n)) byTool.set(n, []); byTool.get(n).push(a); }
-        bubble('bot', h('div', 'Here’s everything I can do:'), Array.from(byTool.entries()).map(([n, acts]) => h('div.chat-group', h('div.field-label', n), chips(acts.map(a => (a.examples && a.examples[0]) || a.title)))));
+        bubble(c, 'bot', h('div', 'Here’s everything I can do:'), Array.from(byTool.entries()).map(([n, acts]) => h('div.chat-group', h('div.field-label', n), chips(acts.map(a => (a.examples && a.examples[0]) || a.title)))));
       }
-
-      function showPlan(plan) {
+      function showPlan(c, plan) {
         const steps = plan.steps;
         const changes = steps.some(s => US.actions.get(s.action).changes);
         const runBtn = ui.button(steps.length > 1 ? `Run all ${steps.length} steps` : 'Run', { kind: 'primary', icon: 'play' });
@@ -269,7 +381,7 @@
           h('ol.plan-steps', steps.map(s => { const d = describeStep(s); return h('li', h('div', h('b', d.title), d.tool ? h('span.muted', ` · ${d.tool}`) : null), d.detail ? h('div.field-hint', d.detail) : null, d.changes ? ui.pill('makes new bins/sequences', 'var(--warn)') : null); })),
           changes ? h('div.field-hint', 'Your existing clips and sequences aren’t changed – anything new goes into new bins and sequences.') : null,
           h('div.row', runBtn, cancel), status);
-        bubble('bot', card);
+        bubble(c, 'bot', card);
         cancel.addEventListener('click', () => { runBtn.disabled = cancel.disabled = true; status.textContent = 'Cancelled.'; });
         runBtn.addEventListener('click', async () => {
           if (US.jobs.current) { ui.toast({ type: 'warn', title: 'Something else is still running.', text: 'Wait for it to finish, or press Stop.' }); return; }
@@ -277,149 +389,63 @@
           for (let i = 0; i < steps.length; i++) {
             status.textContent = `Running step ${i + 1} of ${steps.length}…`;
             const r = await US.actions.run(steps[i].action, steps[i].params);
-            if (r === undefined) { status.textContent = `Stopped at step ${i + 1}. Nothing after it ran.`; bubble('bot', h('div', `Step ${i + 1} didn’t finish – see the message above. ${i ? 'The earlier steps are done.' : ''}`)); return; }
-            bubble('bot', h('div.done', US.icon('ok', 15), h('span', `${describeStep(steps[i]).title}: ${r.summary || 'done'}`)));
-            if (r.ask) showAsk(r.ask);
+            if (r === undefined) { status.textContent = `Stopped at step ${i + 1}. Nothing after it ran.`; bubble(c, 'bot', h('div', `Step ${i + 1} didn’t finish – see the message above. ${i ? 'The earlier steps are done.' : ''}`)); return; }
+            bubble(c, 'bot', h('div.done', US.icon('ok', 15), h('span', `${describeStep(steps[i]).title}: ${r.summary || 'done'}`)));
+            if (r.ask) showAsk(c, r.ask);
           }
           status.textContent = 'All done.';
-          card.appendChild(h('div.row', ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Run these steps again later, on any project, in one go', onClick: () => saveRecipe(steps, plan.reply ? '' : '') })));
+          card.appendChild(h('div.row', ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Run these steps again later, on any project, in one go', onClick: () => saveRecipe(steps, '') })));
         });
       }
 
-      /** Ask the interviews (or follow up an earlier answer) and show the answer card. */
-      async function runAsk(text, askId = null) {
-        const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai && US.ai.available() ? US.ai.label() : 'The AI'} is reading your interviews…`)));
-        const r = await US.jobs.run({ title: askId ? 'Changing the answer' : 'Asking your interviews', tool: 'assistant', who: US.jobs.WHO.ai, about: US.storyContext && US.storyContext.about ? US.storyContext.about(text) : '' }, job => US.story.askInterviews(job, { request: text, askId }));
-        thinking.remove();
-        if (r && r.ask) showAsk(r.ask);
+      /* ----- recipes: saved chains of steps ----- */
+      function recipeChips(c) {
+        if (!US.recipes) return null;
+        const rs = US.recipes.list().slice(0, 6);
+        return h('div', h('div.field-label', 'Recipes'), h('div.chat-chips', rs.map(r => h('button.chip', { title: US.recipes.describe(r), onclick: () => { bubble(c, 'me', `Run “${r.name}”`); runRecipe(c, r); } }, r.name)),
+          h('button.chip.ghost', { onclick: () => showRecipes(c) }, 'All recipes…')));
       }
-      /* ---------- Edit: plan → check the plan → run (on a copy) → read back and check the result ---------- */
-      async function runEdit(text, over = null, onDone = null) {
-        const scope = Object.assign(scopeNow(), over || {});
-        const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', `${US.ai && US.ai.available() ? US.ai.label() : 'The AI'} is reading ${scope.where === 'bin' ? 'the bin' : scope.where === 'project' ? 'the project' : 'the sequence'} and planning…`)));
-        const r = await US.jobs.run({ title: editConv ? 'Changing the edit plan' : 'Planning the edit', tool: 'assistant', who: US.jobs.WHO.ai, about: US.storyContext && US.storyContext.about ? US.storyContext.about(text) : '' }, job => E.plan(job, { request: text, scope, conv: editConv }));
-        thinking.remove();
-        if (!r) { if (onDone) onDone(false); return; }
-        editConv = r.conv;
-        showEditPlan(r.plan, { onDone, request: text, where: scope.where });
+      function showRecipes(c) {
+        const rows = US.recipes.list().map(r => h('div.list-row',
+          h('div.list-main', h('div.list-title', r.name, r.starter ? ui.pill('starter', 'var(--text-2)') : null), h('div.list-sub', US.recipes.describe(r))),
+          h('div.songs-actions',
+            ui.button('Run', { small: true, kind: 'primary', onClick: () => { bubble(c, 'me', `Run “${r.name}”`); runRecipe(c, r); } }),
+            r.starter ? null : ui.button('Rename', { small: true, kind: 'ghost', onClick: async () => { const nm = await ui.promptText({ title: 'Recipe name', value: r.name, ok: 'Rename' }); if (nm) { US.recipes.rename(r.id, nm); showRecipes(c); } } }),
+            r.starter ? null : ui.button('Delete', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: `Delete the recipe “${r.name}”?`, ok: 'Delete', danger: true })) { US.recipes.remove(r.id); showRecipes(c); } } }))));
+        bubble(c, 'bot wide', h('div', h('div', 'Recipes run their steps one after another, on whatever project is open. Save one from any plan or finished request (“Save as a recipe”).'), h('div.list', rows)));
       }
-      function showEditPlan(p, { followUp = false, onDone = null, request = '', where = 'sequence' } = {}) {
-        const conv = editConv, m = conv.model, timeline = m.kind === 'timeline';
-        if (p.questions && p.questions.length) { showQuestions(p, { onDone }); return; }
-        if (!p.steps.length) {
-          bubble('bot', h('div', p.reply || (p.done ? 'That’s all done.' : 'I couldn’t find a way to do that with the edits I have.')), p.dropped.length ? h('div.field-hint', 'Left out: ' + p.dropped.join(' · ')) : null);
-          if (onDone) onDone(!!p.done);
-          return;
-        }
-        const on = p.steps.map(() => true);
-        const seqFor = () => conv.workSeqId || (m.seq && m.seq.id);
-        const goTo = t => { if (t.seqId) US.host.call('openSequence', { seqId: t.seqId }).then(() => (t.start != null ? US.host.call('setPlayhead', { seqId: t.seqId, seconds: t.start }) : null)).catch(e => ui.showError(e)); else if (timeline && t.start != null) US.host.call('setPlayhead', { seqId: seqFor(), seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
-        const stepRow = (s, i) => {
-          const more = h('div.edit-targets.hidden', s.targets.slice(0, 40).map(t => h('button.chip', { title: 'Go there', onclick: () => goTo(t) }, t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId || t.sequence ? t.name : t.seqName ? `${t.seqName}: ${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)}` : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim())), s.targets.length > 40 ? h('span.field-hint', `…and ${s.targets.length - 40} more`) : null);
-          const box = h('input', { type: 'checkbox', checked: true, onchange: e => { on[i] = e.target.checked; } });
-          return h('li.edit-step', h('label.row', box, h('div.grow', h('b', E.describe(s)), s.why ? h('div.field-hint', s.why) : null)), h('button.btn.small.ghost', { onclick: () => more.classList.toggle('hidden') }, 'Which'), more);
-        };
-        const own = x => x.op === 'append' || x.multi, onTimeline = timeline && p.steps.some(x => !own(x)), adding = p.steps.some(own);
-        const copyToggle = onTimeline && !conv.workSeqId ? ui.toggle({ label: 'Work on a copy of the sequence', hint: `Off: “${m.seq.name}” itself changes (Edit › Undo in Premiere can take steps back one by one).`, value: US.settings.get('editAsk.copy', true), onChange: x => US.settings.set('editAsk.copy', x) }) : null;
-        const runBtn = ui.button(p.steps.length > 1 ? `Run ${p.steps.length} edits` : 'Run', { kind: 'primary', icon: 'play' }), cancel = ui.button('Cancel', { kind: 'ghost' }), status = h('div.plan-status');
-        const card = h('div.plan',
-          followUp ? h('div.field-label', 'Still to do') : null,
-          p.reply ? h('div', p.reply) : null,
-          h('ol.plan-steps', p.steps.map(stepRow)),
-          p.dropped.length ? h('div.field-hint', 'Left out: ' + p.dropped.join(' · ')) : null,
-          copyToggle, onTimeline && conv.workSeqId ? h('div.field-hint', `Runs on the copy “${conv.workSeqName}”.`) : null,
-          adding ? h('div.field-hint', US.say('Edits in other sequences change those sequences themselves (no copies). You’ll be asked to confirm first.')) : null,
-          !timeline && p.steps.some(x => !own(x)) ? h('div.field-hint', 'This changes clips in your project. Labels, names and bins can be put back with Undo afterwards.') : null,
-          h('div.row', runBtn, cancel), status,
-          h('div.field-hint', 'Not right? Type what to change below and I’ll redo the plan.'));
-        bubble('bot wide', card);
-        cancel.addEventListener('click', () => { runBtn.disabled = cancel.disabled = true; status.textContent = 'Cancelled.'; if (onDone) onDone(false); });
-        runBtn.addEventListener('click', async () => {
-          const steps = p.steps.filter((x, i) => on[i]);
-          if (!steps.length) { status.textContent = 'Tick at least one edit.'; return; }
-          // the editor's own sequences change: say which, and ask
-          const adds = steps.filter(x => x.op === 'append' || x.multi);
-          if (adds.length) {
-            const seqsOf = x => (x.multi ? x.perSeq.map(y => ({ id: y.seqId, name: y.name })) : x.targets.map(t => ({ id: t.seqId, name: t.name })));
-            const names = [...new Set(adds.flatMap(x => seqsOf(x).map(y => y.name)))], n = new Set(adds.flatMap(x => seqsOf(x).map(y => y.id))).size;
-            const yes = await ui.modal({
-              title: US.say(`Change ${US.plural(n, 'sequence')} of your own?`),
-              body: h('div', h('p', US.say(`${adds.map(x => E.describe(x)).join(' · ')}. This goes into the sequences themselves – no copies are made.`)),
-                h('pre.mono', names.slice(0, 12).join('\n') + (names.length > 12 ? `\n…and ${names.length - 12} more` : '')),
-                h('p.field-hint', adds.every(x => x.op === 'append') ? 'Afterwards, “Take them out again” removes exactly what was added.' : US.say('Premiere’s Edit › Undo takes the changes back one at a time.'))),
-              buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: US.say(`Change ${US.plural(n, 'sequence')}`), value: true, kind: 'primary' }]
-            });
-            if (!yes) { status.textContent = 'Not run – nothing changed.'; return; }
-          }
-          runBtn.disabled = cancel.disabled = true; status.textContent = 'Running…';
-          const out = await US.jobs.run({ title: 'Editing', tool: 'assistant' }, job => E.run(job, conv, steps, { copy: !timeline ? false : conv.workSeqId ? true : US.settings.get('editAsk.copy', true) }));
-          if (!out) { status.textContent = 'Stopped – see the message above.'; if (onDone) onDone(false); return; }
-          status.textContent = 'Done.';
-          if (request && !followUp) card.appendChild(h('div.row', ui.button('Save as a recipe', { small: true, kind: 'ghost', icon: 'plus', title: 'Ask for this edit again later, on any sequence, in one go', onClick: () => saveRecipe([{ edit: request, where }], request.slice(0, 40)) })));
-          bubble('bot', h('div.done', US.icon('ok', 15), h('span', out.summary)),
-            h('ul.edit-results', out.results.map(x => h('li', `${E.describe(x.step)}: ${x.unsupported ? x.why : `${x.done} done${x.skipped && x.skipped.length ? ` · ${x.skipped.length} skipped (${[...new Set(x.skipped.map(k => k.why))].slice(0, 2).join('; ')})` : ''}`}`))),
-            out.unplace && out.unplace.length ? ui.button('Take them out again', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Taking them out again', tool: 'assistant' }, async () => ({ summary: `Took out ${US.plural(await E.unplace(out.unplace), 'clip')}` })) }) : null,
-            out.undo && out.undo.length ? ui.button('Undo', { small: true, kind: 'ghost', onClick: () => US.jobs.run({ title: 'Putting it back', tool: 'assistant' }, async () => { await E.undoItems(out.undo); return { summary: 'Put back as it was' }; }) }) : null);
-          // stage 2: read back what happened and check it against the request
-          const thinking = bubble('bot', h('div.row', h('div.spinner.small'), h('span.muted', 'Checking the result…')));
-          const c = await US.jobs.run({ title: 'Checking the edit', tool: 'assistant', who: US.jobs.WHO.ai }, job => E.check(job, conv, out));
-          thinking.remove();
-          if (!c) { if (onDone) onDone(true); return; }
-          editConv = c.conv;
-          if (c.plan.steps.length) showEditPlan(c.plan, { followUp: true, onDone });
-          else { bubble('bot', h('div', c.plan.reply || 'That looks done.')); if (onDone) onDone(true); }
+      async function saveRecipe(steps, suggested) {
+        const nm = await ui.promptText({ title: 'Save as a recipe', label: 'Name it so you can run it again on another project', value: suggested || '', ok: 'Save' });
+        if (!nm) return;
+        try { const r = US.recipes.save({ name: nm, steps }); ui.toast({ type: 'ok', title: `Saved “${r.name}”`, text: US.recipes.describe(r), timeout: 5000 }); } catch (e) { ui.showError(e); }
+      }
+      async function runRecipe(c, r) {
+        if (US.jobs.current || c.status !== 'idle') { ui.toast({ type: 'warn', title: 'Something else is still running.', text: 'Wait for it to finish, or press Stop.' }); return; }
+        const status = h('div.plan-status', 'Starting…'), lines = h('ol.plan-steps', r.steps.map(s => h('li', s.edit != null ? `Ask: “${s.edit}”` : US.say((US.actions.get(s.action) || {}).title || s.action))));
+        bubble(c, 'bot', h('div.plan', h('b', r.name), lines, status));
+        const out = await US.recipes.run(r, {
+          onStep: (i, s, phase, res) => { const li = lines.children[i]; if (!li) return; if (phase === 'start') { status.textContent = `Step ${i + 1} of ${r.steps.length}…`; li.classList.add('running'); } else { li.classList.remove('running'); li.classList.add('done'); if (res && res.summary) li.appendChild(h('div.field-hint', res.summary)); } },
+          // a step in words is asked in this chat, like typing it
+          onEdit: async s => { if (!aiOn()) return false; const where = { selection: ' (on the selected clips)', transcripts: ' (on the transcript lines heard in the sequence)', bin: ' (in the bin)', project: ' (in the whole project)' }[s.where] || ''; const n = c.items.length; await converse(c, s.edit + where); return c.items.slice(n).some(x => x.k === 'end'); }
         });
+        status.textContent = out.stoppedAt < 0 ? `All ${US.plural(out.of, 'step')} done.` : `Stopped at step ${out.stoppedAt + 1} of ${out.of}. Nothing after it ran.`;
       }
-      /** Not sure yet (the AI asked, or the panel couldn't pin down the clip, sequences or track): ask with a picker for
-          each, then plan again with the answers. Typing an answer below works too. */
-      function showQuestions(p, { onDone = null } = {}) {
-        const pr = (editConv && editConv.model.project) || { bins: [], sequences: [], clips: [] };
-        const seqBins = new Map(); for (const x of pr.sequences) seqBins.set(x.bin, (seqBins.get(x.bin) || 0) + 1);
-        const maxV = Math.max(3, ...pr.sequences.map(x => x.video || 0)) + 1, maxA = Math.max(3, ...pr.sequences.map(x => x.audio || 0)) + 1;
-        const rows = p.questions.map(q => {
-          let el, get;
-          if (q.kind === 'clip') {
-            const pick = list => list.slice(0, 500).map(c => ({ value: c.id, label: `${c.name}${c.bin && c.bin !== '(Project root)' ? `  –  ${c.bin}` : ''}` }));
-            const likely = pr.clips.filter(c => q.options.includes(c.name)), start = likely.length ? likely : pr.clips;
-            const sel = ui.select({ options: pick(start), placeholder: 'Choose the clip…' });
-            const find = h('input.input', { placeholder: 'Type part of its name to find it' });
-            find.addEventListener('input', () => { const w = find.value.trim().toLowerCase(); sel.setOptions(pick(w ? pr.clips.filter(c => `${c.name} ${c.file}`.toLowerCase().includes(w)) : start), ''); });
-            el = h('div', find, sel);
-            get = () => { const c = pr.clips.find(x => x.id === sel.get()); return c ? `the clip “${c.name}” (${c.id}${c.bin ? `, in ${c.bin}` : ''})` : ''; };
-          } else if (q.kind === 'bin' || q.kind === 'sequences') {
-            const all = (q.kind === 'sequences' ? [...seqBins.keys()] : pr.bins.slice()).sort((a, b) => a.localeCompare(b));
-            const first = q.options.filter(b => all.includes(b)), list = first.concat(all.filter(b => !first.includes(b)));
-            const sel = ui.select({ options: list.map(b => ({ value: b, label: q.kind === 'sequences' ? `${b} (${US.plural(seqBins.get(b) || 0, 'sequence')})` : b })), placeholder: 'Choose the bin…' });
-            el = sel;
-            get = () => (!sel.get() ? '' : q.kind === 'sequences' ? `every sequence in the bin “${sel.get()}” (${US.plural(seqBins.get(sel.get()) || 0, 'sequence')})` : `the bin “${sel.get()}”`);
-          } else if (q.kind === 'track') {
-            const tracks = [...Array(maxV).keys()].map(i => 'V' + (i + 1)).concat([...Array(maxA).keys()].map(i => 'A' + (i + 1)));
-            const sel = ui.select({ options: tracks.map(t => ({ value: t, label: t })), placeholder: 'Choose the track…' });
-            el = sel; get = () => (sel.get() ? `track ${sel.get()}` : '');
-          } else if (q.kind === 'choice' && q.options.length) {
-            let v = '';
-            el = ui.segmented({ options: q.options.map(o => ({ value: o, label: o })), value: '', onChange: x => { v = x; } });
-            get = () => v;
-          } else { el = h('input.input', { placeholder: 'Your answer' }); get = () => el.value.trim(); }
-          return { q, el, get };
-        });
-        const go = ui.button('Answer', { kind: 'primary' }), cancel = ui.button('Cancel', { kind: 'ghost' }), status = h('div.plan-status');
-        bubble('bot wide', h('div.plan', p.reply ? h('div', p.reply) : null, h('div.field-label', p.questions.length > 1 ? 'A few questions first' : 'One question first'),
-          rows.map(r => h('div.edit-question', h('div', US.say(r.q.ask)), r.el)), h('div.row', go, cancel), status,
-          h('div.field-hint', 'Or type your answer below.')));
-        cancel.addEventListener('click', () => { go.disabled = cancel.disabled = true; status.textContent = 'Cancelled – nothing changed.'; if (onDone) onDone(false); });
-        go.addEventListener('click', () => {
-          const answers = rows.map(r => ({ ask: r.q.ask, a: r.get() }));
-          if (answers.every(x => !x.a)) { status.textContent = 'Answer at least one question (or type your answer below).'; return; }
-          go.disabled = cancel.disabled = true;
-          bubble('me', answers.filter(x => x.a).map(x => x.a).join(' · '));
-          runEdit('My answers:\n' + answers.map(x => `- ${x.ask} → ${x.a || '(left unanswered – doesn’t apply, or decide sensibly)'}`).join('\n'), null, onDone);
-        });
-      }
-      function showAsk(a) { bubble('bot wide', US.story.askCard(a, { onRefine: t => { bubble('me', t); runAsk(t, a.id); } })); }
 
-      greet();
-      return { el: v.el, onShow() { if (!history.length) greet(); setTimeout(() => input.focus(), 50); } };
+      /* ----- putting it together ----- */
+      v.body.append(h('div.chat-top', tabs, counter), h('div.row.chat-opts', modeSel, modelSel, limitSel), logs, h('div.chat-bar', input, sendBtn, stopBtn), costLine);
+      function load() {
+        for (const c of chats) c.logEl.remove();
+        chats = [];
+        try { for (const s of stored().open.slice(0, 8)) { const c = C.fromStored(s); chats.push(c); mount(c); } } catch (e) { chats = []; }
+        show(chats.length ? chats[chats.length - 1] : add());
+      }
+      let project = (US.ctx && US.ctx.project && (US.ctx.project.path || US.ctx.project.name)) || '';
+      load();
+      US.bus.on('settings', US.debounce(drawModels, 300));
+      US.bus.on('secrets', US.debounce(() => { drawModels(); if (cur && !cur.items.length) { US.clear(cur.logEl); cur.bubbles = []; greet(cur); } }, 300));
+      // another project: its own chats (ones still working carry on and stay)
+      US.bus.on('context', US.debounce(() => { const p = (US.ctx && US.ctx.project && (US.ctx.project.path || US.ctx.project.name)) || ''; if (p !== project) { project = p; if (!chats.some(c => c.status !== 'idle')) load(); } }, 800));
+      return { el: v.el, onShow() { drawModels(); drawTabs(); setTimeout(() => input.focus(), 50); }, _chats: () => chats, _submit: submit, _show: show, _add: add };
     }
   });
 })();

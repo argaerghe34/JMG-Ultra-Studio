@@ -38,8 +38,9 @@ US.tools.open('assistant');
 // the Assistant's own chat (Story › Ask has one too): the tool view that has the chat box and is showing
 const view = Array.from(document.querySelectorAll('.chat-input')).map(i => i.closest('.tool')).find(v => v && !v.closest('.hidden') && v.offsetParent !== null) || document.querySelector('.chat-input').closest('.tool');
 const input = view.querySelector('.chat-input');
-// the plan cards are Anything mode's (the editor's own mode may be My interviews or Edit – the runner puts it back)
-const anything = Array.from(view.querySelectorAll('.chat-mode .seg')).find(b => b.textContent === 'Anything'); if (anything) anything.click();
+// a built-in command typed in a new chat shows its plan card straight away (an earlier conversation would go to the AI)
+T.assert(!view.querySelector('.chat-mode') && view.querySelector('.chat-tab.chat-new'), 'one chat box, with chats as tabs');
+view.querySelector('.chat-tab.chat-new').click();
 await T.sleep(50);
 input.value = 'lines about family';
 input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));

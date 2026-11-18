@@ -52,6 +52,47 @@
       }
 
       /* on this computer: a local model, and the per-project "nothing leaves" switch */
+      /* Footage: may stills leave, who looks, and the optional models for this computer (never downloaded by default) */
+      function footageField() {
+        const F = US.footage; if (!F) return null;
+        const box = h('div'), proj = US.ctx && US.ctx.project ? US.ctx.project.name : '';
+        const set = (k, x) => { US.settings.set(k, x); draw(); };
+        async function draw() {
+          US.clear(box);
+          const L = F.looker(), off = US.ai.projectOffline(), cloud = US.ai.choices().filter(c => c.provider === 'claude' || c.provider === 'gemini');
+          const withSeg = ui.segmented({ options: [{ value: 'cloud', label: 'Claude or Gemini', title: 'Best descriptions. Small stills leave this computer – only for projects you switch it on for.' }, { value: 'local', label: 'A model on this computer', title: 'Nothing leaves this computer. Needs one of the optional models below.' }], value: off ? 'local' : US.settings.get('footage.with', 'cloud'), onChange: x => set('footage.with', x) });
+          box.append(
+            h('div.field-hint', 'Ultra Studio can look at your footage so Ask can find shots by what’s in them (“the drone shots over water”) and answer questions about a clip. It looks at a few small stills of each clip – 512 pixels wide, one for a short clip, up to four for a long one – and keeps a description in words. Never video, never sound. Each clip is described once.'),
+            ui.field('Who looks at the stills', withSeg, off ? `“${proj}” is set to “nothing leaves this computer”, so only a model on this computer can look.` : L.where === 'none' ? L.why : `Now: ${L.label}.`),
+            !off && proj ? ui.toggle({ label: `“${proj}”: small stills may be sent to Claude or Gemini`, hint: 'Off until you switch it on, project by project. Ask still shows a card before it sends stills for a question. What was sent to AI lists every still that went (which clip and time) – the pictures themselves aren’t kept there.', value: US.ai.stillsOn(), onChange: x => { US.ai.setStills(x); draw(); } }) : null,
+            !off && cloud.length ? ui.field('With', ui.select({ options: [{ value: '', label: 'The cheapest that does it well (automatic)' }].concat(cloud.map(c => ({ value: c.id, label: c.label }))), value: US.settings.get('footage.model', ''), onChange: x => set('footage.model', x) }),
+              L.where === 'cloud' && L.provider === 'claude' ? `About ${US.ai.fmtUSD(F.costFor(100, 2, L.model))} for 100 clips with ${L.label} (stills in, a few lines out).` : L.where === 'cloud' ? 'Within Google’s free allowance for most projects.' : '') : null,
+            ui.field('Stills from a long clip', ui.select({ options: [1, 2, 3, 4].map(n => ({ value: String(n), label: n === 1 ? 'One' : `Up to ${n}` })), value: String(US.settings.get('footage.stills', 4)), onChange: x => set('footage.stills', +x) }), 'More stills describe a long clip better and cost a little more.'),
+            h('div.field-label', 'Models on this computer (optional)'),
+            h('div.field-hint', 'Only needed if you want footage looked at on this computer instead of by Claude or Gemini. Nothing here is downloaded unless you press Download; each stays until you press Remove. They run in Ollama, a free app (ollama.com).'));
+          const list = h('div.list'); box.appendChild(list);
+          let st = { running: false, kind: '', installed: [] };
+          try { st = await F.modelStatus(); } catch (e) { /* shown as not running */ }
+          if (!st.running) list.appendChild(h('div.list-row', h('div.list-main', h('div.list-title', 'Ollama isn’t running on this computer'), h('div.list-sub', 'Get it from ollama.com and open it once; then the models below can be downloaded here.')), h('div.songs-actions', ui.button('ollama.com', { small: true, onClick: () => US.host.openUrl && US.host.openUrl('https://ollama.com/download') }), ui.button('Check again', { small: true, kind: 'ghost', onClick: draw }))));
+          const has = id => st.installed.some(x => x.toLowerCase() === id.toLowerCase());
+          for (const m of F.MODELS) {
+            const here = has(m.id), used = F.visionModel().toLowerCase() === m.id.toLowerCase();
+            list.appendChild(h('div.list-row',
+              h('div.list-main', h('div.list-title', m.name, m.best ? ui.pill('recommended', 'var(--info)') : null, here ? ui.pill(used ? 'on this computer · in use' : 'on this computer', 'var(--ok)') : null),
+                h('div.list-sub', `${m.size} · ${m.needs}. ${m.what}`), h('div.list-sub', `Used for: ${m.where}`)),
+              h('div.songs-actions',
+                here ? (used ? null : ui.button('Use this one', { small: true, onClick: () => { US.settings.set('footage.localModel', m.id); draw(); } })) : ui.button(`Download (${m.size})`, { small: true, kind: 'primary', disabled: !st.running, title: st.running ? `Downloads ${m.name} to this computer` : 'Start Ollama first', onClick: async () => { await US.jobs.run({ title: `Downloading ${m.name}`, tool: 'settings', who: 'Your computer' }, job => F.download(m.id, job)); draw(); } }),
+                here ? ui.button('Remove', { small: true, kind: 'ghost', title: `Frees ${m.size} on this computer`, onClick: async () => { if (!(await ui.confirm({ title: `Remove ${m.name} from this computer?`, text: `It frees ${m.size}. You can download it again later.`, ok: 'Remove', danger: true }))) return; try { await US.ai.removeLocal(m.id); if (used) US.settings.set('footage.localModel', ''); } catch (e) { ui.showError(e); } draw(); } }) : null)));
+          }
+          // a vision model the editor got themselves (LM Studio, or another from Ollama)
+          const others = st.installed.filter(x => !F.MODELS.some(m => m.id.toLowerCase() === x.toLowerCase()));
+          if (others.length || F.visionModel()) box.appendChild(ui.field('Or another model you already have', ui.select({ options: [{ value: '', label: 'None chosen' }].concat(Array.from(new Set(others.concat(F.visionModel() ? [F.visionModel()] : []))).map(x => ({ value: x, label: x }))), value: F.visionModel(), onChange: x => set('footage.localModel', x) }), 'It must be a model that can take pictures (a “vision” model).'));
+        }
+        draw();
+        const wrap = h('div', ui.section('Footage – what the AI may see', [box], { open: false }));
+        wrap.dataset.section = 'footage';
+        return wrap;
+      }
       function localField() {
         const url = ui.input({ value: US.settings.get('ai.localUrl', US.ai.LOCAL_URL), placeholder: US.ai.LOCAL_URL, onInput: x => US.settings.set('ai.localUrl', x.trim()) });
         const modelSel = ui.select({ options: [{ value: US.settings.get('ai.localModel', ''), label: US.settings.get('ai.localModel', '') || 'Press Find models…' }], value: US.settings.get('ai.localModel', ''), onChange: x => { US.settings.set('ai.localModel', x); status(); } });
@@ -138,6 +179,7 @@
           ui.field('Gemini model', h('div.row', h('div.grow', gemSel), gemCheck), h('span', gemHint, ' Free tier: Google may use what you send to improve its products, and people there may read it – so not for interviews you’ve promised to keep private. Its daily limits are low (check aistudio.google.com › Rate limits). With billing switched on in Google AI Studio, Google doesn’t use it, and 3.8 Flash costs $0.75 / $3.75 per million tokens in / out until 31 Dec 2026, then $1.50 / $7.50.')),
           ui.toggle({ label: 'Read the interviews once and share them (Claude)', hint: 'Every Story AI feature and Ask start from the same copy of your transcripts, which Claude keeps for an hour – after the first request each reads them at a twentieth of the price. Off: each feature sends its own selection of lines (the “How much the AI reads” sliders).', value: US.settings.get('ai.shareTranscripts', true) !== false, onChange: x => US.settings.set('ai.shareTranscripts', x) }),
           localField(),
+          footageField(),
           ui.field('Claude model', modelSel, 'Opus gives the best story judgement. Sonnet costs about half; Haiku a fortieth but is noticeably weaker at story work.'),
           ui.section('Cost', [
             spendBox, keysBox,
@@ -151,8 +193,6 @@
         ui.card(h('div.card-title', 'Markers'),
           ui.field('Markers go on', ui.segmented({ options: [{ value: 'sequence', label: 'Timeline' }, { value: 'clips', label: 'Clips' }, { value: 'both', label: 'Both' }], value: US.settings.get('markers.where', 'sequence'), onChange: x => US.settings.set('markers.where', x) }),
             'For every tool that marks a sequence (Story, Selects, Beats, Songs, Silence Cut, Final Check, Deliver notes). Clips: each marker goes on the source clip under it, so it shows wherever that clip is used. A marker with no clip under it stays on the timeline. Remove buttons take them off either way.')),
-        ui.card(h('div.card-title', 'Agent'),
-          ui.toggle({ label: 'Show the Agent', value: US.settings.get('agent.enabled', true) !== false, onChange: x => { US.settings.set('agent.enabled', !!x); ui.toast({ type: 'info', title: x ? 'The Agent comes back when the panel next opens.' : 'The Agent is switched off.', text: 'Close and reopen the panel (or press ↻ in the top bar) for it to take effect.', timeout: 8000 }); }, hint: 'The Agent works towards a goal on its own (new in 1.3.28). Switched off, its tab and its Assistant command are gone and everything else works as in 1.3.27. To remove it completely, install 1.3.27 from GitHub › Releases.' })),
         ui.card(h('div.card-title', 'Story'),
           ui.toggle({ label: 'Keep Ultra Studio’s work with the project', value: US.settings.get('story.withProject', true) !== false, onChange: x => { US.settings.set('story.withProject', x); if (x && US.story && US.story.save) US.story.save(); }, hint: 'Everything Ultra Studio keeps for a project – Story’s transcripts, themes, wiki, narratives, Find searches and answers, and the other tools’ markers, Memory Box and your choices – is also saved in a “JMG Ultra Studio” folder next to the project (for Resolve, next to its media). The project opened on another computer – from the same drive, or a copy of the folder – finds it all, and nothing is made or paid for again. Anyone you share that folder with can read the transcripts. Switched off, it’s kept on this computer only.' })),
         ui.card(h('div.card-title', 'Files'),
@@ -319,7 +359,7 @@
             row('Interview log', 'everything – speakers, themes, strongest lines, moments, timecodes.', 'the summary of each interview.'),
             row('Overnight prep', 'runs the basic Themes, Moments and log.', '')]),
           h('div.field-label', 'Needs AI'),
-          h('div.field-hint', 'Ask › My interviews, and free-form requests in Ask › Anything – without AI, Ask still understands its built-in commands (“cut the silences”, “find the bloopers”…) and type “help” to list them.'),
+          h('div.field-hint', 'Ask – anything in your own words: edits, questions about your interviews, several steps at once. Without AI, Ask still understands its built-in commands (“cut the silences”, “find the bloopers”…) and type “help” to list them.'),
           h('div.field-label', 'When the AI is set up but fails'),
           h('div.field-hint', 'No internet, a usage limit or a cost you decline: you get a message saying what happened and nothing is half done. Find themes has a “Without AI” button, the other features a switch to turn the AI off; the interview log leaves out the summaries; Find more falls back to its word search.')
         ], { open: false }));

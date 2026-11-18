@@ -83,5 +83,45 @@
   /** A short name for what was asked: for the sequence, the document and the chat. */
   function title(request) { const w = String(request || '').replace(/[“”"]/g, '').trim().split(/\s+/); return (w.slice(0, 7).join(' ') + (w.length > 7 ? '…' : '')).replace(/^./, c => c.toUpperCase()) || 'Ask'; }
 
-  US.storyAsk = { RULES, task, followUp, organise, indexOf, linesOf, lengthOf, totals, wantedLength, title, MAX_SPAN };
+  /* ---------- already in your cut ---------- */
+  /** Is the editor asking for what isn't in their cut yet? (“which stories about Grandma haven’t I used?”, “what’s not in my cut”) */
+  function asksUnused(request) {
+    const t = String(request || '').toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, ' ');
+    const neg = "(?:haven't|have not|havent|didn't|did not|didnt|have yet to|am not|aren't|are not)", use = "(?:used?|using|included?|including|put in)\\b(?! to\\b)";
+    const cut = "(?:cut|edit|sequence|timeline|film|video|string-?out)";
+    return [
+      /\bun-?used\b/, /\b(?:i|we) never (?:used|included|put in)\b(?! to\b)/,
+      new RegExp(`\\b(?:i|we|i've|we've) ${neg} (?:yet |already )?${use}`), // “lines I haven't used”
+      new RegExp(`\\b${neg} (?:i|we) (?:yet |already )?${use}`), // “which haven't I used yet?”
+      new RegExp(`\\b(?:not|isn't|aren't|isnt|arent) (?:yet |already |been )*${use}`), // “what's not used yet”
+      new RegExp(`\\b(?:not|isn't|aren't|isnt|arent|missing|left out|absent) (?:yet |already )?(?:in|from|of) (?:my|the|our|this) ${cut}\\b`) // “not in my cut”
+    ].some(re => re.test(t));
+  }
+  /** How much of a clip is already heard in the cut: 'all', 'part' or ''. heard: Set of line ids (the lead doesn't count). */
+  function inCut(item, idx, heard) {
+    const ls = linesOf(item, idx);
+    if (!ls.length || !heard || !heard.size) return '';
+    const n = ls.filter(l => heard.has(l.id)).length;
+    return n === ls.length ? 'all' : n ? 'part' : '';
+  }
+  /** {all, part, clips} over some groups */
+  function cutTotals(groups, idx, heard) { const t = { all: 0, part: 0, clips: 0 }; for (const g of groups) for (const it of g.items) { t.clips++; const c = inCut(it, idx, heard); if (c) t[c]++; } return t; }
+  /** The groups without the clips that are wholly in the cut (a group left empty goes too). */
+  function withoutCut(groups, idx, heard) { return groups.map(g => Object.assign({}, g, { items: g.items.filter(it => inCut(it, idx, heard) !== 'all') })).filter(g => g.items.length); }
+  /** For the AI, after the task: the lines of this part that the cut already uses, as ids and runs of ids. Text only. */
+  function cutNote(part, heard, max = 6000) {
+    const runs = [];
+    for (const p of part || []) {
+      let a = null, b = null;
+      const flush = () => { if (a) runs.push(a === b ? a : `${a}–${b}`); a = b = null; };
+      for (const l of p.lines || []) { if (heard.has(l.id)) { if (!a) a = l.id; b = l.id; } else flush(); }
+      flush();
+    }
+    if (!runs.length) return '\nThe editor’s cut doesn’t use any of these lines yet.';
+    let list = '';
+    for (const r of runs) { if (list.length + r.length + 1 > max) { list += ' …'; break; } list += (list ? ' ' : '') + r; }
+    return `\nThe editor’s cut already uses these lines (an id, or first–last of a run): ${list}\nThey want what the cut doesn’t have yet: leave those lines out of the groups, and say in “answer” if most of what fits is already in the cut.`;
+  }
+
+  US.storyAsk = { RULES, task, followUp, organise, indexOf, linesOf, lengthOf, totals, wantedLength, title, MAX_SPAN, asksUnused, inCut, cutTotals, withoutCut, cutNote };
 })();

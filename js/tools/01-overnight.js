@@ -14,6 +14,7 @@
     { id: 'log', label: 'Write the interview log', hint: 'Story · a Word document: each interview’s themes, strongest lines and moments (with AI, a short summary too)' },
     { id: 'beats', label: 'Make the beat map', hint: 'Story · every passage scored on what you chose in Build › Beat map' },
     { id: 'clips', label: 'Find clips for social', hint: 'Story · from the interviews, as set in Build › Clips for social' },
+    { id: 'look', label: 'Describe the footage', hint: 'A few small stills of each clip are looked at and described in words, so Ask can find shots by what’s in them. Who looks is in Settings › AI › Footage – Claude or Gemini (stills leave this computer; switch it on there for this project) or a model on this computer. Each clip is done once. No Media Encoder: clips the panel can’t read wait for the Selects step’s copies.' },
     { id: 'recipe', label: 'Then run a recipe', hint: 'One of your recipes (Ask › Recipes) – edit steps are left for the morning, as they need checking' },
     { id: 'selects', label: 'Analyse all the footage for Selects', hint: resolve ? 'Resolve makes small copies of clips the panel can’t read; afterwards Selects grades any bin instantly' : 'Makes Media Encoder copies of clips the panel can’t read; afterwards Selects grades any bin instantly' }
   ];
@@ -47,6 +48,11 @@
     async clips(job, o) {
       const c = Object.assign({ length: 'standard', count: 8, brief: '' }, US.settings.get('story.clips', {})), L = { short: [15, 30], standard: [30, 60], long: [60, 90] }[c.length] || [30, 60];
       return US.story.findClips(job, { source: 'interviews', count: c.count, min: L[0], max: L[1], brief: c.brief, useAI: !!(o.useAI && US.ai && US.ai.available()) });
+    },
+    async look(job) {
+      const F = US.footage, items = F.describable(await F.listClips(job));
+      if (!items.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no footage in this project yet.' });
+      return F.describe(job, items, { ask: false });
     },
     async recipe(job, o) {
       const r = US.recipes && US.recipes.list().find(x => x.id === o.recipe);
@@ -90,7 +96,7 @@
     if (!steps.length) throw new US.UserError('NOTHING_FOUND', { title: 'No steps ticked.', action: 'Tick at least one thing to prepare.' });
     if (o.useAI && US.ai && US.ai.available() && US.ai.provider() === 'claude') {
       // agreed now, while someone is there; nothing asks later
-      const ok = await ui.confirm({ title: `Allow up to $${(+o.limit).toFixed(2)} of Claude tonight?`, text: 'Overnight prep won’t stop to ask. AI steps that would go over this limit are skipped and listed in the morning report. Only the text of transcript lines is sent.', ok: 'Allow and start' });
+      const ok = await ui.confirm({ title: `Allow up to $${(+o.limit).toFixed(2)} of Claude tonight?`, text: 'Overnight prep won’t stop to ask. AI steps that would go over this limit are skipped and listed in the morning report. ' + (o.steps.includes('look') && US.footage && US.footage.looker().where === 'cloud' ? 'The text of transcript lines is sent and, for Describe the footage, a few small stills of each clip – no video or sound.' : 'Only the text of transcript lines is sent.'), ok: 'Allow and start' });
       if (!ok) throw new US.UserError('CANCELLED');
       US.ai.setBudget(+o.limit);
     }
