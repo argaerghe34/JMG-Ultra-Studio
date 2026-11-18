@@ -9,7 +9,8 @@
 
    Several chats run at once: each has its own conversation with the AI (thinking happens side by side); the steps that
    touch Premiere take turns, one at a time, through the same job runner as everything else (so Stop and the status bar
-   work as usual). Only text ever goes to the AI – never footage, frames or audio.
+   work as usual). Text goes to the AI – and a few small stills only through US.footage, when the editor has switched
+   that on for the project. Never video or audio.
 
    Pure logic first (unit-tested), then the runner. The screen is in 40-assistant.js. */
 (function () {
