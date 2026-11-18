@@ -334,6 +334,15 @@
           const tile = h('button.mvfx-tile' + (p.id === preset.id ? '.on' : '') + (ok ? '' : '.off'), { title: ok ? p.sub : P().readiness(p, RES).why, onclick: () => choose(p) }, c, h('span.mvfx-tile-label', p.label), h('span.mvfx-tile-sub', p.sub));
           grid.appendChild(tile);
           requestAnimationFrame(() => thumb(p, c));
+          if (p.kind === 'motion') {   // an animated preset plays in its tile while the pointer is on it
+            let raf = null;
+            tile.addEventListener('mouseenter', () => {
+              const t0 = performance.now(), len = Number(p.duration || 5) * 1000;
+              const step = () => { thumb(p, c, Math.min(0.9999, ((performance.now() - t0) % (len + 500)) / len)); raf = requestAnimationFrame(step); };
+              if (!raf) raf = requestAnimationFrame(step);
+            });
+            tile.addEventListener('mouseleave', () => { if (raf) cancelAnimationFrame(raf); raf = null; thumb(p, c); });
+          }
         }
       }
       const groupSeg = ui.segmented({ value: group, onChange: x => { group = x; set('group', x); drawGrid(); const first = P().PRESETS.find(p => p.group === x); if (first && preset.group !== x) choose(first); }, options: P().GROUPS.map(g => ({ value: g.id, label: g.name, title: g.hint })) });
