@@ -319,7 +319,7 @@
             row('Interview log', 'everything – speakers, themes, strongest lines, moments, timecodes.', 'the summary of each interview.'),
             row('Overnight prep', 'runs the basic Themes, Moments and log.', '')]),
           h('div.field-label', 'Needs AI'),
-          h('div.field-hint', 'Ask › My interviews, and free-form requests in Ask › Anything – without AI, Ask still understands its built-in commands (“cut the silences”, “find the bloopers”…) and type “help” to list them.'),
+          h('div.field-hint', 'Ask – anything in your own words: edits, questions about your interviews, several steps at once. Without AI, Ask still understands its built-in commands (“cut the silences”, “find the bloopers”…) and type “help” to list them.'),
           h('div.field-label', 'When the AI is set up but fails'),
           h('div.field-hint', 'No internet, a usage limit or a cost you decline: you get a message saying what happened and nothing is half done. Find themes has a “Without AI” button, the other features a switch to turn the AI off; the interview log leaves out the summaries; Find more falls back to its word search.')
         ], { open: false }));

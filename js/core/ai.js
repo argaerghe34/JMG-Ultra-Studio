@@ -117,10 +117,13 @@
 
   /** Ask once per job before spending more than the user's threshold; enforce the optional monthly cap. */
   const approvedJobs = new Map();
+  // whose request it is: the job that's running, or – for work that runs beside other work (the Assistant's chats) – the
+  // owner the request names itself: as = {id, title, about}
+  const whoKey = as => (as && as.id) || (US.jobs.current ? US.jobs.current.id : 'none');
   // unattended jobs (Overnight prep) never ask: they have a budget, and a request that doesn't fit is skipped
   const unattended = new Map();   // job id -> dollars left
-  function fromBudget(usd, feature) {
-    const job = US.jobs.current, key = job ? job.id : 'none';
+  function fromBudget(usd, feature, as) {
+    const key = whoKey(as);
     if (!unattended.has(key)) return false;
     const left = unattended.get(key);
     if (usd > left + 1e-9) throw new US.UserError('AI_FAILED', { title: `Skipped: ${feature || 'this AI step'} would cost about ${fmtUSD(usd)}, more than is left of tonight’s AI limit (${fmtUSD(left)}).`, action: 'Raise the limit for the next run, or run it by hand.' });
@@ -128,19 +131,19 @@
     return true;
   }
   /** After an answer: a job with a budget is charged what the request really cost, not the (cautious) estimate. */
-  function settleBudget(estUsd, actualUsd) {
-    const job = US.jobs.current, key = job ? job.id : 'none';
+  function settleBudget(estUsd, actualUsd, as) {
+    const key = whoKey(as);
     if (!unattended.has(key) || !(estUsd > 0) || !(actualUsd >= 0)) return;
     unattended.set(key, unattended.get(key) + Math.max(0, estUsd - actualUsd));
   }
-  async function checkSpend(est, feature) {
+  async function checkSpend(est, feature, as) {
     const cap = +US.settings.get('aiMonthlyCap', 0);
     const spent = thisMonth().cost;
     if (cap > 0 && spent + est.usd > cap) throw new US.UserError('AI_FAILED', { title: `This would go over your monthly AI limit ($${cap.toFixed(2)}; $${spent.toFixed(2)} used so far).`, action: 'Raise the limit in Settings, or switch to Gemini or a cheaper Claude model.', detail: `estimate $${est.usd.toFixed(3)} for ${feature || 'request'}` });
-    if (fromBudget(est.usd, feature)) return;
+    if (fromBudget(est.usd, feature, as)) return;
     const ask = +US.settings.get('aiConfirmAbove', 0.25);
     if (!(ask > 0) || est.usd <= ask || !US.ui) return;
-    const job = US.jobs.current, key = job ? job.id : 'none', had = approvedJobs.get(key) || 0;
+    const key = whoKey(as), had = approvedJobs.get(key) || 0;
     if (had && est.usd <= had * 3) return;                              // already approved for this job
     const ok = await US.ui.confirm({ title: `Use about ${fmtUSD(est.usd)} of Claude?`, text: `${feature || 'This request'} will send about ${est.inputTokens.toLocaleString()} tokens of text to ${est.name}. Estimated cost ${fmtUSD(est.usd)} (you’ve used $${spent.toFixed(2)} this month). You can change when Ultra Studio asks in Settings.`, ok: 'Go ahead' });
     if (!ok) throw new US.UserError('CANCELLED', { title: 'AI request cancelled.', action: 'Nothing was sent.' });
@@ -178,12 +181,12 @@
   const sentLog = {
     on: () => US.settings.get('ai.sentLog', true) !== false,
     /** Record a request about to be sent. -> entry (or null when the log is off) */
-    begin({ provider, model, feature, req, est }) {
+    begin({ provider, model, feature, req, est, as }) {
       if (!sentLog.on()) return null;
       const pr = projectOf(), parts = partsOf(req), id = US.uid('s');
       try {
         for (const p of parts) { p.block = US.fsx.hash(p.text); const f = path.join(blockDir(), p.block + '.txt'); if (!fs.existsSync(f)) fs.writeFileSync(f, p.text); }
-        const j = US.jobs && US.jobs.current;
+        const j = as || (US.jobs && US.jobs.current);
         const e = { id, at: Date.now(), project: pr.name, feature: feature || '', job: j ? { id: j.id, title: j.title || '', about: j.about || '' } : null, provider, model, chars: parts.reduce((n, p) => n + p.text.length, 0), parts: parts.map(p => ({ role: p.role, block: p.block, chars: p.text.length, cached: p.cached })), estTokens: est ? est.inputTokens : 0, estUsd: est ? est.usd : 0 };
         fs.appendFileSync(path.join(sentDir(), pr.key + '.jsonl'), JSON.stringify(e) + '\n');
         return { id, key: pr.key };
@@ -271,9 +274,9 @@
    * Only when the editor asked for it (Settings › What was sent to AI); otherwise the cost question above applies.
    */
   const previewedJobs = new Set();
-  async function preview({ provider, name, feature, req, est }) {
+  async function preview({ provider, name, feature, req, est, as }) {
     if (US.settings.get('ai.preview', 'cost') !== 'always' || !US.ui || !US.ui.modal) return false;
-    const job = US.jobs.current, key = job ? job.id : 'none';
+    const job = as || US.jobs.current, key = whoKey(as);
     if (unattended.has(key)) return false;   // overnight runs have a budget instead, and nobody to ask
     if (previewedJobs.has(key)) return true;
     const parts = partsOf(req), chars = parts.reduce((n, p) => n + p.text.length, 0), h = US.h;
@@ -339,13 +342,13 @@
   }
   /** turns: earlier rounds of the same conversation after the first message, [{assistant, user}] (a follow-up keeps the
       cached first message, so the transcripts in it are read from the cache). */
-  async function claude({ system, user, turns, schema, maxTokens = 16000, effort = 'low', feature }) {
+  async function claude({ system, user, turns, schema, maxTokens = 16000, effort = 'low', feature, as, model: wanted, onUsage }) {
     const red = redacted({ system, user, turns }); ({ system, user, turns } = red);
     const key = US.secrets.get('anthropicKey');
     if (!key) throw new US.UserError('AI_KEY');
-    const model = claudeModel(), price = MODELS[model], est = estimate({ system, user, turns, maxTokens, effort, model });
-    if (!(await preview({ provider: 'claude', name: price.name, feature, req: { system, user, turns, schema }, est }))) await checkSpend(est, feature);
-    else { const cap = +US.settings.get('aiMonthlyCap', 0), spent = thisMonth().cost; if (cap > 0 && spent + est.usd > cap) await checkSpend(est, feature); }
+    const model = MODELS[wanted] ? wanted : claudeModel(), price = MODELS[model], est = estimate({ system, user, turns, maxTokens, effort, model });
+    if (!(await preview({ provider: 'claude', name: price.name, feature, req: { system, user, turns, schema }, est, as }))) await checkSpend(est, feature, as);
+    else { const cap = +US.settings.get('aiMonthlyCap', 0), spent = thisMonth().cost; if (cap > 0 && spent + est.usd > cap) await checkSpend(est, feature, as); }
     const body = {
       model,
       max_tokens: maxTokens,
@@ -356,14 +359,15 @@
     const headers = { 'x-api-key': key, 'anthropic-version': '2026-10-21' };
     if (price.fallbacks) { body.fallbacks = 'default'; headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; }
     let r;
-    const startedAt = Date.now(), logged = sentLog.begin({ provider: 'claude', model, feature, req: { system, user, turns, schema }, est });
+    const startedAt = Date.now(), logged = sentLog.begin({ provider: 'claude', model, feature, req: { system, user, turns, schema }, est, as });
     try { r = await postJSON('api.anthropic.com', '/v1/messages', headers, body, 300000); }
     catch (e) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw networkError('Claude', e); }
     if (r.status !== 200 || !r.json) { sentLog.end(logged, { ok: false, error: 'HTTP ' + r.status }); throw httpError('Claude', r); }
     const msg = r.json;
     const usedModel = msg.model && MODELS[msg.model] ? msg.model : model;
     if (msg.usage) record(usedModel, msg.usage, feature, costOf(usedModel, msg.usage), key);
-    if (msg.usage) settleBudget(est.usd, costOf(usedModel, msg.usage));
+    if (msg.usage) settleBudget(est.usd, costOf(usedModel, msg.usage), as);
+    if (onUsage) { try { onUsage({ provider: 'claude', model: usedModel, name: MODELS[usedModel].name, usd: msg.usage ? costOf(usedModel, msg.usage) : 0 }); } catch (e) { /* the caller's sums */ } }
     sentLog.end(logged, { ok: true, model: usedModel, usd: msg.usage ? costOf(usedModel, msg.usage) : 0, tokensIn: msg.usage ? msg.usage.input_tokens + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0) : 0, cacheRead: msg.usage ? msg.usage.cache_read_input_tokens || 0 : 0, tokensOut: msg.usage ? msg.usage.output_tokens : 0 });
     if (msg.usage && (msg.usage.cache_read_input_tokens || msg.usage.cache_creation_input_tokens)) noteWarm([].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []), usedModel, startedAt);
     if (msg.stop_reason === 'refusal') throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(msg.stop_details || {}) });
@@ -396,14 +400,14 @@
     return (r.models || []).map(m => m.name.replace(/^models\//, '')).filter(n => /^gemini-[\d.]+-(flash|pro)/.test(n) && !/tts|image|audio|live|embedding|omni|exp/.test(n))
       .sort((a, b) => ver(b) - ver(a) || a.localeCompare(b));
   }
-  async function gemini({ system, user, turns, schema, maxTokens = 16000, fast, feature }) {
+  async function gemini({ system, user, turns, schema, maxTokens = 16000, fast, feature, as, model: wanted, onUsage }) {
     const red = redacted({ system, user, turns }); ({ system, user, turns } = red);
     const asked = { system, user, turns, schema };
     system = blocksText(system); user = blocksText(user);
     const key = US.secrets.get('geminiKey');
     if (!key) throw new US.UserError('AI_KEY');
     // the "flash" models think before answering (10–45 s); "flash-lite" answers quick requests in about a second
-    const model = fast ? US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT) : US.settings.get('geminiModel', GEMINI_DEFAULT);
+    const model = wanted || (fast ? US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT) : US.settings.get('geminiModel', GEMINI_DEFAULT));
     const body = {
       systemInstruction: { parts: [{ text: system + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '') }] },
       contents: [{ role: 'user', parts: [{ text: user }] }].concat((turns || []).flatMap(t => [{ role: 'model', parts: [{ text: String(t.assistant) }] }, { role: 'user', parts: [{ text: String(t.user) }] }])),
@@ -411,8 +415,8 @@
     };
     const ask = (m, ms) => postJSON('generativelanguage.googleapis.com', `/v1beta/models/${encodeURIComponent(m)}:generateContent`, { 'x-goog-api-key': key }, body, ms);
     const gEst = { usd: 0, inputTokens: Math.ceil((system.length + user.length + turnsText(turns).length) / 3.6) };
-    await preview({ provider: 'gemini', name: geminiName(model), feature, req: asked, est: gEst });
-    const logged = sentLog.begin({ provider: 'gemini', model, feature, req: asked, est: gEst });
+    await preview({ provider: 'gemini', name: geminiName(model), feature, req: asked, est: gEst, as });
+    const logged = sentLog.begin({ provider: 'gemini', model, feature, req: asked, est: gEst, as });
     let r, used = model;
     try { r = await ask(model, fast ? 60000 : 180000); } catch (e) { if (fast) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw networkError('Gemini', e); } r = { status: 0, error: e }; }
     // the thinking model is often overloaded (503 "high demand", rate limits, or no answer for minutes):
@@ -427,6 +431,7 @@
     // the “-latest” names follow Google's newest model: remember which one answered, so Settings can say
     if (r.json.modelVersion) noteGemini(used, r.json.modelVersion);
     if (r.json.usageMetadata) record(r.json.modelVersion || used, r.json.usageMetadata, feature, 0, key); // within Google's free allowance
+    if (onUsage) { try { onUsage({ provider: 'gemini', model: r.json.modelVersion || used, name: geminiName(r.json.modelVersion || used), usd: 0 }); } catch (e) { /* the caller's sums */ } }
     const cand = (r.json.candidates || [])[0];
     if (!cand) throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(r.json.promptFeedback || r.json).slice(0, 500) });
     const text = ((cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
@@ -465,14 +470,14 @@
     try { const r = await httpLocal('GET', '/api/tags', null, 8000); if (r.json && Array.isArray(r.json.models)) return r.json.models.map(m => m.name).filter(Boolean); } catch (e) { /* not running */ }
     return [];
   }
-  async function local({ system, user, turns, schema, maxTokens = 16000, feature }) {
+  async function local({ system, user, turns, schema, maxTokens = 16000, feature, as, onUsage }) {
     const model = localModel();
     if (!model) throw new US.UserError('AI_KEY', { title: 'Choose a local model first.', action: 'Settings › AI › On this computer: pick the model (Ollama or LM Studio must be running).' });
     localTarget();   // this computer only – checked before anything is logged or sent
     const sys = blocksText(system) + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '');
     const messages = [{ role: 'system', content: sys }, { role: 'user', content: blocksText(user) }].concat((turns || []).flatMap(t => [{ role: 'assistant', content: String(t.assistant) }, { role: 'user', content: String(t.user) }]));
     const body = Object.assign({ model, messages, max_tokens: Math.min(maxTokens, 16000), temperature: 0.2, stream: false }, schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: false } } } : {});
-    const logged = sentLog.begin({ provider: 'local', model, feature, req: { system, user, turns, schema }, est: { usd: 0, inputTokens: Math.ceil(sys.length / 3.6) } });
+    const logged = sentLog.begin({ provider: 'local', model, feature, req: { system, user, turns, schema }, est: { usd: 0, inputTokens: Math.ceil(sys.length / 3.6) }, as });
     let r;
     try { r = await httpLocal('POST', '/v1/chat/completions', body); }
     catch (e) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw new US.UserError('AI_FAILED', { title: 'The local AI didn’t answer.', action: 'Start Ollama or LM Studio (with the model loaded), then try again.', detail: String(e && e.message || e) }); }
@@ -483,6 +488,7 @@
     const u = r.json.usage || {};
     sentLog.end(logged, { ok: true, model, usd: 0, tokensIn: u.prompt_tokens || 0, tokensOut: u.completion_tokens || 0 });
     record('local:' + model, { input_tokens: u.prompt_tokens || 0, output_tokens: u.completion_tokens || 0 }, feature, 0, null);   // no key: nothing to bill
+    if (onUsage) { try { onUsage({ provider: 'local', model, name: `${model} (on this computer)`, usd: 0 }); } catch (e) { /* the caller's sums */ } }
     if (!text) throw new US.UserError('AI_FAILED', { title: 'The local AI sent back an empty answer.', action: 'Try again, or a larger model.' });
     return { text };
   }
@@ -536,9 +542,31 @@
     spending: thisMonth,
     approveTotal: (usd, feature) => provider() === 'claude' ? approveTotal(usd, feature) : Promise.resolve(),
     /** Give the running job a budget it spends without asking (unattended runs). Ask the person first, while they're there. */
-    setBudget(usd) { const job = US.jobs.current; unattended.set(job ? job.id : 'none', Math.max(0, usd)); },
-    budgetLeft() { const job = US.jobs.current, key = job ? job.id : 'none'; return unattended.has(key) ? unattended.get(key) : null; },
-    endBudget() { const job = US.jobs.current; unattended.delete(job ? job.id : 'none'); },
+    setBudget(usd, as) { unattended.set(whoKey(as), Math.max(0, usd)); },
+    budgetLeft(as) { const key = whoKey(as); return unattended.has(key) ? unattended.get(key) : null; },
+    endBudget(as) { unattended.delete(whoKey(as)); },
+    /**
+     * The AIs that can be used right now, for a chat that picks its own: [{id, provider, model, label, hint}] – the first
+     * is “Automatic” (whatever Settings says). A project kept on this computer only offers the local model.
+     */
+    choices() {
+      const out = [{ id: 'auto', provider: '', model: '', label: 'Automatic', hint: provider() === 'none' ? 'No AI is set up' : `Settings’ choice – now ${US.ai.label()}` }];
+      if (projectOffline()) return out;
+      if (US.secrets.get('anthropicKey')) for (const [id, m] of Object.entries(MODELS)) out.push({ id: 'claude:' + id, provider: 'claude', model: id, label: m.name, hint: m.short });
+      if (US.secrets.get('geminiKey')) { out.push({ id: 'gemini:' + US.settings.get('geminiModel', GEMINI_DEFAULT), provider: 'gemini', model: US.settings.get('geminiModel', GEMINI_DEFAULT), label: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)), hint: 'Google – free allowance' }); out.push({ id: 'gemini:' + US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT), provider: 'gemini', model: US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT), label: geminiName(US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT)), hint: 'Google – quickest' }); }
+      if (localModel()) out.push({ id: 'local:' + localModel(), provider: 'local', model: localModel(), label: `${localModel()} (on this computer)`, hint: 'Nothing leaves this computer' });
+      return out;
+    },
+    /** The provider and model a request's “use” means (a choices() id, or {provider, model}); the usual one when it can't be used. */
+    resolveUse(use) {
+      const u = typeof use === 'string' ? US.ai.choices().find(c => c.id === use) : use;
+      const p = provider();
+      if (!u || !u.provider || projectOffline()) return { provider: p, model: '' };
+      if (u.provider === 'claude' && US.secrets.get('anthropicKey') && MODELS[u.model]) return { provider: 'claude', model: u.model };
+      if (u.provider === 'gemini' && US.secrets.get('geminiKey')) return { provider: 'gemini', model: u.model || '' };
+      if (u.provider === 'local' && localModel()) return { provider: 'local', model: '' };
+      return { provider: p, model: '' };
+    },
     /** What a request would cost with the current provider (Gemini: free). */
     estimateFor(req) { const p = provider(); return p === 'claude' ? estimate(req) : { usd: 0, free: true, name: p === 'local' ? localModel() : geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)) }; },
     provider,
@@ -554,10 +582,12 @@
     },
     /** JSON answer matching a JSON Schema (objects need additionalProperties:false and required for Claude). */
     /** fast: a quick, short request (the Assistant's plans) – uses Gemini's quick model; Claude is quick at low effort. */
-    async json({ system, user, turns, schema, maxTokens, effort, fast, feature }) {
-      const p = provider();
+    /** as: whose request it is when it runs beside other work ({id, title, about}); use: another AI than Settings' for
+        this request (a choices() id); onUsage({provider, model, name, usd}): what it really cost. */
+    async json({ system, user, turns, schema, maxTokens, effort, fast, feature, as, use, onUsage }) {
+      const u = use ? US.ai.resolveUse(use) : { provider: provider(), model: '' }, p = u.provider, model = u.model || undefined;
       if (p === 'none') throw new US.UserError('AI_KEY');
-      const r = p === 'claude' ? await claude({ system, user, turns, schema, maxTokens, effort, feature }) : p === 'local' ? await local({ system, user, turns, schema, maxTokens, feature }) : await gemini({ system, user, turns, schema, maxTokens, fast, feature });
+      const r = p === 'claude' ? await claude({ system, user, turns, schema, maxTokens, effort, feature, as, model, onUsage }) : p === 'local' ? await local({ system, user, turns, schema, maxTokens, feature, as, onUsage }) : await gemini({ system, user, turns, schema, maxTokens, fast, feature, as, model, onUsage });
       return parseJSON(r.text);
     },
     /** Quick check that a key works. */

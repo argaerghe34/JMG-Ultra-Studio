@@ -649,8 +649,8 @@
     params: { request: { type: 'string', default: '', desc: 'The edit, in the editor’s words' }, where: { type: 'string', default: 'sequence', options: ['sequence', 'selection', 'transcripts', 'bin', 'project'], desc: 'Where to act' } },
     examples: ['add a cross dissolve to every clip on V1', 'punch in 110% on every interview answer', 'colour all the drone clips green', 'put the logo at the end of every sequence in the Shorts bin'],
     match: t => (/\b(add|put|insert|append|place)\b/i.test(t) && /\b(end|start)\b/i.test(t) && /\bsequences\b|\btimelines\b|\b(every|each|all)\b[^.]*\b(sequence|timeline)s?\b/i.test(t) ? { request: t, _score: 2.4 } : null) || (/\b(dissolve|transition|fade|punch.?in|zoom|ken burns|blur|lumetri|effect|speed|slow.?mo|opacity|scale|label|colour|color|rename|razor|ripple)\b/i.test(t) && /\b(every|each|all|clips?|shots?)\b/i.test(t) ? { request: t, _score: 2.2 } : null),
-    run: async () => ({ summary: 'Open Ask › Edit to plan this.' })
+    run: async () => ({ summary: 'Type this in Ask – it plans the edit and shows it to you first.' })
   });
 
-  US.editAsk = { OPS, opsFor, timelineModel, itemsModel, projectModel, outline, select, checkPlan, appendStep, pickSequences, readOthers, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
+  US.editAsk = { OPS, opsFor, timelineModel, itemsModel, projectModel, projectOutline, outline, select, checkPlan, appendStep, pickSequences, readOthers, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
 })();
