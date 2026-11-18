@@ -64,6 +64,8 @@
       if (projectIdent() !== ident) return null;
       if (r.folder && r.folder !== store.get('storyFolder', '')) store.set('storyFolder', r.folder);   // so it doesn't move
       resRef = { ident, local: 'resolve:' + (r.id || ident), shared: r.path || '', reason: r.reason || '', folder: r.folder || '' };
+      // the project's other Ultra Studio data travels in the same folder as its Story
+      if (r.path) store.attach(US.projectStore.sharedFile(r.path));
       if (statePath !== resRef.local) { loadState(); US.bus.emit('story-replaced'); }
       return resRef;
     }, e => { if (resAsk && resAsk.ident === ident) resAsk = null; US.log('warn', 'Story couldn’t ask Resolve where this project’s Story goes', US.errors.explain(e).detail, 'story'); return null; });
@@ -1371,7 +1373,7 @@
 
   /** Same crop per person: each clip of the copy moved to the crop set for its file and speaker (Clips for social). */
   async function placeCrops(job, seqId, srcW) {
-    const crops = US.settings.get('story.crops', {}) || {};
+    const crops = US.projectSettings.get('story.crops', {}) || {};
     const info = await US.host.call('editRead', { seqId });
     const linesOf = p => { const t = state.transcripts.find(x => x.path === p); return t ? t.lines : []; };
     const moves = US.storyCrops.plan(info, crops, { srcW, linesOf });
@@ -2820,9 +2822,50 @@
           moreInfo = `Leaving out ${US.plural(selectedIds().size, 'line')} already in themes${BOARD ? ' or on the board' : ''}${notInCut && cutSeq ? ` and ${US.plural(inCut, 'more line')} already in your cut` : ''}.`;
           return { summary: `${US.plural(moreResults.length, 'new line')} found` };
         });
+        rememberFind();
         render();
       }
+      /* Searches and Find more are kept in Story (so they travel with the project): the last one opens again, and
+         earlier ones are a click away – Find more's AI picks are kept, so reopening one costs nothing. */
+      const normQ = q => String(q || '').trim().toLowerCase();
+      function rememberFind() {
+        const q = moreMode ? (moreTopic || lastQuery) : lastQuery;
+        if (!normQ(q)) return;
+        const e = moreMode
+          ? { q, mode: 'more', at: Date.now(), info: moreInfo, more: moreResults.filter(r => r && r.line).map(r => ({ id: r.line.id, rel: r.rel, reasons: r.reasons || [] })) }
+          : { q, mode: 'search', at: Date.now() };
+        const f = Object.assign({ recent: [] }, state.finds);
+        f.last = e;
+        f.recent = [e].concat((f.recent || []).filter(x => !(x.mode === e.mode && normQ(x.q) === normQ(q)))).slice(0, 12);
+        state.finds = f; save();
+      }
+      function openFind(e) {
+        momentsMode = questionsMode = false;
+        if (e && e.mode === 'more') {
+          moreMode = true; moreTopic = lastQuery = e.q; moreInfo = e.info || '';
+          moreResults = (e.more || []).map(r => ({ line: lineById.get(r.id), rel: r.rel, reasons: r.reasons || [] })).filter(r => r.line);
+        } else {
+          moreMode = false; lastQuery = (e && e.q) || ''; moreResults = [];
+          results = lastQuery.trim() ? T.search(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : [];
+        }
+      }
+      let findsOf = null;   // the Story the Find tab last opened from (another project, or a copy from another computer)
+      function restoreFind() {
+        if (findsOf === state) return;
+        findsOf = state;
+        const f = state.finds;
+        if (f && f.last) openFind(f.last); else { moreMode = false; lastQuery = moreTopic = moreInfo = ''; results = []; moreResults = []; }
+      }
+      function recentFinds(input) {
+        const f = state.finds, cur = moreMode ? 'more' : 'search', curQ = normQ(moreMode ? moreTopic : lastQuery);
+        const list = ((f && f.recent) || []).filter(e => !(e.mode === cur && normQ(e.q) === curQ));
+        if (!list.length) return null;
+        return h('div.row.story-chips.story-recent', h('span.muted.small', 'Earlier:'),
+          list.map(e => h('button.chip', { title: e.mode === 'more' ? `Find more – ${US.plural((e.more || []).length, 'line')} found (kept, nothing is sent again)` : 'Search', onclick: () => { openFind(e); if (input) input.value = e.q; rememberFind(); render(); } },
+            (e.mode === 'more' ? '✦ ' : '') + e.q)));
+      }
       function renderSearch() {
+        restoreFind();
         const el = US.clear(panes.search);
         if (!state.transcripts.length) { el.appendChild(needTranscripts()); return; }
         el.appendChild(stepHead('search'));
@@ -2837,6 +2880,8 @@
           ui.button('Questions', { kind: questionsMode ? 'primary' : 'secondary', icon: 'note', title: 'Type your interview questions – find every full answer to each, labelled by question', onClick: () => { questionsMode = true; momentsMode = false; render(); } })));
         if (questionsMode) { el.appendChild(questionsView()); el.appendChild(placeOptionsSection()); el.appendChild(nextBar('search')); return; }
         if (momentsMode) { el.appendChild(momentsView()); el.appendChild(pickedBar()); el.appendChild(placeOptionsSection()); el.appendChild(nextBar('search')); return; }
+        const earlier = recentFinds(input);
+        if (earlier) el.appendChild(earlier);
         if (moreMode) {
           const aiOn = US.ai && US.ai.available();
           const seqSel = ui.select({ options: [], placeholder: 'Choose your cut…', onChange: v => { cutSeq = v; } });
@@ -2858,7 +2903,7 @@
         if (moreMode) drawMore(list); else drawResults(list);
         el.appendChild(nextBar('search'));
         setTimeout(() => input.focus(), 30);
-        function run(q) { lastQuery = q; results = q.trim() ? T.search(q, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : []; render(); }
+        function run(q) { lastQuery = q; results = q.trim() ? T.search(q, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : []; rememberFind(); render(); }
       }
       /* ---------- Interview questions ---------- */
       /** “Claude Opus 5.5 reads 2,340 lines · about 40¢ · 2 requests · ~1 min” */
@@ -3741,9 +3786,9 @@
         const seg = ui.field('Framing', ui.segmented({ options: [{ value: 'auto', label: 'Automatic' }, { value: 'fixed', label: 'Same crop per person' }], value: reframe, onChange: x => { o.reframe = x; save(); renderBuild(); } }),
           reframe === 'fixed' ? 'Set once for each person; every clip of them uses the same crop, so it never drifts between clips. Nothing is looked at – the positions are yours. Clips from a person without one stay centred.' : (RES ? 'Resolve’s Smart Reframe follows the action in each clip.' : 'Premiere’s Auto Reframe follows the action in each clip.'));
         if (reframe !== 'fixed') return seg;
-        const crops = US.settings.get('story.crops', {}) || {};
+        const crops = US.projectSettings.get('story.crops', {}) || {};
         const ppl = US.storyCrops.people(clips.flatMap(c => c.parts.flatMap(p => p.lineIds)), { lineOf: id => lineById.get(id), transcriptOf: id => clipOfLine.get(id), speakerName });
-        const saveCrops = () => US.settings.set('story.crops', crops);
+        const saveCrops = () => US.projectSettings.set('story.crops', crops);
         const sameFile = p => ppl.filter(x => x.path === p.path).length > 1;
         if (!ppl.length) box.appendChild(h('div.field-hint', clips.length ? 'These clips’ lines aren’t from your interviews’ files, so there is nobody to set – the vertical versions stay centred.' : 'Tick some clips to set their people.'));
         for (const p of ppl) {
@@ -3761,9 +3806,9 @@
       /* from a script or paper edit */
       function scriptCard() {
         const sc = state.script, aiOn = US.ai && US.ai.available();
-        let text = sc ? sc.text : US.settings.get('story.scriptDraft', '');
+        let text = sc ? sc.text : US.projectSettings.get('story.scriptDraft', '');
         const box = h('textarea.input', { rows: 7, placeholder: '# Opening\nRuth: I never told anyone this, but my grandmother was a spy.\n[B-roll of the bakery]\nDavid: We open the doors every Friday night.\n\n# The letters\nWe found the letters after she died.' }, text);
-        box.addEventListener('input', US.debounce(() => US.settings.set('story.scriptDraft', box.value), 400));
+        box.addEventListener('input', US.debounce(() => US.projectSettings.set('story.scriptDraft', box.value), 400));
         let useAI = US.settings.get('story.scriptAI', true);
         const GR = { exact: ['word for word', 'var(--ok)'], close: ['close', 'var(--info)'], ai: ['by meaning', 'var(--accent)'], weak: ['loose', 'var(--warn)'], none: ['not found', 'var(--err)'] };
         const rows = [];
@@ -4045,8 +4090,10 @@
         if (opts && (opts.section === 'moments' || opts.moments)) { momentsMode = true; moreMode = questionsMode = false; if (opts.type) momentType = opts.type; }
         else if (opts && opts.questions) { questionsMode = true; momentsMode = moreMode = false; }
         else if (opts && opts.tab === 'search') momentsMode = questionsMode = false;
+        if (opts && (opts.more || (opts.query != null && opts.tab === 'search'))) findsOf = state;   // what was asked for wins over the last search
         if (opts && opts.more) { moreMode = true; moreTopic = lastQuery = opts.more.topic; moreResults = opts.more.results; moreInfo = opts.more.info || ''; targetTheme = targetColumn = null; }
         else if (opts && opts.query != null && opts.tab === 'search') { moreMode = false; lastQuery = opts.query; results = T.search(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }); }
+        if (opts && (opts.more || (opts.query != null && opts.tab === 'search'))) rememberFind();
         show(tab);
       } };
     }
@@ -4409,7 +4456,7 @@
     match: t => (/\b(script|paper edit)\b/i.test(t) && /\b(build|match|find|cut|assemble|from)\b/i.test(t) && !/\b(read|export|save|write)\b.*\bpaper edit\b/i.test(t) && !/\btake/i.test(t) ? { _score: 2.4 } : null),
     run: async (p, job) => {
       loadState();
-      const text = p.text || (state.script && state.script.text) || US.settings.get('story.scriptDraft', '');
+      const text = p.text || (state.script && state.script.text) || US.projectSettings.get('story.scriptDraft', '');
       if (!String(text).trim()) { openStory('build', { section: 'script' }); throw new US.UserError('BAD_INPUT', { title: 'Paste the script first.', action: 'In Story › 4 Build › From a script – one soundbite per line.' }); }
       const r = await matchScript(job, { text, useAI: !!(US.ai && US.ai.available() && US.settings.get('story.scriptAI', true)) });
       if (!p.build) { openStory('build', { section: 'script' }); return r; }

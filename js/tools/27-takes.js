@@ -166,8 +166,8 @@
     create() {
       const v = ui.toolView({ icon: 'selects', title: 'Take Sets', blurb: 'Finds the retakes in a sequence – pieces to camera, do-overs in an interview, a podcast read – and groups each set of attempts, even reworded or minutes apart. The last complete take is chosen; pick another if you prefer, check the cuts, and get a copy with only the chosen takes. Every track is cut together, and words from two takes are never stitched together.' });
       const picker = ui.sourcePicker({ modes: ['sequence'], kinds: ['audio'], label: 'Sequence', onChange: () => { found = null; draw(); } });
-      const scriptIn = h('textarea.input', { rows: 4, placeholder: 'Optional: paste the script they were reading – sets are named after its lines and judged against it.' }, US.settings.get('takes.script', ''));
-      scriptIn.addEventListener('input', US.debounce(() => US.settings.set('takes.script', scriptIn.value), 400));
+      const scriptIn = h('textarea.input', { rows: 4, placeholder: 'Optional: paste the script they were reading – sets are named after its lines and judged against it.' }, US.projectSettings.get('takes.script', ''));
+      scriptIn.addEventListener('input', US.debounce(() => US.projectSettings.set('takes.script', scriptIn.value), 400));
       let found = null, target = null, items = [];
       const out = h('div');
       const findBtn = ui.actionButton('Find the takes', () => US.jobs.run({ title: 'Finding the takes', tool: 'takes' }, async job => {

@@ -152,8 +152,8 @@
 
   /* ---------- running it ---------- */
   const presets = () => US.settings.get('podcast.presets', {}) || {};
-  const setupFor = seqId => (US.settings.get('podcast.setups', {}) || {})[seqId] || null;
-  const saveSetup = (seqId, s) => US.settings.set('podcast.setups', Object.assign({}, US.settings.get('podcast.setups', {}), { [seqId]: s }));
+  const setupFor = seqId => (US.projectSettings.get('podcast.setups', {}) || {})[seqId] || null;
+  const saveSetup = (seqId, s) => US.projectSettings.set('podcast.setups', Object.assign({}, US.projectSettings.get('podcast.setups', {}), { [seqId]: s }));
   /** Each mic's level (dB every 20 ms), rendered one track at a time. */
   async function listen(target, mics, job) {
     const envs = [];

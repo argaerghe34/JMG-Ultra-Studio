@@ -56,6 +56,24 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     if (pane && !/Step \d of 5/.test(pane.textContent)) errors.push(`step ${tab}: no step heading`);
     if (pane && tab !== 'timeline' && !Array.from(pane.querySelectorAll('.story-next .btn')).some(b => /^Next: /.test(b.textContent))) errors.push(`step ${tab}: no Next button`);
   }
+  // Find: searches are kept in Story (they travel with the project); earlier ones, and Find more's kept results, are a click away
+  {
+    const pane = () => tool.el.querySelector('[data-section="search"]') || Array.from(tool.el.querySelectorAll('.story-pane')).find(p => !p.classList.contains('hidden'));
+    tool.onShow({ tab: 'search', query: 'family' }); await new Promise(r => setTimeout(r, 20));
+    tool.onShow({ tab: 'search', query: 'hope' }); await new Promise(r => setTimeout(r, 20));
+    if (!st.finds || st.finds.last.q !== 'hope' || st.finds.recent.map(e => e.q).join() !== 'hope,family') errors.push('find: searches not kept ' + JSON.stringify(st.finds && st.finds.recent));
+    const line = st.transcripts[0].lines[3];
+    st.finds.recent.push({ q: 'kept topic', mode: 'more', at: 1, info: 'kept', more: [{ id: line.id, rel: 1, reasons: ['kept'] }] });
+    tool.onShow({ tab: 'search' }); await new Promise(r => setTimeout(r, 20));
+    const chips = Array.from(pane().querySelectorAll('.story-recent .chip'));
+    if (chips.map(c => c.textContent).join('|') !== 'family|✦ kept topic') errors.push('find: earlier chips ' + chips.map(c => c.textContent).join('|'));
+    else {
+      chips[1].click(); await new Promise(r => setTimeout(r, 20));
+      if (st.finds.last.mode !== 'more' || st.finds.last.q !== 'kept topic') errors.push('find: reopening Find more was not remembered');
+      if (!pane().textContent.includes(line.text.slice(0, 20))) errors.push('find: Find more’s kept line not shown');
+    }
+    checks.push('find: ' + st.finds.recent.map(e => e.q).join(', '));
+  }
   // the steps: five, numbered, done ones ticked; no Board
   const segs = Array.from(tool.el.querySelectorAll('.story-tabs .seg')).map(b => b.textContent);
   if (segs.length !== 5 || !/^1 Interviews ✓$/.test(segs[0]) || !/^2 Themes ✓$/.test(segs[1]) || segs.some(x => /Board/.test(x))) errors.push('steps: ' + segs.join(' | '));
