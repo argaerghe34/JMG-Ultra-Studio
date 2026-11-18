@@ -27,8 +27,11 @@
 .pad-btn .pad-key-tag { position: absolute; top: 4px; left: 6px; font-size: 10px; font-weight: 700; opacity: .6; font-family: var(--mono); }
 .pad-btn.recording { outline: 3px solid #fff; outline-offset: -3px; animation: pad-pulse 1s ease-in-out infinite; }
 @keyframes pad-pulse { 50% { filter: brightness(1.25); } }
-.pad-colours { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 6px; margin: 4px 0 10px; }
-.pad-colour { min-height: 40px; border: none; border-radius: var(--radius-s); color: #111; font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--font); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .18); }
+/* two rows of four at the panel's usual width (names whole: “Orange”, “Yellow”), one row of eight when there's room, two columns when it's very narrow */
+.pad-colours { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 4px 0 10px; }
+@media (min-width: 560px) { .pad-colours { grid-template-columns: repeat(8, 1fr); } }
+@media (max-width: 320px) { .pad-colours { grid-template-columns: repeat(2, 1fr); } }
+.pad-colour { min-height: 40px; border: none; border-radius: var(--radius-s); color: #111; font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--font); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .18); min-width: 0; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pad-colour:active { transform: scale(.95); }
 .pad-last { gap: 6px; align-items: center; flex-wrap: wrap; }
 .pad-status { min-height: 18px; margin-top: 6px; color: var(--text-2); font-size: 12px; }
@@ -40,4 +43,3 @@
 .pad-edit select.input { width: auto; }
 .pad-edit .pad-secs { width: 64px; }
 .pad-edit .pad-key { width: 44px; text-align: center; }
-@media (max-width: 420px) { .pad-colours { grid-template-columns: repeat(4, 1fr); } }
