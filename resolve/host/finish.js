@@ -8,7 +8,7 @@
 // like the group (Premiere's text layers): added, renamed, moved, recoloured and deleted by script (Resolve 21.1.2+:
 // TimelineItem.SetName, SetPosition / Timeline.MoveItems, SetRightOffset); where Resolve won't, a marker is added.
 'use strict';
-const path = require('path');
+const path = require('path'), fs = require('fs');
 const { engine } = require('./render');
 
 const GUIDE_PREFIX = 'Ultra Guide';
@@ -74,20 +74,34 @@ module.exports = function (R) {
   }
   /** The words a Text+ title shows, or '' (plain Text titles don't tell scripts). */
   function textOfItem(ti) {
-    const comp = tryCall(() => (ti.GetFusionCompCount() > 0 ? ti.GetFusionCompByIndex(1) : null), null);
+    const comp = compOf(ti);
     if (!comp) return '';
     const tools = Object.values(tryCall(() => comp.GetToolList(false, 'TextPlus'), {}) || {});
-    for (const t of tools) { const v = tryCall(() => t.GetInput('StyledText'), ''); if (String(v || '').trim()) return String(v).trim(); }
-    return '';
+    if (tools.length && tools.every(t => typeof t.GetInput === 'function')) {
+      for (const t of tools) { const v = tryCall(() => t.GetInput('StyledText'), ''); if (String(v || '').trim()) return String(v).trim(); }
+      return '';
+    }
+    // Resolve 21.2's JavaScript API: a Fusion tool has no GetInput/SetInput (measured 19 Nov 2026) – the comp runs Lua
+    // instead (Composition.Execute), which writes the words to a temporary file
+    const file = path.join(R.tempDir(), `words-${process.pid}-${Date.now()}-${Math.round(Math.random() * 1e6)}.txt`);
+    try {
+      fusionLua(comp, `local f = io.open(${luaStr(file)}, "w"); if f then for _, t in pairs(comp:GetToolList(false, "TextPlus")) do local v = t:GetInput("StyledText"); if v and v ~= "" then f:write(v); break end end; f:close() end`);
+      return R.exists(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+    } finally { try { if (R.exists(file)) fs.unlinkSync(file); } catch (e) { /* temp */ } }
   }
+  const compOf = ti => tryCall(() => (ti.GetFusionCompCount() > 0 ? ti.GetFusionCompByIndex(1) : null), null);
+  /** A Lua string literal (long brackets, so nothing in the text needs escaping). */
+  function luaStr(s) { s = String(s); let eq = ''; while (s.indexOf(']' + eq + ']') >= 0) eq += '='; return `[${eq}[${s}]${eq}]`; }
+  /** Run Lua in a title's Fusion comp. Resolve 21.2 runs it, then throws "Unknown object type … key:result": ignored. */
+  function fusionLua(comp, lua) { try { comp.Execute(lua); } catch (e) { /* the result can't come back; the script ran */ } }
   /** Video tracks named like the group (any case), 1-based. */
   const textTracks = (tl, group) => { const out = []; for (let t = 1, n = tl.GetTrackCount('video'); t <= n; t++) if (groupKey(tl.GetTrackName('video', t)) === groupKey(group)) out.push(t); return out; };
   function textRanges(tl, fps, group) {
     const t0 = tl.GetStartFrame(), out = [];
     for (const t of textTracks(tl, group)) for (const ti of items(tl, t)) {
       if (!isTextItem(ti, true)) continue;
-      const plain = itemName(ti), words = textOfItem(ti);
-      out.push({ name: /^(text\+?|fusion title)?\s*\d*$/i.test(plain.trim()) && words ? words : plain || words || 'Text', start: (ti.GetStart() - t0) / fps, end: (ti.GetEnd() - t0) / fps,
+      const plain = itemName(ti), plainDefault = /^(text\+?|fusion title)?\s*\d*$/i.test(plain.trim()), words = plainDefault ? textOfItem(ti) : '';
+      out.push({ name: plainDefault && words ? words : plain || words || 'Text', start: (ti.GetStart() - t0) / fps, end: (ti.GetEnd() - t0) / fps,
         disabled: tryCall(() => ti.GetClipEnabled(), true) === false, nodeId: TEXT_ID + R.id(ti), label: labelOfClip(tryCall(() => ti.GetClipColor(), '')), kind: 'text', track: t });
     }
     return out;
@@ -150,11 +164,17 @@ module.exports = function (R) {
   }
   /** The words a Text+ title shows. */
   function setWords(ti, words) {
-    const comp = tryCall(() => (ti.GetFusionCompCount() > 0 ? ti.GetFusionCompByIndex(1) : null), null);
+    const comp = compOf(ti);
     if (!comp) return false;
-    let ok = false;
-    for (const t of Object.values(tryCall(() => comp.GetToolList(false, 'TextPlus'), {}) || {})) if (tryCall(() => { t.SetInput('StyledText', String(words)); return true; }, false)) ok = true;
-    return ok;
+    const tools = Object.values(tryCall(() => comp.GetToolList(false, 'TextPlus'), {}) || {});
+    if (tools.length && tools.every(t => typeof t.SetInput === 'function')) {
+      let ok = false;
+      for (const t of tools) if (tryCall(() => { t.SetInput('StyledText', String(words)); return true; }, false)) ok = true;
+      return ok;
+    }
+    // Resolve 21.2's JavaScript API: through Lua in the comp (see textOfItem), then read back
+    fusionLua(comp, `for _, t in pairs(comp:GetToolList(false, "TextPlus")) do t:SetInput("StyledText", ${luaStr(words)}) end`);
+    return textOfItem(ti) === String(words).trim();
   }
   /** A title's name: the clip's name and the words it shows (either is enough for the list). */
   function nameTitle(ti, name) { const a = !!tryCall(() => ti.SetName(String(name)), false); const b = setWords(ti, name); return a || b; }
@@ -349,7 +369,8 @@ module.exports = function (R) {
       const tl = R.needSeq(a.seqId), fps = R.fps(tl), group = a.track || RENDERS, k = a.kinds || 'adjustment';
       const ranges = (k !== 'text' ? rangeMarkers(tl, group).map(({ frame, m }) => Object.assign(rangeOf(fps, frame, m), { kind: 'marker' })) : [])
         .concat(k !== 'adjustment' ? textRanges(tl, fps, group) : []);
-      const hidden = k !== 'adjustment' && textTracks(tl, group).some(t => !tl.GetIsTrackEnabled('video', t));
+      // Resolve 21.2 refuses track states of a timeline that isn't open ("No sequence scene"): then not known, so shown
+      const hidden = k !== 'adjustment' && textTracks(tl, group).some(t => tryCall(() => tl.GetIsTrackEnabled('video', t), true) === false);
       return { track: ranges.length ? 0 : -1, trackName: ranges.length ? String(group) : '', ranges: ranges.map(({ track, ...r }) => r), colours: true, hidden };
     },
     /** a: {seqId, kinds?} → {tracks:[{index, name, count}]} – every group of range markers on the timeline (Renders, Songs…),
@@ -416,19 +437,24 @@ module.exports = function (R) {
       return { track: -1, named: true, kind: 'marker', placed: 1, renamed: 1, log };
     },
     /** Change a range: name, colour (Premiere label), start, end – the marker is laid again with the same id. a: {seqId, track, nodeId, name?, label?, start?, end?} → {range, log} */
-    editRenderRange(a) {
+    async editRenderRange(a) {
       if (String(a.nodeId).indexOf(TEXT_ID) === 0) {
         // a text title: renamed (its clip name and words), moved and trimmed in place, recoloured – the same title
         const tl = R.needSeq(a.seqId), ti = needText(tl, a), label = R.num(a.label), fps = R.fps(tl), t0 = tl.GetStartFrame();
         const name = a.name != null ? String(a.name).trim() : '';
-        if (name && !nameTitle(ti, name)) throw R.err('HOST_SCRIPT', 'SetName and StyledText refused', 'Resolve didn’t rename that title.', 'Type the new name in the title (Inspector) instead – the list follows by itself.');
-        if (R.num(a.start) != null || R.num(a.end) != null) {
-          const f = R.num(a.start) != null ? R.tlFrame(tl, R.num(a.start)) : ti.GetStart(), e = R.num(a.end) != null ? R.tlFrame(tl, R.num(a.end)) : ti.GetEnd();
-          if (!(e > f) || f < t0) throw R.err('BAD_INPUT', 'Range ' + (f - t0) / fps + '–' + (e - t0) / fps, 'That range is empty.', 'Make the end later than the start.');
-          if (!retime(tl, ti, f, e, a.track || RENDERS)) throw R.err('HOST_SCRIPT', `Title not moved to ${f}–${e} (now ${ti.GetStart()}–${ti.GetEnd()})`, 'Resolve didn’t move that title.', 'Drag its ends in the Timeline instead – the list follows by itself.');
-        }
-        if (clipColourOf(label)) ti.SetClipColor(clipColourOf(label));
-        return { range: textRanges(tl, fps, a.track).map(({ track, ...r }) => r).find(r => r.nodeId === String(a.nodeId)) || null, log: [] };
+        // Resolve 21.2 edits a title (and runs Lua in its Fusion comp) only in the open timeline: opened, then put back
+        const was = P().GetCurrentTimeline();
+        R.open(tl);
+        try {
+          if (name && !nameTitle(ti, name)) throw R.err('HOST_SCRIPT', 'SetName and StyledText refused', 'Resolve didn’t rename that title.', 'Type the new name in the title (Inspector) instead – the list follows by itself.');
+          if (R.num(a.start) != null || R.num(a.end) != null) {
+            const f = R.num(a.start) != null ? R.tlFrame(tl, R.num(a.start)) : ti.GetStart(), e = R.num(a.end) != null ? R.tlFrame(tl, R.num(a.end)) : ti.GetEnd();
+            if (!(e > f) || f < t0) throw R.err('BAD_INPUT', 'Range ' + (f - t0) / fps + '–' + (e - t0) / fps, 'That range is empty.', 'Make the end later than the start.');
+            if (!retime(tl, ti, f, e, a.track || RENDERS)) throw R.err('HOST_SCRIPT', `Title not moved to ${f}–${e} (now ${ti.GetStart()}–${ti.GetEnd()})`, 'Resolve didn’t move that title.', 'Drag its ends in the Timeline instead – the list follows by itself.');
+          }
+          if (clipColourOf(label)) ti.SetClipColor(clipColourOf(label));
+          return { range: textRanges(tl, fps, a.track).map(({ track, ...r }) => r).find(r => r.nodeId === String(a.nodeId)) || null, log: [] };
+        } finally { if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was); }
       }
       const tl = R.needSeq(a.seqId), fps = R.fps(tl), hit = needRange(tl, a), old = rangeOf(fps, hit.frame, hit.m), log = [];
       const start = R.num(a.start) != null ? R.num(a.start) : old.start, end = R.num(a.end) != null ? R.num(a.end) : old.end;

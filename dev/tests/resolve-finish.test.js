@@ -281,3 +281,20 @@ test('addRangeTrack: a new group of markers is just a name; for titles a real tr
   const c = await S.run('addRenderRange', { seqId: S.seqId, name: 'On it', start: 4, end: 5, as: 'text', track: 'Renders 2' });
   assert.deepStrictEqual([c.kind, c.track], ['text', 1]);
 });
+
+test('Text+ words in Resolve 21.2: its Fusion tools have no GetInput/SetInput, so Lua in the comp sets and reads them (in the open timeline)', async () => {
+  const S = withTimeline(), tl = S.tl;
+  S.F.luaOnly = true; S.F.fail.itemNames = 'no names';   // only the words can name it
+  const a = await S.run('addRenderRange', { seqId: S.seqId, name: 'Hook ]] "quoted"', start: 1, end: 3, as: 'text' });
+  assert.strictEqual(a.kind, 'text');
+  const ti = v(tl, 2)[0];
+  assert.strictEqual(ti._comp.FindTool('Template').GetInput('StyledText'), 'Hook ]] "quoted"', 'set through Lua, brackets and quotes kept');
+  const list = async () => (await S.run('renderRanges', { seqId: S.seqId, kinds: 'text' })).ranges;
+  assert.deepStrictEqual((await list()).map(r => r.name), ['Hook ]] "quoted"'], 'read back through Lua');
+  // renamed from another open timeline: opened for the edit, then put back
+  const other = S.F.addTimeline('Other', []); S.F.project.SetCurrentTimeline(other);
+  const x = await S.run('editRenderRange', { seqId: S.seqId, track: 'Renders', nodeId: (await list())[0].nodeId, name: 'Opening' });
+  assert.strictEqual(ti._comp.FindTool('Template').GetInput('StyledText'), 'Opening');
+  assert.strictEqual(S.F.currentTimeline, other, 'the open timeline is put back');
+  assert.strictEqual(x.range.name, 'Opening', 'read while it was open');
+});
