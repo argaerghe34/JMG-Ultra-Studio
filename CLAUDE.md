@@ -25,7 +25,8 @@ The repository is on GitHub (public since 1.3.30) and the user works on both a M
 
 ## Rules that always apply
 - Never open or save the user's real Premiere projects – only the test project in `dev/test-project`, or temporary copies. In Resolve, only the project "JMG Ultra Studio Test".
-- Footage stays on the computer: AI features only ever receive text (transcript lines, requests) – never frames, stills, video or audio.
+- Footage stays on the computer: AI features receive text (transcript lines, requests) and – only when the user has switched it on for that project (Settings › AI › Footage) – a few small stills (the user asked for this, 18 Nov 2026). Never video or audio. A project set to "nothing leaves this computer" sends nothing, stills included; a model on this computer may look at stills. Stills go through `US.ai.json` (which enforces the switch) – never around it.
+- Don't make the user's computer do things they didn't ask for: optional AI models are downloaded only when the user presses Download or says yes to a prompt, and nothing should start Media Encoder or pop windows up while they are editing (heavy work belongs in Overnight prep).
 - Don't drive Premiere while the user is using it; ask first. Quit Premiere and Media Encoder by exact process id, never by name pattern.
 - The development panel shares settings with the user's installed copy: leave them as you found them.
 

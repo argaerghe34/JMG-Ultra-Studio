@@ -98,12 +98,25 @@
     } catch (e) { /* only an estimate */ }
   }
 
+  /* ---------- stills: a few small pictures in a request (user blocks {image: {data, mime, w, h, note}}) ----------
+     Off unless the editor has switched it on for the project (a local model may always look: nothing leaves). Only small
+     stills – never video or audio. What was sent to AI keeps a line saying which still it was, not the picture. */
+  const isImage = b => !!(b && typeof b === 'object' && b.image && b.image.data);
+  const imagesOf = user => (Array.isArray(user) ? user.filter(isImage) : []);
+  /** Claude's count for a picture: one token per 28×28 pixels (a 512×288 still is about 200). */
+  const imageTokens = im => Math.max(1, Math.ceil((+im.w || 512) / 28) * Math.ceil((+im.h || 512) / 28));
+  const imageNote = im => `[still${im.note ? ': ' + im.note : ''}${im.w ? ` – ${im.w}×${im.h}` : ''}; the picture itself isn’t kept here]`;
+  const stillsProjects = () => US.settings.get('ai.stillsProjects', {}) || {};
+  /** May small stills from the open project go to Claude or Gemini? (Never for a project kept on this computer.) */
+  const stillsOn = () => !projectOffline() && !!stillsProjects()[projectOf().key];
+  function setStills(on) { const m = Object.assign({}, stillsProjects()); if (on) m[projectOf().key] = projectOf().name; else delete m[projectOf().key]; US.settings.set('ai.stillsProjects', m); }
+
   /** Rough cost before sending: ~3.6 characters per token for English; output allowance grows with effort (thinking). */
   function blocksText(x) { return Array.isArray(x) ? x.map(b => (typeof b === 'string' ? b : b.text || '')).join('\n') : (x && typeof x === 'object' ? x.text || '' : String(x || '')); }
   const turnsText = turns => (turns || []).map(t => String(t.assistant || '') + String(t.user || '')).join('');
   function estimate({ system, user, turns, maxTokens = 16000, effort = 'low', expectedOutput, model } = {}) {
     const m = model || claudeModel(), p = MODELS[m];
-    const inTok = Math.ceil((blocksText(system).length + blocksText(user).length + turnsText(turns).length) / 3.6) + 50;
+    const inTok = Math.ceil((blocksText(system).length + blocksText(user).length + turnsText(turns).length) / 3.6) + 50 + imagesOf(user).reduce((n, b) => n + imageTokens(b.image), 0);
     const cached = [].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []).filter(b => b && b.cache);
     // a block Claude still holds is read at the cache price; one it doesn't is written (5 minutes 1.25×, an hour 2×)
     const now = Date.now(), tok = b => Math.ceil((b.text || '').length / 3.6);
@@ -172,7 +185,7 @@
   const projectOf = () => { const p = US.ctx && US.ctx.project; return p ? { key: US.fsx.hash(p.path || p.name), name: p.name || 'Project' } : { key: 'no-project', name: 'No project open' }; };
   /** The request as the provider receives it, in order: [{role, text, cached}] */
   function partsOf({ system, user, turns, schema }) {
-    const out = [], add = (role, x) => { for (const b of [].concat(x || [])) { const text = typeof b === 'string' ? b : (b && b.text) || ''; if (text) out.push({ role, text, cached: !!(b && b.cache) }); } };
+    const out = [], add = (role, x) => { for (const b of [].concat(x || [])) { const text = typeof b === 'string' ? b : isImage(b) ? imageNote(b.image) : (b && b.text) || ''; if (text) out.push({ role, text, cached: !!(b && b.cache) }); } };
     add('system', system); add('user', user);
     for (const t of turns || []) { add('assistant', String(t.assistant || '')); add('user', String(t.user || '')); }
     if (schema) out.push({ role: 'format', text: 'Answer format (JSON schema): ' + JSON.stringify(schema), cached: false });
@@ -283,7 +296,7 @@
     const cost = provider === 'gemini' ? 'no charge within Google’s free allowance' : `about ${fmtUSD(est.usd)}${est.cachedTokens ? ` (${est.cachedTokens.toLocaleString('en-GB')} tokens read from Claude’s cache)` : ''}`;
     const shown = parts.map(p => `===== ${p.role.toUpperCase()}${p.cached ? ' (cached)' : ''} =====\n${p.text.length > 120000 ? p.text.slice(0, 120000) + `\n…and ${(p.text.length - 120000).toLocaleString('en-GB')} more characters` : p.text}`).join('\n\n');
     const v = await US.ui.modal({ title: `Send this to ${name}?`, wide: true,
-      body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. Only this text is sent; no footage, frames or audio.`),
+      body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. ${imagesOf(req.user).length ? `This text and ${imagesOf(req.user).length === 1 ? 'one small still' : imagesOf(req.user).length + ' small stills'} are sent (each still is listed below, not shown); no video or audio.` : 'Only this text is sent; no footage, frames or audio.'}`),
         h('textarea.input.mono.ai-preview', { readOnly: true, rows: 14 }, shown)),
       buttons: [{ label: 'Cancel', value: 'no', kind: 'ghost' }].concat(job ? [{ label: 'Send the rest of this job too', value: 'all' }] : []).concat([{ label: 'Send', value: 'one', kind: 'primary' }]) });
     if (v !== 'one' && v !== 'all') throw new US.UserError('CANCELLED', { title: 'AI request cancelled.', action: 'Nothing was sent.' });
@@ -338,7 +351,7 @@
   function toContent(x) {
     if (!Array.isArray(x)) return String(x || '');
     // cache: true = 5 minutes (write costs 1.25× input); cache: '1h' = an hour (write 2×) for listings reused across an editing session
-    return x.map(b => typeof b === 'string' ? { type: 'text', text: b } : Object.assign({ type: 'text', text: b.text }, b.cache ? { cache_control: b.cache === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' } } : {}));
+    return x.map(b => typeof b === 'string' ? { type: 'text', text: b } : isImage(b) ? { type: 'image', source: { type: 'base64', media_type: b.image.mime || 'image/jpeg', data: b.image.data } } : Object.assign({ type: 'text', text: b.text }, b.cache ? { cache_control: b.cache === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' } } : {}));
   }
   /** turns: earlier rounds of the same conversation after the first message, [{assistant, user}] (a follow-up keeps the
       cached first message, so the transcripts in it are read from the cache). */
@@ -402,7 +415,9 @@
   }
   async function gemini({ system, user, turns, schema, maxTokens = 16000, fast, feature, as, model: wanted, onUsage }) {
     const red = redacted({ system, user, turns }); ({ system, user, turns } = red);
-    const asked = { system, user, turns, schema };
+    const asked = { system, user, turns, schema }, stills = imagesOf(user);
+    // text first, then the stills in order (each still's line of text says which one it is)
+    const userParts = stills.length ? user.map(b => (isImage(b) ? { inlineData: { mimeType: b.image.mime || 'image/jpeg', data: b.image.data } } : { text: typeof b === 'string' ? b : b.text || '' })).filter(x => x.inlineData || x.text) : null;
     system = blocksText(system); user = blocksText(user);
     const key = US.secrets.get('geminiKey');
     if (!key) throw new US.UserError('AI_KEY');
@@ -410,7 +425,7 @@
     const model = wanted || (fast ? US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT) : US.settings.get('geminiModel', GEMINI_DEFAULT));
     const body = {
       systemInstruction: { parts: [{ text: system + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '') }] },
-      contents: [{ role: 'user', parts: [{ text: user }] }].concat((turns || []).flatMap(t => [{ role: 'model', parts: [{ text: String(t.assistant) }] }, { role: 'user', parts: [{ text: String(t.user) }] }])),
+      contents: [{ role: 'user', parts: userParts || [{ text: user }] }].concat((turns || []).flatMap(t => [{ role: 'model', parts: [{ text: String(t.assistant) }] }, { role: 'user', parts: [{ text: String(t.user) }] }])),
       generationConfig: Object.assign({ maxOutputTokens: Math.max(maxTokens, fast ? 256 : 2048) }, schema ? { responseMimeType: 'application/json' } : {})
     };
     const ask = (m, ms) => postJSON('generativelanguage.googleapis.com', `/v1beta/models/${encodeURIComponent(m)}:generateContent`, { 'x-goog-api-key': key }, body, ms);
@@ -470,12 +485,56 @@
     try { const r = await httpLocal('GET', '/api/tags', null, 8000); if (r.json && Array.isArray(r.json.models)) return r.json.models.map(m => m.name).filter(Boolean); } catch (e) { /* not running */ }
     return [];
   }
-  async function local({ system, user, turns, schema, maxTokens = 16000, feature, as, onUsage }) {
-    const model = localModel();
+  /** Is the local AI app answering (Ollama or LM Studio)? -> {ok, kind: 'ollama'|'other'|''} */
+  async function localStatus() {
+    try { const r = await httpLocal('GET', '/api/tags', null, 4000); if (r.status === 200 && r.json && Array.isArray(r.json.models)) return { ok: true, kind: 'ollama' }; } catch (e) { /* not Ollama, or not running */ }
+    try { const r = await httpLocal('GET', '/v1/models', null, 4000); if (r.status === 200) return { ok: true, kind: 'other' }; } catch (e) { /* nothing there */ }
+    return { ok: false, kind: '' };
+  }
+  /**
+   * Download a model with Ollama (only when the editor asks). onProgress({status, done, total}) as it comes down.
+   * Resolves when it is ready; Stop (three clicks) or cancel() ends it – what has come down so far is kept by Ollama.
+   */
+  function pullLocal(model, onProgress = () => {}) {
+    const u = localTarget(), mod = u.protocol === 'https:' ? https : require('http');
+    let req = null;
+    const p = new Promise((resolve, reject) => {
+      const data = Buffer.from(JSON.stringify({ model, stream: true }));
+      req = mod.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || (u.protocol === 'https:' ? 443 : 80), path: (u.pathname.replace(/\/$/, '') || '') + '/api/pull', method: 'POST', headers: { 'content-type': 'application/json', 'content-length': data.length } }, res => {
+        if (res.statusCode !== 200) { const c = []; res.on('data', x => c.push(x)); res.on('end', () => reject(new US.UserError('AI_FAILED', { title: res.statusCode === 404 ? 'This needs Ollama.' : 'The download didn’t start.', action: res.statusCode === 404 ? 'LM Studio downloads models in its own window; with Ollama (ollama.com) Ultra Studio can do it for you.' : 'Check Ollama is running, then try again.', detail: `${res.statusCode}: ${Buffer.concat(c).toString('utf8').slice(0, 300)}` }))); return; }
+        let buf = '', failed = '';
+        res.on('data', chunk => {
+          buf += chunk.toString('utf8');
+          let i;
+          while ((i = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+            if (!line) continue;
+            try { const j = JSON.parse(line); if (j.error) failed = j.error; else onProgress({ status: j.status || '', done: j.completed || 0, total: j.total || 0 }); } catch (e) { /* a partial line */ }
+          }
+        });
+        res.on('end', () => (failed ? reject(new US.UserError('AI_FAILED', { title: 'The model couldn’t be downloaded.', action: 'Check the internet connection and free disk space, then try again.', detail: failed })) : resolve(true)));
+      });
+      live.add(req); req.on('close', () => live.delete(req));
+      req.on('error', e => reject(e && e.code === 'CANCELLED' ? e : new US.UserError('AI_FAILED', { title: 'Ollama isn’t answering.', action: 'Start Ollama (ollama.com), then try again.', detail: String(e && e.message || e) })));
+      req.write(data); req.end();
+    });
+    p.cancel = () => { try { req && req.destroy(new US.UserError('CANCELLED')); } catch (e) { /* gone */ } };
+    return p;
+  }
+  /** Remove a model Ollama has (frees its disk space). */
+  async function removeLocal(model) {
+    const r = await httpLocal('DELETE', '/api/delete', { model }, 20000);
+    if (r.status !== 200) throw new US.UserError('AI_FAILED', { title: 'The model couldn’t be removed.', action: 'Remove it in Ollama itself (ollama rm …).', detail: `${r.status}: ${String(r.text || '').slice(0, 200)}` });
+    return true;
+  }
+  async function local({ system, user, turns, schema, maxTokens = 16000, feature, as, onUsage, model: wanted }) {
+    const model = wanted || localModel();
     if (!model) throw new US.UserError('AI_KEY', { title: 'Choose a local model first.', action: 'Settings › AI › On this computer: pick the model (Ollama or LM Studio must be running).' });
     localTarget();   // this computer only – checked before anything is logged or sent
     const sys = blocksText(system) + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '');
-    const messages = [{ role: 'system', content: sys }, { role: 'user', content: blocksText(user) }].concat((turns || []).flatMap(t => [{ role: 'assistant', content: String(t.assistant) }, { role: 'user', content: String(t.user) }]));
+    const stills = imagesOf(user);
+    const content = stills.length ? user.map(b => (isImage(b) ? { type: 'image_url', image_url: { url: `data:${b.image.mime || 'image/jpeg'};base64,${b.image.data}` } } : { type: 'text', text: typeof b === 'string' ? b : b.text || '' })).filter(x => x.image_url || x.text) : blocksText(user);
+    const messages = [{ role: 'system', content: sys }, { role: 'user', content }].concat((turns || []).flatMap(t => [{ role: 'assistant', content: String(t.assistant) }, { role: 'user', content: String(t.user) }]));
     const body = Object.assign({ model, messages, max_tokens: Math.min(maxTokens, 16000), temperature: 0.2, stream: false }, schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: false } } } : {});
     const logged = sentLog.begin({ provider: 'local', model, feature, req: { system, user, turns, schema }, est: { usd: 0, inputTokens: Math.ceil(sys.length / 3.6) }, as });
     let r;
@@ -561,10 +620,11 @@
     resolveUse(use) {
       const u = typeof use === 'string' ? US.ai.choices().find(c => c.id === use) : use;
       const p = provider();
+      if (u && u.provider === 'local' && u.model) return { provider: 'local', model: u.model };
       if (!u || !u.provider || projectOffline()) return { provider: p, model: '' };
       if (u.provider === 'claude' && US.secrets.get('anthropicKey') && MODELS[u.model]) return { provider: 'claude', model: u.model };
       if (u.provider === 'gemini' && US.secrets.get('geminiKey')) return { provider: 'gemini', model: u.model || '' };
-      if (u.provider === 'local' && localModel()) return { provider: 'local', model: '' };
+      if (u.provider === 'local' && (u.model || localModel())) return { provider: 'local', model: u.model || '' };
       return { provider: p, model: '' };
     },
     /** What a request would cost with the current provider (Gemini: free). */
@@ -572,7 +632,8 @@
     provider,
     available: () => provider() !== 'none',
     label: () => ({ claude: MODELS[claudeModel()].name, gemini: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)), local: `${localModel()} (on this computer)`, none: 'No AI' }[provider()]),
-    localModels, LOCAL_URL, projectOffline, setProjectOffline,
+    localModels, localStatus, pullLocal, removeLocal, LOCAL_URL, projectOffline, setProjectOffline,
+    stillsOn, setStills, imageTokens, _stills: { isImage, imagesOf, imageNote, toContent, partsOf },
     geminiName, geminiModels, GEMINI_DEFAULT, GEMINI_FAST_DEFAULT,
     /** Plain text answer. */
     async text({ system, user, maxTokens, effort, fast, feature }) {
@@ -587,7 +648,9 @@
     async json({ system, user, turns, schema, maxTokens, effort, fast, feature, as, use, onUsage }) {
       const u = use ? US.ai.resolveUse(use) : { provider: provider(), model: '' }, p = u.provider, model = u.model || undefined;
       if (p === 'none') throw new US.UserError('AI_KEY');
-      const r = p === 'claude' ? await claude({ system, user, turns, schema, maxTokens, effort, feature, as, model, onUsage }) : p === 'local' ? await local({ system, user, turns, schema, maxTokens, feature, as, onUsage }) : await gemini({ system, user, turns, schema, maxTokens, fast, feature, as, model, onUsage });
+      // pictures only leave this computer when the editor has said so for this project; a local model may always look
+      if (p !== 'local' && imagesOf(user).length && !stillsOn()) throw new US.UserError('AI_FAILED', { title: 'Stills from this project aren’t allowed to leave this computer.', action: 'Settings › AI › Footage: switch on “Small stills may be sent” for this project, or choose a model on this computer to look at footage.' });
+      const r = p === 'claude' ? await claude({ system, user, turns, schema, maxTokens, effort, feature, as, model, onUsage }) : p === 'local' ? await local({ system, user, turns, schema, maxTokens, feature, as, onUsage, model }) : await gemini({ system, user, turns, schema, maxTokens, fast, feature, as, model, onUsage });
       return parseJSON(r.text);
     },
     /** Quick check that a key works. */

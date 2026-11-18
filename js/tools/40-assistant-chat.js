@@ -28,6 +28,8 @@
     timeline: 'Read a sequence as a list – every clip with its id (c1…), track, times, label, effects and, when transcribed, who speaks and what they say; markers; transcript lines heard (l1…): args {"sequence":"an s… id or the sequence’s name – leave out for your working sequence or the open one"}. Free. Read it before editing it and again afterwards to check.',
     selection: 'The clips the editor has selected in the open sequence: args {}. Free.',
     bin: 'Read the clips in a bin and the bins inside it – id (i1…), name, kind, length, size, label: args {"bin":"its name or path – leave out for the whole project"}. Free.',
+    footage: 'Find clips by what is IN the picture, from the written descriptions Ultra Studio keeps of each clip (kind of shot, setting, people, action, writing in the picture, tags): args {"query":"what to look for – leave out to list every described clip","bin":"a bin’s name or path – leave out for the whole project","limit":40}. Returns clip ids (i1… – the same ids as a "bin" reading of that bin), name, shot, description. Free. It also says how many clips have no description yet; describing them is the panel tool footage.describe.',
+    look: 'Look at particular clips yourself, through a few small stills, to answer something the descriptions don’t (“is the logo visible?”, “which take has both of them in frame?”, “is it day or night?”): args {"clips":["i3","i7"] (ids from a bin or footage reading) or ["exact clip name"],"bin":"the bin those ids came from – leave out for the whole project","question":"what you need to know","stills":2}. At most 8 clips. The stills go to the AI the editor chose for footage; they are asked first when stills leave the computer.',
     search: 'Search the interview transcripts by words: args {"query":"words or a topic","speaker":"optional name","limit":25}. Returns lines: id, interview, speaker, time, text. Free and instant.',
     lines: 'Read transcript lines in full with what was said around them: args {"ids":["L12"],"around":2}. Free.',
     themes: 'The themes found in Story so far, each with its best lines: args {"limit":6}. Free.',
@@ -51,7 +53,7 @@
     { id: 'own', label: 'Only for my own work', hint: 'New sequences, copies and markers just happen. It still asks before changing your own sequences and clips, exporting or downloading.' },
     { id: 'never', label: 'Don’t ask', hint: 'It works straight through. Copies are still made unless you say otherwise.' }
   ];
-  const READS = new Set(['project', 'timeline', 'selection', 'bin', 'search', 'lines', 'themes', 'ask', 'finish']);
+  const READS = new Set(['project', 'timeline', 'selection', 'bin', 'footage', 'search', 'lines', 'themes', 'ask', 'finish']);
   /** The tools on offer here. */
   function toolsHere() { return Object.assign({}, TOOLS); }
 
@@ -63,6 +65,8 @@
   function riskOf(tool, args = {}, { action = null } = {}) {
     if (READS.has(tool) || tool === 'open') return 'read';
     if (tool === 'interviews') return 'ai';
+    // stills leaving the computer: asked about like the editor's own work (a local model looking is just reading)
+    if (tool === 'look') return US.footage && US.footage.looker().where === 'local' ? 'ai' : 'sees';
     if (tool === 'build' || tool === 'version') return 'new';
     if (tool === 'edit') {
       const steps = Array.isArray(args.steps) ? args.steps : [];
@@ -79,7 +83,7 @@
   /** Does the editor approve this step first? always: they chose “Always proceed” in this chat (their own work and exports still ask). */
   function asksFirst(risk, mode = 'ask', always = false) {
     if (risk === 'read' || risk === 'ai') return false;
-    if (risk === 'own' || risk === 'out') return mode !== 'never';
+    if (risk === 'own' || risk === 'out' || risk === 'sees') return mode !== 'never';
     return mode === 'ask' && !always;
   }
 
@@ -96,7 +100,7 @@
     const opLine = k => `- ${k}: ${(opsInfo[k] || {}).desc || ''} Settings: ${(opsInfo[k] || {}).params || ''}`;
     return [
       `You are the assistant inside JMG Ultra Studio, a panel in ${ed}, working for a video editor (documentaries, charity films, interviews, events, podcasts, social cut-downs). They talk to you in one chat. You do what they ask by calling tools, one per turn, and reading what each returns. You can read and change the project and its ${resolve ? 'timelines' : 'sequences'}, search and question the interview transcripts, and run every tool the panel has.${resolve ? ' Use Resolve’s words with the editor: timeline, Media Pool, render queue.' : ''}`,
-      'You never see footage, frames or audio – only text: clip and sequence names, times, tracks, labels, effects, markers, transcript lines and what each tool reports. If a request needs someone to look at or listen to the pictures or sound (“find the shots with a red car”, “is this in focus?”), say that you can’t see them and offer what the panel can do instead (its own tools analyse footage on this computer: best shots, sharpness, silences, beats, colour matching).',
+      'You work from text: clip and sequence names, times, tracks, labels, effects, markers, transcript lines and what each tool reports. You don’t watch video or hear audio. What is IN the picture you know two ways: the written descriptions Ultra Studio keeps of each clip ("footage" – free; use it for “find the shots with a red car”, “organise by what’s in the shot”, B-roll for a line), and, when the descriptions don’t answer it, a few small stills of particular clips ("look"). If clips have no description yet, say so and offer to describe them (the panel tool footage.describe – it tells the editor the cost). For sound, focus, shake and exposure, the panel’s own tools measure the footage on this computer (best shots, sharpness, silences, beats, colour matching).',
       'Answer every turn as JSON: "say" – one short first-person sentence telling the editor what you are doing now and why (plain British English, no jargon, no ids); "understood" – on the first turn after each request from the editor, one or two sentences saying what you take the request to mean, including anything you are assuming (which sequence, which clips, how long) – else ""; "plan" – on that first turn, the steps you intend, 1–8 short lines – later only if the plan changes, else []; "tool" – the tool to call; "argsJson" – its arguments as a JSON object string.',
       'How to work:',
       '- Understand first. Use what you are told about the project, the open sequence and the selection. Read (project, timeline, bin, selection) before you change anything you haven’t read, so you use real ids and names. Reading is free and never needs permission.',
@@ -153,6 +157,8 @@
       project: () => 'Read the project', timeline: () => `Read ${a.sequence ? `“${clip(a.sequence, 40)}”` : 'the sequence'}`, selection: () => 'Look at what’s selected', bin: () => `Read ${a.bin ? `the bin “${clip(a.bin, 40)}”` : 'the whole project’s clips'}`,
       search: () => `Search the interviews: “${clip(a.query || a.speaker, 50)}”`, lines: () => `Read ${US.plural((a.ids || []).length, 'line')}`, themes: () => 'Look at the themes',
       interviews: () => `Ask the interviews: “${clip(a.request, 70)}”`,
+      footage: () => (a.query ? `Find footage showing “${clip(a.query, 50)}”` : `Read what’s in the footage${a.bin ? ` in “${clip(a.bin, 30)}”` : ''}`),
+      look: () => `Look at ${US.plural((a.clips || []).length, 'clip')}: “${clip(a.question, 60)}”`,
       edit: () => `Edit ${a.where === 'bin' ? `the bin${a.bin ? ` “${clip(a.bin, 30)}”` : ''}` : a.where === 'project' ? 'the project' : a.where === 'selection' ? 'the selected clips' : a.sequence ? `“${clip(a.sequence, 40)}”` : 'the sequence'}${a.inPlace ? ' itself' : ''}: ${(a.steps || []).map(s => ((E() && E().OPS[s.op]) || {}).title || s.op).join(', ')}`,
       action: () => (act ? (US.say ? US.say(act.title) : act.title) : `Run ${a.id}`),
       build: () => `Build “${clip(a.name, 40)}” from ${US.plural(US.sum((a.sections || []).map(x => (x.lineIds || []).length)), 'line')}${a.targetSeconds ? `, aiming for ${fmtT(a.targetSeconds)}` : ''}`,
@@ -316,6 +322,48 @@
         note(`${US.plural(m.items.length, 'clip')} in ${a.bin ? `“${scope.binName}”` : 'the project'}`);
         return rows(ed.outline(Object.assign({}, m, { project: null })), 500);
       });
+      case 'footage': return withHands(async job => {
+        const F = US.footage; if (!F) return 'Footage descriptions aren’t available here.';
+        const scope = { where: a.bin ? 'bin' : 'project' };
+        if (a.bin) { const b = await findBin(a.bin); if (b.error) return b.error; scope.binId = b.bin.id; scope.binName = b.bin.path; }
+        let m;
+        try { m = await ed.read(job, scope); } catch (e) { if (e instanceof US.UserError && e.code === 'NOTHING_FOUND') return explain(e).title; throw e; }
+        const raw = await F.listClips(job, { binId: scope.binId }), byId = new Map(raw.map(x => [x.id, x]));
+        const all = m.items.map(it => ({ it, item: byId.get(it.itemId) })).filter(r => r.item && F.describable([r.item]).length).map(r => ({ id: r.it.id, item: r.item, look: F.lookOf(r.item) }));
+        const have = all.filter(r => r.look), hits = F.find(all, a.query, { limit: Math.max(5, Math.min(120, +a.limit || 40)) });
+        note(a.query ? `${US.plural(hits.length, 'clip')} for “${clip(a.query, 40)}”` : `${have.length} of ${US.plural(all.length, 'clip')} described`);
+        const missing = all.length - have.length, L = F.looker();
+        const tail = missing ? `\n${missing} of ${all.length} clips here have no description yet${L.where === 'cloud' ? ` (describing them would cost about ${US.ai.fmtUSD(F.costFor(missing, 2, L.provider === 'claude' ? L.model : null))} with ${L.label})` : L.where === 'local' ? ` (${L.label} can describe them on this computer, free)` : ''}: offer the panel tool footage.describe${a.bin ? ` with bin "${a.bin}"` : ''}.` : '';
+        if (!have.length) return `None of the ${all.length} clips ${a.bin ? `in “${scope.binName}”` : 'in the project'} has been described yet.${tail}`;
+        if (!hits.length) return `Nothing in the descriptions matches “${a.query}”. Try other words (what is seen, not what it means).${tail}`;
+        return `${hits.length} clips (id, name, shot, description, setting, people, text in picture, tags)${a.query ? ', best first' : ''}:\n` + hits.map(r => `${r.id}\t${F.rowOf(r.item, r.look)}`).join('\n') + tail;
+      });
+      case 'look': {
+        const F = US.footage; if (!F) return 'Looking at footage isn’t available here.';
+        const q = String(a.question || '').trim(), want = (Array.isArray(a.clips) ? a.clips : []).map(String).filter(Boolean).slice(0, 8);
+        if (!q || !want.length) return 'ERROR: give "clips" (ids or names) and a "question".';
+        let L;
+        L = F.looker();
+        if (L.where === 'cloud') { try { F.mustBeAllowed(L); } catch (e) { const x = explain(e); return `Not possible yet: ${x.title} Tell the editor: ${x.action}`; } }
+        let items = [];
+        const p0 = await withHands(async job => {
+          const scope = { where: a.bin ? 'bin' : 'project' };
+          if (a.bin) { const b = await findBin(a.bin); if (b.error) return b.error; scope.binId = b.bin.id; }
+          const m = await ed.read(job, scope), raw = await F.listClips(job, { binId: scope.binId }), byId = new Map(raw.map(x => [x.id, x]));
+          items = want.map(w => m.items.find(it => it.id === w) || m.items.find(it => norm(it.name) === norm(w))).filter(Boolean).map(it => byId.get(it.itemId)).filter(Boolean);
+          return items.length ? '' : `None of those clips were found (${want.join(', ')}). Use ids from a bin or footage reading of the same bin.`;
+        });
+        if (!items.length) return p0;
+        const n = Math.max(1, Math.min(4, +a.stills || 2));
+        const ok = await approve(L.where === 'local' ? 'ai' : 'sees', { detail: `${L.where === 'local' ? 'On this computer' : `Small stills (768 pixels wide) will be sent to ${L.label}`}: up to ${US.plural(n, 'still')} each of ${items.slice(0, 6).map(it => `“${it.name}”`).join(', ')}${items.length > 6 ? ` and ${items.length - 6} more` : ''}.\nTo answer: ${q}\nNo video or sound is sent.` });
+        if (!ok.ok) return refusedNow();
+        return withHands(async job => {
+          const r = await F.ask(job, items, q, { perClip: n });
+          chat.spent += r.usd || 0;
+          note(`Looked at ${US.plural(r.stills, 'still')} with ${r.by}`);
+          return `From ${US.plural(r.stills, 'still')} (${r.by}): ${r.answer}${r.skipped.length ? `\nCouldn’t be read: ${r.skipped.map(x => `${x.name} (${x.why})`).join(', ')}.` : ''}`;
+        });
+      }
       case 'search': return withHands(async job => {
         if (!US.story) return 'Story isn’t available here.';
         US.story.loadState && US.story.loadState();

@@ -125,7 +125,7 @@
     create() {
       const C = US.chat, E = US.editAsk;
       const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'One chat for everything: run a tool, change a sequence or the project, ask about your interviews or how to do something. It says what it understood and what it will do, and asks before it changes anything.',
-        help: h('div', h('p', 'Type what you want. It reads your project as text (names, times, tracks, labels, effects, transcripts – never footage), tells you what it understood and its plan, and works step by step. Before a step that changes something you get a card to approve; choose how often it asks with the first menu under the chats.'),
+        help: h('div', h('p', 'Type what you want. It reads your project as text (names, times, tracks, labels, effects, transcripts, and the written descriptions of your footage), tells you what it understood and its plan, and works step by step. Before a step that changes something you get a card to approve; choose how often it asks with the first menu under the chats.'),
           h('p', 'Start another chat with + while one is working: they think side by side and take turns in Premiere. A dot on a chat shows it is working, or waiting for you.'),
           h('p', 'Common requests (cut the silences, add captions, check the cut…) work without any AI key.')) });
       const aiOn = () => !!(US.ai && US.ai.available());
@@ -147,7 +147,7 @@
         const cs = US.ai && US.ai.choices ? US.ai.choices() : [{ id: 'auto', label: 'Automatic', hint: '' }];
         const want = (cur && cur.model) || 'auto';
         modelSel.setOptions(cs.map(c => ({ value: c.id, label: c.id === 'auto' ? `AI: automatic${aiOn() ? ` (${US.ai.label()})` : ''}` : `AI: ${c.label}` })), cs.some(c => c.id === want) ? want : 'auto');
-        modelSel.title = 'Which AI this chat uses. Only text is sent – never footage.';
+        modelSel.title = 'Which AI this chat uses. Text is sent; small stills only when you’ve allowed them for the project. Never video or sound.';
         modelSel.disabled = !aiOn();
       }
       // what one request may spend before it stops to ask (0 = no limit: the cost is still shown as it goes)
@@ -214,7 +214,7 @@
       function greet(c) {
         const asks = (US.story && US.story.asks ? (() => { try { return US.story.asks(); } catch (e) { return []; } })() : []).slice(0, 4);
         if (aiOn()) bubble(c, 'bot', h('div', 'Tell me what you want – in your own words. I read your project, sequences and interviews as text, tell you what I understood and what I’ll do, ask when I’m not sure, and ask before I change anything.'), chips(EXAMPLES),
-          h('div.field-hint', `Worked out by ${US.ai.label()} – only text is sent, never footage. Start another chat with + while this one works.`),
+          h('div.field-hint', `Worked out by ${US.ai.label()}. Text is sent – and a few small stills only if you’ve switched that on for this project (you’re asked each time); never video or sound. Start another chat with + while this one works.`),
           asks.length ? h('div', h('div.field-hint', 'Earlier answers from your interviews:'), h('div.chat-chips', asks.map(a => h('button.chip', { onclick: () => { bubble(c, 'me', a.request); showAsk(c, a); } }, US.storyAsk.title(a.request))))) : null,
           recipeChips(c));
         else bubble(c, 'bot', h('div', 'Hi! I can run any JMG Ultra Studio tool for you. Try one of these:'), chips(exampleChips()),
@@ -223,7 +223,7 @@
       }
       const goTo = (m, t, seqId) => { if (t.seqId) US.host.call('openSequence', { seqId: t.seqId }).then(() => (t.start != null ? US.host.call('setPlayhead', { seqId: t.seqId, seconds: t.start }) : null)).catch(e => ui.showError(e)); else if (m && m.kind === 'timeline' && t.start != null) US.host.call('setPlayhead', { seqId: seqId || m.seq.id, seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
       const targetName = t => (t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId || t.sequence ? t.name : t.seqName ? `${t.seqName}: ${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)}` : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim());
-      const RISK = { new: ['makes something new', 'var(--info)'], own: ['changes your own work', 'var(--warn)'], out: ['writes files', 'var(--warn)'] };
+      const RISK = { new: ['makes something new', 'var(--info)'], own: ['changes your own work', 'var(--warn)'], out: ['writes files', 'var(--warn)'], sees: ['stills leave this computer', 'var(--warn)'] };
       /** A card to approve before a step runs. -> {ok, always, steps} */
       function approve(c, card) {
         return new Promise(res => {
@@ -295,7 +295,7 @@
           u ? h('div', h('div.field-label', 'What I understood'), h('div', u.text)) : null,
           plans.length ? h('div', h('div.field-label', 'The plan'), h('ol.agent-plan-list', plans[plans.length - 1].plan.map(p => h('li', p)))) : null,
           steps.length ? h('div', h('div.field-label', 'What I did'), h('ol.agent-plan-list', steps.map(s => h('li', s.text, s.result ? h('span.agent-res', ' → ' + s.result) : null)))) : null,
-          h('div.field-hint', `${end.model || 'AI'} · ${US.plural(end.steps || 0, 'step')}${end.spent > 0.004 ? ` · about ${usd(end.spent)}` : ''} · only text was sent`));
+          h('div.field-hint', `${end.model || 'AI'} · ${US.plural(end.steps || 0, 'step')}${end.spent > 0.004 ? ` · about ${usd(end.spent)}` : ''}${steps.some(x => x.tool === 'look') ? ' · text and the stills you approved were sent' : ' · only text was sent'}`));
         return h('div', h('button.btn.small.ghost.chat-why-btn', { onclick: () => body.classList.toggle('hidden') }, 'How I got there'), body);
       }
       function render(c, it, old = false) {

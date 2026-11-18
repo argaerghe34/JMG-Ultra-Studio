@@ -32,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant-chat', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '39-mvfx-fusion', '39-mvfx-looks', '39-mvfx-motion', '39-mvfx-pack', '39-mvfx', '37-producer', '38-wiki']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '14-footage', '40-assistant-chat', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '39-mvfx-fusion', '39-mvfx-looks', '39-mvfx-motion', '39-mvfx-pack', '39-mvfx', '37-producer', '38-wiki']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -301,6 +301,9 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     for (const want of ['Without AI – what still works', 'Never use AI', 'Needs AI', 'By API key', 'About']) if (!txt.includes(want)) errors.push('Settings: no “' + want + '”');
     if (set.el.querySelector('[data-section="without-ai"] .section.closed')) errors.push('Settings: Without AI didn’t open when asked');
     if (!set.el.querySelector('.settings-code input')) errors.push('Settings: no code box');
+    { const ft = set.el.querySelector('[data-section="footage"]');
+      if (!ft || !/Footage – what the AI may see/.test(ft.textContent) || !/small stills may be sent to Claude or Gemini/.test(ft.textContent) || !/Models on this computer \(optional\)/.test(ft.textContent) || !/Nothing here is downloaded unless you press Download/.test(ft.textContent)) errors.push('Settings: no Footage section – ' + (ft ? ft.textContent.slice(0, 200) : 'missing'));
+      else if (ft.querySelector('.section:not(.closed)')) errors.push('Settings: Footage should start closed'); }
     if (!set.el.querySelector('[data-section="sent"]') || !/What was sent to AI/.test(set.el.textContent)) errors.push('Settings: no “What was sent to AI”');
     set.el.remove();
     // two requests of one job: one row with what it was about, opening to show both

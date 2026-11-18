@@ -1028,5 +1028,5 @@
   /** Quick check used by Home › Check my setup. */
   async function probe(item) { const s = await pickSource(item); return s; }
 
-  US.vision = { cameraMove, VERSION, PRESETS, FOOTAGE, PICKY, CATEGORIES, MOVE_LABEL, settingsFor, probe, pickSource, analysisCopyPath, analysisPreset, makeAnalysisCopies, analyseClip, analyseMany, score, order, categories, fileUrl, _internal: { framing, setups, sharpness, exposure, shift, pyramid, normalise, scaleBetween, sampleScores, reveals, sigDistance, isDuplicate, prepare, thresholds } };
+  US.vision = { cameraMove, VERSION, PRESETS, FOOTAGE, PICKY, CATEGORIES, MOVE_LABEL, settingsFor, probe, pickSource, analysisCopyPath, analysisPreset, makeAnalysisCopies, analyseClip, analyseMany, score, order, categories, fileUrl, openVideo, seek, closeVideo, _internal: { framing, setups, sharpness, exposure, shift, pyramid, normalise, scaleBetween, sampleScores, reveals, sigDistance, isDuplicate, prepare, thresholds } };
 })();

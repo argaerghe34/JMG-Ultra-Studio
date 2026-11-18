@@ -6,12 +6,12 @@
 const assert = require('assert');
 const { load, test } = require('./harness');
 global.ResizeObserver = global.ResizeObserver || function () { return { observe() {} }; };
-const US = load(['time', 'audio', 'dsp', 'transcript', 'ui', 'app', 'ai', 'js/tools/22-story-glossary.js', 'js/tools/22-story-board.js', 'js/tools/22-story-export.js', 'js/tools/22-story-timeline.js', 'js/tools/22-story-narrative.js', 'js/tools/22-story-moments.js', 'js/tools/22-story-ai.js', 'js/tools/22-story-context.js', 'js/tools/22-story-ask.js', 'js/tools/22-story-voices.js', 'js/tools/22-story.js', 'js/tools/40-assistant-chat.js', 'js/tools/41-edit.js']);
+const US = load(['time', 'audio', 'dsp', 'transcript', 'ui', 'app', 'ai', 'js/tools/22-story-glossary.js', 'js/tools/22-story-board.js', 'js/tools/22-story-export.js', 'js/tools/22-story-timeline.js', 'js/tools/22-story-narrative.js', 'js/tools/22-story-moments.js', 'js/tools/22-story-ai.js', 'js/tools/22-story-context.js', 'js/tools/22-story-ask.js', 'js/tools/22-story-voices.js', 'js/tools/22-story.js', 'js/tools/14-footage.js', 'js/tools/40-assistant-chat.js', 'js/tools/41-edit.js']);
 const C = US.chat;
 C._tick = 2;
 
 test('what a step touches, and when the editor is asked first', () => {
-  for (const t of ['project', 'timeline', 'selection', 'bin', 'search', 'lines', 'themes', 'ask', 'finish', 'open']) assert.strictEqual(C.riskOf(t, {}), 'read', t);
+  for (const t of ['project', 'timeline', 'selection', 'bin', 'footage', 'search', 'lines', 'themes', 'ask', 'finish', 'open']) assert.strictEqual(C.riskOf(t, {}), 'read', t);
   assert.strictEqual(C.riskOf('interviews', {}), 'ai');
   assert.strictEqual(C.riskOf('build', {}), 'new');
   assert.strictEqual(C.riskOf('edit', { where: 'sequence', steps: [{ op: 'transition' }] }), 'new', 'on a copy');
@@ -24,10 +24,10 @@ test('what a step touches, and when the editor is asked first', () => {
   assert.strictEqual(C.riskOf('action', { id: 'deliver.pack' }, { action: { changes: true } }), 'out');
   assert.strictEqual(C.riskOf('action', { id: 'deliver.chapters' }, { action: { changes: false } }), 'read');
   // ask: everything that changes; own: only their own work and files; never: nothing; “Always proceed” covers new things only
-  const grid = m => ['read', 'ai', 'new', 'own', 'out'].map(r => C.asksFirst(r, m)).join();
-  assert.strictEqual(grid('ask'), 'false,false,true,true,true');
-  assert.strictEqual(grid('own'), 'false,false,false,true,true');
-  assert.strictEqual(grid('never'), 'false,false,false,false,false');
+  const grid = m => ['read', 'ai', 'new', 'own', 'out', 'sees'].map(r => C.asksFirst(r, m)).join();
+  assert.strictEqual(grid('ask'), 'false,false,true,true,true,true');
+  assert.strictEqual(grid('own'), 'false,false,false,true,true,true', 'stills leaving the computer are asked about like the editor’s own work');
+  assert.strictEqual(grid('never'), 'false,false,false,false,false,false');
   assert.deepStrictEqual([C.asksFirst('new', 'ask', true), C.asksFirst('own', 'ask', true), C.asksFirst('out', 'ask', true)], [false, true, true]);
 });
 
@@ -48,7 +48,7 @@ test('the rules and the brief: every tool, the edits, every panel tool with its 
   const act = { id: 'silence.cut', tool: 'silence', title: 'Cut the pauses', describe: 'Removes pauses.', changes: true, params: { minPause: { type: 'number', default: 0.5, desc: 'Shortest pause' } } };
   const r = C.rules({ resolve: false, actions: [act], ops: { timeline: US.editAsk.opsFor('timeline', false), items: US.editAsk.opsFor('items', false) } });
   for (const t of Object.keys(C.TOOLS)) assert.ok(r.includes(`- ${t}: `), t);
-  assert.ok(/never see footage, frames or audio/.test(r) && /Adobe Premiere Pro/.test(r));
+  assert.ok(/You don’t watch video or hear audio/.test(r) && /written descriptions Ultra Studio keeps of each clip/.test(r) && /Adobe Premiere Pro/.test(r));
   assert.ok(/- transition: /.test(r) && /- move: /.test(r) && /- silence\.cut \[silence\] – Cut the pauses \(changes the project\)\. Removes pauses\.\n    settings: minPause \(number\) = 0\.5: Shortest pause/.test(r), 'edits and panel tools listed');
   assert.ok(/"understood"/.test(r) && /call "ask"/.test(r) && /Never say something was done that a tool did not report/.test(r));
   const rr = C.rules({ resolve: true, actions: [], ops: { timeline: US.editAsk.opsFor('timeline', true), items: US.editAsk.opsFor('items', true) } });
@@ -262,6 +262,46 @@ test('a cut from a goal, in the chat: search → read lines → build a new sequ
     assert.deepStrictEqual(chat.versions.map(v => v.why), ['built from the interviews', 'kept as a version']);
     assert.ok(!US.agent && !US.tools.get('agent') && !US.actions.get('agent.run'), 'there is no Agent any more');
   } finally { US.story.buildSequence = was; x.restore(); }
+});
+
+test('what’s in the picture: the chat reads the kept descriptions (free), says what isn’t described yet, and looks at stills only after a card – refused plainly when stills may not leave', async () => {
+  const F = US.footage, was = { lookOf: F.lookOf, list: F.listClips, grab: F.grab, looker: F.looker, stillsOn: null };
+  const CLIPS = [{ id: 'it1', name: 'DJI_001.MP4', kind: 'video', path: '/m/DJI_001.MP4', bin: 'Drone', duration: 20 }, { id: 'it2', name: 'A001.MP4', kind: 'video', path: '/m/A001.MP4', bin: 'Drone', duration: 5 }, { id: 'it3', name: 'A002.MP4', kind: 'video', path: '/m/A002.MP4', bin: 'Drone', duration: 5 }];
+  const LOOKS = { it1: { description: 'A drone shot flying over a wide river at sunset.', shot: 'aerial', setting: 'a river valley', people: 'no one', action: 'the camera flies forward', text: '', tags: ['river', 'water', 'sunset', 'drone'] }, it2: { description: 'A baker kneads dough on a floury table.', shot: 'close-up', setting: 'a bakery kitchen', people: 'one woman', action: 'kneading', text: 'COHEN’S BAKERY', tags: ['bread', 'hands', 'flour'] } };
+  const x = setup([
+    T('footage', { query: 'water', bin: 'Drone' }, 'Looking through the descriptions.', { understood: 'You want shots with water.', plan: ['Find them'] }),
+    T('look', { clips: ['i2', 'A002.MP4'], bin: 'Drone', question: 'Is the bakery’s name readable?', stills: 1 }),
+    T('finish', { reply: 'One river shot; the sign is readable in A001.' }),
+    T('look', { clips: ['i2'], bin: 'Drone', question: 'again?' }), T('finish', { reply: 'Not allowed.' })]);
+  const hostWas = US.host.call, sentStills = [];
+  US.host.call = async (fn, a) => (fn === 'listBins' ? [{ id: 'root', path: '(Project root)' }, { id: 'b1', path: 'Drone' }] : fn === 'binItems' ? CLIPS : hostWas(fn, a));
+  F.lookOf = it => LOOKS[it.id] || null;
+  F.grab = async (it, times) => ({ stills: times.map(t => ({ t, data: 'QUJD', w: 768, h: 432 })), how: 'panel' });
+  let allowed = true;
+  US.secrets.set('anthropicKey', 'sk-test');   // a Claude key: the cheapest Claude model does the looking
+  const aiWas = US.ai, realJson = US.ai.json;
+  US.ai = Object.assign({}, US.ai, { stillsOn: () => allowed, json: async req => (req.feature === 'Look at footage' ? (sentStills.push(req), req.onUsage && req.onUsage({ usd: 0.002 }), { answer: 'Yes – “COHEN’S BAKERY” is clear in A001; A002 shows no sign.' }) : realJson(req)) });
+  try {
+    const log = [], chat = C.newChat();
+    await C.send(chat, 'which shots have water in them?', hooksFor(log), { mode: 'own' });
+    const res = i => x.ai[i + 1].turns[i].user;
+    assert.ok(/1 clips \(id, name, shot/.test(res(0)) && /i1\tDJI_001\.MP4\taerial\tA drone shot flying over a wide river/.test(res(0)), res(0));
+    assert.ok(/1 of 3 clips here have no description yet \(describing them would cost about/.test(res(0)) && /footage\.describe with bin "Drone"/.test(res(0)));
+    const card = log.find(i => i.k === 'approve?').card;
+    assert.strictEqual(card.risk, 'sees');
+    assert.ok(/Small stills \(768 pixels wide\) will be sent to Claude Haiku 5\.5: up to 1 still each of “A001\.MP4”, “A002\.MP4”/.test(card.detail) && /No video or sound is sent/.test(card.detail), card.detail);
+    assert.strictEqual(sentStills.length, 1);
+    assert.deepStrictEqual(sentStills[0].user.filter(b => b.image).map(b => b.image.note), ['A001.MP4 at 0:02', 'A002.MP4 at 0:02']);
+    assert.strictEqual(sentStills[0].use, 'claude:claude-haiku-5-5');
+    assert.ok(/From 2 stills \(Claude Haiku 5\.5\): Yes/.test(res(1)));
+    assert.ok(Math.abs(chat.spent - (0.03 + 0.002)) < 1e-9, 'the stills’ cost is on the chat’s account: ' + chat.spent);
+    // not switched on for this project: nothing is grabbed or sent, and the AI is told what the editor must do
+    allowed = false;
+    await C.send(chat, 'look again', hooksFor(log), { mode: 'never' });
+    const last = x.ai[x.ai.length - 1].turns;
+    assert.ok(/Not possible yet: Stills from this project aren’t allowed to leave this computer\. Tell the editor: Settings › AI › Footage/.test(last[last.length - 1].user), last[last.length - 1].user);
+    assert.strictEqual(sentStills.length, 1, 'nothing more was sent');
+  } finally { US.secrets.set('anthropicKey', ''); US.ai = aiWas; US.host.call = hostWas; Object.assign(F, { lookOf: was.lookOf, listClips: was.list, grab: was.grab, looker: was.looker }); x.restore(); }
 });
 
 test('two chats at once: both think side by side, their steps in the editor take turns, each finishes with its own report and its own AI', async () => {
