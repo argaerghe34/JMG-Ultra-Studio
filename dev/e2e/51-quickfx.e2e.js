@@ -54,6 +54,11 @@ await hit('reset');
 await hit('punchAlt');
 info = await read();
 T.assert(info.video[0].clips.map(c => c.scale).join() === '100,110,100', 'every other clip at 110%: ' + info.video[0].clips.map(c => c.scale));
+// 2c. a button of your own: punch in 115% (Make your own button), on every clip
+const mine = Q.makeOwn({ type: 'punch', value: '115', label: 'Gentle push' }).preset;
+const rm = await Q.apply(mine, { scope: 'all' }); notes.push('own 115%: ' + rm.summary);
+info = await read();
+T.assert(info.video[0].clips.every(c => Math.abs(c.scale - 115) < 0.6), 'your own 115% on every clip: ' + info.video[0].clips.map(c => c.scale));
 // 3. black & white
 await hit('bw');
 info = await read();

@@ -78,6 +78,7 @@ A pad of buttons: click one and it goes on the clips selected in the Timeline �
 - **Effects**: Black & White, Blur, Stabilise (Warp Stabilizer), Flip, Sharpen, Lumetri Color, Pixelate, and half or fully see-through.
 - **Sound**: fades (Constant Power or Exponential Fade), Louder, Quieter and Duck under. A sound button on a selected video clip changes its linked sound.
 - **Favourites**: star a button to keep it at the top.
+- **Make your own button**: a punch-in, speed, opacity or volume of your own (say 115%, 75% or −6 dB) – or any effect or transition by its name in Premiere's Effects panel – kept as a button under **Your own buttons**, with its own name if you like. Star it like any other; × deletes it. In Resolve: your own punch-ins and opacity.
 - **Any by name**: anything in Premiere's Effects panel, typed as it's named there.
 - In Resolve, add-ons can't add transitions, effects, speed or volume, so those buttons are greyed out; the moves (Punch in every other too) and opacity work on the clip under the playhead (Resolve doesn't tell add-ons which clips are selected) or every clip.
 

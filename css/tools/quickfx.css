@@ -5,3 +5,4 @@
 .qfx-star { position: absolute; top: 3px; right: 6px; font-size: 13px; opacity: .45; line-height: 1; }
 .qfx-star.on, .qfx-btn:hover .qfx-star { opacity: .9; }
 .qfx-title { font-size: 12px; font-weight: 600; color: var(--text-2); margin: 8px 0 0; }
+.qfx-del { left: 6px; right: auto; font-size: 15px; }
