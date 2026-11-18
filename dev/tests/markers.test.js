@@ -9,9 +9,10 @@ function markerColl() {
   return {
     _list: list,
     createMarker(s) {
-      // like Premiere: the end is set in seconds and read back as a Time
-      let end = s;
-      const m = { guid: 'g' + (++n) + '-x', start: { seconds: s }, get end() { return { seconds: end }; }, set end(v) { end = v; }, name: '', comments: '', setColorByIndex(c) { m.color = c; }, getColorByIndex() { return m.color; } };
+      // like Premiere 2027: start and end are set in seconds and read back as a Time; a Time object is refused
+      let start = s, end = s;
+      const secs = v => { if (typeof v !== 'number') throw new Error('Illegal Parameter type'); return v; };
+      const m = { guid: 'g' + (++n) + '-x', get start() { return { seconds: start }; }, set start(v) { start = secs(v); }, get end() { return { seconds: end }; }, set end(v) { end = secs(v); }, name: '', comments: '', setColorByIndex(c) { m.color = c; }, getColorByIndex() { return m.color; } };
       list.push(m); return m;
     },
     getFirstMarker() { return list[0] || null; },

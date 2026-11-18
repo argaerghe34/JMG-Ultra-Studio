@@ -498,12 +498,17 @@ var UStudio = (function () {
         return m && String(m.name || '') === w.name && String(m.comments || '') === w.comment && col === w.color &&
             Math.abs(m.start.seconds - w.start) < 0.03 && Math.abs(m.end.seconds - w.end) < 0.03;
     }
+    // plain ifs, called afresh each time: in Premiere 2027 the chained ?: in a closure here went to the sequence even for a clip marker
+    function markerColl(a, cm) {
+        if (cm) return needItem(cm[1]).getMarkers();
+        if (a.seqId) return needSeq(a.seqId).markers;
+        return needItem(a.id).getMarkers();
+    }
     fn.updateMarkers = function (a) {
         var out = { done: 0, guids: {}, remade: 0 }, list = a.markers || [];
         for (var i = 0; i < list.length; i++) {
             var ch = list[i], cm = /^clip:(.+):([^:]+)$/.exec(ch.guid), want = cm ? cm[2] : ch.guid;
-            var coll = function () { return cm ? needItem(cm[1]).getMarkers() : a.seqId ? needSeq(a.seqId).markers : needItem(a.id).getMarkers(); };
-            var c = coll(), m = findMarker(c, want);
+            var c = markerColl(a, cm), m = findMarker(c, want);
             if (!m) continue;
             var w = markerWants(m, ch);
             if (ch.name != null) m.name = w.name;
@@ -511,10 +516,10 @@ var UStudio = (function () {
             if (ch.color != null) { try { m.setColorByIndex(w.color); } catch (e) { } }
             if (w.moved) {
                 // later: the end moves first, so the start never passes it
-                var ts = new Time(); ts.seconds = w.start;
-                if (w.start > m.start.seconds) { m.end = w.end; m.start = ts; } else { m.start = ts; m.end = w.end; }
+                // seconds, not Time objects: Premiere 2027 refuses a Time here ("Illegal Parameter type")
+                if (w.start > m.start.seconds) { m.end = w.end; m.start = w.start; } else { m.start = w.start; m.end = w.end; }
             }
-            var g = want, c2 = coll(), back = findMarker(c2, want);
+            var g = want, c2 = markerColl(a, cm), back = findMarker(c2, want);
             if (!markerIs(back, w)) {
                 // didn't stick: make it again with the new values
                 if (back) c2.deleteMarker(back);
