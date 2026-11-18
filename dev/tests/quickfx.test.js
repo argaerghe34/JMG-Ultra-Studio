@@ -31,6 +31,15 @@ test('calls: a transition’s length in frames, grouped by where it goes; a fade
   assert.deepStrictEqual(Q.calls(P('dissolve'), [], {}), []);
 });
 
+test('punch in every other: the 2nd, 4th… clip of each track (counted per track, in time order), in one motion call', () => {
+  const ts = [0, 4, 9, 12, 15].map(start => ({ kind: 'video', track: 0, start, end: start + 3 })).concat([{ kind: 'video', track: 1, start: 0, end: 5 }, { kind: 'video', track: 1, start: 5, end: 8 }]);
+  assert.deepStrictEqual(Q.everyNth(ts, 2).map(t => [t.track, t.start]), [[0, 4], [0, 12], [1, 5]]);
+  const c = Q.calls(Q.PRESETS.find(p => p.id === 'punchAlt'), ts, {});
+  assert.deepStrictEqual(c.map(x => [x.op, x.params.scale, x.targets.length]), [['motion', 110, 3]]);
+  assert.deepStrictEqual(Q.calls(Q.PRESETS.find(p => p.id === 'punchAlt'), ts.slice(0, 1), {}), [], 'one clip: nothing to alternate');
+  assert.ok(Q.works(Q.PRESETS.find(p => p.id === 'punchAlt'), true), 'works in Resolve too');
+});
+
 test('Resolve: moves and opacity work; transitions, effects, speed and volume don’t', () => {
   const ok = Q.PRESETS.filter(p => Q.works(p, true)).map(p => p.op);
   assert.ok(ok.length && ok.every(op => op === 'motion' || op === 'opacity'), ok.join());

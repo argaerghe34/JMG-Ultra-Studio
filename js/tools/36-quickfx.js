@@ -22,6 +22,7 @@
 
     { id: 'punch110', group: 'moves', label: 'Punch in 110%', sub: 'a closer framing', op: 'motion', params: { scale: 110 }, kind: 'video', colour: '#ffcf7a' },
     { id: 'punch120', group: 'moves', label: 'Punch in 120%', sub: 'closer still', op: 'motion', params: { scale: 120 }, kind: 'video', colour: '#ffcf7a' },
+    { id: 'punchAlt', group: 'moves', label: 'Punch in every other', sub: 'a second “angle” – 110% on every 2nd clip', op: 'motion', params: { scale: 110 }, every: 2, kind: 'video', colour: '#ffcf7a' },
     { id: 'reset', group: 'moves', label: 'Back to 100%', sub: 'undo a punch-in', op: 'motion', params: { scale: 100 }, kind: 'video', colour: '#ffcf7a' },
     { id: 'zoomIn', group: 'moves', label: 'Slow zoom in', sub: '100 → 110% across it', op: 'zoom', params: { from: 100, to: 110 }, kind: 'video', colour: '#ffcf7a' },
     { id: 'zoomOut', group: 'moves', label: 'Slow zoom out', sub: '110 → 100% across it', op: 'zoom', params: { from: 110, to: 100 }, kind: 'video', colour: '#ffcf7a' },
@@ -81,8 +82,17 @@
     });
     return out;
   }
+  /**
+   * Every n-th clip on each track, counting from the second (an interview's jump cuts become two “angles”: the 2nd,
+   * 4th, 6th… clip of the track is punched in). targets in track then time order. -> the picked targets
+   */
+  function everyNth(targets, n) {
+    const seen = {};
+    return targets.filter(t => { const i = seen[t.track] = (seen[t.track] || 0) + 1; return i % n === 0; });
+  }
   /** The calls to make for a preset: [{op, params, targets}] (transitions grouped by where they go). */
   function calls(preset, targets, { where = 'cuts', seconds = 0.5, fps = 25, ends = false } = {}) {
+    if (preset.every > 1) targets = everyNth(targets, preset.every);
     if (!targets.length) return [];
     if (preset.op !== 'transition') return [{ op: preset.op, params: Object.assign({}, preset.params), targets }];
     const frames = Math.max(2, Math.round(seconds * fps));
@@ -124,6 +134,7 @@
     const targets = targetsFor(info, sel, preset.kind);
     if (!targets.length) throw new US.UserError('NOTHING_FOUND', { title: preset.kind === 'audio' ? 'No sound clips to change.' : 'No video clips to change.', action: sel ? 'Select clips of that kind in the Timeline (unlocked tracks).' : 'The sequence has none on unlocked tracks.' });
     const cs = calls(preset, targets, Object.assign({ fps: info.fps || 25 }, opts));
+    if (!cs.length && preset.every) return { summary: `${preset.label}: needs at least two clips on a track – select more, or choose Every clip.` };
     if (!cs.length) return { summary: `${preset.label}: no cuts between these clips – choose Start, End or Both ends.` };
     const r = { done: 0, skipped: [] };
     for (const c of cs) {
@@ -132,7 +143,7 @@
       r.done += x.done || 0; r.skipped.push(...(x.skipped || []));
     }
     if (r.skipped.length) US.log('warn', `${preset.label}: ${r.skipped.length} skipped`, r.skipped.slice(0, 5).map(s => s.why).join('; '), 'quickfx');
-    return { summary: report(preset, r, targets.length), result: r };
+    return { summary: report(preset, r, preset.every ? cs[0].targets.length : targets.length), result: r };
   }
 
   /* ---------- the tab ---------- */
@@ -188,5 +199,5 @@
     }
   });
 
-  US.quickfx = { PRESETS, GROUPS, works, targetsFor, transitionPlaces, calls, report, apply };
+  US.quickfx = { PRESETS, GROUPS, works, targetsFor, transitionPlaces, everyNth, calls, report, apply };
 })();
