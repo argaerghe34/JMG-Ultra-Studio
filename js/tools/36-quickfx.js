@@ -191,8 +191,10 @@
     let sel = null, note = '';
     if (opts.scope !== 'all') {
       sel = await US.host.call('editSelection', { seqId });
-      // Resolve: “every other” needs several clips – with only the clip under the playhead, it takes In to Out, or the whole timeline
-      if (RES && preset.every > 1 && sel.length < 2) { const w = widerPick(info, sel[0]); sel = w.sel; note = w.note; }
+      // Resolve: “every other” needs several clips – with only one (the clip under the playhead; Resolve also selects it,
+      // its picture and its sound, measured in 21.2), it takes In to Out on its track, or the whole track
+      const w = RES && preset.every > 1 ? everyPick(info, sel, preset.kind) : null;
+      if (w) { sel = w.sel; note = w.note; }
       if (sel && !sel.length) throw new US.UserError('NOTHING_FOUND', { title: RES ? 'No clips are selected, and there’s no clip under the playhead.' : 'No clips are selected in the Timeline.', action: RES ? 'Select clips in the Timeline (or move the playhead onto one), or choose Every clip.' : 'Select some clips in the Timeline, or choose Every clip.' });
     }
     if (sel) {
@@ -219,6 +221,11 @@
    * clips between In and Out when they're set, else every clip – on the track of the clip under the playhead (or every
    * track). Pure. info: editRead's result; one: the clip under the playhead, if any. -> {sel: [...] | null (every clip), note}
    */
+  /** Punch in every other in Resolve: fewer than two picked clips of the kind it needs -> widerPick's choice, else null (keep the pick). */
+  function everyPick(info, sel, kind) {
+    const ofKind = (sel || []).filter(x => x.kind === kind);
+    return ofKind.length < 2 ? widerPick(info, ofKind[0] || null) : null;
+  }
   function widerPick(info, one) {
     const dur = info.duration || 0, a = info.inPoint || 0, b = info.outPoint != null ? info.outPoint : dur;
     const ranged = a > 0.001 || (dur && b < dur - 0.001);
@@ -302,5 +309,5 @@
     }
   });
 
-  US.quickfx = { PRESETS, GROUPS, OWN, makeOwn, ownPresets, works, widerPick, targetsFor, transitionPlaces, everyNth, calls, report, apply };
+  US.quickfx = { PRESETS, GROUPS, OWN, makeOwn, ownPresets, works, widerPick, everyPick, targetsFor, transitionPlaces, everyNth, calls, report, apply };
 })();

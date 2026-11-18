@@ -94,6 +94,10 @@ test('punch in every other in Resolve, with one clip picked: In to Out on its tr
   const r = Q.widerPick(Object.assign({}, info, { inPoint: 3, outPoint: 11 }), one);
   assert.deepStrictEqual([r.sel.map(x => x.start), r.note], [[0, 4, 9], ' (In to Out on V1)'], 'clips touching In–Out');
   assert.deepStrictEqual(Q.widerPick(info, null), { sel: null, note: ' (every clip – Resolve had no clips selected)' });
+  // Resolve 21.2 selects the clip under the playhead itself – its picture and its sound (measured): still one video clip
+  const both = [one, Object.assign({}, one, { kind: 'audio' })];
+  assert.deepStrictEqual(Q.everyPick(info, both, 'video'), w, 'picture and sound of one clip count as one');
+  assert.strictEqual(Q.everyPick(info, [one, { kind: 'video', track: 0, start: 9, end: 12 }], 'video'), null, 'two picked: kept as picked');
   const ts = Q.targetsFor(info, w.sel, 'video'), c = Q.calls(Q.PRESETS.find(p => p.id === 'punchAlt'), ts, {});
   assert.deepStrictEqual(c[0].targets.map(t => t.start), [4, 12], 'the 2nd and 4th clip of V1, not V2');
 });
