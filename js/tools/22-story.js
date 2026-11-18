@@ -952,7 +952,7 @@
     job.progress(1);
     if (notes.length) US.ui.toast({ type: 'info', title: 'Built – one thing to know', text: notes.join(' '), timeout: 15000 });
     const skipped = plan.skipped + (total - placedN);
-    return { seq, notes, fitted, summary: `Built “${seq.name}” · ${US.plural(placedN, 'line')} · ${US.fmtDur(cursor)}${target > 0 ? ` (target ${US.fmtDur(target)}${fitted && fitted.short ? ' – shorter: there aren’t enough lines' : ''})` : ''}${skipped ? ` (${skipped} skipped: clip not in project)` : ''}` };
+    return { seq, notes, fitted, seconds: cursor, placed: placedN, summary: `Built “${seq.name}” · ${US.plural(placedN, 'line')} · ${US.fmtDur(cursor)}${target > 0 ? ` (target ${US.fmtDur(target)}${fitted && fitted.short ? ' – shorter: there aren’t enough lines' : ''})` : ''}${skipped ? ` (${skipped} skipped: clip not in project)` : ''}` };
   }
 
   /** A bin of subclips per theme, best first, in the theme's colour (strongest lines in the highlight colour, starred). */

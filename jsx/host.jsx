@@ -403,13 +403,17 @@ var UStudio = (function () {
     function addMarkers(coll, list) {
         var guids = [];
         for (var i = 0; i < list.length; i++) {
-            var mk = list[i];
-            var m = coll.createMarker(mk.start);
-            if (mk.end != null && mk.end > mk.start) m.end = mk.end;
-            if (mk.name) m.name = mk.name;
-            if (mk.comment) m.comments = mk.comment;
-            if (mk.color != null) m.setColorByIndex(mk.color);
-            if (mk.chapter) { try { m.setTypeAsChapter(); } catch (e) { } }
+            // Premiere 2027 takes plain numbers for a marker's times and colour ("Illegal Parameter type" otherwise), so
+            // whatever came in is made a number; and a marker that can't be finished isn't left behind half-made
+            var mk = list[i], st = Number(mk.start), en = mk.end != null ? Number(mk.end) : NaN;
+            var m = coll.createMarker(st);
+            try {
+                if (isFinite(en) && en > st) m.end = en;
+                if (mk.name) m.name = String(mk.name);
+                if (mk.comment) m.comments = String(mk.comment);
+                if (mk.color != null && isFinite(Number(mk.color))) m.setColorByIndex(Number(mk.color));
+            } catch (e) { try { coll.deleteMarker(m); } catch (e2) { } throw e; }
+            if (mk.chapter) { try { m.setTypeAsChapter(); } catch (e3) { } }
             guids.push(m.guid);
         }
         return guids;

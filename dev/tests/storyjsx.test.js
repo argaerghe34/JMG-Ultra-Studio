@@ -60,7 +60,7 @@ function makePremiere({ clipColours = false, adjustment = false, qeMethods = ['n
   seq.videoTracks = coll(seq._v, 'numTracks'); seq.audioTracks = coll(seq._a, 'numTracks');
   // sequence markers and the Timeline selection (Ask › Edit)
   seq._markers = []; seq._sel = [];
-  seq.markers = { createMarker(s) { const m = { start: T(s), _end: s, name: '', comments: '', guid: 'g' + seq._markers.length, color: 0, setColorByIndex(i) { m.color = i; }, getColorByIndex() { return m.color; } }; Object.defineProperty(m, 'end', { get: () => T(m._end), set: v => { m._end = v.seconds; } }); seq._markers.push(m); return m; },
+  seq.markers = { createMarker(s) { const m = { start: T(s), _end: s, name: '', comments: '', guid: 'g' + seq._markers.length, color: 0, setColorByIndex(i) { m.color = i; }, getColorByIndex() { return m.color; } }; Object.defineProperty(m, 'end', { get: () => T(m._end), set: v => { if (typeof v !== 'number') throw new Error('Illegal Parameter type'); m._end = v; } }); /* as Premiere 2027: seconds as a number; a Time object is refused */ seq._markers.push(m); return m; },
     getFirstMarker: () => seq._markers[0] || null, getNextMarker: m => seq._markers[seq._markers.indexOf(m) + 1] || null };
   seq.getSelection = () => seq._sel;
   Object.defineProperty(seq, 'end', { get: () => String(Math.round(Math.max(0, ...seq._v.flatMap(t => t._clips.map(c => c._end))) * TICKS)) });

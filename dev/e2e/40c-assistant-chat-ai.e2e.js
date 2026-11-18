@@ -23,7 +23,9 @@ T.assert(log.some(i => i.k === 'understood' && i.text.length > 10) && log.some(i
 T.assert(chat.work && chat.work.ours && chat.work.seqId !== seq.id, 'it worked on a copy: ' + JSON.stringify(chat.work));
 const copy = await US.host.call('editRead', { seqId: chat.work.seqId }), orig = await US.host.call('editRead', { seqId: seq.id });
 T.assert(copy.video[0].clips.length === 3 && copy.video[0].clips.every(c => Math.abs(Number(c.scale) - 120) < 0.6), 'the copy’s clips are at 120%: ' + copy.video[0].clips.map(c => c.scale) + '\n' + told);
-T.assert((copy.markers || []).some(m => /review/i.test(m.name) && m.start < 0.5), 'a marker “Review” at the start of the copy: ' + JSON.stringify(copy.markers));
+const reviews = (copy.markers || []).filter(m => /review/i.test(m.name));
+T.assert(reviews.length === 1 && reviews[0].start < 0.5, 'one marker “Review” at the start of the copy (a refused marker used to be left behind and doubled by the retry): ' + JSON.stringify(copy.markers));
+T.assert(!/Illegal Parameter/.test(chat.turns.map(t => t.user).join(' ')), 'Premiere didn’t refuse the marker:\n' + told);
 T.assert(!orig.video[0].clips.some(c => Math.abs(Number(c.scale) - 120) < 0.6) && !(orig.markers || []).some(m => /review/i.test(m.name)), 'the original is untouched');
 // a question in the same chat: answered, nothing changed
 const applied = log.filter(i => i.k === 'step' && /^Edit/.test(i.text)).length;

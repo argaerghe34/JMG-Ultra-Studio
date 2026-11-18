@@ -60,6 +60,7 @@ async function talk(key, chat, text, opts, answers = {}) {
   report.push('<details><summary>What the AI was told after each step</summary>', '', ...chat.turns.slice(turns0).map((t, i) => '```\n' + `[${i}] AI: ${String(t.assistant || '').slice(0, 700)}\n→ ${String(t.user || '').slice(0, 1800)}` + '\n```'), '', '</details>', '');
   check(key, end && !error, `finished with a report${error ? ' – ' + error : ''}`);
   check(key, ev.some(e => e.k === 'understood' && e.text.length > 15) && ev.some(e => e.k === 'plan' && e.plan.length), 'said what it understood and showed a plan');
+  check(key, !/Illegal Parameter|HOST_SCRIPT|is not a function|undefined is not/.test(chat.turns.slice(turns0).map(t => t.user).join('\n')), 'no step failed with a scripting error');
   check(key, !r.warns.length, 'no warnings' + (r.warns.length ? ': ' + r.warns.join(' | ').slice(0, 300) : ''));
   return r;
 }
@@ -82,7 +83,8 @@ try {
   seqsBefore = await US.host.call('listSequences');
   origBefore = await US.host.call('editRead', { seqId: seq.id });
   T.assert(v1(origBefore).length === 6, 'six shots in the assembly');
-  const same = (a, b) => JSON.stringify(v1(a).map(c => [c.name, +(+c.start).toFixed(2), +(+c.end).toFixed(2), c.scale, c.disabled])) === JSON.stringify(v1(b).map(c => [c.name, +(+c.start).toFixed(2), +(+c.end).toFixed(2), c.scale, c.disabled])) && (a.markers || []).length === (b.markers || []).length;
+  const same = (a, b) => JSON.stringify(v1(a).map(c => [c.name, +(+c.start).toFixed(2), +(+c.end).toFixed(2), c.scale, c.disabled])) === JSON.stringify(v1(b).map(c => [c.name, +(+c.start).toFixed(2), +(+c.end).toFixed(2), c.scale, c.disabled]));   // the clips: which, where, how big, on or off
+  const marks = x => (x.markers || []).map(m => [m.name, +(+m.start).toFixed(2)]);
 
   // ---- A: a story from the interview ----
   await free();
@@ -99,7 +101,8 @@ try {
     check(ra.key, !cl.some(c => covers(c, 28.7)) && !cl.some(c => covers(c, 73)), 'neither of the “um” lines (0:26.5, 1:11.5)');
     check(ra.key, cl.some(c => covers(c, 68.2)), 'has “That’s when I understood what my father meant about the open door” (1:06.5)');
     check(ra.key, cl.length && covers(cl[cl.length - 1], 85.5), 'ends on the legacy line (1:21.9–1:29.4): last clip ' + (cl.length ? `${cl[cl.length - 1].in}–${cl[cl.length - 1].out}` : '—'));
-    check(ra.key, cl.every((c, i) => !i || c.in >= cl[i - 1].in), 'in the order she tells it');
+    report.push(cl.every((c, i) => !i || c.in >= cl[i - 1].in) ? 'The lines are in the order she says them.' : 'The lines are NOT in the order she says them (nobody asked for that – see whether it said why).', '');
+    check(ra.key, (a.versions || []).length === 1, `one build was enough – no second go to put right what the first lost: ${(a.versions || []).map(v => v.name).join(' | ')}`);
   }
   check(ra.key, ra.tools.includes('build') && (ra.tools.includes('lines') || ra.tools.includes('search') || ra.tools.includes('interviews')), 'it read the interview before building: ' + ra.tools.join(', '));
 
@@ -133,7 +136,8 @@ try {
     check(rb.key, mk.length === 1 && longest && mk[0].start >= longest.start - 0.05 && mk[0].start < longest.end, 'one marker “Longest”, on the slow pan (the longest shot LEFT – the dark one was longer): ' + JSON.stringify(mk.map(m => m.start)));
   }
   check(rb.key, rb.cards.length >= 1 && rb.cards.every(c => c.risk !== 'own'), 'it asked before changing, and only ever to work on a copy: ' + rb.cards.map(c => c.risk).join(','));
-  T.assert(same(await US.host.call('editRead', { seqId: seq.id }), origBefore), 'B left the editor’s own sequence exactly as it was');
+  const afterB = await US.host.call('editRead', { seqId: seq.id });
+  T.assert(same(afterB, origBefore) && !marks(afterB).length, 'B left the editor’s own sequence exactly as it was');
 
   // ---- C and D at the same time: something Premiere can't do; and a question ----
   await T.open(seq.id); await free();
@@ -146,7 +150,14 @@ try {
   check(rc.key, /can.t|cannot|isn.t (possible|able)|not possible|doesn.t (let|allow)|no way/i.test(said(rc)), 'it said plainly that Premiere can’t do this');
   check(rc.key, /\bbin\b|marker/i.test(said(rc)), 'and offered what does work (colour in the bin, or markers)');
   const afterC = await US.host.call('editRead', { seqId: seq.id });
-  check(rc.key, same(afterC, origBefore), 'the editor’s own sequence is as it was');
+  check(rc.key, same(afterC, origBefore), 'the editor’s own clips are as they were');
+  const mk = marks(afterC), badShots = v1(afterC).filter(x => /C002|C003|C005/.test(x.name)), onBad = m => badShots.some(x => m[1] >= x.start - 0.05 && m[1] < x.end);
+  report.push(`After C, “${NAME}” has markers: ${JSON.stringify(mk)}`, '');
+  if (mk.length) {
+    check(rc.key, rc.cards.some(k => k.risk === 'own'), 'markers on the editor’s own sequence came after a card saying it changes the sequence itself');
+    check(rc.key, mk.length === 3 && mk.every(onBad), 'one marker on each bad shot and nowhere else: ' + JSON.stringify(mk));
+    check(rc.key, !/nothing (in|on) your sequence has changed|unchanged|untouched/i.test(rc.end ? rc.end.reply : ''), 'and its report doesn’t claim the sequence is unchanged');
+  }
   if (c.work && c.work.ours) { const cc = await US.host.call('editRead', { seqId: c.work.seqId }); report.push(`C worked on “${c.work.name}”: markers ${JSON.stringify((cc.markers || []).map(m => [m.name, +(+m.start).toFixed(2)]))}`, ''); const bad = v1(cc).filter(x => /C002|C003|C005/.test(x.name)); check(rc.key, !(cc.markers || []).length || bad.every(x => (cc.markers || []).some(m => m.start >= x.start - 0.05 && m.start < x.end)), 'if it used markers, each bad shot has one'); }
   const replyD = rd.end ? rd.end.reply : '';
   check(rd.key, !rd.tools.some(t => /^(edit|build|action|version)$/.test(t)) && !rd.cards.length, 'it changed nothing: ' + rd.tools.join(', '));
@@ -154,7 +165,9 @@ try {
   check(rd.key, /dark|C003/i.test(replyD), 'the longest is the dark one (7 s)');
   check(rd.key, /candle/i.test(replyD), 'her grandmother taught her to light the candles');
   check(rd.key, rd.steps.length <= 5, `without wandering: ${rd.steps.length} steps (${rd.tools.join(', ')})`);
-  T.assert(same(await US.host.call('editRead', { seqId: seq.id }), origBefore), 'the editor’s own sequence is exactly as it was after all four chats');
+  const last = await US.host.call('editRead', { seqId: seq.id });
+  T.assert(same(last, origBefore), 'the editor’s own clips are exactly as they were after all four chats');
+  T.assert(!marks(last).length || rc.cards.some(k => k.risk === 'own'), 'no marker went on the editor’s own sequence without a card first: ' + JSON.stringify(marks(last)));
   const seqsAfter = await US.host.call('listSequences');
   T.assert(seqsBefore.every(x => seqsAfter.some(y => y.id === x.id)), 'no sequence of the project went missing');
   T.assert(!US.jobs.current, 'Premiere is free again');

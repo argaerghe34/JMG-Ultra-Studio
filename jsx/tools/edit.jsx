@@ -198,10 +198,15 @@
             var g = targets[i], ti = g.kind ? clipAt(seq, g.kind, g.track, g.start) : null;
             try {
                 if (a.op === 'marker') {
-                    var m = seq.markers.createMarker(g.start);
-                    m.name = String(p.name || (ti ? ti.name : '') || 'Ask'); if (p.comment) m.comments = String(p.comment);
-                    var en = new Time(); en.seconds = g.end != null ? g.end : ti ? ti.end.seconds : g.start; m.end = en;
-                    if (p.color != null) { try { m.setColorByIndex(Number(p.color)); } catch (e0) { } }
+                    // times as plain numbers: Premiere 2027 refuses a Time object here ("Illegal Parameter type") – and it
+                    // did so AFTER making the marker, so a failed step left one behind and a retry doubled it
+                    var ms = Number(g.start), me = Number(g.end != null ? g.end : ti ? ti.end.seconds : g.start);
+                    var m = seq.markers.createMarker(ms);
+                    try {
+                        m.name = String(p.name || (ti ? ti.name : '') || 'Ask'); if (p.comment) m.comments = String(p.comment);
+                        if (isFinite(me) && me > ms) m.end = me;
+                    } catch (eM) { try { seq.markers.deleteMarker(m); } catch (eD) { } throw eM; }
+                    if (p.color != null && isFinite(Number(p.color))) { try { m.setColorByIndex(Number(p.color)); } catch (e0) { out.log.push('marker colour: ' + e0); } }
                     out.done++; continue;
                 }
                 if (a.op === 'text') { out.done += textLayer(seq, ti, { text: p.text || g.text, style: p.style, seconds: p.seconds || (g.end != null ? g.end - g.start : 4), start: g.start }, out.log); continue; }

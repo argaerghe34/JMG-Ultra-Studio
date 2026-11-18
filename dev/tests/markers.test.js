@@ -35,9 +35,28 @@ function premiere() {
   const ctx = { app: { project: { rootItem: root, sequences: coll([seq], 'numSequences'), activeSequence: seq } }, JSON, Time: function () { this.seconds = 0; } };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'jsx', 'host.jsx'), 'utf8') + '\n;this.UStudio = UStudio;', ctx);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'jsx', 'tools', 'edit.jsx'), 'utf8'), ctx, { filename: 'jsx/tools/edit.jsx' });
   const call = (fn, args) => { const r = JSON.parse(ctx.UStudio.run(fn, JSON.stringify(args))); if (!r.ok) throw new Error(JSON.stringify(r.error)); return r.data; };
   return { call, seq, a, b, music };
 }
+
+test('markers in Premiere 2027: times and colour go in as plain numbers whatever came in, and a marker that can’t be finished isn’t left behind (a retry would double it)', () => {
+  const P = premiere();
+  // Ask’s marker edit: over the clip on V1 at 10 s (to its end at 20 s), named and coloured
+  const r = P.call('editApply', { seqId: 's1', op: 'marker', params: { name: 'Review', comment: 'look here', color: '1' }, targets: [{ kind: 'video', track: 0, start: 10, end: 20 }] });
+  assert.deepStrictEqual([r.done, r.skipped.length], [1, 0], JSON.stringify(r));
+  assert.deepStrictEqual(P.seq.markers._list.map(m => [m.name, m.comments, m.start.seconds, m.end.seconds, m.color]), [['Review', 'look here', 10, 20, 1]], JSON.stringify(r));
+  // numbers that arrive as text (from JSON an AI wrote) are still numbers to Premiere
+  P.call('addSequenceMarkers', { seqId: 's1', markers: [{ start: '2', end: '3.5', name: 'two', color: '4' }] });
+  assert.deepStrictEqual(P.seq.markers._list.slice(1).map(m => [m.name, m.start.seconds, m.end.seconds, m.color]), [['two', 2, 3.5, 4]]);
+  // Premiere refuses something after the marker is made: the step is reported as skipped and no marker stays
+  const real = P.seq.markers.createMarker;
+  P.seq.markers.createMarker = function (s) { const m = real.call(this, s); Object.defineProperty(m, 'name', { set() { throw new Error('Illegal Parameter type'); } }); return m; };
+  const bad = P.call('editApply', { seqId: 's1', op: 'marker', params: { name: 'Nope' }, targets: [{ kind: 'video', track: 0, start: 0 }] });
+  assert.deepStrictEqual([bad.done, bad.skipped.length], [0, 1]);
+  assert.throws(() => P.call('addSequenceMarkers', { seqId: 's1', markers: [{ start: 5, name: 'Nope' }] }));
+  assert.strictEqual(P.seq.markers._list.length, 2, 'nothing half-made is left');
+});
 
 test('markers: “Timeline” (the default) leaves them on the sequence only', () => {
   const P = premiere();

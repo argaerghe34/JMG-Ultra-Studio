@@ -37,7 +37,7 @@
     interviews: 'Put a question or a brief about what the interviews SAY to the whole of the transcripts and get a written answer with the clips that back it – shown to the editor as a card they can reorder, build into a sequence, mark on a sequence or save: args {"request":"the question or brief, in full, in the editor’s words"}. Use it for find / list / compare / summarise questions and for selections of soundbites (“every story about Grandma, in order”, “where do they disagree?”, “a 45-second opening about why they came”, “which stories about faith haven’t I used yet?”). It reads every transcript, so call it once per question; for a quick lookup use search.',
     edit: 'Change clips. args {"where":"sequence|selection|transcripts|bin|project","sequence":"an s… id or name (leave out for your working sequence or the open one)","bin":"name or path, for where: bin","inPlace":false,"steps":[{"op":"…","targets":{…},"params":{…},"why":"a few words","sequences":{…}}]}. The edits (op) and how to pick targets are listed under EDITS. On a sequence the edits go on a copy of it (made once, then your working sequence) unless "inPlace" is true – use inPlace only when the editor says to change the sequence itself. In a bin or the project they change the editor’s clips (labels, names and bins can be undone).',
     action: 'Run one of Ultra Studio’s own tools: args {"id":"silence.cut","params":{…}} – every id and its settings are listed under PANEL TOOLS. They work on the open sequence or the clips selected in the Project panel, as each says; the ones that cut make their own copy.',
-    build: 'Build a NEW sequence from transcript lines, in order: args {"name":"short name","sections":[{"name":"Opening","lineIds":["L12","L40"]}],"targetSeconds":120}. It becomes your working sequence.',
+    build: 'Build a NEW sequence from transcript lines, in the order you give them: args {"name":"short name","sections":[{"name":"Opening","lineIds":["L12","L40"]}],"targetSeconds":120}. Every line you give is used – nothing is dropped to fit, so choose lines that add up to the length wanted (a line runs its time range plus about half a second of room); "targetSeconds" is the length the editor asked for, and the result says how far off the cut is. It becomes your working sequence.',
     open: 'Open a sequence in the editor and make it your working sequence: args {"sequence":"an s… id or its name"}.',
     version: 'Keep a copy of your working sequence as it is now, so the editor can compare: args {"name":"v1 – 2:10"}.',
     ask: 'Ask the editor ONE question and wait for the answer – when you can’t tell what they mean, or there is a real choice only they can make: args {"question":"…","options":["2–5 short answers to pick from"],"kind":"choice|clip|bin|sequence|track|text"}. For kind clip / bin / sequence / track the panel shows a picker of the project’s own. They can always type their own answer instead.',
@@ -421,11 +421,16 @@
         const ok = await approve('new', { detail: `A new sequence “${name}” from ${US.plural(n, 'line')} of the interviews${sections.length > 1 ? `, in ${US.plural(sections.length, 'section')}: ${sections.map(x => x.name).filter(Boolean).slice(0, 6).join(' · ')}` : ''}${+a.targetSeconds ? `, aiming for ${fmtT(a.targetSeconds)}` : ''}. Your clips and sequences aren’t changed.` });
         if (!ok.ok) return refusedNow();
         return withHands(async job => {
-          const out = await S.buildSequence(job, { name, groups: sections, target: Math.max(0, +a.targetSeconds || 0) });
+          // the lines are the AI's choice: none is dropped to fit a length (Story's own "weaker lines left out" would
+          // take one out without saying which – found in Premiere, 18 Nov 2026). The length is reported against the target.
+          const out = await S.buildSequence(job, { name, groups: sections, target: 0 });
+          const want = Math.max(0, +a.targetSeconds || 0), got = +out.seconds || 0, off = got - want;
+          const length = want && got ? (Math.abs(off) <= Math.max(2, want * 0.1) ? ` That is within reach of the ${fmtT(want)} asked for.` : ` That is ${fmtT(Math.abs(off))} ${off > 0 ? 'LONGER' : 'SHORTER'} than the ${fmtT(want)} asked for – build again with ${off > 0 ? 'fewer or shorter' : 'more'} lines if the length matters, or say so in your report.`) : '';
+          const short = out.placed != null && out.placed < n ? ` Only ${out.placed} of your ${US.plural(n, 'line')} went in: the editor’s soundbite settings leave out the interviewer’s lines and can run neighbouring lines together, and a line whose clip isn’t in the project is skipped – read the sequence to see which.` : '';
           chat.work = { seqId: out.seq.id, name: out.seq.name, ours: true };
           chat.versions.push({ seqId: out.seq.id, name: out.seq.name, why: 'built from the interviews' });
           note(out.summary);
-          return `${out.summary}.${unknown ? ` ${unknown} unknown line ids were left out.` : ''} It is now your working sequence – read it with "timeline" to check it.`;
+          return `${out.summary}.${length}${short}${unknown ? ` ${unknown} unknown line ids were left out.` : ''} It is now your working sequence – read it with "timeline" to check it.`;
         });
       }
       case 'open': return withHands(async () => {

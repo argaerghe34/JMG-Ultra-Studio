@@ -246,7 +246,7 @@ test('a cut from a goal, in the chat: search → read lines → build a new sequ
     T('version', { name: 'v1' }),
     T('finish', { reply: 'A short cut about the bakery.' })]);
   const was = US.story.buildSequence; let built = null;
-  US.story.buildSequence = async (j, o) => { built = o; return { seq: { id: 'built', name: o.name }, summary: `Built “${o.name}” · 1 line · 0:03` }; };
+  US.story.buildSequence = async (j, o) => { built = o; return { seq: { id: 'built', name: o.name }, seconds: 3.4, placed: 1, summary: `Built “${o.name}” · 1 line · 0:03` }; };
   try {
     const log = [], chat = C.newChat();
     await C.send(chat, 'a short film about the bakery', hooksFor(log), { mode: 'ask' });
@@ -254,7 +254,8 @@ test('a cut from a goal, in the chat: search → read lines → build a new sequ
     assert.ok(/r1\tRuth interview\tRuth\t0:00–0:03\tThe bakery oven/.test(res(0)), res(0));
     assert.ok(/>r1\t/.test(res(1)) && /zz: no such line/.test(res(1)));
     assert.ok(/No themes yet/.test(res(2)));
-    assert.deepStrictEqual([built.name, built.target, built.groups.map(g => [g.name, g.lineIds])], ['Ask – Bakery', 60, [['Then', ['r1']]]]);
+    assert.deepStrictEqual([built.name, built.target, built.groups.map(g => [g.name, g.lineIds])], ['Ask – Bakery', 0, [['Then', ['r1']]]], 'every line the AI chose is used: nothing is dropped to fit a length');
+    assert.ok(/SHORTER than the 1:00 asked for – build again with more lines/.test(res(3)), res(3));
     assert.ok(/Built “Ask – Bakery”/.test(res(3)) && /1 unknown line ids were left out/.test(res(3)));
     const cards = log.filter(i => i.k === 'approve?').map(i => [i.card.risk, i.card.title]);
     assert.deepStrictEqual(cards.map(c => c[0]), ['new', 'new'], 'building and keeping a version make new things: asked first');
