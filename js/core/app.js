@@ -27,7 +27,7 @@
   US.PLACES = [
     { id: 'home', name: 'Home', icon: 'home', tools: ['home'] },
     { id: 'bring', name: 'Bring in', icon: 'download', tools: ['youtube'], blurb: 'Get material into the project' },
-    { id: 'story', name: 'Story', icon: 'story', tools: ['story', 'wiki', 'words', 'producer'], blurb: 'From interviews to a cut' },
+    { id: 'story', name: 'Story', icon: 'story', tools: ['story', 'storylines', 'wiki', 'words', 'producer'], blurb: 'From interviews to a cut' },
     { id: 'cut', name: 'Cut', icon: 'scissors', tools: ['silence', 'beats', 'agent'], blurb: 'Make the edit faster' },
     { id: 'finish', name: 'Finish', icon: 'wand', tools: ['quickfx', 'markers', 'safezones', 'check'], blurb: 'Polish and check before export' },
     { id: 'deliver', name: 'Deliver', icon: 'deliver', tools: ['deliver'], blurb: 'Everything out in one go' },
@@ -265,7 +265,7 @@
     const tools = pid && pid !== 'advanced' ? US.placeTools(pid) : [];
     els.placeTabs.classList.toggle('hidden', tools.length < 2);
     if (tools.length < 2) return;
-    tools.forEach(d => els.placeTabs.appendChild(h('button.place-tab' + (d.id === id ? '.on' : ''), { dataset: { tool: d.id }, role: 'tab', title: d.blurb || d.name, onclick: () => open(d.id) }, US.icon(d.icon, 14), h('span', d.name))));
+    tools.forEach(d => els.placeTabs.appendChild(h('button.place-tab' + (d.id === id ? '.on' : ''), { dataset: { tool: d.id }, role: 'tab', title: d.blurb || d.name, onclick: () => open(d.id) }, US.icon(d.icon, 14), h('span.pt-long', d.name), h('span.pt-short', d.short || d.name))));
   }
   US.rebuildRail = () => { if (els.rail) buildRail(); if (currentId) markRail(currentId); };
 

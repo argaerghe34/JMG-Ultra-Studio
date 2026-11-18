@@ -10,7 +10,7 @@
     overview: { title: 'Ultra Studio in a minute', steps: [
       { tool: 'home', target: '@rail:home', title: 'Home', text: 'Where this project stands, what’s new, and Check my setup – a real test that everything works on this computer.', tip: 'Start here when something seems wrong: Check my setup says what to fix.' },
       { target: '@rail:bring', title: 'Bring in', text: 'Get material into the project: download videos from YouTube, Vimeo and many other sites straight into a bin.' },
-      { target: '@rail:story', title: 'Story – the heart of Ultra Studio', text: 'From interviews to a cut, step by step: read the transcripts, find the themes and the lines you need, build a sequence or a narrative, and share the documents.', tip: 'Story wiki, Word cloud and Producer are tabs inside Story – they all read the same transcripts.' },
+      { target: '@rail:story', title: 'Story – the heart of Ultra Studio', text: 'From interviews to a cut, step by step: read the transcripts, find the themes and the lines you need, build a sequence or a narrative, and share the documents.', tip: 'Lines (every theme and line in one table – great on a wide panel), Story wiki, Word cloud and Producer are tabs inside Story.' },
       { target: '@rail:cut', title: 'Cut', text: 'Tools that make the edit faster: Silence Cut takes the pauses out, Beat Cut cuts to the music. They always work on a copy.' },
       { target: '@rail:finish', title: 'Finish', text: 'Polish and check before export: one-click effects, every marker in one list, social safe zones and Final Check for black gaps and flash frames.' },
       { target: '@rail:deliver', title: 'Deliver', text: 'Every export in one go – the master, vertical and square versions, render ranges, YouTube chapters and the episode text.' },
@@ -33,12 +33,18 @@
       { target: 'text:Download and import', title: 'Download', text: 'Each video is downloaded and imported, ready to edit.' }
     ],
     story: [
-      { target: 'text:1 Interviews', title: 'Five steps', text: 'Interviews › Themes › Find › Build › Share. A tick shows a step that’s done; you can jump to any step.', tip: 'Story is saved with the project, so it opens the same on your other computer.' },
-      { target: 'text:Get transcripts', title: '1 · Get the transcripts', text: 'Story reads Premiere’s own transcripts (free, private, accurate) or files you import – SRT, VTT, CSV or text.' },
+      { target: 'text:1 Interviews', open: { tab: 'transcripts' }, title: 'Five steps', text: 'Interviews › Themes › Find › Build › Share. A tick shows a step that’s done; you can jump to any step.', tip: 'Story is saved with the project, so it opens the same on your other computer.' },
+      { target: 'text:Get transcripts', open: { tab: 'transcripts' }, title: '1 · Get the transcripts', text: 'Story reads Premiere’s own transcripts (free, private, accurate) or files you import – SRT, VTT, CSV or text.' },
       { target: 'text:2 Themes', title: '2 · Themes', text: 'Group the best lines by what they’re about – your own themes and the ones Story finds.' },
       { target: 'text:3 Find', title: '3 · Find', text: 'Search for anything the themes missed, or let Story find moments and the answers to your questions.' },
       { target: 'text:4 Build', title: '4 · Build', text: 'Turn the lines into a sequence, a narrative from a brief, clips for social or a beat map – always as a new sequence.' },
       { target: 'text:5 Share', title: '5 · Share', text: 'The interview log and paper edit for your director or client, and a transcript of any sequence.' }
+    ],
+    storylines: [
+      { target: '.sl-themes', title: 'Themes', text: 'Pick a theme – or All lines, or the lines in no theme yet. The number is how many lines it has at the pickiness chosen above.' },
+      { target: '.sl-table', title: 'Every line in one table', text: 'Who, when, the line, its theme, ★ for a strong complete line, and its length. Click a column to sort; shift- or ⌘-click to pick several.', tip: 'Keys: J and K move, space plays, Return puts the lines at the playhead, / filters.' },
+      { target: '.sl-insp', title: 'The line you picked', text: 'Read it in full, play it, open it in the Source Monitor, put it at the playhead, or find more like it. With several picked: put them all at the playhead, or make a new theme from them.' },
+      { target: '.sl-find', title: 'Filter', text: 'Type a word, a speaker or a theme to narrow the table.', tip: 'Widen or undock the panel to see the themes, the table and the line side by side.' }
     ],
     wiki: [
       { target: '@head', title: 'Story wiki', text: 'A quick reference made from every interview: an overview, each interview in brief, and the people, places and dates – each fact with the line that says it.', tip: 'It needs AI. Without it, Story › Find searches the same transcripts.' }

@@ -38,4 +38,12 @@ US.host.call = async fn => {
 const $$ = (sel, root = w.document) => Array.from(root.querySelectorAll(sel));
 const tick = () => new Promise(r => setTimeout(r, 5));
 async function boot() { await US.boot(); await tick(); return US; }
-module.exports = { w, US, $$, tick, boot, errors, ROOT };
+/** Story with the three test interviews (dev/test-media/transcripts) and its basic themes, as in a real project. */
+async function loadStory() {
+  const S = US.story, T = US.transcript, TR = path.join(ROOT, 'dev', 'test-media', 'transcripts');
+  S.loadState();
+  for (const f of ['I001_interview.srt', 'Interview_David_Cohen.txt', 'Interview_Miriam_Levy.csv']) S.addTranscript({ name: f.replace(/\.\w+$/, '').replace(/_/g, ' '), path: '/media/' + f, source: 'file', file: path.join(TR, f), segments: T.parseFile(path.join(TR, f)).segments });
+  try { await US.actions.get('story.themes').run({ useAI: false }, US.jobs.testJob()); } catch (e) { /* themes are a nice-to-have */ }
+  await tick();
+}
+module.exports = { w, US, $$, tick, boot, loadStory, errors, ROOT };

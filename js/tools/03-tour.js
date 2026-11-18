@@ -3,7 +3,8 @@
    first run; every tab has its own short tour (the ? at the top of the tab).
 
    The steps are data: js/tools/04-tour-steps.js (US.TOURS), or `tour: [...]` in a tool's own US.tools.register({...}).
-   A step: { target, title, text, tip?, tool? }  – `tool` is opened first (default: the tour's own tool).
+   A step: { target, title, text, tip?, tool?, open? }  – `tool` is opened first (default: the tour's own tool), with
+   `open` as its options when given (e.g. Story's {tab: 'transcripts'}).
    Targets: '@rail:story' (a rail place – or, with Classic rail, that place's first tool's button), '@tab:wiki' (a place's
    tab), '@head' (the open tab's title), '@search', '@settings', '@ai', '@status', '@log', '@reload',
    'text:Find the pauses' (the first button, title or label on the open tab with those words), or any CSS selector
@@ -88,7 +89,7 @@
   function show() {
     const { tour, i, card } = run, s = tour.steps[i];
     const tool = s.tool || (tour.id !== 'overview' ? tour.id : null);
-    if (tool && US.tools.current !== tool && US.tools.get(tool)) US.tools.open(tool);
+    if (tool && US.tools.get(tool) && (s.open || US.tools.current !== tool)) US.tools.open(tool, s.open);   // s.open: how to open it, e.g. {tab: 'transcripts'}
     if (s.place && US.openPlace) US.openPlace(s.place);
     US.clear(card);
     const last = i === tour.steps.length - 1;

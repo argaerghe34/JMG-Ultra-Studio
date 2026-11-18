@@ -1,7 +1,7 @@
 // Runs every tour step by step in the real panel (jsdom, dev/tests/panel-dom.js) and reports what's missing: tools with
 // no tour, steps whose target isn't on screen, steps without a title or text, rail places the overview doesn't show.
 // The overview runs with the rail as places and with Classic rail. Prints JSON on the last line (tour.test.js reads it).
-const { US, $$, tick, boot, errors, w } = require('./panel-dom');
+const { US, $$, tick, boot, loadStory, errors, w } = require('./panel-dom');
 
 async function runTour(id) {
   const bad = [];
@@ -23,6 +23,7 @@ async function runTour(id) {
 
 (async () => {
   await boot();
+  await loadStory();
   const out = { errors, noTour: [], badSteps: [], overviewMissingPlaces: [], offered: false, settingsButton: false, questionMarks: [] };
   const tools = US.tools.list().filter(d => !d.hidden || d.id === 'settings');
   out.noTour = tools.filter(d => !US.tour.has(d.id)).map(d => d.id);
