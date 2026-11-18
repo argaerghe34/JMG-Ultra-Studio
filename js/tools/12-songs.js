@@ -99,6 +99,7 @@
       done.push(US.plural(ids.filter(Boolean).length, 'subclip'));
       job.progress(0.3);
     }
+    const notes = new Set();   // Resolve: what its rebuild couldn't bring across in a song's cut copy
     if (opts.sequences) {
       for (let i = 0; i < songs.length; i++) {
         const s = songs[i];
@@ -113,13 +114,13 @@
           const ranges = [];
           if (s.end < res.duration - 0.05) ranges.push([s.end, res.duration + 1]);
           if (s.start > 0.05) ranges.push([0, s.start]);
-          if (ranges.length) await US.host.call('extractRanges', { seqId: copy.id, ranges });
+          if (ranges.length) for (const n of (await US.host.call('extractRanges', { seqId: copy.id, ranges })).notes || []) notes.add(`${s.name}: ${n}`);
         }
       }
       done.push(US.plural(songs.length, 'sequence'));
     }
     if (!done.length) throw new US.UserError('BAD_INPUT', { title: 'Nothing was chosen to add.', action: 'Tick at least one option under “Add to Premiere”.' });
-    return { summary: `Added ${done.join(', ')} for ${US.plural(songs.length, 'song')}${opts.sequences || opts.subclips ? ` (in the “${bin.split('/').pop()}” bin)` : ''}${opts.layers ? (US.app.is('resolve') ? ` · in Deliver › Render ranges › ${LAYER_TRACK}` : ` · layers on the “${LAYER_TRACK}” track`) : ''}.` };
+    return { summary: `Added ${done.join(', ')} for ${US.plural(songs.length, 'song')}${opts.sequences || opts.subclips ? ` (in the “${bin.split('/').pop()}” bin)` : ''}${opts.layers ? (US.app.is('resolve') ? ` · in Deliver › Render ranges › ${LAYER_TRACK}` : ` · layers on the “${LAYER_TRACK}” track`) : ''}.${notes.size ? ' ' + [...notes].join(' ') : ''}` };
   }
 
   US.actions.register({

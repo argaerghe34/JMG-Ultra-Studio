@@ -369,8 +369,8 @@ test('resolve core: cloneSequence (unique name, bin, same contents) and deleteSe
  *   A2: music 0–40 s (media 0–40)
  * Timeline markers at 1 s, 5.5 s (inside a cut), 15 s (2 s long, across the second cut), 30 s.
  */
-function interview() {
-  const S = setup();
+function interview(opts) {
+  const S = setup(opts);
   const { F } = S;
   const A = F.addMedia('/m/A.mp4', { frames: 25 * 300 }), B = F.addMedia('/m/B.mp4', { frames: 25 * 300 }), M = F.addMedia('/m/M.wav', { type: 'Audio', frames: 25 * 300 });
   const tl = F.addTimeline('Interview', [
@@ -410,7 +410,7 @@ test('resolve core: extractRanges ripple-removes ranges on every track, markers 
   // timeline markers: 1 s stays, the one in the cut goes, 15 s (2 s long, across 16–17 s) moves to 12.4 s and loses 1 s, 30 s moves 3.6 s left
   assert.deepStrictEqual(Object.entries(tl._markers).map(([f, m]) => [Number(f), m.duration, m.customData]), [[25, 1, 'us-a'], [310, 25, 'us-c'], [660, 1, 'us-d']]);
   // linked pairs (A on V1 + A1) are linked again, part by part
-  assert.ok(linked.length >= 5 && linked.every(l => l.length === 2 && l.includes('video1') && l.includes('audio1')), JSON.stringify(linked));
+  assert.ok(linked.length >= 4 && linked.every(l => l.length === 2 && l.includes('video1') && l.includes('audio1')), JSON.stringify(linked));
   const info = await run('sequenceInfo', { seqId });
   assert.deepStrictEqual(info.markers.map(m => m.guid), ['us-a', 'us-c', 'us-d']);
   assert.strictEqual(F.currentTimeline, tl);
@@ -438,24 +438,96 @@ test('resolve core: extractRanges like Song Splitter (keep one song: cut the end
   assert.deepStrictEqual(Object.entries(tl._markers).map(([f, m]) => [Number(f), m.customData]), [[75, 'us-c']]);
 });
 
-test('resolve core: extractRanges refuses items it can’t rebuild, before changing anything', async () => {
-  const { run, tl, seqId } = interview();
+test('resolve core: extractRanges on older Resolve (no SetPosition) refuses titles and speed changes, before changing anything', async () => {
+  const { F, run, tl, seqId } = interview({ legacy: true });
   // a title (no Media Pool clip) after the first cut
-  const title = { _start: tl._start + 600, _end: tl._start + 650, GetStart: () => tl._start + 600, GetEnd: () => tl._start + 650, GetName: () => 'Lower third', GetMediaPoolItem: () => null, GetUniqueId: () => 'title-1' };
-  tl.AddTrack('video'); tl._v[2].push(title);
+  const title = F.addTitle(tl, { track: 3, at: 600, len: 50, name: 'Lower third' });
   const before = JSON.stringify([geo(tl, 'video', 1), geo(tl, 'audio', 1), Object.keys(tl._markers)]);
   const r = await run('extractRanges', { seqId, ranges: [[5, 6]] }).catch(e => e.res.error);
   assert.strictEqual(r.code, 'HOST_SCRIPT'); assert.ok(/can’t move one item/.test(r.title), r.title); assert.ok(/Lower third/.test(r.detail));
+  assert.ok(/21\.1\.2/.test(r.action), r.action);
   assert.strictEqual(JSON.stringify([geo(tl, 'video', 1), geo(tl, 'audio', 1), Object.keys(tl._markers)]), before);
   // …but a title before the first cut is fine
-  title._start = title._end = 0; title.GetStart = () => tl._start; title.GetEnd = () => tl._start + 50;
+  title._start = tl._start; title._end = tl._start + 50;
   const ok = await run('extractRanges', { seqId, ranges: [[5, 6]] });
-  near(ok.removed, 1);
+  near(ok.removed, 1); assert.deepStrictEqual(ok.notes, []);
   // a speed change after the cut is refused too
   const it = tl.GetItemListInTrack('video', 1)[2]; it.GetSourceEndFrame = () => it._srcStart + 2 * (it._end - it._start);
   assert.ok(/speed change/.test((await run('extractRanges', { seqId, ranges: [[30, 31]] }).catch(e => e.res.error)).detail));
   // nothing to cut
-  assert.deepStrictEqual(await run('extractRanges', { seqId, ranges: [[3, 3.01]] }), { cuts: 0, removed: 0, duration: 39 });
+  assert.deepStrictEqual(await run('extractRanges', { seqId, ranges: [[3, 3.01]] }), { cuts: 0, removed: 0, duration: 39, notes: [] });
+});
+
+test('resolve core: extractRanges keeps titles and generators – moved, shortened across a cut, gone when inside one', async () => {
+  const { F, run, tl, seqId } = interview();
+  const after = F.addTitle(tl, { track: 3, at: 600, len: 50, name: 'Lower third' });       // 24–26 s: moves 1 s left
+  const across = F.addTitle(tl, { track: 4, at: 100, len: 100, name: 'Name card' });       // 4–8 s, across 5–6 s: 3 s long
+  const inside = F.addTitle(tl, { track: 5, at: 130, len: 10, name: 'Blip' });             // inside 5–6 s: goes
+  const r = await run('extractRanges', { seqId, ranges: [[5, 6]] });
+  near(r.removed, 1); assert.deepStrictEqual(r.notes, []);
+  assert.deepStrictEqual([after._start - tl._start, after._end - tl._start], [575, 625], 'the title only moved');
+  assert.deepStrictEqual([across._start - tl._start, across._end - tl._start], [100, 175], 'the title across the cut is shorter');
+  assert.ok(inside._dead, 'the title inside the cut is gone');
+  assert.ok(!after._dead && !across._dead, 'the same items, not laid again');
+  // the rest as before: V1 cut, A's second half moved (the same item – it keeps everything)
+  assert.deepStrictEqual(geo(tl, 'video', 1), [[0, 125, 0], [125, 475, 150], [475, 975, 2500]]);
+});
+
+test('resolve core: extractRanges carries grades, effects, flags and colour to cut pieces; moved clips stay the same item', async () => {
+  const { F, run, tl, seqId } = interview();
+  const [a1, a2] = tl.GetItemListInTrack('video', 1);
+  a1._nodes = 4; a1._fx = 1; a1.AddFlag('Green'); a1.AddFlag('Cyan'); a1.SetClipColor('Teal');
+  a2._nodes = 2; const ov = tl.GetItemListInTrack('video', 2)[0]; ov._nodes = 6;   // the overlay is cut at the same time as A: a second spare track
+  F.resolve.OpenPage('color');
+  const r = await run('extractRanges', { seqId, ranges: [[5, 6], [10, 11]] });
+  assert.deepStrictEqual(r.notes, []);
+  const v1 = tl.GetItemListInTrack('video', 1);
+  assert.deepStrictEqual(geo(tl, 'video', 1), [[0, 125, 0], [125, 225, 150], [225, 450, 275], [450, 950, 2500]]);
+  assert.ok(v1.slice(0, 3).every(p => p._nodes === 4 && p._fx === 1 && p._color === 'Teal' && p._flags.join() === 'Green,Cyan'), 'grade, effects, colour and flags on every piece');
+  assert.strictEqual(v1[3], a2, 'the second half was moved, not laid again'); assert.strictEqual(v1[3]._nodes, 2);
+  assert.ok(a1._dead && ov._dead, 'the originals went once their pieces had their look');
+  assert.ok(tl.GetItemListInTrack('video', 2).length === 2 && tl.GetItemListInTrack('video', 2).every(p => p._nodes === 6 && !p.GetClipEnabled()), 'the overlay’s pieces have its grade, still switched off');
+  assert.strictEqual(tl.GetTrackCount('video'), 2, 'the spare track is gone'); assert.strictEqual(tl.GetTrackCount('audio'), 2);
+  assert.ok(F.log.some(l => l[0] === 'CopyAttributes'), 'Paste Attributes was used');
+  assert.strictEqual(F.page, 'color', 'Resolve is back on the page it was on');
+});
+
+test('resolve core: extractRanges says what didn’t come across (a grade Resolve wouldn’t copy, a title it wouldn’t move, subtitles) instead of refusing', async () => {
+  const { F, run, tl, seqId } = interview();
+  const [a1] = tl.GetItemListInTrack('video', 1);
+  a1._nodes = 3;
+  F.noCopyAttributes = true; F.fail.CopyGradesQuietly = true;
+  const title = F.addTitle(tl, { track: 3, at: 600, len: 50, name: 'Lower third' });
+  title.SetPosition = () => false;
+  // a subtitle track with one subtitle after the cut (left where it is)
+  const count = tl.GetTrackCount, items = tl.GetItemListInTrack;
+  tl.GetTrackCount = t => (t === 'subtitle' ? 1 : count(t));
+  tl.GetItemListInTrack = (t, i) => (t === 'subtitle' ? [{ GetEnd: () => tl._start + 300, GetStart: () => tl._start + 250 }] : items(t, i));
+  const r = await run('extractRanges', { seqId, ranges: [[5, 6]] });
+  near(r.removed, 1);
+  assert.strictEqual(r.notes.length, 3, JSON.stringify(r.notes));
+  assert.ok(/“Lower third” was taken off this copy/.test(r.notes[0]), r.notes[0]);
+  assert.ok(/One cut clip didn’t get its grade/.test(r.notes[1]), r.notes[1]);
+  assert.ok(/Subtitles weren’t moved/.test(r.notes[2]), r.notes[2]);
+  assert.ok(title._dead);
+  assert.deepStrictEqual(geo(tl, 'video', 1), [[0, 125, 0], [125, 475, 150], [475, 975, 2500]]);
+});
+
+test('resolve core: extractRanges – a clip Resolve won’t move is laid again; a speed change is moved whole but never cut', async () => {
+  const { F, run, tl, seqId } = interview();
+  const a2 = tl.GetItemListInTrack('video', 1)[1];
+  a2.SetPosition = () => false;
+  const r = await run('extractRanges', { seqId, ranges: [[5, 6]] });
+  assert.deepStrictEqual(r.notes, []);
+  assert.deepStrictEqual(geo(tl, 'video', 1), [[0, 125, 0], [125, 475, 150], [475, 975, 2500]]);
+  assert.ok(a2._dead, 'laid again from the Media Pool');
+  // the second half at double speed: moving it is fine, cutting it isn't
+  const fast = tl.GetItemListInTrack('video', 1)[2]; fast.GetSourceEndFrame = () => fast._srcStart + 2 * (fast._end - fast._start);
+  const m = await run('extractRanges', { seqId, ranges: [[1, 2]] });
+  assert.ok(tl.GetItemListInTrack('video', 1).includes(fast) && !fast._dead, 'moved, the same item'); assert.strictEqual(fast._start - tl._start, 450);
+  near(m.removed, 1);
+  const e = await run('extractRanges', { seqId, ranges: [[25, 26]] }).catch(x => x.res.error);
+  assert.ok(/speed change/.test(e.title) && /speed change/.test(e.detail), e.title);
 });
 
 test('resolve core: importFiles (into the bin, missing files left out, none at all is a plain error)', async () => {

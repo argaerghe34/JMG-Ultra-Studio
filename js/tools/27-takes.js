@@ -135,13 +135,14 @@
     job.set({ who: 'premiere', msg: 'Making a copy of the sequence' });
     const copy = await US.host.call('cloneSequence', { seqId: target.id, name: `${target.name} – best takes`, binPath: 'JMG Ultra Studio/Take Sets' });
     let removed = 0;
-    for (const part of kit().chunk(ranges, 20)) { job.check(); const r = await US.host.call('extractRanges', { seqId: copy.id, ranges: part }); removed += r.removed; }
+    const notes = new Set();   // Resolve: what its rebuild couldn't bring across
+    for (const part of kit().chunk(ranges, 20)) { job.check(); const r = await US.host.call('extractRanges', { seqId: copy.id, ranges: part }); removed += r.removed; for (const n of r.notes || []) notes.add(n); }
     // where each kept take now sits: its old start less what was removed before it
     const before = t => ranges.reduce((n, r) => n + Math.max(0, Math.min(r[1], t) - r[0]), 0);
     const marks = found.sets.filter(s => s.chosen >= 0).map(s => { const t = s.takes[s.chosen]; const st = t.start - before(t.start); return { start: st, end: st + (t.end - t.start), name: `Take ${s.chosen + 1} of ${s.takes.length}: ${s.name}`.slice(0, 64), comment: t.note || '', color: 0 }; });
     if (marks.length) await US.host.call('addSequenceMarkers', { seqId: copy.id, markers: marks });
     await US.host.call('openSequence', { seqId: copy.id });
-    return { summary: `“${copy.name}”: ${US.plural(items.filter(x => x.on).length, 'take')} cut (${US.fmtDur(removed, true)}), ${US.plural(marks.length, 'best take')} marked. The original is unchanged.`, copy, removed };
+    return { summary: `“${copy.name}”: ${US.plural(items.filter(x => x.on).length, 'take')} cut (${US.fmtDur(removed, true)}), ${US.plural(marks.length, 'best take')} marked. The original is unchanged.${notes.size ? ' ' + [...notes].join(' ') : ''}`, copy, removed };
   }
 
   US.actions.register({

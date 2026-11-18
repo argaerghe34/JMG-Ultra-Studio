@@ -47,11 +47,13 @@
     r.removed = merged.reduce((n, x) => n + x[1] - x[0], 0);
     const parts = kit.chunk(ranges, 20);
     let removed = 0, done = 0, dur = an.duration;
+    const notes = new Set();   // Resolve: what its rebuild couldn't bring across
     for (const part of parts) {
       job.check();
       job.progress(0.1 + 0.85 * done / ranges.length, `Cutting pauses ${done + 1}–${done + part.length} of ${ranges.length} (from the end)`);
       const res = await US.host.call('extractRanges', { seqId: copy.id, ranges: part });
       removed += res.removed; dur = res.duration; done += part.length;
+      for (const n of res.notes || []) notes.add(n);
     }
     // check: the copy should be shorter by what we meant to remove (each cut snaps to whole frames)
     const fps = an.target.fps || 25, want = r.removed, slack = (2 / fps) * ranges.length + 0.05;
@@ -60,7 +62,7 @@
     const pu = US.settings.get('silence.punch', { on: false, scale: 110 }), pr = pu.on && US.punchIns ? await US.punchIns.apply(copy.id, { scale: pu.scale, job }) : null;
     await US.host.call('openSequence', { seqId: copy.id });
     const said = [r.cuts.length ? US.plural(r.cuts.length, 'pause') : '', nWords ? `${nWords} filler${nWords === 1 ? '' : 's'} and false start${nWords === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
-    return { summary: `Cut ${said} (${US.fmtDur(removed, true)}) – “${copy.name}” is ${US.fmtDur(dur)} long. ${pr && pr.jumps ? ` ${US.plural(pr.done, 'jump cut')} pushed in to ${pu.scale} %.` : ''} The original is unchanged.`, copy, removed, cuts: ranges.length, duration: dur };
+    return { summary: `Cut ${said} (${US.fmtDur(removed, true)}) – “${copy.name}” is ${US.fmtDur(dur)} long. ${pr && pr.jumps ? ` ${US.plural(pr.done, 'jump cut')} pushed in to ${pu.scale} %.` : ''} The original is unchanged.${notes.size ? ' ' + [...notes].join(' ') : ''}`, copy, removed, cuts: ranges.length, duration: dur };
   }
 
   async function addMarkers(an, s, job) {

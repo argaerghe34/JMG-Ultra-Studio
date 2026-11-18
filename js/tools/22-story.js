@@ -2177,7 +2177,9 @@
   /* ---------- placing lines straight into the timeline: drag, at the playhead, the Source Monitor ---------- */
   /** How lines are placed: extra either side (s), colour by theme, insert or overwrite at the playhead. */
   function placeOpts() {
-    return { handles: Number(US.settings.get('story.placeHandles', 0)) || 0, colour: US.settings.get('story.placeColour', true) !== false, mode: RES ? 'overwrite' : US.settings.get('story.placeMode', 'insert') === 'overwrite' ? 'overwrite' : 'insert' };
+    // Resolve has its own choice (overwrite unless asked): its insert works on a copy of the timeline
+    const mode = RES ? (US.settings.get('story.placeModeResolve', 'overwrite') === 'insert' ? 'insert' : 'overwrite') : US.settings.get('story.placeMode', 'insert') === 'overwrite' ? 'overwrite' : 'insert';
+    return { handles: Number(US.settings.get('story.placeHandles', 0)) || 0, colour: US.settings.get('story.placeColour', true) !== false, mode };
   }
   /** A line's colour: the first theme it's in that has one. */
   function labelOfLine(l) {
@@ -2212,7 +2214,10 @@
       if (!lines.length) return;
       const o = placeOpts(), clips = await placeClipsFor(placePieces(lines, labelOf));
       const r = await US.host.call('storyPlaceAtPlayhead', { clips, mode: o.mode });
-      ui.toast({ type: 'ok', title: `${US.plural(clips.length, 'line')} ${r.mode === 'insert' ? 'inserted' : 'placed'} at ${US.fmtDur(r.start)}`, text: 'The playhead is now after them.', timeout: 3000 });
+      const notes = (r.notes || []).join(' ');
+      if (r.copied) await US.refreshContext();
+      if (r.copied) ui.toast({ type: notes ? 'warn' : 'ok', title: `${US.plural(clips.length, 'line')} inserted at ${US.fmtDur(r.start)} – on a copy`, text: `“${r.seqName}” is open, with the rest of the timeline moved along (Resolve can’t insert by script, so your original is left as it was). The next lines you insert go into it.${notes ? ' ' + notes : ''}`, timeout: notes ? 12000 : 8000 });
+      else ui.toast({ type: notes ? 'warn' : 'ok', title: `${US.plural(clips.length, 'line')} ${r.mode === 'insert' ? 'inserted' : 'placed'} at ${US.fmtDur(r.start)}`, text: `The playhead is now after them.${notes ? ' ' + notes : ''}`, timeout: notes ? 10000 : 3000 });
     } catch (err) { ui.showError(err); }
   }
   /** A line in the Source Monitor with its In and Out set (Resolve: selected in the Media Pool with them marked). */
@@ -2226,7 +2231,7 @@
   /** The two buttons on a line: Source Monitor with In/Out, and at the playhead. lines() -> the lines to place. */
   function placeButtons(l, lines = () => [l], labelOf = labelOfLine) {
     return [iconBtn('source', RES ? 'Select it in the Media Pool with the line’s In and Out marked' : 'Open in the Source Monitor with the line’s In and Out set', () => openInSource(l)),
-      iconBtn('playhead', RES ? 'Put it at the playhead' : `Put it at the playhead (${placeOpts().mode === 'insert' ? 'insert' : 'overwrite'})`, () => placeAtPlayhead(lines(), { labelOf }))];
+      iconBtn('playhead', `Put it at the playhead (${placeOpts().mode === 'insert' ? (RES ? 'insert, on a copy' : 'insert') : 'overwrite'})`, () => placeAtPlayhead(lines(), { labelOf }))];
   }
   /** Options for dragging and placing lines (Find, Questions, the board). */
   function placeOptionsSection() {
@@ -2235,7 +2240,8 @@
       h('div.field-hint', 'Drag a line onto the timeline, or press its playhead button to put it at the playhead – video and audio, cut to the line. The other button opens it in the Source Monitor with its In and Out set.'),
       ui.field('Extra either side', ui.select({ options: [['0', 'None – exactly the line'], ['0.25', '¼ second'], ['0.5', '½ second'], ['1', '1 second']].map(([value, label]) => ({ value, label })), value: String(o.handles), onChange: v => US.settings.set('story.placeHandles', Number(v)) })),
       ui.toggle({ label: 'Colour by theme', hint: 'A line in a theme is placed in its theme’s colour (answers in their question’s, moments in their type’s, board cards in their group’s).', value: o.colour, onChange: x => US.settings.set('story.placeColour', x) }),
-      RES ? h('div.field-hint', 'At the playhead, lines go on the first video and audio tracks that are free there (a new pair if none is): Resolve has no insert by script.')
+      RES ? ui.field('At the playhead', ui.select({ options: [{ value: 'overwrite', label: 'Overwrite – on the first free tracks' }, { value: 'insert', label: 'Insert – on a copy, later clips move along' }], value: o.mode, onChange: v => US.settings.set('story.placeModeResolve', v) }),
+        'Overwrite puts lines on the first video and audio tracks that are free at the playhead. Resolve has no insert by script, so Insert makes a copy of the timeline (“– lines inserted”) with everything after the playhead moved along, and later inserts go into that copy.')
         : ui.field('At the playhead', ui.select({ options: [{ value: 'insert', label: 'Insert – later clips move along' }, { value: 'overwrite', label: 'Overwrite' }], value: o.mode, onChange: v => US.settings.set('story.placeMode', v) }))
     ], { open: false });
   }

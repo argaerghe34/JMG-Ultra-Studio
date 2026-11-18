@@ -66,6 +66,32 @@ test('Resolve: each camera track laid again in pieces at the switches, only the 
   assert.deepStrictEqual([r.on, r.off], [3, 3]);
 });
 
+test('Resolve: the switched pieces keep each camera clip’s grade, effects, colour, flags and markers; nothing is left on a spare track', async () => {
+  const F = Fake.make(), host = HOST.connect({ api: F.resolve });
+  const run = async (n, a) => { const r = await host.run(n, a); if (!r.ok) throw new Error(`${n}: ${r.error.code} ${r.error.detail}`); return r.data; };
+  const a = F.addMedia('/m/CamA.mp4', { frames: 2500 }), b = F.addMedia('/m/CamB.mp4', { frames: 2500 });
+  const tl = F.addTimeline('Pod', [{ item: a, in: 0, out: 750 }]);
+  tl.AddTrack('video');
+  F.pool.AppendToTimeline([{ mediaPoolItem: b, startFrame: 0, endFrame: 750, trackIndex: 2, recordFrame: tl.GetStartFrame(), mediaType: 1 }]);
+  const [ca] = tl.GetItemListInTrack('video', 1), [cb] = tl.GetItemListInTrack('video', 2);
+  ca._nodes = 5; ca._fx = 2; ca.SetClipColor('Teal'); ca.AddFlag('Red'); ca.AddMarker(300, 'Green', 'nice', '', 1, 'us-m');
+  cb._nodes = 3;
+  const r = await run('podSwitch', { seqId: tl.GetUniqueId(), cameras: [0, 1], segments: [{ start: 0, end: 10, camera: 0 }, { start: 10, end: 20, camera: 1 }, { start: 20, end: 30, camera: 0 }] });
+  const v1 = tl.GetItemListInTrack('video', 1), v2 = tl.GetItemListInTrack('video', 2);
+  assert.ok(v1.every(p => p._nodes === 5 && p._fx === 2 && p._color === 'Teal' && p._flags.join() === 'Red'), 'camera A’s look on every piece');
+  assert.ok(v2.every(p => p._nodes === 3), 'camera B’s grade on every piece');
+  assert.deepStrictEqual(v1.map(p => Object.keys(p._markers)), [[], ['50'], []], 'the clip marker (12 s) sits in the piece that shows it');
+  assert.deepStrictEqual(v1.map(p => p.GetClipEnabled()), [true, false, true], 'switching decides what’s on');
+  assert.ok(ca._dead && cb._dead, 'the originals went'); assert.strictEqual(tl.GetTrackCount('video'), 2, 'no spare track left');
+  assert.deepStrictEqual(r.notes, []);
+  // Resolve wouldn't copy the look: said in the notes
+  const G = Fake.make(), h2 = HOST.connect({ api: G.resolve });
+  const c = G.addMedia('/m/C.mp4', { frames: 2500 }), tl2 = G.addTimeline('Pod 2', [{ item: c, in: 0, out: 500 }]);
+  tl2.GetItemListInTrack('video', 1)[0]._nodes = 2; G.noCopyAttributes = true; G.fail.CopyGradesQuietly = true;
+  const r2 = (await h2.run('podSwitch', { seqId: tl2.GetUniqueId(), cameras: [0], segments: [{ start: 0, end: 10, camera: 0 }, { start: 10, end: 20, camera: 0 }] })).data;
+  assert.ok(/One camera clip didn’t get its grade/.test(r2.notes[0]), JSON.stringify(r2));
+});
+
 test('cameras follow their mic by track (a mic added or removed changes nothing); on/off switches mean the usual lengths; no overlaps at the start', () => {
   const runs = [{ start: 0, end: 1, who: 1 }, { start: 1, end: 30, who: 0 }, { start: 30, end: 60, who: 1 }];
   // mics on A2 and A3 (A1 was the music, now left out): V2 shows the person on A2, V3 the one on A3

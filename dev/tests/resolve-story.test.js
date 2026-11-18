@@ -226,8 +226,8 @@ test('resolve story: lines at the playhead (overwrite, in their colour, playhead
   const TC = f => { const n = f, fr = n % 25, sec = Math.floor(n / 25); return [Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60, fr].map(x => String(x).padStart(2, '0')).join(':'); };
   let tc = TC(tl._start + 200);
   tl.GetCurrentTimecode = () => tc; tl.SetCurrentTimecode = x => { tc = x; return true; };
-  const r = await run('storyPlaceAtPlayhead', { clips: [{ id: a.GetUniqueId(), in: 30, out: 32, label: 7 }, { id: a.GetUniqueId(), in: 50, out: 51 }], mode: 'insert' });
-  assert.strictEqual(r.mode, 'overwrite', 'Resolve has no insert by script');
+  const r = await run('storyPlaceAtPlayhead', { clips: [{ id: a.GetUniqueId(), in: 30, out: 32, label: 7 }, { id: a.GetUniqueId(), in: 50, out: 51 }], mode: 'overwrite' });
+  assert.strictEqual(r.mode, 'overwrite');
   near(r.start, 8); near(r.end, 11);
   assert.strictEqual(r.track, 1, 'V1/A1 are taken at the playhead: the next free pair');
   const v = tl.GetItemListInTrack('video', 2);
@@ -238,6 +238,37 @@ test('resolve story: lines at the playhead (overwrite, in their colour, playhead
   assert.strictEqual(s.selected, true);
   assert.deepStrictEqual(a.GetMarkInOut().video, { in: 300, out: 400 }, 'In and Out marked on the clip');
   assert.deepStrictEqual(F.selected, [a]);
+});
+
+test('resolve story: lines inserted at the playhead – on a copy, the rest moved along (clip under the playhead in two with its grade, a title moved), then into that copy', async () => {
+  const { F, run } = setup();
+  const a = F.addMedia('/m/A.mp4', { frames: 2500 });
+  const tl = F.addTimeline('Cut', [{ item: a, in: 0, out: 500 }]);
+  const [orig] = tl.GetItemListInTrack('video', 1); orig._nodes = 4; orig.SetClipColor('Teal');
+  const title = F.addTitle(tl, { track: 2, at: 250, len: 100, name: 'Lower third' });
+  tl.AddMarker(400, 'Blue', 'later', '', 1, 'us-late');
+  tl.SetCurrentTimecode(require('../../resolve/host/base').framesToTC(tl._start + 200, 25, false));   // 8 s = frame 200
+  const before = JSON.stringify(tl.GetItemListInTrack('video', 1).map(i => [i._start, i._end, i._srcStart]));
+  const r = await run('storyPlaceAtPlayhead', { clips: [{ id: a.GetUniqueId(), in: 30, out: 32, label: 7 }, { id: a.GetUniqueId(), in: 50, out: 51 }], mode: 'insert' });
+  assert.deepStrictEqual([r.mode, r.copied, r.seqName, r.track, r.notes], ['insert', true, 'Cut – lines inserted', 0, []]);
+  near(r.start, 8); near(r.end, 11);
+  assert.strictEqual(JSON.stringify(tl.GetItemListInTrack('video', 1).map(i => [i._start, i._end, i._srcStart])), before, 'the original is unchanged');
+  assert.ok(!title._dead && title._start === tl._start + 250, 'its title too');
+  const copy = F.timelines.find(t => t.GetUniqueId() === r.seqId);
+  assert.strictEqual(F.currentTimeline, copy, 'the copy is open');
+  const g = (type, t) => copy.GetItemListInTrack(type, t).map(i => [i._start - copy._start, i._end - copy._start, i._srcStart]);
+  assert.deepStrictEqual(g('video', 1), [[0, 200, 0], [200, 250, 750], [250, 275, 1250], [275, 575, 200]], 'the clip under the playhead in two, the lines in the gap');
+  assert.deepStrictEqual(g('audio', 1), g('video', 1), 'its sound too');
+  const v1 = copy.GetItemListInTrack('video', 1);
+  assert.ok([v1[0], v1[3]].every(p => p._nodes === 4 && p._color === 'Teal'), 'both halves keep the grade and colour');
+  assert.deepStrictEqual(g('video', 2), [[325, 425, 0]], 'the title moved along with the rest');
+  assert.deepStrictEqual(Object.keys(copy._markers).map(Number), [475], 'the timeline marker too');
+  assert.strictEqual(copy.GetTrackCount('video'), 2, 'no spare track left');
+  // the next insert goes into the open copy
+  const n = F.timelines.length;
+  const r2 = await run('storyPlaceAtPlayhead', { clips: [{ id: a.GetUniqueId(), in: 60, out: 61 }], mode: 'insert' });
+  assert.deepStrictEqual([r2.copied, r2.seqId], [false, r.seqId]); near(r2.start, 11); assert.strictEqual(F.timelines.length, n);
+  assert.deepStrictEqual(g('video', 1).slice(2), [[250, 275, 1250], [275, 300, 1500], [300, 600, 200]]);
 });
 
 test('resolve story: theme names and highlights are range markers – replaced on re-run, others left alone', async () => {

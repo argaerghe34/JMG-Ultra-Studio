@@ -26,7 +26,7 @@ function badValue(v, depth) {
 }
 const describe = a => (a && typeof a === 'object' ? (Object.values(a).some(x => typeof x === 'function') ? '<object>' : '{' + Object.entries(a).map(([k, v]) => k + ':' + describe(v)).join(',') + '}') : String(a));
 
-function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = {}) {
+function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', legacy = false } = {}) {
   let nextId = 1;
   const uid = p => `${p}-${(nextId++).toString(16).padStart(6, '0')}`;
   const media = {}; // path -> {fps, frames, width, height, audioCh, type}
@@ -197,7 +197,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
   }
   function timelineItem(tl, type, track, mpi, startFrame, endFrame, recordFrame) {
     const ti = { _id: uid('item'), _type: type, _track: track, _mpi: mpi, _srcStart: startFrame, _srcEnd: endFrame, _start: recordFrame, _end: recordFrame + (endFrame - startFrame) /* endFrame is exclusive here (measured in Resolve 21) */, _enabled: true, _color: '', _props: { ZoomX: 1, ZoomY: 1, Pan: 0, Tilt: 0, Opacity: 100 } };
-    ti.GetName = () => (mpi ? mpi._name : 'Item');
+    ti.GetName = () => (ti._name || (mpi ? mpi._name : 'Item'));
     ti.GetUniqueId = () => ti._id;
     ti.GetStart = () => ti._start;
     ti.GetEnd = () => ti._end;
@@ -205,9 +205,40 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     ti.GetSourceStartFrame = () => ti._srcStart;
     ti.GetSourceEndFrame = () => ti._srcStart + (ti._end - ti._start);
     ti.GetLeftOffset = () => ti._srcStart;
-    ti.GetRightOffset = () => 0;
+    ti._rightHandle = 100000;   // a title or generator can be stretched (a Media Pool clip only as far as its media)
+    ti.GetRightOffset = () => (mpi && mpi._m ? Math.max(0, mpi._m.frames - (ti._srcStart + (ti._end - ti._start))) : ti._rightHandle);
     ti.GetMediaPoolItem = () => mpi;
-    ti.GetTrackTypeAndIndex = () => [type, track];
+    ti.GetTrackTypeAndIndex = () => [ti._type, ti._track];
+    ti.GetType = () => ti._type;
+    // flags, and a grade (node count + effects) that CopyGrades / CopyAttributes copy
+    ti._flags = []; ti._nodes = 1; ti._fx = 0;
+    ti.GetFlagList = () => ti._flags.slice();
+    ti.AddFlag = c => { ti._flags.push(c); return true; };
+    ti.ClearFlags = c => { ti._flags = c === 'All' ? [] : ti._flags.filter(x => x !== c); return true; };
+    ti.GetNodeGraph = () => ({ GetNumNodes: () => ti._nodes, GetLUT: n => ti._luts[n] || '' });
+    ti.GetFusionCompCount = () => 0;
+    ti.GetEffects = () => new Array(ti._fx).fill({});
+    ti.CopyGrades = targets => { if (F.fail.CopyGradesQuietly) return false; for (const x of targets) { x._nodes = ti._nodes; x._luts = Object.assign({}, ti._luts); } log.push(['CopyGrades', targets.length]); return true; };
+    // Resolve 21.1.2+: Paste Attributes (Edit and Cut pages only)
+    ti.CopyAttributes = (targets, opts) => {
+      if (F.noCopyAttributes || !/^(edit|cut)$/.test(F.page)) return false;
+      for (const x of targets) { if (opts.allVideoAttributes) { x._nodes = ti._nodes; x._fx = ti._fx; x._luts = Object.assign({}, ti._luts); Object.assign(x._props, ti._props); } if (opts.allAudioAttributes) x._audio = ti._audio; }
+      log.push(['CopyAttributes', targets.length, Object.keys(opts).join(',')]); return true;
+    };
+    // Resolve 21.1.2+: moving and trimming (refused when the place is taken, like Timeline.MoveItems)
+    const room = (track, s, e) => !((ti._type === 'video' ? tl._v : tl._a)[track - 1] || []).some(o => o !== ti && o._start < e && o._end > s);
+    if (!legacy) {
+      ti.GetPosition = () => ({ trackType: ti._type, trackIndex: ti._track, startFrame: ti._start });
+      ti.SetPosition = (pos) => {
+        const track = pos.trackIndex != null ? pos.trackIndex : ti._track, start = pos.startFrame != null ? pos.startFrame : ti._start, len = ti._end - ti._start;
+        const a = ti._type === 'video' ? tl._v : tl._a;
+        if (!a[track - 1] || F.fail.SetPositionQuietly || !room(track, start, start + len)) return false;
+        a[ti._track - 1].splice(a[ti._track - 1].indexOf(ti), 1); a[track - 1].push(ti);
+        ti._track = track; ti._start = start; ti._end = start + len; log.push(['SetPosition', ti.GetName()]); return true;
+      };
+      ti.SetLeftOffset = x => { const d = x - ti.GetLeftOffset(); if (x < 0 || ti._start + d >= ti._end || (d < 0 && !room(ti._track, ti._start + d, ti._start))) return false; ti._start += d; ti._srcStart += d; return true; };
+      ti.SetRightOffset = x => { if (F.fail.SetRightOffsetQuietly) return false; const d = x - ti.GetRightOffset(); if (x < 0 || ti._end - d <= ti._start || (d < 0 && !room(ti._track, ti._end, ti._end - d))) return false; ti._end -= d; if (!mpi) ti._rightHandle = x; return true; };
+    }
     ti.SetClipEnabled = on => { ti._enabled = !!on; return true; };
     ti.GetClipEnabled = () => ti._enabled;
     ti.GetClipColor = () => ti._color;
@@ -221,7 +252,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     markerHost(ti, () => 'item:' + ti.GetName());
     return strict(ti);
   }
-  function cloneItem(it, tl) { const c = timelineItem(tl, it._type, it._track, it._mpi, it._srcStart, it._srcEnd, it._start); c._end = it._end; c._enabled = it._enabled; c._color = it._color; return c; }
+  function cloneItem(it, tl) { const c = timelineItem(tl, it._type, it._track, it._mpi, it._srcStart, it._srcEnd, it._start); c._end = it._end; c._enabled = it._enabled; c._color = it._color; c._name = it._name; c._flags = it._flags.slice(); c._nodes = it._nodes; c._fx = it._fx; return c; }
   function place(tl, info, type, track, at) {
     const a = type === 'video' ? tl._v : tl._a;
     while (a.length < track) tl.AddTrack(type);
@@ -353,7 +384,7 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
 
   const F = {
     resolve, project, pool, root, timelines, log, media, selected: [],
-    get saved() { return saved; }, get currentTimeline() { return currentTl; }, get renderJobs() { return renderJobs; },
+    get saved() { return saved; }, get page() { return page; }, get currentTimeline() { return currentTl; }, get renderJobs() { return renderJobs; },
     renderFails: false, renderContent: null, noProject: false, fail: {}, crashes,
     /** Register a media file (it needn't exist on disk) and import it: F.addMedia('/m/a.mp4', {fps, frames, type, bin}) */
     addMedia(file, info = {}) {
@@ -363,6 +394,11 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
     },
     bin(p) { let f = root; for (const n of p.split('/')) f = f._subs.find(s => s._name === n) || pool.AddSubFolder(f, n); return f; },
     /** A timeline made from clips laid end to end: F.addTimeline('Cut', [{item, in, out, track?, at?}]) with frames */
+    /** A title / generator (no Media Pool clip) on a timeline: F.addTitle(tl, {track, at, len, name}) in frames */
+    addTitle(tl, { track = 2, at = 0, len = 125, name = 'Title' } = {}) {
+      while (tl._v.length < track) tl.AddTrack('video');
+      const ti = timelineItem(tl, 'video', track, null, 0, len, tl._start + at); ti._name = name; tl._v[track - 1].push(ti); return ti;
+    },
     addTimeline(name, parts = []) {
       const tl = pool.CreateEmptyTimeline(name);
       for (const p of parts) pool.AppendToTimeline([Object.assign({ mediaPoolItem: p.item, startFrame: p.in, endFrame: p.out, trackIndex: p.track || 1 }, p.at != null ? { recordFrame: tl._start + p.at } : {}, p.mediaType ? { mediaType: p.mediaType } : {})]);
