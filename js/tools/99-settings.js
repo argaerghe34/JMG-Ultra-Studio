@@ -179,8 +179,10 @@
       /* Layout: the rail as places (default) or one button per tool as before (UI review, 18 Nov 2026) */
       function layoutCard() {
         return h('div', { dataset: { section: 'layout' } }, ui.card(h('div.card-title', 'Layout'),
-          ui.toggle({ label: 'Classic rail – one button per tool', value: US.classicRail(), hint: 'Off: the rail has eight places in the order of the work (Home, Bring in, Story, Cut, Finish, Deliver, Ask, Advanced) and each place shows its tools as tabs. On: the rail as it was before, one button for each tool.',
-            onChange: x => { US.settings.set('ui.classicRail', !!x); US.rebuildRail && US.rebuildRail(); } })));
+          ui.toggle({ label: 'Classic rail – one button per tool', value: US.classicRail(), hint: 'Off: the rail has eight places in the order of the work (Home, Bring in, Story, Cut, Finish, Deliver, Ask, Advanced), each place shows its tools as tabs, and Home starts with where the project is and the next step. On: the rail and Home as they were before, one rail button for each tool.',
+            onChange: x => { US.settings.set('ui.classicRail', !!x); US.rebuildRail && US.rebuildRail(); } }),
+          ui.toggle({ label: 'Story › Build: one at a time', value: US.settings.get('story.buildChooser', true) !== false, hint: 'On: Build asks “What do you want to make?” and shows that card (Show all shows every card). Off: every Build card, one under the other, as before.',
+            onChange: x => US.settings.set('story.buildChooser', !!x) })));
       }
       /* Updates: one button checks GitHub for a newer version and installs it (js/tools/98-update.js) */
       function updatesCard() {

@@ -34,6 +34,17 @@ test('⌘K finds every tool and every action by its name, and the header’s mag
   assert.ok(r.searchEmptyShowsTools, 'an empty search should list the tools');
 });
 
+test('Story › Build shows one card at a time, and every card can still be shown (Show all shows them all)', () => {
+  const c = nav().chooser;
+  assert.ok(c.cardIds.length >= 4, 'expected the Build cards, got ' + c.cardIds.join(', '));
+  for (const id of c.cardIds) assert.ok(c.choices.includes(id), 'the chooser has no button for ' + id);
+  assert.ok(c.choices.includes('all'), 'no Show all');
+  for (const [id, shown] of c.shownAfter) {
+    if (id === 'all') assert.deepStrictEqual(shown, c.cardIds, 'Show all should show every card');
+    else assert.deepStrictEqual(shown, [id], 'choosing ' + id + ' should show only it, showed ' + shown.join(', '));
+  }
+});
+
 test('the rail as places is short; Classic rail keeps one button per tool', () => {
   const r = nav();
   assert.ok(r.modes.places.railButtons <= 9, 'places rail has ' + r.modes.places.railButtons + ' buttons');

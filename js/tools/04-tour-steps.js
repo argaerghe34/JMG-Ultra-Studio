@@ -23,6 +23,7 @@
     ] },
 
     home: [
+      { target: '[data-section="next"]', title: 'Where you are, and what’s next', text: 'The five stages of the edit, ticked as you go, and one suggested next step for this project. Click a stage to go there.', tip: 'Below it: the last things you ran, to pick up where you left off.' },
       { target: 'text:Check my setup', title: 'Check my setup', text: 'A real end-to-end test: it talks to Premiere, reads a clip and checks each tool has what it needs.', tip: 'Copy the report and send it if you ever need help.' },
       { target: '.featured-card', title: 'Story at a glance', text: 'How far this project has got – interviews read, lines, themes, narratives – with one click to each step.' },
       { target: 'text:Overnight prep', title: 'Overnight prep', text: 'Leave the computer working: transcripts, themes, moments and the interview log, with a report here in the morning.' }
@@ -37,7 +38,7 @@
       { target: 'text:Get transcripts', open: { tab: 'transcripts' }, title: '1 · Get the transcripts', text: 'Story reads Premiere’s own transcripts (free, private, accurate) or files you import – SRT, VTT, CSV or text.' },
       { target: 'text:2 Themes', title: '2 · Themes', text: 'Group the best lines by what they’re about – your own themes and the ones Story finds.' },
       { target: 'text:3 Find', title: '3 · Find', text: 'Search for anything the themes missed, or let Story find moments and the answers to your questions.' },
-      { target: 'text:4 Build', title: '4 · Build', text: 'Turn the lines into a sequence, a narrative from a brief, clips for social or a beat map – always as a new sequence.' },
+      { target: 'text:4 Build', title: '4 · Build', text: 'Turn the lines into a sequence, a narrative from a brief, clips for social or a beat map – always as a new sequence. Build asks “What do you want to make?” and shows that one; Show all shows them all.' },
       { target: 'text:5 Share', title: '5 · Share', text: 'The interview log and paper edit for your director or client, and a transcript of any sequence.' }
     ],
     storylines: [

@@ -3,7 +3,7 @@
 // Settings gear, Advanced's tiles (In development too) – every registered tool must be reached, in the rail as places
 // and in Settings › Classic rail. Every action the Assistant knows must belong to a tool that can be reached.
 // Run on its own (node dev/tests/navigation-ui.js) or through navigation.test.js. Prints JSON on the last line.
-const { w, US, $$, tick, boot, errors } = require('./panel-dom');
+const { w, US, $$, tick, boot, loadStory, errors } = require('./panel-dom');
 
 /** Every tool reached by clicking what's on screen, starting from the rail. */
 async function reachable() {
@@ -52,6 +52,19 @@ async function reachable() {
   out.searchOpens = !!w.document.querySelector('.search-scrim .search-input');
   out.searchEmptyShowsTools = $$('.search-item').length >= 10;
   if (US.search.close) US.search.close();
+  // Story › 4 Build: the chooser lists every Build card, each can be shown, and Show all shows every one
+  await loadStory();
+  US.story.open('build'); await tick(); await new Promise(r => setTimeout(r, 30));
+  const pane = $$('.story-pane').find(p => p.querySelector(':scope > .card[data-section="build"]'));
+  const cardIds = pane ? $$('.card[data-section]', pane).map(c => c.dataset.section) : [];
+  const choices = pane ? $$('.story-choice', pane).map(b => b.dataset.pick) : [];
+  const shownAfter = [];
+  for (const id of choices) {
+    const b = $$('.story-choice', pane).find(x => x.dataset.pick === id);
+    b.click(); await tick();
+    shownAfter.push([id, cardIds.filter(c => { const el = pane.querySelector('.card[data-section="' + c + '"]'); return el && !el.closest('.story-folded'); })]);
+  }
+  out.chooser = { cardIds, choices, shownAfter };
   out.places = US.PLACES.map(p => ({ id: p.id, tools: (p.id === 'advanced' ? ['advanced'] : US.placeTools(p.id).map(d => d.id)) }));
   out.advanced = US.ADVANCED_TOOLS.concat(US.PAUSED_TOOLS);
   out.errors = errors;

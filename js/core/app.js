@@ -297,6 +297,7 @@
     if (!def.hidden) US.settings.set('lastTool', def.id);
     const pid = US.placeOf(def.id); if (pid && pid !== 'advanced') US.settings.set('place.last.' + pid, def.id);
     m.onShow && m.onShow(opts);
+    US.bus.emit('tool-shown', def.id, opts, m.el);
   }
 
   function renderCtx() {
