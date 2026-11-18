@@ -28,8 +28,9 @@
       const insp = h('div.sl-insp');
       const body = h('div.sl-body', themesEl, h('div.sl-mid', table), insp);
       const empty = h('div');
-      v.body.append(h('div.sl-tools', find, picky.el || picky, summary), empty, body,
-        h('div.sl-keys', 'Keys: ', h('span.kbd', 'J'), h('span.kbd', 'K'), ' move · ', h('span.kbd', 'space'), ' play · ', h('span.kbd', '↵'), ' at the playhead · ', h('span.kbd', '/'), ' filter · shift- or ⌘-click picks several'));
+      const keys = h('div.sl-keys', 'Keys: ', h('span.kbd', 'J'), h('span.kbd', 'K'), ' move · ', h('span.kbd', 'space'), ' play · ', h('span.kbd', '↵'), ' at the playhead · ', h('span.kbd', '/'), ' filter · shift- or ⌘-click picks several');
+      const tools = h('div.sl-tools', find, picky.el || picky, summary);
+      v.body.append(tools, empty, body, keys);
       find.addEventListener('input', () => { query = find.value.trim().toLowerCase(); limit = 400; draw(); });
 
       /** The lines for the chosen theme at the chosen pickiness, filtered. -> [{l, themes}] */
@@ -60,7 +61,7 @@
         const st = S().state();
         const hasLines = st.transcripts.some(t => t.lines.length);
         US.clear(empty);
-        body.classList.toggle('hidden', !hasLines);
+        [body, keys, tools].forEach(x => x.classList.toggle('hidden', !hasLines));
         if (!hasLines) { empty.appendChild(ui.empty({ icon: 'story', title: 'No transcripts yet', text: 'Story reads your interviews first – then every line shows here.', action: ui.button('Go to Story › 1 Interviews', { kind: 'primary', onClick: () => S().open('transcripts') }) })); return; }
         if (!level) { const lv = levelOf(S().pickyFor(null).s); (picky.set || (() => {}))(lv); }
         drawThemes(st);

@@ -51,7 +51,14 @@
     logDir: () => ensureDir(path.join(dataDir, 'logs')),
     // Windows: the Documents folder Explorer shows (OneDrive often moves it), told by Premiere at start-up
     exportsDir: () => ensureDir(path.join(documentsDir || path.join(os.homedir(), 'Documents'), 'JMG Ultra Studio')),
-    setDocumentsDir(d) { if (d && fs.existsSync(d)) documentsDir = d; }
+    setDocumentsDir(d) { if (d && fs.existsSync(d)) documentsDir = d; },
+    /** A folder as people say it: "Documents › JMG Ultra Studio › Downloads", "Home › Movies", else the path itself. */
+    pretty(p) {
+      if (!p) return '';
+      const docs = documentsDir || path.join(os.homedir(), 'Documents'), home = os.homedir();
+      const under = (base, name) => { const rel = path.relative(base, p); return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? [name].concat(rel.split(path.sep).filter(Boolean)).join(' › ') : p === base ? name : null; };
+      return under(docs, 'Documents') || under(home, 'Home') || p;
+    }
   });
 
   /** Clear temp files older than two days at start-up. */

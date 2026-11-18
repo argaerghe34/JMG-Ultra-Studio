@@ -229,7 +229,7 @@
       function drawFolder() {
         US.clear(folderLine);
         if (source && source.kind === 'folder') { folderLine.appendChild(h('div.field-hint', 'The files are used where they are in the download – nothing is copied.')); return; }
-        folderLine.appendChild(ui.field('Save the originals in', h('div.row', h('div.grow.mono', US.keep(path.join(o.folder || defaultFolder(), model ? model.family.name : '<family>'))),
+        folderLine.appendChild(ui.field('Save the originals in', h('div.row', h('div.grow.field-hint', { title: path.join(o.folder || defaultFolder(), model ? model.family.name : '<family>') }, US.keep((US.fsx.pretty || (x => x))(path.join(o.folder || defaultFolder(), model ? model.family.name : '<family>')))),
           ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = US.app.pickFiles({ folder: true, title: 'Where should Memory Box files be saved?', start: o.folder || defaultFolder() }); if (r[0]) { set({ folder: US.normPath(r[0]) }); if (source && source.kind === 'online') source.folder = o.folder; drawFolder(); } } catch (e) { ui.showError(e); } } })),
         'A file that’s already in this folder is never downloaded again.'));
       }

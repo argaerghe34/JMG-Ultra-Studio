@@ -60,3 +60,12 @@ test('Advanced keeps every tool it held: Selects, Subclip Maker, MC Selects, Tak
   }
   for (const id of ['colour', 'cameras', 'broll', 'sound', 'mvfx', 'memorybox']) if (r.tools.includes(id) && r.advanced.includes(id)) assert.ok(/^Advanced › /.test(r.modes.places.how[id]), id + ' (In development) is not opened from Advanced');
 });
+
+test('folders are shown as people say them: Documents › …, Home › …, else the path', () => {
+  const US = require('./harness').load();
+  const os = require('os'), p = require('path');
+  assert.strictEqual(US.fsx.pretty(p.join(os.homedir(), 'Documents', 'JMG Ultra Studio', 'Web downloads')), 'Documents › JMG Ultra Studio › Web downloads');
+  assert.strictEqual(US.fsx.pretty(p.join(os.homedir(), 'Movies')), 'Home › Movies');
+  assert.strictEqual(US.fsx.pretty('/Volumes/Media/x'), '/Volumes/Media/x');
+  assert.strictEqual(US.fsx.pretty(''), '');
+});

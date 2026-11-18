@@ -287,7 +287,7 @@
       let bins = [];
       async function fillBins() { try { bins = (await US.host.call('listBins')).filter(b => b.path !== '(Project root)'); binSel.setOptions([{ value: '', label: `A new bin called “${DEFAULT_BIN}”` }].concat(bins.map(b => ({ value: b.id, label: b.path }))), bins.some(b => b.id === o.binId) ? o.binId : ''); } catch (e) { /* no project yet */ } }
       const folderLine = h('div.grow.field-hint');
-      const showFolder = () => { folderLine.textContent = `Saving to ${o.folder || defaultFolder()}`; };
+      const showFolder = () => { const f = o.folder || defaultFolder(); folderLine.textContent = `Saving to ${US.fsx.pretty ? US.fsx.pretty(f) : f}`; folderLine.title = f; };
       const quality = ui.segmented({ options: Object.entries(QUALITY).map(([value, q]) => ({ value, label: q.label })), value: o.quality, onChange: x => { o.quality = x; save(); qHint.textContent = QUALITY[x].hint; } });
       const qHint = h('div.field-hint', QUALITY[o.quality] ? QUALITY[o.quality].hint : '');
       const setupBox = h('div');
