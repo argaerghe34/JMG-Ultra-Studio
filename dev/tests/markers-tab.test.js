@@ -107,3 +107,32 @@ test('the marker at the playhead: one that covers it (the latest to start), else
   assert.strictEqual(M.markerAt(ms, 20.3).guid, 'c');
   assert.strictEqual(M.markerAt(ms, 15), null);
 });
+
+test('markers on the clips, as they show in a sequence: once per clip marker (first place it shows), only the part used, a clip’s picture and sound one use', () => {
+  // A used twice (0–10 from 20 s in, 30–35 from 21 s in at double speed), its sound on A1 too; B a nested sequence (left out)
+  const info = { frame: 0.04, video: [{ clips: [{ name: 'A.mov', start: 0, end: 10, in: 20, out: 30, itemId: 'a' }, { name: 'A.mov', start: 30, end: 35, in: 21, out: 31, itemId: 'a', speed: 2 }, { name: 'Nest', start: 10, end: 30, in: 0, out: 20, itemId: 'n', isSequence: true }] }], audio: [{ clips: [{ name: 'A.mov', start: 0, end: 10, in: 20, out: 30, itemId: 'a' }] }] };
+  const byItem = new Map([['a', [{ guid: 'g1', start: 22, end: 24, name: 'Smile', comment: 'nice', color: 3 }, { guid: 'g2', start: 29, end: 29, name: 'Late' }, { guid: 'g3', start: 5, end: 5, name: 'Never used' }]], ['n', [{ guid: 'x', start: 1, end: 1, name: 'Nested' }]]]);
+  const rows = M.clipMarkersInSequence(info, byItem);
+  assert.deepStrictEqual(rows.map(r => [r.guid, r.start, r.end, r.name, r.color, r.onClip, r.uses]), [['clip:a:g1', 2, 4, 'Smile', 3, 'A.mov', 2], ['clip:a:g2', 9, 9, 'Late', 0, 'A.mov', 2]]);
+  assert.deepStrictEqual([rows[0].srcStart, rows[0].srcEnd, rows[0].itemId], [22, 24, 'a'], 'its own time kept for moving it');
+});
+
+test('moving: a timeline marker by timeline seconds; a clip marker in the clip’s own time (speed counted); never before 0', () => {
+  assert.deepStrictEqual(M.moveFields({ start: 5, end: 7 }, 2), { start: 7, end: 9 });
+  assert.deepStrictEqual(M.moveFields({ start: 5, end: 5 }, -10), { start: 0, end: null });
+  assert.deepStrictEqual(M.moveFields({ itemId: 'a', start: 2, end: 4, srcStart: 22, srcEnd: 24, speed: 2 }, 1), { start: 24, end: 26 });
+  assert.deepStrictEqual(M.moveFields({ itemId: 'a', start: 2, end: 2, srcStart: 22, srcEnd: 22, speed: 1 }, -1), { start: 21, end: null });
+});
+
+test('the pad follows “New markers go on” (the host fills it in); “End it here” on a clip marker in the clip’s time; duplicates only in one place', () => {
+  const info = { playhead: 6, frame: 0.04, duration: 30, video: [{ clips: [{ name: 'B.mov', start: 5, end: 12, in: 100, out: 107, itemId: 'b' }] }], audio: [] };
+  const r = M.press({ id: 'x', label: 'Fix', color: 1, length: 'point', where: 'auto' }, info);
+  assert.strictEqual(r.where, undefined);
+  assert.ok(!('where' in JSON.parse(JSON.stringify({ where: r.where }))), 'nothing sent, so the setting is used');
+  assert.ok(M.PAD_DEFAULTS.filter(b => b.id !== 'select').every(b => b.where === 'auto'));
+  assert.strictEqual(M.describePad({ length: 'point', where: 'auto', key: '1' }, 'clips'), 'A point · Clip · key 1');
+  assert.strictEqual(M.describePad({ length: 'point', where: 'timeline' }, 'clips'), 'A point · Timeline');
+  assert.deepStrictEqual(M.endFields(['clip:b:g', 'tl1'], info, 6, 9), [{ guid: 'clip:b:g', end: 104 }, { guid: 'tl1', end: 9 }]);
+  assert.deepStrictEqual(M.endFields(['clip:b:g'], info, 6, 20), [{ guid: 'clip:b:g', end: 107 }], 'not past the part used');
+  assert.deepStrictEqual(M.duplicates([{ guid: 't', start: 1, name: 'X' }, { guid: 'clip:a:c', start: 1, name: 'X', itemId: 'a' }, { guid: 'clip:a:d', start: 1, name: 'X', itemId: 'a' }]), ['clip:a:d'], 'a marker on the timeline and the clip (“Both”) isn’t a duplicate');
+});

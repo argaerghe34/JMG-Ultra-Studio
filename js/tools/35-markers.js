@@ -137,10 +137,37 @@
     }
     return out.sort((a, b) => a.start - b.start);
   }
-  /** Duplicates: a marker at the same time (within a frame) with the same name as one before it -> guids. */
+  /**
+   * The clips' own markers as they show in a sequence: one row per clip marker, where it first shows, however often the
+   * clip is used. byItem: Map(itemId -> the clip's markers, in the clip's own time).
+   * -> [{guid: "clip:<item id>:<guid>", start, end, name, comment, color, itemId, onClip, uses, srcStart, srcEnd, speed}]
+   */
+  function clipMarkersInSequence(info, byItem) {
+    const rows = new Map(), frame = info.frame || 1 / (info.fps || 25);
+    for (const tr of (info.video || []).concat(info.audio || [])) for (const c of tr.clips || []) {
+      if (!c.itemId || c.isSequence) continue;
+      const sp = Math.abs(c.speed || 1) || 1;
+      for (const m of byItem.get(c.itemId) || []) {
+        if (m.start < c.in - 1e-6 || m.start > c.out + 1e-6) continue;
+        const guid = `clip:${c.itemId}:${m.guid}`, start = c.start + (m.start - c.in) / sp;
+        const end = m.end > m.start + 1e-6 ? Math.min(c.end, start + (m.end - m.start) / sp) : start;
+        let r = rows.get(guid);
+        if (!r) rows.set(guid, (r = { guid, start, end, name: m.name || '', comment: m.comment || '', color: m.color || 0, itemId: c.itemId, onClip: c.name || '', at: new Set(), srcStart: m.start, srcEnd: m.end, speed: sp }));
+        else if (start < r.start) Object.assign(r, { start, end, onClip: c.name || r.onClip, speed: sp });
+        r.at.add(Math.round(start / frame));   // a clip's picture and sound (V1 and A1) are one use
+      }
+    }
+    return Array.from(rows.values()).map(r => { const o = Object.assign({}, r, { uses: r.at.size }); delete o.at; return o; }).sort((a, b) => a.start - b.start);
+  }
+  /** The fields that move a marker by `by` seconds of the timeline – a clip marker in the clip's own time. */
+  function moveFields(m, by) {
+    const sp = m.itemId ? m.speed || 1 : 1, s0 = m.itemId ? m.srcStart : m.start, e0 = m.itemId ? m.srcEnd : m.end;
+    return { start: Math.max(0, s0 + by * sp), end: e0 > s0 + 1e-6 ? Math.max(0, e0 + by * sp) : null };
+  }
+  /** Duplicates: a marker at the same time (within a frame) with the same name as one before it, in the same place (the timeline or the same clip) -> guids. */
   function duplicates(markers, frame = 1 / 25) {
     const out = [], ms = markers.slice().sort((a, b) => a.start - b.start);
-    ms.forEach((m, i) => { for (let j = i - 1; j >= 0 && m.start - ms[j].start <= frame; j--) if ((ms[j].name || '') === (m.name || '') && !out.includes(ms[j].guid)) { out.push(m.guid); break; } });
+    ms.forEach((m, i) => { for (let j = i - 1; j >= 0 && m.start - ms[j].start <= frame; j--) if ((ms[j].name || '') === (m.name || '') && (ms[j].itemId || '') === (m.itemId || '') && !out.includes(ms[j].guid)) { out.push(m.guid); break; } });
     return out;
   }
   /** The markers a search and colour chips leave. */
@@ -155,19 +182,21 @@
 
   /* ---------- the marker pad: big buttons that each make one kind of marker ---------- */
   const LENGTHS = { point: 'A point', secs: 'Seconds', clip: 'The clip under the playhead', inout: 'In to Out', toggle: 'Press to start, press to end' };
-  const WHERES = { timeline: 'Timeline', clips: 'Clip', both: 'Both' };
+  const WHERES = { auto: 'Where new markers go', timeline: 'Timeline', clips: 'Clip', both: 'Both' };
+  /** Settings › Markers (also in the tab's Add markers): 'sequence' | 'clips' | 'both' -> the pad's words. */
+  const PLACE = { sequence: 'Timeline', clips: 'Clip', both: 'Both' };
   const PAD_DEFAULTS = [
-    { id: 'good', label: 'Good', color: 0, length: 'point', secs: 2, where: 'timeline', key: '1' },
-    { id: 'fix', label: 'Fix', color: 1, length: 'point', secs: 2, where: 'timeline', key: '2' },
-    { id: 'note', label: 'Note…', color: 4, length: 'point', secs: 2, where: 'timeline', key: '3', ask: true },
-    { id: 'broll', label: 'B-roll here', color: 7, length: 'toggle', secs: 5, where: 'timeline', key: '4' },
-    { id: 'highlight', label: 'Highlight', color: 3, length: 'toggle', secs: 5, where: 'timeline', key: '5' },
-    { id: 'music', label: 'Music cue', color: 6, length: 'secs', secs: 4, where: 'timeline', key: '6' },
-    { id: 'chapter', label: 'Chapter', color: 2, length: 'point', secs: 2, where: 'timeline', key: '7', chapter: true },
-    { id: 'shot', label: 'Whole clip', color: 5, length: 'clip', secs: 2, where: 'timeline', key: '8' },
+    { id: 'good', label: 'Good', color: 0, length: 'point', secs: 2, where: 'auto', key: '1' },
+    { id: 'fix', label: 'Fix', color: 1, length: 'point', secs: 2, where: 'auto', key: '2' },
+    { id: 'note', label: 'Note…', color: 4, length: 'point', secs: 2, where: 'auto', key: '3', ask: true },
+    { id: 'broll', label: 'B-roll here', color: 7, length: 'toggle', secs: 5, where: 'auto', key: '4' },
+    { id: 'highlight', label: 'Highlight', color: 3, length: 'toggle', secs: 5, where: 'auto', key: '5' },
+    { id: 'music', label: 'Music cue', color: 6, length: 'secs', secs: 4, where: 'auto', key: '6' },
+    { id: 'chapter', label: 'Chapter', color: 2, length: 'point', secs: 2, where: 'auto', key: '7', chapter: true },
+    { id: 'shot', label: 'Whole clip', color: 5, length: 'clip', secs: 2, where: 'auto', key: '8' },
     { id: 'select', label: 'Select on the clip', color: 0, length: 'secs', secs: 5, where: 'clips', key: '9' }
   ];
-  const describePad = b => `${b.length === 'secs' ? `${b.secs} s` : LENGTHS[b.length]} · ${WHERES[b.where] || 'Timeline'}${b.key ? ` · key ${b.key}` : ''}`;
+  const describePad = (b, place = 'sequence') => `${b.length === 'secs' ? `${b.secs} s` : LENGTHS[b.length]} · ${b.where === 'auto' ? PLACE[place] || 'Timeline' : WHERES[b.where] || 'Timeline'}${b.key ? ` · key ${b.key}` : ''}`;
   /** The clip seen at a time: the topmost enabled video clip there, else the first audio clip. */
   function clipAt(info, t) {
     const look = (tracks, top) => { const ts = (tracks || []).slice(); if (top) ts.reverse(); for (const tr of ts) for (const c of tr.clips || []) if (!c.disabled && t >= c.start - 1e-6 && t < c.end) return c; return null; };
@@ -175,12 +204,13 @@
   }
   /**
    * What a pad button does at the playhead. info: sequenceInfo (with playhead); pending: when a start/stop button was
-   * started. -> {start: t} (a start/stop button waiting for its end) | {marker, where} | {error}
+   * started. -> {start: t} (a start/stop button waiting for its end) | {marker, where} | {error}. where is undefined for a
+   * button that follows Settings › Markers (the host fills it in).
    */
   function press(b, info, { pending = null, name = '' } = {}) {
     const t = info.playhead, frame = info.frame || 1 / (info.fps || 25), dur = info.duration || Infinity;
     if (t == null || !isFinite(t)) return { error: 'Couldn’t read where the playhead is.' };
-    const mk = (start, end, extra = {}) => ({ marker: Object.assign({ start, end: end != null && end > start + frame / 2 ? end : null, name: name || b.name || b.label.replace(/…$/, ''), comment: '', color: b.color, chapter: !!b.chapter }, extra), where: b.where || 'timeline' });
+    const mk = (start, end, extra = {}) => ({ marker: Object.assign({ start, end: end != null && end > start + frame / 2 ? end : null, name: name || b.name || b.label.replace(/…$/, ''), comment: '', color: b.color, chapter: !!b.chapter }, extra), where: b.where === 'auto' ? undefined : b.where || 'timeline' });
     if (b.length === 'toggle') {
       if (pending == null) return { start: t };
       return mk(Math.min(pending, t), Math.max(pending, t));
@@ -194,6 +224,14 @@
     }
     return mk(t, null);
   }
+  /**
+   * "End it here" for the pad's last marker: a timeline marker ends at the playhead; one on a clip ends at the same
+   * moment in the clip's own time (the clip it was put on – the one under its start).
+   */
+  function endFields(guids, info, start, t) {
+    const c = clipAt(info, start), sp = c ? Math.abs(c.speed || 1) || 1 : 1;
+    return guids.map(g => (/^clip:/.test(String(g)) && c && c.in != null ? { guid: g, end: Math.min(c.out != null ? c.out : Infinity, c.in + (t - c.start) * sp) } : { guid: g, end: t }));
+  }
   /** The marker at the playhead: one that covers it (the latest to start), else the nearest within half a second. */
   function markerAt(markers, t, frame = 1 / 25) {
     const covering = markers.filter(m => m.start <= t + frame / 2 && t <= Math.max(m.end || m.start, m.start) + frame / 2).sort((a, b) => b.start - a.start);
@@ -203,11 +241,21 @@
   }
 
   /* ---------- reading what's there ---------- */
-  /** The open sequence: its markers, tracks and timing. */
-  async function readSequence(seqId) {
+  /** The open sequence: its markers, tracks and timing – with clipMarkers, the clips' own markers where they show too. */
+  async function readSequence(seqId, { clipMarkers = false } = {}) {
     const [info, timing] = await Promise.all([US.host.call('sequenceInfo', { seqId }), US.host.call('storySequenceTiming', { seqId }).catch(() => ({ zero: 0 }))]);
     const fps = info.fps || (info.frame ? 1 / info.frame : 25);
-    return { kind: 'sequence', id: seqId, name: info.name, fps, zero: timing.zero || 0, frame: info.frame || 1 / fps, duration: info.duration, info, markers: (info.markers || []).map(m => Object.assign({ color: 0 }, m, { owner: seqId })) };
+    let markers = (info.markers || []).map(m => Object.assign({ color: 0 }, m, { owner: seqId }));
+    if (clipMarkers) {
+      const byItem = new Map();
+      for (const tr of (info.video || []).concat(info.audio || [])) for (const c of tr.clips || []) {
+        if (!c.itemId || c.isSequence || byItem.has(c.itemId) || byItem.size >= 400) continue;
+        let ms = []; try { ms = (await US.host.call('clipMarkers', { id: c.itemId })) || []; } catch (e) { /* none */ }
+        byItem.set(c.itemId, ms);
+      }
+      markers = markers.concat(clipMarkersInSequence(Object.assign({ frame: 1 / fps }, info), byItem).map(m => Object.assign(m, { owner: seqId }))).sort((a, b) => a.start - b.start);
+    }
+    return { kind: 'sequence', id: seqId, name: info.name, fps, zero: timing.zero || 0, frame: info.frame || 1 / fps, duration: info.duration, info, markers };
   }
   /** The clips selected in the Project panel / Media Pool, each with its markers. */
   async function readClips() {
@@ -294,19 +342,22 @@
     hostFns: ['sequenceInfo', 'storySequenceTiming', 'addSequenceMarkers', 'removeSequenceMarkers', 'updateMarkers', 'clipMarkers', 'addClipMarkers', 'removeClipMarkers', 'selectionList', 'setPlayhead', 'showInSource'],
     create() {
       const v = ui.toolView({ icon: 'target', title: 'Markers', blurb: 'Every marker on the open sequence – or on the clips selected in the ' + (RES ? 'Media Pool' : 'Project panel') + ' – in one list. Search and filter by colour; rename, recolour, comment, move or delete them one at a time or ticked together. Add markers at the playhead, every so often, at every cut, or from pasted notes and review exports. Export them as a list, a spreadsheet or YouTube chapters.' });
-      let where = US.settings.get('markers.where', 'sequence'), src = null, text = '', colours = null, ticked = new Set(), err = null;
+      // what the list shows (its own setting: 'markers.where' is where new markers go – Settings › Markers)
+      let where = US.settings.get('markers.list', 'sequence') === 'clips' ? 'clips' : 'sequence', src = null, text = '', colours = null, ticked = new Set(), err = null;
       const listBox = h('div'), head = h('div.field-hint');
       const run = (title, fn) => US.jobs.run({ title, tool: 'markers' }, fn);
       async function read(job) {
         err = null;
         try {
-          if (where === 'sequence') { const s = US.ctx.sequence; if (!s) throw new US.UserError('NO_SEQUENCE', { title: 'No sequence is open.', action: 'Open one in the Timeline, then press Read again.' }); src = await readSequence(s.id); }
+          if (where === 'sequence') { const s = US.ctx.sequence; if (!s) throw new US.UserError('NO_SEQUENCE', { title: 'No sequence is open.', action: 'Open one in the Timeline, then press Read again.' }); src = await readSequence(s.id, { clipMarkers: showClip() }); }
           else src = await readClips();
         } catch (e) { src = null; err = e; }
         ticked = new Set(Array.from(ticked).filter(g => src && src.markers.some(m => m.guid === g)));
         draw();
         return { summary: src ? `${US.plural(src.markers.length, 'marker')}` : 'nothing read' };
       }
+      const showClip = () => US.settings.get('markers.showClip', true) !== false;
+      const placeNow = () => { const x = US.settings.get('markers.where', 'sequence'); return x === 'clips' || x === 'both' ? x : 'sequence'; };
       const shown = () => (src ? filter(src.markers, { text, colours }) : []);
       const sel = () => (src ? src.markers.filter(m => ticked.has(m.guid)) : []);
       const after = async p => { await p; await read(); };
@@ -327,8 +378,25 @@
           h('input', { type: 'checkbox', checked: ticked.has(m.guid), onchange: e => { if (e.target.checked) ticked.add(m.guid); else ticked.delete(m.guid); drawBulk(); } }),
           swatch(m.color, c => ch({ color: c })),
           h('button.btn.small.ghost.marker-tc', { title: src.kind === 'sequence' ? 'Move the playhead here' : 'Show in the Source Monitor', onclick: () => jump(m) }, tc(m.start, src.fps, src.zero) + (m.end > m.start + 1e-6 ? ` · ${US.fmtDur(m.end - m.start, true)}` : '')),
-          h('div.grow.marker-texts', m.clip ? h('div.field-hint', m.clip) : null, name, comment),
-          h('button.icon-btn', { title: 'Delete this marker', onclick: () => run('Deleting the marker', () => after(remove(src, [m]))) }, US.icon('close', 14)));
+          h('div.grow.marker-texts', m.clip ? h('div.field-hint', m.clip) : null,
+            m.itemId ? h('div.field-hint.marker-on-clip', { title: 'A marker on the source clip: it shows in every sequence that uses this part of the clip, and moves with the clip' }, `On the clip “${m.onClip}”${m.uses > 1 ? ` · shows ${m.uses} times here` : ''}`) : null, name, comment),
+          h('button.icon-btn', { title: m.itemId ? 'Delete this marker from the clip (it goes from every sequence that uses the clip)' : 'Delete this marker', onclick: () => run('Deleting the marker', () => after(remove(src, [m]))) }, US.icon('close', 14)));
+      }
+      const deleteWords = ms => (ms.some(m => m.itemId) ? 'Markers on clips go from every sequence that uses those clips. ' : '') + 'Undo in ' + (RES ? 'Resolve' : 'Premiere') + ' brings them back.';
+      const plain = m => ({ start: m.start, end: m.end > m.start + 1e-6 ? m.end : null, name: m.name, comment: m.comment, color: m.color });
+      /** Timeline markers onto the clips under them (one with no clip under it stays where it is). */
+      async function toClips(ms) {
+        const g = await US.host.call('addSequenceMarkers', { seqId: src.id, markers: ms.map(plain), where: 'clips' });
+        const onClip = ms.filter((m, i) => /^clip:/.test((g || [])[i] || '')), stay = (g || []).filter(x => x && !/^clip:/.test(x));
+        if (onClip.length || stay.length) await US.host.call('removeSequenceMarkers', { seqId: src.id, guids: onClip.map(m => m.guid).concat(stay) });   // the extra copies of those with no clip under them too
+        await read();
+        return { summary: `${US.plural(onClip.length, 'marker')} moved onto the clips${ms.length > onClip.length ? ` · ${ms.length - onClip.length} with no clip under ${ms.length - onClip.length === 1 ? 'it stays' : 'them stay'} on the timeline` : ''}` };
+      }
+      async function toTimeline(ms) {
+        await US.host.call('addSequenceMarkers', { seqId: src.id, markers: ms.map(plain), where: 'sequence' });
+        await US.host.call('removeSequenceMarkers', { seqId: src.id, guids: ms.map(m => m.guid) });
+        await read();
+        return { summary: `${US.plural(ms.length, 'marker')} moved onto the timeline` };
       }
       const bulk = h('div.row.marker-bulk');
       function drawBulk() {
@@ -337,10 +405,11 @@
         bulk.append(h('b', `${n} ticked`),
           swatch(0, c => run('Recolouring', () => after(update(src, sel().map(m => ({ marker: m, fields: { color: c } })))))),
           ui.button('Rename…', { small: true, onClick: async () => { const pat = await ui.promptText({ title: 'Rename the ticked markers', label: '{n} a number · {name} the old name · {tc} its timecode', value: 'Shot {n}' }); if (pat) run('Renaming', () => after(update(src, rename(sel(), pat, src).map((x, i) => ({ marker: sel()[i], fields: { name: x.name } }))))); } }),
-          ui.button('Move…', { small: true, title: 'Shift them earlier or later', onClick: async () => { const s = await ui.promptText({ title: 'Move the ticked markers', label: 'Seconds – negative for earlier (e.g. -2.5)', value: '1' }); const by = parseFloat(s); if (s != null && isFinite(by) && by) run('Moving', () => after(update(src, sel().map(m => ({ marker: m, fields: { start: Math.max(0, m.start + by), end: m.end > m.start ? Math.max(0, m.end + by) : null } }))))); } }),
+          ui.button('Move…', { small: true, title: 'Shift them earlier or later', onClick: async () => { const s = await ui.promptText({ title: 'Move the ticked markers', label: 'Seconds – negative for earlier (e.g. -2.5)', value: '1' }); const by = parseFloat(s); if (s != null && isFinite(by) && by) run('Moving', () => after(update(src, sel().map(m => ({ marker: m, fields: moveFields(m, by) }))))); } }),
           ui.button('Copy as text', { small: true, kind: 'ghost', onClick: () => { ui.copy(toText(sel(), src)); ui.toast({ type: 'ok', title: `${US.plural(n, 'marker')} copied` }); } }),
-          src.kind === 'sequence' ? ui.button('Onto the clips', { small: true, kind: 'ghost', title: 'Copy them onto the clips under them, so they travel with the clips (Source Monitor and every use)', onClick: () => run('Copying onto the clips', async () => { await US.host.call('addSequenceMarkers', { seqId: src.id, markers: sel().map(m => ({ start: m.start, end: m.end > m.start ? m.end : null, name: m.name, comment: m.comment, color: m.color })), where: 'clips' }); await read(); return { summary: `${US.plural(n, 'marker')} copied onto the clips under them` }; }) }) : null,
-          ui.button('Delete', { small: true, kind: 'danger', onClick: async () => { if (await ui.confirm({ title: `Delete ${US.plural(n, 'marker')}?`, text: 'Undo in ' + (RES ? 'Resolve' : 'Premiere') + ' brings them back.' })) run('Deleting markers', () => after(remove(src, sel()))); } }),
+          src.kind === 'sequence' && sel().some(m => !m.itemId) ? ui.button('Move onto the clips', { small: true, kind: 'ghost', title: 'Put them on the source clips under them instead of the timeline: they then show in every sequence that uses those clips, and move with the clips', onClick: () => run('Moving onto the clips', () => toClips(sel().filter(m => !m.itemId))) }) : null,
+          src.kind === 'sequence' && sel().some(m => m.itemId) ? ui.button('Move onto the timeline', { small: true, kind: 'ghost', title: 'Take them off the clips and put them on this sequence’s timeline instead', onClick: async () => { const ms = sel().filter(m => m.itemId); if (await ui.confirm({ title: `Move ${US.plural(ms.length, 'clip marker')} onto the timeline?`, text: 'They come off the clips, so other sequences that use those clips no longer show them. Undo in ' + (RES ? 'Resolve' : 'Premiere') + ' brings them back.' })) run('Moving onto the timeline', () => toTimeline(ms)); } }) : null,
+          ui.button('Delete', { small: true, kind: 'danger', onClick: async () => { if (await ui.confirm({ title: `Delete ${US.plural(n, 'marker')}?`, text: deleteWords(sel()) })) run('Deleting markers', () => after(remove(src, sel()))); } }),
           ui.button('Untick', { small: true, kind: 'ghost', onClick: () => { ticked.clear(); draw(); } }));
       }
       function draw() {
@@ -357,20 +426,32 @@
           list.length > 500 ? h('div.field-hint', `Showing the first 500 of ${list.length}.`) : null);
         drawBulk();
         if (src.kind === 'sequence') trackSel.setOptions(tracks(), trackSel.value || 'v0');
+        drawPlace();
         if (!editing) drawPad();
       }
       const search = ui.input({ placeholder: 'Search names and comments…', onInput: x => { text = x; draw(); } });
-      const whereSeg = ui.segmented({ value: where, onChange: x => { where = x; US.settings.set('markers.where', x); ticked.clear(); colours = null; read(); }, options: [{ value: 'sequence', label: 'The open sequence' }, { value: 'clips', label: RES ? 'Clips selected in the Media Pool' : 'Clips selected in the Project panel' }] });
+      const showClipBox = h('label.row.marker-show-clip', { title: 'Markers on the source clips (put there by “Clips” below, in the Source Monitor, or by any tool) – they show in every sequence that uses the clip, and move with it' }, h('input', { type: 'checkbox', checked: showClip(), onchange: e => { US.settings.set('markers.showClip', e.target.checked); ticked.clear(); read(); } }), h('span.field-hint', 'Include the markers on the clips'));
+      const whereSeg = ui.segmented({ value: where, onChange: x => { where = x; US.settings.set('markers.list', x); ticked.clear(); colours = null; read(); }, options: [{ value: 'sequence', label: 'The open sequence' }, { value: 'clips', label: RES ? 'Clips selected in the Media Pool' : 'Clips selected in the Project panel' }] });
 
       /* adding */
       const addColour = { c: US.settings.get('markers.colour', 0) };
       const colourPick = swatch(addColour.c, c => { addColour.c = c; US.settings.set('markers.colour', c); colourPick.style.borderLeft = `6px solid ${COLOURS[c].hex}`; });
       const nameIn = ui.input({ placeholder: 'Name (optional)' });
+      const PLACE_HINT = { sequence: 'On this sequence’s timeline only.', clips: 'On the source clip under each marker: it shows in every sequence that uses that part of the clip, and moves with the clip. Where there’s no clip, it goes on the timeline.', both: 'On the timeline and on the clip under it.' };
+      const placeHint = h('div.field-hint');
+      const placeSeg = ui.segmented({ value: placeNow(), onChange: x => { US.settings.set('markers.where', x); drawPlace(); if (!editing) drawPad(); }, options: [{ value: 'sequence', label: 'Timeline' }, { value: 'clips', label: 'Clips' }, { value: 'both', label: 'Both' }] });
+      const placeBox = h('div.marker-place', ui.field('New markers go on', placeSeg, placeHint));
+      function drawPlace() {
+        placeSeg.set(placeNow());
+        placeHint.textContent = PLACE_HINT[placeNow()] + ' Every tool that marks a sequence follows this (also in Settings › Markers).';
+        placeBox.classList.toggle('hidden', !!(src && src.kind !== 'sequence'));
+      }
       const addTo = async (ms, what) => {
         if (!ms.length) return { summary: 'No markers to add.' };
-        if (src.kind === 'sequence') await US.host.call('addSequenceMarkers', { seqId: src.id, markers: ms });
+        let onClips = 0;
+        if (src.kind === 'sequence') onClips = ((await US.host.call('addSequenceMarkers', { seqId: src.id, markers: ms })) || []).filter(g => /^clip:/.test(String(g))).length;
         else for (const it of src.items) await US.host.call('addClipMarkers', { id: it.id, markers: ms });
-        await read(); return { summary: `${US.plural(ms.length, 'marker')} added${what ? ' ' + what : ''}` };
+        await read(); return { summary: `${US.plural(ms.length, 'marker')} added${what ? ' ' + what : ''}${onClips ? ` · ${onClips === ms.length ? 'on the clips' : `${onClips} on the clips`}` : ''}` };
       };
       const needSeq = () => { if (!src || src.kind !== 'sequence') throw new US.UserError('BAD_INPUT', { title: 'This adds to the open sequence.', action: 'Choose “The open sequence” at the top.' }); };
       const hereBtn = ui.button('At the playhead', { small: true, icon: 'plus', onClick: () => run('Adding a marker', async () => { needSeq(); await US.refreshContext(); const at = US.ctx.sequence && US.ctx.sequence.playhead; if (at == null) throw new US.UserError('NOTHING_FOUND', { title: 'Couldn’t read where the playhead is.' }); return addTo([{ start: at, end: null, name: nameIn.value.trim() || 'Marker', comment: '', color: addColour.c }], `at ${tc(at, src.fps, src.zero)}`); }) });
@@ -381,16 +462,18 @@
       const trackSel = ui.select({ options: [], placeholder: 'Track…' });
       const cutsBtn = ui.button('At every cut', { small: true, onClick: () => run('Marking the cuts', async () => { needSeq(); const tr = trackOf(trackSel.value); return addTo(atClips(tr ? tr.clips : [], { mode: 'cuts', color: addColour.c, frame: src.frame }), 'at the cuts'); }) });
       const clipsBtn = ui.button('At every clip', { small: true, title: 'At the start of every clip on the track, named after the clip', onClick: () => run('Marking the clips', async () => { needSeq(); const tr = trackOf(trackSel.value); return addTo(atClips(tr ? tr.clips : [], { mode: 'clips', color: addColour.c, frame: src.frame }), 'at the clips'); }) });
-      const fromClipsBtn = ui.button('Show the clips’ own markers', { small: true, title: 'Markers on the source clips (made in the Source Monitor) added as sequence markers where those parts of the clips are used', onClick: () => run('Reading the clips’ markers', async () => {
+      const fromClipsBtn = ui.button('Copy the clips’ markers onto the timeline', { small: true, title: 'Markers on the source clips (made in the Source Monitor) copied as timeline markers where those parts of the clips are used – a snapshot that stays put if the clips move. The list already shows the clips’ markers.', onClick: () => run('Reading the clips’ markers', async () => {
         needSeq(); const uses = [], seen = new Map();
         for (const tr of (src.info.video || []).concat(src.info.audio || [])) for (const c of tr.clips || []) {
           if (!c.itemId || c.isSequence) continue;
           if (!seen.has(c.itemId)) { let ms = []; try { ms = await US.host.call('clipMarkers', { id: c.itemId }); } catch (e) { /* none */ } seen.set(c.itemId, ms); }
           uses.push({ clip: c, markers: seen.get(c.itemId) });
         }
-        const have = new Set(src.markers.map(m => `${Math.round(m.start / src.frame)}|${m.name}`));
+        const have = new Set(src.markers.filter(m => !m.itemId).map(m => `${Math.round(m.start / src.frame)}|${m.name}`));
         const ms = clipMarkersOnTimeline(uses).filter(m => !have.has(`${Math.round(m.start / src.frame)}|${m.name}`) && (have.add(`${Math.round(m.start / src.frame)}|${m.name}`), true));
-        return addTo(ms, 'from the clips');
+        if (!ms.length) return { summary: 'No markers to add.' };
+        await US.host.call('addSequenceMarkers', { seqId: src.id, markers: ms, where: 'sequence' });
+        await read(); return { summary: `${US.plural(ms.length, 'marker')} copied from the clips onto the timeline` };
       }) });
       const notes = h('textarea.input', { rows: 5, placeholder: '01:23 Fix the colour here\n02:10–02:25 Too long, trim\n[red] 03:05 Wrong name in the lower third\n…or paste a review export (CSV with a Timecode column)' });
       const notesHint = h('div.field-hint');
@@ -405,10 +488,12 @@
         ui.button('Save as spreadsheet', { small: true, icon: 'folder', onClick: () => { if (!src) return; try { const f = US.audioKit.saveText(`Markers – ${US.audioKit.safeName(src.name || 'clips')}.csv`, '﻿' + toCSV(shown(), src)); ui.toast({ type: 'ok', title: 'Markers saved', text: `In Documents › JMG Ultra Studio (${US.basename(f)}).`, action: { label: 'Open', fn: () => US.audioKit.open(f) } }); } catch (e) { ui.showError(new US.UserError('DISK', { detail: e.message })); } } }));
       const tidyRow = h('div.row',
         ui.button('Remove duplicates', { small: true, title: 'Markers at the same time with the same name as another', onClick: () => run('Removing duplicates', async () => { if (!src) return null; const d = duplicates(src.markers, src.frame || 0.04); if (!d.length) return { summary: 'No duplicates.' }; const n = await remove(src, src.markers.filter(m => d.includes(m.guid))); await read(); return { summary: `${US.plural(n, 'duplicate')} removed` }; }) }),
-        ui.button('Remove the ones shown…', { small: true, kind: 'ghost', title: 'Every marker the search and colours leave', onClick: async () => { const list = shown(); if (!list.length) return; if (await ui.confirm({ title: `Delete ${US.plural(list.length, 'marker')}?`, text: (text || colours ? 'Every marker the search and colours leave. ' : 'Every marker in the list. ') + 'Undo in ' + (RES ? 'Resolve' : 'Premiere') + ' brings them back.' })) run('Deleting markers', () => after(remove(src, list))); } }));
+        ui.button('Remove the ones shown…', { small: true, kind: 'ghost', title: 'Every marker the search and colours leave', onClick: async () => { const list = shown(); if (!list.length) return; if (await ui.confirm({ title: `Delete ${US.plural(list.length, 'marker')}?`, text: (text || colours ? 'Every marker the search and colours leave. ' : 'Every marker in the list. ') + deleteWords(list) })) run('Deleting markers', () => after(remove(src, list))); } }));
 
       /* the marker pad */
       let pad = (US.settings.get('markers.pad', null) || PAD_DEFAULTS).map(b => Object.assign({}, b)), editing = false, last = null, showing = false;
+      // once: the pad’s standard buttons follow “New markers go on” – a saved pad from before only knew Timeline, Clip or Both
+      if (!US.settings.get('markers.padFollows', false)) { const ids = new Set(PAD_DEFAULTS.filter(b => b.where === 'auto').map(b => b.id)); pad.forEach(b => { if (ids.has(b.id) && b.where === 'timeline') b.where = 'auto'; }); if (US.settings.get('markers.pad', null)) US.settings.set('markers.pad', pad); US.settings.set('markers.padFollows', true); }
       const pending = new Map(), padBox = h('div'), padStatus = h('div.pad-status');
       const savePad = () => US.settings.set('markers.pad', pad);
       const say = (txt, kind = '') => { padStatus.textContent = txt; padStatus.className = 'pad-status' + (kind ? ' ' + kind : ''); };
@@ -430,7 +515,8 @@
           if (b.ask) { const n = await ui.promptText({ title: b.label.replace(/…$/, ''), label: `At ${tc(r.marker.start, fps)}`, placeholder: 'What’s the note?' }); if (n == null) { drawPad(); return; } r.marker.comment = n; r.marker.name = n.split(/[.!?]\s/)[0].slice(0, 60) || r.marker.name; }
           const g = await US.host.call('addSequenceMarkers', { seqId: info.id, markers: [r.marker], where: r.where });
           last = { seqId: info.id, guids: g, start: r.marker.start, name: r.marker.name, fps };
-          say(`${r.marker.name} · ${tc(r.marker.start, fps)}${r.marker.end ? ` – ${tc(r.marker.end, fps)}` : ''} · ${r.where === 'clips' ? 'on the clip' : r.where === 'both' ? 'on the timeline and the clip' : 'on the timeline'}`, 'ok');
+          const nClip = (g || []).filter(x => /^clip:/.test(String(x))).length, nTl = (g || []).length - nClip;
+          say(`${r.marker.name} · ${tc(r.marker.start, fps)}${r.marker.end ? ` – ${tc(r.marker.end, fps)}` : ''} · ${nClip && nTl ? 'on the timeline and the clip' : nClip ? 'on the clip' : 'on the timeline'}`, 'ok');
           drawPad();
           if (src && src.kind === 'sequence' && src.id === info.id) read();
         } catch (e) { ui.showError(e); }
@@ -457,7 +543,7 @@
           else if (what === 'end') {
             const info = await seqNow();
             if (!(info.playhead > last.start)) { say('Move the playhead past the marker’s start first.', 'warn'); return; }
-            const r = await US.host.call('updateMarkers', { seqId: last.seqId, markers: last.guids.map(g => ({ guid: g, end: info.playhead })) });
+            const r = await US.host.call('updateMarkers', { seqId: last.seqId, markers: endFields(last.guids, info, last.start, info.playhead) });
             last.guids = last.guids.map(g => r.guids[g] || g);
             say(`“${last.name}” now ends at ${tc(info.playhead, last.fps)}`, 'ok');
           } else if (what === 'rename') {
@@ -493,8 +579,8 @@
         }
         padBox.append(h('div.pad-grid', pad.map(b => {
           const on = pending.has(b.id), col = COLOURS[b.color] || COLOURS[0];
-          return h('button.pad-btn' + (on ? '.recording' : ''), { style: { background: col.hex }, title: `${b.label}: ${describePad(b)}`, onclick: () => hit(b) },
-            b.key ? h('span.pad-key-tag', b.key) : null, h('span.pad-label', on ? `● ${b.label}` : b.label), h('span.pad-sub', on ? 'Press again at the end' : describePad(b)));
+          return h('button.pad-btn' + (on ? '.recording' : ''), { style: { background: col.hex }, title: `${b.label}: ${describePad(b, placeNow())}`, onclick: () => hit(b) },
+            b.key ? h('span.pad-key-tag', b.key) : null, h('span.pad-label', on ? `● ${b.label}` : b.label), h('span.pad-sub', on ? 'Press again at the end' : describePad(b, placeNow())));
         })),
         h('div.field-label', ticked.size ? `Colour the ${US.plural(ticked.size, 'ticked marker')}` : 'Colour the marker at the playhead'),
         h('div.pad-colours', COLOURS.map(c => h('button.pad-colour', { style: { background: c.hex }, title: c.name, onclick: () => colourHere(c.i) }, c.name))),
@@ -516,15 +602,16 @@
 
       v.body.append(
         ui.card(h('div.card-title', 'Marker pad', h('span.right.field-hint', 'At the playhead of the open sequence')), padBox),
-        ui.card(whereSeg, h('div.row', h('div.grow', search), ui.button('Read again', { small: true, icon: 'refresh', onClick: () => run('Reading the markers', read) })), head, bulk, listBox),
-        ui.card(h('div.card-title', 'Add markers'), h('div.row.marker-add', colourPick, h('div.grow', nameIn)),
+        ui.card(whereSeg, h('div.row', h('div.grow', search), showClipBox, ui.button('Read again', { small: true, icon: 'refresh', onClick: () => run('Reading the markers', read) })), head, bulk, listBox),
+        ui.card(h('div.card-title', 'Add markers'), placeBox, h('div.row.marker-add', colourPick, h('div.grow', nameIn)),
           h('div.row.marker-add', hereBtn, everyIn, everyBtn),
           h('div.row.marker-add', trackSel, cutsBtn, clipsBtn), h('div.row', fromClipsBtn),
           ui.field('From notes or a review export', notes, notesHint), h('div.row', notesBtn, notesFile)),
         ui.card(h('div.card-title', 'Export and tidy up'), h('div.field-hint', 'Exports the markers in the list (after the search and colours).'), outRow, tidyRow));
-      return { el: v.el, onShow() { showing = true; read(); }, onHide() { showing = false; } };
+      drawPlace();
+      return { el: v.el, onShow() { showing = true; drawPlace(); drawPad(); read(); }, onHide() { showing = false; } };
     }
   });
 
-  US.markerKit = { PAD_DEFAULTS, LENGTHS, press, markerAt, clipAt, describePad, COLOURS, colourOf, parseTime, fromText, toText, toCSV, toChapters, every, atClips, clipMarkersOnTimeline, duplicates, filter, rename, readSequence, update };
+  US.markerKit = { PAD_DEFAULTS, LENGTHS, WHERES, PLACE, press, endFields, clipMarkersInSequence, moveFields, markerAt, clipAt, describePad, COLOURS, colourOf, parseTime, fromText, toText, toCSV, toChapters, every, atClips, clipMarkersOnTimeline, duplicates, filter, rename, readSequence, update };
 })();

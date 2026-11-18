@@ -454,7 +454,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     try {
       const pick = label => Array.from(mt.el.querySelectorAll('.pad-btn')).find(b => b.querySelector('.pad-label').textContent.replace('● ', '') === label);
       pick('Fix').click(); await new Promise(r => setTimeout(r, 30));
-      if (!added.length || added[0].markers[0].color !== 1 || added[0].markers[0].start !== 1 || added[0].where !== 'timeline') errors.push('marker pad: Fix did not add a red marker at the playhead ' + JSON.stringify(added));
+      if (!added.length || added[0].markers[0].color !== 1 || added[0].markers[0].start !== 1 || added[0].where !== undefined) errors.push('marker pad: Fix did not add a red marker at the playhead (where new markers go: left to the setting) ' + JSON.stringify(added));
       pick('Highlight').click(); await new Promise(r => setTimeout(r, 30));
       if (added.length !== 1 || !mt.el.querySelector('.pad-btn.recording')) errors.push('marker pad: start/stop did not wait for its end');
       pick('Select on the clip').click(); await new Promise(r => setTimeout(r, 30));
@@ -466,8 +466,40 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       Array.from(mt.el.querySelectorAll('.btn')).find(b => b.textContent === 'Edit buttons').click(); await new Promise(r => setTimeout(r, 10));
       if (mt.el.querySelectorAll('.pad-edit').length !== 9) errors.push('marker pad: no editors');
     } finally { US.host.call = wasCall; }
+    // markers on the clips: listed where they show, tagged; “New markers go on” is Settings › Markers; ticked timeline
+    // markers move onto the clips (the copy left on the timeline where there was no clip taken off again)
+    const wasWhere = US.settings.get('markers.where', 'sequence'), calls = [];
+    SEQ.video[0].clips = [{ name: 'A.mov', start: 0, end: 10, in: 20, out: 30, itemId: 'ia' }];
+    US.host.call = async (fn, a) => {
+      calls.push([fn, a]);
+      if (fn === 'clipMarkers') return a.id === 'ia' ? [{ guid: 'c1', start: 22, end: 22, name: 'Smile', comment: '', color: 3 }, { guid: 'c2', start: 50, end: 50, name: 'Not used here' }] : [];
+      if (fn === 'addSequenceMarkers') return a.markers.map((m, i) => (m.start < 10 ? 'clip:ia:n' + i : 'n' + i));
+      if (fn === 'removeSequenceMarkers') return a.guids.length;
+      return wasCall(fn, a);
+    };
+    try {
+      search.value = ''; search.dispatchEvent(new w.Event('input'));
+      Array.from(mt.el.querySelectorAll('.btn')).find(b => b.textContent === 'Done').click();
+      mt.el.querySelector('.marker-show-clip input').checked = true; mt.el.querySelector('.marker-show-clip input').dispatchEvent(new w.Event('change')); await new Promise(r => setTimeout(r, 40));
+      const rowsNow = Array.from(mt.el.querySelectorAll('.marker-row'));
+      const clipRow = rowsNow.find(r => r.querySelector('.marker-on-clip'));
+      if (rowsNow.length !== 3 || !clipRow || !/On the clip “A\.mov”/.test(clipRow.textContent) || !/00:00:02:00/.test(clipRow.textContent)) errors.push('markers: the clip’s marker not listed where it shows ' + rowsNow.map(r => r.textContent).join(' | '));
+      Array.from(mt.el.querySelectorAll('.marker-place .seg')).find(b => b.textContent === 'Clips').click();
+      if (US.settings.get('markers.where') !== 'clips' || !/every sequence/.test(mt.el.querySelector('.marker-place').textContent)) errors.push('markers: “New markers go on” did not set Settings › Markers');
+      if (!/· Clip/.test(mt.el.querySelector('.pad-btn .pad-sub').textContent)) errors.push('marker pad: buttons don’t say they follow “New markers go on”');
+      for (const r of rowsNow.filter(r => !r.querySelector('.marker-on-clip'))) { const b = r.querySelector('input[type=checkbox]'); if (!b.checked) b.click(); }
+      await new Promise(r => setTimeout(r, 10));
+      calls.length = 0;
+      const mv = Array.from(mt.el.querySelectorAll('.marker-bulk .btn')).find(b => b.textContent === 'Move onto the clips');
+      if (!mv) errors.push('markers: no “Move onto the clips”');
+      else {
+        mv.click(); await new Promise(r => setTimeout(r, 60));
+        const add = calls.find(c => c[0] === 'addSequenceMarkers'), rem = calls.find(c => c[0] === 'removeSequenceMarkers');
+        if (!add || add[1].where !== 'clips' || add[1].markers.length !== 2 || !rem || rem[1].guids.join() !== 'm1,m2') errors.push('markers: move onto the clips ' + JSON.stringify(calls.map(c => [c[0], c[1] && (c[1].guids || c[1].where)])));
+      }
+    } finally { US.host.call = wasCall; US.settings.set('markers.where', wasWhere); SEQ.video[0].clips = []; }
     SEQ.markers = [];
-    checks.push(`markers: ${rows.length} rows, search, bulk bar · pad: ${pads.length} buttons, start/stop, colour, keys`);
+    checks.push(`markers: ${rows.length} rows, search, bulk bar · pad: ${pads.length} buttons, start/stop, colour, keys · clip markers listed, placement, move onto the clips`);
   }
   // Quick effects: a click adds a transition at the cuts between the selected clips, with the length chosen
   {
