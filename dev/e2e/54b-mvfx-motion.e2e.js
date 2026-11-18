@@ -64,6 +64,13 @@ T.assert(right < 2.5 && (Math.abs(fps - 29.97) < 0.1 || right <= wrong), `the en
 const before = await shown(0.5, 'before');
 T.assert(lum(before.data).bright === 0, 'nothing before the title starts');
 
+// changing a title that's on the timeline: the new one takes the old one's place
+const rep = await M.apply(rule, vals('nm-rule', { name: 'Mira Haddad-Okafor', role: 'Senior nurse' }, { duration: 4, shadow: 0 }), { replace: { kind: 'video', track: a.result.track, start: a.result.start, end: a.result.end } }, job);
+r = await read();
+const t1 = track(r, 'mVFX 1').clips.filter(c => Math.abs(c.start - 1) < 0.05);
+T.assert(/replaced at/.test(rep.summary) && t1.length === 1 && rep.result.dir !== a.result.dir && /^mVFX 1$/i.test(rep.result.trackName), 'the title at 1 s was replaced, not doubled: ' + rep.summary + ' ' + JSON.stringify(r.video.map(t => [t.name, t.clips.map(c => c.start)])));
+notes.push(rep.summary);
+
 if (!RES) {   // Premiere: the slow push in is two Scale keyframes on the title's clip
   const d = await M.apply(P.byId('ti-later'), vals('ti-later', {}, { duration: 3, push: true }), { at: 16 }, job);
   const keys = await US.host.rawEval(`(function(){ var ss=app.project.sequences; for (var i=0;i<ss.numSequences;i++) if (ss[i].sequenceID==${JSON.stringify(seq.id)}) { var tr=ss[i].videoTracks[${d.result.track}]; for (var n=0;n<tr.clips.numItems;n++) { var c=tr.clips[n]; if (Math.abs(c.start.seconds-16)>0.1) continue; for (var k=0;k<c.components.numItems;k++) if (c.components[k].displayName=='Motion') for (var p=0;p<c.components[k].properties.numItems;p++) if (c.components[k].properties[p].displayName=='Scale') { var pr=c.components[k].properties[p], ks=pr.getKeys()||[], o=[]; for (var j=0;j<ks.length;j++) o.push(pr.getValueAtKey(ks[j])); return JSON.stringify(o); } } } return '[]'; })()`);

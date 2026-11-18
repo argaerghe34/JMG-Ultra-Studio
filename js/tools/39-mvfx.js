@@ -145,9 +145,10 @@
     return { dir, first: file(0), frames: list.length, drawn, reused: false };
   }
   /** An animated title at `start`: drawn, imported as one clip, laid on a free mVFX track (Premiere: with a slow push in if asked). */
-  async function addMotion(preset, v, seq, start, seconds, job) {
+  async function addMotion(preset, v, seq, start, seconds, job, beforePlacing) {
     job && job.set({ who: 'computer', msg: 'Drawing the title' });
     const fps = seq.fps || 25, r = await renderMotion(preset, v, { width: seq.width, height: seq.height, fps }, seconds, job);
+    if (beforePlacing) await beforePlacing();
     job && job.set({ who: 'premiere', msg: 'Placing it' }); job && job.progress(0.85);
     const name = `${preset.label} · ${String(Object.values(v.text || {})[0] || '').replace(/\s+/g, ' ').slice(0, 40)}`.replace(/ · $/, '');
     const out = await US.host.call('mvfxClip', { seqId: seq.id, first: r.first, frames: r.frames, fps, start, seconds: r.frames / fps, name, binPath: BIN });
@@ -157,6 +158,31 @@
       if (!mv.done) notes.push('the slow push wasn’t added');
     }
     return Object.assign(out, { dir: r.dir, frames: r.frames, drawn: r.drawn, note: notes.join(' · ') });
+  }
+  /**
+   * The animated title that's selected in the Timeline (Resolve: under the playhead): what it was made from, read from
+   * the title.json beside its frames. -> {preset, values, target: {kind, track, start, end}}
+   */
+  async function selectedTitle() {
+    const seq = await seqNow(), sel = (await US.host.call('editSelection', { seqId: seq.id })).filter(x => x.kind === 'video');
+    const none = () => new US.UserError('NOTHING_FOUND', { title: RES ? 'There’s no animated title under the playhead.' : 'No animated title is selected.', action: RES ? 'Put the playhead on a title this tab added (on an mVFX track), then try again.' : 'Click a title this tab added (on an mVFX track) in the Timeline, then try again.' });
+    if (!sel.length) throw none();
+    const info = await US.host.call('sequenceInfo', { seqId: seq.id }), half = 0.5 / (info.fps || 25);
+    for (const x of sel) {
+      const tr = (info.video || []).find(t => t.index === x.track), clip = tr && (tr.clips || []).find(c => Math.abs(c.start - x.start) <= half);
+      if (!clip || !clip.path) continue;
+      let dir = String(clip.path); try { if (!fs.statSync(dir).isDirectory()) dir = path.dirname(dir); } catch (e) { dir = path.dirname(dir); }
+      const file = path.join(dir, 'title.json');
+      if (!fs.existsSync(file)) continue;
+      const made = JSON.parse(fs.readFileSync(file, 'utf8')), preset = P().byId(made.preset);
+      if (!preset) continue;
+      const values = valuesFor(preset);
+      Object.assign(values.text, made.values.text || {}); Object.assign(values.colours, made.values.colours || {}); Object.assign(values.fonts, made.values.fonts || {});
+      for (const k of ['scale', 'dx', 'dy', 'shadow', 'rot', 'stretch', 'duration']) if (made.values[k] != null) values[k] = made.values[k];
+      if (made.values.opt) values.opt = Object.assign({}, values.opt, made.values.opt);
+      return { preset, values, target: { kind: 'video', track: x.track, start: clip.start, end: clip.end } };
+    }
+    throw none();
   }
   /** An overlay, background or freeze look at `start` for `seconds`. */
   async function addPlate(preset, v, seq, start, seconds, job, extra = {}) {
@@ -182,7 +208,10 @@
     const seq = await seqNow(), start = opts.at != null ? opts.at : seq.playhead, seconds = Math.max(0.5, Number(v.duration || preset.duration || 5));
     const where = `at ${US.fmtDur(start)}`;
     if (preset.kind === 'motion') {
-      const r = await addMotion(preset, v, seq, start, seconds, job);
+      // replacing a title already on the timeline: the new one is drawn first, then the old clip goes and the new takes its place
+      const old = opts.replace, at = old ? old.start : start;
+      const r = await addMotion(preset, v, seq, at, seconds, job, old ? async () => { const x = await US.host.call('editApply', { seqId: seq.id, op: 'remove', params: { ripple: false }, targets: [old] }); if (!x.done) throw new US.UserError('HOST_SCRIPT', { title: 'The old title couldn’t be removed.', action: 'Delete it in the Timeline, then add the new one at the playhead.', detail: JSON.stringify(x.skipped || x.log || '') }); } : null);
+      if (old) return { summary: `${preset.label} replaced at ${US.fmtDur(at)} on ${r.trackName || 'V' + (r.track + 1)}${r.note ? ' · ' + r.note : ''}`, result: r };
       return { summary: `${preset.label} added ${where} on ${r.trackName || 'V' + (r.track + 1)}${r.note ? ' · ' + r.note : ''}`, result: r };
     }
     if (preset.kind === 'title') {
@@ -265,6 +294,7 @@
       let group = get('group', 'names'), preset = P().byId(get('preset', 'nm-rule')) || P().PRESETS[0], values = valuesFor(preset), scope = get('scope', 'selection');
       if (!P().GROUPS.some(g => g.id === group)) group = preset.group;   // a group from an older version
       const grid = h('div.mvfx-grid'), editor = h('div.mvfx-editor');
+      let replacing = null;   // the title on the timeline being changed: {kind, track, start, end}
       const scopeSeg = ui.segmented({ value: scope, onChange: x => { scope = x; set('scope', x); }, options: [{ value: 'selection', label: RES ? 'Clip under the playhead' : 'Selected clips' }, { value: 'all', label: 'Every clip' }] });
 
       /* thumbnails */
@@ -321,7 +351,7 @@
         playing = requestAnimationFrame(step);
       }
       function choose(p) {
-        if (preset !== p) { preset = p; values = valuesFor(p); set('preset', p.id); }
+        if (preset !== p) { preset = p; values = valuesFor(p); set('preset', p.id); replacing = null; }
         drawGrid(); drawEditor(); play();
       }
       function drawEditor() {
@@ -357,7 +387,12 @@
         const onClips = preset.kind === 'move' || preset.kind === 'look' || (preset.kind === 'transition' && !RES);
         const push = motion && !RES ? ui.toggle({ label: 'Slow push in while it’s on screen', value: !!values.push, onChange: x => { values.push = x; remember(preset, values); } }) : null;
         const btnLabel = preset.kind === 'move' ? `Apply ${preset.label}` : preset.kind === 'look' ? `Apply the ${preset.label} look` : preset.kind === 'transition' ? (RES ? `Lay ${preset.label} over the playhead` : `Add ${preset.label} at the cuts`) : preset.kind === 'freeze' ? 'Hold the frame at the playhead' : `Add ${preset.label} at the playhead`;
-        const go = ui.actionButton(btnLabel, () => US.jobs.run({ title: `mVFX: ${preset.label}`, tool: 'mvfx' }, async job => { const r = await apply(preset, values, { scope }, job); say(r.summary, 'ok'); return r; }));
+        const swap = motion && replacing;
+        const go = ui.actionButton(swap ? 'Replace the title on the timeline' : btnLabel, () => US.jobs.run({ title: `mVFX: ${preset.label}`, tool: 'mvfx' }, async job => { const r = await apply(preset, values, { scope, replace: swap ? replacing : null }, job); if (swap) { replacing = null; drawEditor(); } say(r.summary, 'ok'); return r; }));
+        const loadBtn = motion ? ui.button(RES ? 'Change the title under the playhead…' : 'Change the selected title…', { small: true, kind: 'ghost', onClick: async () => {
+          try { const t = await selectedTitle(); preset = t.preset; values = t.values; replacing = t.target; group = preset.group; groupSeg.set && groupSeg.set(group); drawGrid(); drawEditor(); say(`Loaded “${preset.label}” from ${US.fmtDur(t.target.start)} – change it, then press Replace.`); }
+          catch (e) { say((e.title || e.message || String(e)) + (e.action ? ' ' + e.action : ''), 'warn'); }
+        } }) : null;
         if (!ready.ok) go.setEnabled(false);
         editor.append(
           h('div.mvfx-editor-head', h('div.mvfx-editor-title', preset.label), h('div.field-hint', preset.sub)),
@@ -368,7 +403,8 @@
           sliders.length ? ui.card(...sliders, push) : null,
           motion ? h('div.field-hint', 'Added as one clip with a see-through background, drawn at this sequence’s size and frame rate. To change the words later, change them here and add it again, then delete the old clip.' + (RES ? '' : ' It’s kept in the project’s JMG Ultra Studio › mVFX folder.')) : null,
           onClips ? ui.card(h('div.field-label', 'Apply to'), scopeSeg) : null,
-          go, status);
+          swap ? ui.note(`Changing the title at ${US.fmtDur(replacing.start)} – it will be replaced where it is.`, 'info') : null,
+          go, loadBtn, status);
         drawPreview(1);
       }
       const install = RES ? ui.section('Resolve’s Effects Library', [h('div.field-hint', 'Every preset is also a Fusion title or generator you can drag from Effects Library › Titles / Generators › JMG Ultra Studio. The one you add from here is written (with your words in it) just before it’s inserted.'), h('div.row', { style: { marginTop: '6px' } }, ui.button('Install the whole pack', { small: true, icon: 'check', onClick: () => US.jobs.run({ title: 'mVFX: install the pack', tool: 'mvfx' }, async job => { const r = await installAll(job); say(r.summary, 'ok'); return r; }) }), h('span.field-hint', (() => { const i = get('installed', null); return i ? `${i.n} templates installed ${new Date(i.at).toLocaleDateString()}` : 'not installed yet'; })()))], { open: !get('installed', null), hint: 'Fusion templates' }) : null;
@@ -378,5 +414,5 @@
     }
   });
 
-  US.mvfx = { apply, installAll, valuesFor, storyPeople, artDir, lutFile, paintPNG };
+  US.mvfx = { apply, installAll, valuesFor, storyPeople, artDir, lutFile, paintPNG, renderMotion, selectedTitle };
 })();
