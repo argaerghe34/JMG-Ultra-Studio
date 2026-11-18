@@ -76,12 +76,13 @@ Every marker on the **open sequence** – or on the **clips selected** in the Pr
 A pad of buttons: click one and it goes on the clips selected in the Timeline – or on **Every clip** in the sequence. Undo with ⌘Z / Ctrl+Z as usual.
 
 - **Transitions**: Cross Dissolve, Dip to Black or White, Film and Additive Dissolve, Push, Morph Cut (hides a jump cut), and **Fade in** / **Fade out**. Choose the length once (¼, ½, 1 or 2 seconds) and where they go: **at the cuts between** the clips (the default – a dissolve on every cut of a whole sequence in one click), or at the start, end or both ends of each.
-- **Moves and speed**: Punch in 110% or 120%, Back to 100%, Slow zoom in or out across the clip, Slow motion (50%) and Speed up (200%).
+- **Moves and speed**: Punch in 110% or 120%, **Punch in every other** (110% on every second clip of each track – an interview's jump cuts become two “angles”), Back to 100%, Slow zoom in or out across the clip, Slow motion (50%) and Speed up (200%).
 - **Effects**: Black & White, Blur, Stabilise (Warp Stabilizer), Flip, Sharpen, Lumetri Color, Pixelate, and half or fully see-through.
 - **Sound**: fades (Constant Power or Exponential Fade), Louder, Quieter and Duck under. A sound button on a selected video clip changes its linked sound.
 - **Favourites**: star a button to keep it at the top.
+- **Make your own button**: a punch-in, speed, opacity or volume of your own (say 115%, 75% or −6 dB) – or any effect or transition by its name in Premiere's Effects panel – kept as a button under **Your own buttons**, with its own name if you like. Star it like any other; × deletes it. In Resolve: your own punch-ins and opacity.
 - **Any by name**: anything in Premiere's Effects panel, typed as it's named there.
-- In Resolve, add-ons can't add transitions, effects, speed or volume, so those buttons are greyed out; the moves and opacity work on the clip under the playhead (Resolve doesn't tell add-ons which clips are selected) or every clip.
+- In Resolve, add-ons can't add transitions, effects, speed or volume, so those buttons are greyed out; the moves (Punch in every other too) and opacity work on the clip under the playhead (Resolve doesn't tell add-ons which clips are selected) or every clip.
 
 ### mVFX – a documentary titles pack
 Twelve groups of presets, each with a painted thumbnail and a live preview (press **Play** to watch the whole thing at its real speed). Click one, type the words, press the big button.

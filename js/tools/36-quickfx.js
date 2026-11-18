@@ -22,6 +22,7 @@
 
     { id: 'punch110', group: 'moves', label: 'Punch in 110%', sub: 'a closer framing', op: 'motion', params: { scale: 110 }, kind: 'video', colour: '#ffcf7a' },
     { id: 'punch120', group: 'moves', label: 'Punch in 120%', sub: 'closer still', op: 'motion', params: { scale: 120 }, kind: 'video', colour: '#ffcf7a' },
+    { id: 'punchAlt', group: 'moves', label: 'Punch in every other', sub: 'a second “angle” – 110% on every 2nd clip', op: 'motion', params: { scale: 110 }, every: 2, kind: 'video', colour: '#ffcf7a' },
     { id: 'reset', group: 'moves', label: 'Back to 100%', sub: 'undo a punch-in', op: 'motion', params: { scale: 100 }, kind: 'video', colour: '#ffcf7a' },
     { id: 'zoomIn', group: 'moves', label: 'Slow zoom in', sub: '100 → 110% across it', op: 'zoom', params: { from: 100, to: 110 }, kind: 'video', colour: '#ffcf7a' },
     { id: 'zoomOut', group: 'moves', label: 'Slow zoom out', sub: '110 → 100% across it', op: 'zoom', params: { from: 110, to: 100 }, kind: 'video', colour: '#ffcf7a' },
@@ -44,6 +45,39 @@
     { id: 'quieter', group: 'sound', label: 'Quieter', sub: '−3 dB', op: 'volume', params: { db: -3 }, kind: 'audio', colour: '#7fe0b0' },
     { id: 'duck', group: 'sound', label: 'Duck under', sub: '−12 dB', op: 'volume', params: { db: -12 }, kind: 'audio', colour: '#7fe0b0' }
   ];
+  /**
+   * Your own buttons: a kind and a value (or a name) make a preset like the ones above. Pure, so it's tested; the
+   * saved list is [{type, value, name, label}] in the settings. -> {preset} | {error}
+   */
+  const OWN = {
+    punch: { label: 'Punch in (%)', op: 'motion', min: 10, max: 400, unit: '%', make: v => ({ params: { scale: v }, label: `Punch in ${v}%`, sub: 'your own move' }), colour: '#ffcf7a' },
+    speed: { label: 'Speed (%)', op: 'speed', min: 10, max: 1000, unit: '%', make: v => ({ params: { percent: v }, label: v < 100 ? `Slow ${v}%` : `Speed ${v}%`, sub: 'your own speed' }), colour: '#ffcf7a' },
+    opacity: { label: 'Opacity (%)', op: 'opacity', min: 0, max: 100, unit: '%', make: v => ({ params: { value: v }, label: `Opacity ${v}%`, sub: 'your own' }), colour: '#b9a4ff' },
+    volume: { label: 'Volume (dB)', op: 'volume', min: -40, max: 15, unit: ' dB', make: v => ({ params: { db: v }, label: `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} dB`, sub: 'your own level' }), kind: 'audio', colour: '#7fe0b0' },
+    effect: { label: 'Effect by name', op: 'effect', named: true, make: n => ({ params: { name: n }, label: n, sub: 'your own effect' }), colour: '#b9a4ff' },
+    transition: { label: 'Transition by name', op: 'transition', named: true, make: n => ({ params: { name: n }, label: n, sub: 'your own transition' }), colour: '#8fb8ff' }
+  };
+  function makeOwn(o) {
+    const { type, value, name, label } = o && typeof o === 'object' ? o : {};
+    const k = OWN[type];
+    if (!k) return { error: 'Choose what kind of button it is.' };
+    let key, made;
+    if (k.named) {
+      const n = String(name || '').trim();
+      if (!n) return { error: `Type the ${k.op}’s name as Premiere’s Effects panel shows it.` };
+      key = n.toLowerCase(); made = k.make(n);
+    } else {
+      const v = Number(String(value == null ? '' : value).replace(',', '.').replace('−', '-'));
+      if (String(value == null ? '' : value).trim() === '' || !isFinite(v)) return { error: `Type a number for ${k.label.toLowerCase()}.` };
+      if (v < k.min || v > k.max) return { error: `${k.label.replace(/ \(.*/, '')} goes from ${k.min} to ${k.max}${k.unit}.` };
+      const r = Math.round(v * 10) / 10;
+      key = String(r); made = k.make(r);
+    }
+    const nice = String(label || '').trim();
+    return { preset: { id: `own:${type}:${key}`, group: 'own', own: { type, value: k.named ? undefined : Number(key), name: k.named ? made.params.name : undefined, label: nice || undefined }, label: nice || made.label, sub: made.sub, op: k.op, params: made.params, kind: k.kind || 'video', colour: k.colour } };
+  }
+  /** The saved list -> presets (anything no longer valid is left out). */
+  const ownPresets = list => (Array.isArray(list) ? list : []).map(x => makeOwn(x)).filter(x => x.preset).map(x => x.preset);
   const GROUPS = [{ id: 'transitions', name: 'Transitions' }, { id: 'moves', name: 'Moves and speed' }, { id: 'effects', name: 'Effects' }, { id: 'sound', name: 'Sound' }];
   // what Resolve doesn't let add-ons do (the same list as resolve/host/edit.js)
   const RESOLVE_CANT = { transition: 'transitions', effect: 'effects', speed: 'speed changes', zoom: 'keyframed zooms', volume: 'volume changes' };
@@ -81,8 +115,17 @@
     });
     return out;
   }
+  /**
+   * Every n-th clip on each track, counting from the second (an interview's jump cuts become two “angles”: the 2nd,
+   * 4th, 6th… clip of the track is punched in). targets in track then time order. -> the picked targets
+   */
+  function everyNth(targets, n) {
+    const seen = {};
+    return targets.filter(t => { const i = seen[t.track] = (seen[t.track] || 0) + 1; return i % n === 0; });
+  }
   /** The calls to make for a preset: [{op, params, targets}] (transitions grouped by where they go). */
   function calls(preset, targets, { where = 'cuts', seconds = 0.5, fps = 25, ends = false } = {}) {
+    if (preset.every > 1) targets = everyNth(targets, preset.every);
     if (!targets.length) return [];
     if (preset.op !== 'transition') return [{ op: preset.op, params: Object.assign({}, preset.params), targets }];
     const frames = Math.max(2, Math.round(seconds * fps));
@@ -124,6 +167,7 @@
     const targets = targetsFor(info, sel, preset.kind);
     if (!targets.length) throw new US.UserError('NOTHING_FOUND', { title: preset.kind === 'audio' ? 'No sound clips to change.' : 'No video clips to change.', action: sel ? 'Select clips of that kind in the Timeline (unlocked tracks).' : 'The sequence has none on unlocked tracks.' });
     const cs = calls(preset, targets, Object.assign({ fps: info.fps || 25 }, opts));
+    if (!cs.length && preset.every) return { summary: `${preset.label}: needs at least two clips on a track – select more, or choose Every clip.` };
     if (!cs.length) return { summary: `${preset.label}: no cuts between these clips – choose Start, End or Both ends.` };
     const r = { done: 0, skipped: [] };
     for (const c of cs) {
@@ -132,7 +176,7 @@
       r.done += x.done || 0; r.skipped.push(...(x.skipped || []));
     }
     if (r.skipped.length) US.log('warn', `${preset.label}: ${r.skipped.length} skipped`, r.skipped.slice(0, 5).map(s => s.why).join('; '), 'quickfx');
-    return { summary: report(preset, r, targets.length), result: r };
+    return { summary: report(preset, r, preset.every ? cs[0].targets.length : targets.length), result: r };
   }
 
   /* ---------- the tab ---------- */
@@ -146,6 +190,8 @@
       const get = (k, d) => US.settings.get('quickfx.' + k, d), set = (k, x) => US.settings.set('quickfx.' + k, x);
       let opts = { scope: get('scope', 'selection'), seconds: get('seconds', 0.5), where: get('where', 'cuts'), ends: get('ends', false) };
       let favs = get('favs', ['dissolve', 'dipBlack', 'punch110', 'audioFade']);
+      let own = ownPresets(get('own', []));
+      const saveOwn = () => set('own', own.map(p => p.own));
       const status = h('div.pad-status'), padBox = h('div');
       const say = (t, kind = '') => { status.textContent = t; status.className = 'pad-status' + (kind ? ' ' + kind : ''); };
       let busy = false;
@@ -160,13 +206,15 @@
         const ok = works(p), fav = favs.includes(p.id);
         const btn = h('button.pad-btn.qfx-btn' + (ok ? '' : '.off'), { style: { background: p.colour }, title: ok ? `${p.label} – ${p.sub}` : `Resolve doesn’t let add-ons add ${RESOLVE_CANT[p.op]}`, onclick: () => (ok ? hit(p, btn) : say(`Resolve doesn’t let add-ons add ${RESOLVE_CANT[p.op]} – do it on the Edit page.`, 'warn')) },
           h('span.pad-label', p.label), h('span.pad-sub', p.sub),
-          h('span.qfx-star' + (fav ? '.on' : ''), { title: fav ? 'Take off the favourites' : 'Keep at the top', onclick: e => { e.stopPropagation(); favs = fav ? favs.filter(x => x !== p.id) : favs.concat(p.id); set('favs', favs); draw(); } }, fav ? '★' : '☆'));
+          h('span.qfx-star' + (fav ? '.on' : ''), { title: fav ? 'Take off the favourites' : 'Keep at the top', onclick: e => { e.stopPropagation(); favs = fav ? favs.filter(x => x !== p.id) : favs.concat(p.id); set('favs', favs); draw(); } }, fav ? '★' : '☆'),
+          p.own ? h('span.qfx-star.qfx-del', { title: 'Delete this button', onclick: e => { e.stopPropagation(); own = own.filter(x => x.id !== p.id); favs = favs.filter(x => x !== p.id); saveOwn(); set('favs', favs); draw(); say(`Deleted “${p.label}”.`); } }, '×') : null);
         return btn;
       }
       function draw() {
         padBox.innerHTML = '';
-        const fp = favs.map(id => PRESETS.find(p => p.id === id)).filter(Boolean);
+        const all = PRESETS.concat(own), fp = favs.map(id => all.find(p => p.id === id)).filter(Boolean);
         if (fp.length) padBox.appendChild(h('div.qfx-group', h('div.qfx-title', 'Favourites'), h('div.pad-grid', fp.map(tile))));
+        if (own.length) padBox.appendChild(ui.section('Your own buttons', [h('div.pad-grid', own.map(tile))], { open: true, hint: US.plural(own.length, 'button') }));
         for (const g of GROUPS) padBox.appendChild(ui.section(g.name, [h('div.pad-grid', PRESETS.filter(p => p.group === g.id).map(tile))], { open: g.id === 'transitions' || !fp.length, hint: `${PRESETS.filter(p => p.group === g.id).length} buttons` }));
       }
       const scopeSeg = ui.segmented({ value: opts.scope, onChange: x => { opts.scope = x; set('scope', x); }, options: [{ value: 'selection', label: RES ? 'Clip under the playhead' : 'Selected clips' }, { value: 'all', label: 'Every clip' }] });
@@ -176,11 +224,23 @@
       // any effect or transition by its name in Premiere's Effects panel
       const nameIn = ui.input({ placeholder: 'e.g. Directional Blur, Iris Round, Ultra Key' });
       const byName = op => { const name = (nameIn.value || '').trim(); if (!name) { say('Type an effect or transition name first.', 'warn'); return; } hit({ id: 'custom', label: name, sub: '', op, params: { name }, kind: 'video' }, nameIn); };
+      // your own buttons: a kind and a value (or a name), saved as a button
+      const ownTypes = Object.keys(OWN).filter(t => works({ op: OWN[t].op }));
+      const ownVal = ui.input({ placeholder: 'e.g. 115' }), ownLabel = ui.input({ placeholder: 'Its name on the button (optional)' });
+      const ownType = ui.select({ value: ownTypes[0], options: ownTypes.map(t => ({ value: t, label: OWN[t].label })), onChange: t => { ownVal.value = ''; ownVal.placeholder = OWN[t].named ? (OWN[t].op === 'effect' ? 'e.g. Directional Blur' : 'e.g. Iris Round') : `${OWN[t].min} to ${OWN[t].max}${OWN[t].unit}`; } });
+      function addOwn() {
+        const t = ownType.value, m = makeOwn({ type: t, value: ownVal.value, name: ownVal.value, label: ownLabel.value });
+        if (m.error) { say(m.error, 'warn'); return; }
+        if (own.some(p => p.id === m.preset.id)) { say(`You already have “${m.preset.label}”.`, 'warn'); return; }
+        own = own.concat(m.preset); saveOwn(); ownVal.value = ''; ownLabel.value = ''; draw();
+        say(`Saved “${m.preset.label}” – it’s under Your own buttons.`, 'ok');
+      }
       v.body.append(
         ui.card(h('div.field-label', 'Add to'), scopeSeg,
           h('div.field-label', { style: { marginTop: '8px' } }, 'Transitions'), h('div.row', lenSeg, whereSel), endsBox,
           status),
         padBox,
+        ui.section('Make your own button', [h('div.field-hint', RES ? 'A punch-in or opacity of your own, kept as a button.' : 'A punch-in, speed, opacity or volume of your own – or any effect or transition by its name in Premiere’s Effects panel – kept as a button.'), h('div.row', ownType, ownVal), ownLabel, h('div.row', { style: { marginTop: '6px' } }, ui.button('Save as a button', { small: true, onClick: addOwn }))], { open: false, hint: 'your own settings' }),
         RES ? null : ui.section('Any by name', [h('div.field-hint', 'Anything in Premiere’s Effects panel, by the name it shows there.'), nameIn, h('div.row', { style: { marginTop: '6px' } }, ui.button('Add as an effect', { small: true, onClick: () => byName('effect') }), ui.button('Add as a transition', { small: true, kind: 'ghost', onClick: () => byName('transition') }))], { open: false, hint: 'any effect or transition' }));
       say(RES ? 'Put the playhead on a clip, then click a button.' : 'Select clips in the Timeline, then click a button.');
       draw();
@@ -188,5 +248,5 @@
     }
   });
 
-  US.quickfx = { PRESETS, GROUPS, works, targetsFor, transitionPlaces, calls, report, apply };
+  US.quickfx = { PRESETS, GROUPS, OWN, makeOwn, ownPresets, works, targetsFor, transitionPlaces, everyNth, calls, report, apply };
 })();
