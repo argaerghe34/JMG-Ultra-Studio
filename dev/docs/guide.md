@@ -39,6 +39,7 @@ Not in the Workspace menu? Open a project, then quit Resolve completely and open
 - Story can't read the transcripts Resolve makes itself (a plugin can't get at them): **Transcribe with Resolve** (Story › 1 Interviews) reads the transcripts Resolve already has of the clips, multicam clips or timelines you tick (or has Resolve make them) and reads those (phrase by phrase, without speaker names), or Story reads transcript files. Resolve may not respond while it transcribes.
 - Captions from Story are saved and put in the Media Pool (Captions bin) for you to drag onto the timeline – Resolve can't place a subtitle file by script.
 - ▶ in Story plays the line in the panel's own player; the clip is selected in the Media Pool.
+- Tools that listen (Silence Cut, Beat Cut, Song Splitter, Podcast, Tell the voices apart) read the sound straight from your media files, laid out as the timeline plays them, so Resolve stays free – no render, no page switching. Only nested timelines, compound or generated clips and files the panel can't read (install ffmpeg for the most formats) are rendered by Resolve. Clip volume and fades aren't heard either way. Switch: **Settings › Listening to sound**.
 - Sound Check can't set clip volume from a plugin: it tells you what to change instead of changing it.
 - Highlights in Story use clip colours and markers, and Render ranges use marked ranges, instead of adjustment layers.
 - Selects can't spot faces in Resolve, so it doesn't sort close-ups by face there; everything else in Selects works the same.

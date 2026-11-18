@@ -48,7 +48,8 @@ stays, and they get no Resolve layer until they come back.
 |---|---|
 | Source Monitor cue/play (Story "play this line") | No API to drive the Source Viewer. The panel plays the line itself (in-panel player); the clip is selected in the Media Pool. |
 | Media Encoder queue | Resolve's Render Queue (`AddRenderJob`, `StartRendering`, `GetRenderJobStatus`); Deliver presets are Resolve render presets. |
-| Render a clip's sound for analysis | A temporary audio-only render ("Audio Only" preset, 48 kHz, turned into a WAV) of a scratch timeline, deleted afterwards; the panel resamples to 16 kHz. |
+| Render a clip's sound for analysis | Read from the media files in the panel (`US.audio.fromFiles`, js/core/audio.js; Settings › Listening to sound, `audio.fromFiles`, on by default): the layout from `sequenceInfo` (switched-on tracks or the soloed one, enabled clips, source In, speed, timeline place) or `itemInfo` + `audioClipRange`, each file read as a plain WAV, else with ffmpeg (`-copyts`, `aresample=async=1:first_pts=0`: samples where Resolve plays them), else Electron's `decodeAudioData`; written as a 16 kHz mono float WAV of the same length. Nested timelines, compound/generated clips, offline or unreadable files, and the loudness preset (Sound Check) fall back to `renderAudio`: a temporary audio-only render ("Audio Only" preset, 48 kHz, turned into a WAV) of a scratch timeline, deleted afterwards. Clip volume/fades aren't heard either way (not readable by script). |
+| Stills of a clip the panel can't decode (Footage) | `exportFrame({id, times, outBase})`: the clip on a scratch timeline (video only), one `ExportCurrentFrameAsStill` per time, timeline/page/playhead put back, scratch deleted. |
 | Subclips | `MediaStorage.AddItemListToMediaPool([{media, startFrame, endFrame}])`. |
 | Ripple-extract ranges (Silence Cut) | Rebuild on the copy: the kept parts re-laid with record frames, never razor edits. Grades/effects on rebuilt parts aren't carried; titles, generators or speed changes after the first cut are refused plainly. |
 | Clip volume / ducking (Sound) | Not settable by script (Resolve 21). Sound measures and says the manual step (Normalize Audio Levels); ducking makes a copy with the speech marked in blue. |
@@ -126,6 +127,17 @@ stays, and they get no Resolve layer until they come back.
   read once – a timeline or multicam first, else the one with the most words heard.
 - The e2e test `22s-story-sources` makes its own spoken interview (macOS `say`) and a second device (ffmpeg), as
   Resolve hears `I001_interview.mp4` as music.
+
+## Measured in real Resolve Studio 21.2 (18 Nov 2026) – sound from the media files
+- Electron 36's `decodeAudioData` (in the panel) reads MP4/AAC and M4A (90 s of I001 in ~0.1 s).
+- Compared with Resolve's own renders of the test media: `I001_interview.mp4` and the three Apple `.m4a` interviews
+  of 50-voices read with ffmpeg give the same length to the sample, no time shift, correlation 0.98–0.9999 and the same
+  level (a mono mix is the channels' average, as reading a rendered WAV is; ffmpeg's own `-ac 1` would be 3 dB louder).
+- An `afconvert` .m4a starts its sound 0.132 s in (`start_time`); Resolve plays it there, ffmpeg does with `-copyts`
+  and `aresample=async=1:first_pts=0`, and `decodeAudioData` doesn't (it starts at 0) – so the panel's decoder puts back
+  the difference between Resolve's clip length and the decoded length (0.06–0.5 s, audio-only AAC files only).
+- `sequenceInfo`'s source Out is sometimes the clip's last frame and sometimes the one after: speeds within 1.5 frames
+  of 1 are normal speed.
 
 ## Building and installing
 - `node dev/resolve/build.js` → `dist/JMG Ultra Studio for Resolve <version>/` and
