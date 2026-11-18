@@ -145,6 +145,7 @@
             h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
           ], { open: true })),
         sentCard(),
+        tourCard(),
         layoutCard(),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
         US.app.is('resolve') ? null : ui.card(h('div.card-title', 'Listening to sound'),
@@ -165,6 +166,16 @@
         about(),
         codeCard()
       );
+      /* The tour: the whole app, or one tab (js/tools/03-tour.js) */
+      function tourCard() {
+        if (!US.tour) return null;
+        const tours = US.tour.list().filter(t => t.id !== 'overview');
+        const pick = ui.select({ options: tours.map(t => ({ value: t.id, label: t.name })), value: tours[0] && tours[0].id });
+        return h('div', { dataset: { section: 'tour' } }, ui.card(h('div.card-title', 'Take the tour'),
+          h('div.muted', 'Pop-ups that point at the real screen: what each part does, with tips. Esc stops it at any time.'),
+          h('div.row', ui.button('Take the tour', { kind: 'primary', icon: 'info', onClick: () => US.tour.start('overview') })),
+          ui.field('Or a short tour of one tab', h('div.row', h('div.grow', pick.el || pick), ui.button('Show me', { small: true, onClick: () => US.tour.start((pick.value != null ? pick.value : (pick.el || pick).value) || tours[0].id) })))));
+      }
       /* Layout: the rail as places (default) or one button per tool as before (UI review, 18 Nov 2026) */
       function layoutCard() {
         return h('div', { dataset: { section: 'layout' } }, ui.card(h('div.card-title', 'Layout'),

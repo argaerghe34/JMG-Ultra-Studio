@@ -62,7 +62,7 @@
     const t = (e.title + ' ' + (e.words || '')).toLowerCase(), d = (e.detail || '').toLowerCase(), words = q.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.every(w => t.includes(w) || d.includes(w))) return -1;
     const i = t.indexOf(words[0]);
-    return (i === 0 ? 100 : i > 0 && /\W/.test(t[i - 1]) ? 80 : i > 0 ? 50 : 20) + (t.includes(q.toLowerCase()) ? 10 : 0);
+    return (i === 0 ? 100 : i > 0 && /\W/.test(t[i - 1]) ? 80 : i > 0 ? 50 : 20) + (t.includes(q.toLowerCase()) ? 10 : 0) + (e.boost || 0);
   }
   /** Everything that matches, grouped and capped, in the order the box shows them. */
   function results(q) {

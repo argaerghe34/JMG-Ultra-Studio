@@ -285,6 +285,9 @@
         m.el.prepend(h('div.advanced-crumb', h('button.link-btn', { onclick: () => open('advanced') }, '‹ Advanced' + (dev ? ' › In development' : '')),
           dev ? h('span.field-hint', ' – still being made: parts may not work yet') : null));
       }
+      // a short tour of this tab (js/tools/03-tour.js), from a ? beside its title
+      const head = m.el.querySelector && m.el.querySelector('.tool-head');
+      if (head && US.tour && US.tour.has(def.id)) head.appendChild(h('button.icon-btn.tour-btn', { title: 'A short tour of this tab', dataset: { tour: def.id }, onclick: () => US.tour.start(def.id) }, '?'));
       mounted.set(def.id, m); els.view.appendChild(m.el);
     }
     m.el.classList.remove('hidden');
