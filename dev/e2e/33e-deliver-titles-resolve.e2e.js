@@ -22,7 +22,8 @@ let got = await list();
 T.assert(got.map(r => r.name).join('|') === 'E2E Title Hook|E2E Title Teaser', 'listed by name: ' + JSON.stringify(got));
 T.near(got[0].start, 1, 0.05, 'hook starts at 1 s'); T.near(got[0].end, 3, 0.05, 'hook ends at 3 s'); T.near(got[1].end - got[1].start, 4, 0.05, 'teaser is 4 s');
 T.assert(got[1].label === 13, 'teaser in the chosen colour: ' + got[1].label);
-const words = await T.devEval('const t = R.needSeq(' + JSON.stringify(seq.id) + '); const o = []; for (let i = 1; i <= t.GetTrackCount("video"); i++) for (const x of R.list(t.GetItemListInTrack("video", i))) if (!x.GetMediaPoolItem()) { const c = x.GetFusionCompByIndex(1); const tools = c ? Object.values(c.GetToolList(false, "TextPlus") || {}) : []; o.push(x.GetName() + "=" + (tools[0] ? tools[0].GetInput("StyledText") : "?")); } return o');
+// the words: Resolve 21.2's JS API gives Fusion tools no GetInput, so Lua in the comp writes them to a file
+const words = await T.devEval('const fs = require("fs"), path = require("path"), t = R.needSeq(' + JSON.stringify(seq.id) + '); const o = []; for (let i = 1; i <= t.GetTrackCount("video"); i++) for (const x of R.list(t.GetItemListInTrack("video", i))) if (!x.GetMediaPoolItem()) { const c = x.GetFusionCompByIndex(1), f = path.join(R.tempDir(), "e2e-words.txt"); try { fs.unlinkSync(f); } catch (e) {} try { c.Execute("local h = io.open([[" + f + "]], \\"w\\"); for _, k in pairs(comp:GetToolList(false, \\"TextPlus\\")) do h:write(k:GetInput(\\"StyledText\\") or \\"\\") break end; h:close()"); } catch (e) {} o.push(x.GetName() + "=" + (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "?")); } return o');
 T.assert(words.some(w => /E2E Title Hook$/.test(w)), 'the title shows its name: ' + words.join(' · '));
 
 // renamed, moved and recoloured from the panel: the same title

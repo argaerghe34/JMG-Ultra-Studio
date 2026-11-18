@@ -185,6 +185,20 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test' } = 
       ti._comp = comp; ti.GetFusionCompCount = () => 1; ti.GetFusionCompByIndex = i => (i === 1 ? comp : null); ti.GetFusionCompNameList = () => ['Composition 1'];
       // Resolve's own Text+ title: one TextPlus tool ("Template") holding the words; a title can be as long as you like
       if (name === 'Text+') comp._add('Template', { StyledText: 'Custom Title' });
+      // like Resolve 21.2's JavaScript API (measured 19 Nov 2026), with F.luaOnly: Fusion tools come back without
+      // GetInput/SetInput; the comp's Execute runs Lua (here: just the two scripts Ultra Studio sends) – only in the
+      // open timeline – and then throws because its result can't be passed back
+      if (F.luaOnly) {
+        comp.GetToolList = () => Object.fromEntries(Object.keys(tools).map((k, i) => [String(i), {}]));
+        comp.Execute = lua => {
+          if (currentTl === tl) {
+            const set = /SetInput\("StyledText", \[(=*)\[([\s\S]*?)\]\1\]\)/.exec(lua), get = /io\.open\(\[(=*)\[([\s\S]*?)\]\1\], "w"\)/.exec(lua);
+            if (set && tools.Template) tools.Template._inputs.StyledText = set[2];
+            if (get) fs.writeFileSync(get[2], tools.Template ? String(tools.Template._inputs.StyledText || '') : '');
+          }
+          throw new Error('Execute: Parse - Unknown object type detected for key:result (type:-1)');
+        };
+      }
       // like a title in Resolve: no Media Pool clip behind it (its name stays)
       ti._title = true; ti._name = name; ti.GetMediaPoolItem = () => null;
       tl._v[track - 1].push(ti);
