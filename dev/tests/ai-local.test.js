@@ -45,3 +45,25 @@ test('a model somewhere else is refused – it would mean text leaving this comp
   try { await assert.rejects(US.ai.json({ system: 's', user: 'u', schema: { type: 'object' } }), e => /must run on this computer/.test(e.title || e.message)); }
   finally { US.settings.set('ai.localUrl', ''); US.settings.set('aiProvider', 'auto'); }
 });
+
+test('Windows: "localhost" reaches a local AI on 127.0.0.1 even when the system gives ::1 first (Premiere’s Node tries one address)', async () => {
+  const dns = require('dns'), net = require('net'), realLookup = dns.lookup;
+  const autoWas = net.getDefaultAutoSelectFamily ? net.getDefaultAutoSelectFamily() : null;
+  const s = await server((req, body, rs) => { rs.setHeader('content-type', 'application/json'); rs.end(JSON.stringify({ models: [{ name: 'qwen2.5vl:3b' }] })); });
+  // as Windows answers: ::1 first; and, as in Node 17, only the first address is tried
+  dns.lookup = (host, opts, cb) => {
+    if (typeof opts === 'function') { cb = opts; opts = {}; }
+    if (host !== 'localhost') return realLookup(host, opts, cb);
+    const list = [{ address: '::1', family: 6 }, { address: '127.0.0.1', family: 4 }];
+    return opts && opts.all ? cb(null, list) : cb(null, '::1', 6);
+  };
+  if (net.setDefaultAutoSelectFamily) net.setDefaultAutoSelectFamily(false);
+  US.settings.set('ai.localUrl', `http://localhost:${s.address().port}`);
+  try {
+    assert.deepStrictEqual(await US.ai.localStatus(), { ok: true, kind: 'ollama' });
+    assert.deepStrictEqual(await US.ai.localModels(), ['qwen2.5vl:3b']);
+  } finally {
+    dns.lookup = realLookup; if (autoWas !== null) net.setDefaultAutoSelectFamily(autoWas);
+    s.close(); US.settings.set('ai.localUrl', '');
+  }
+});

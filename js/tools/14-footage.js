@@ -168,7 +168,12 @@
     if (ffmpegPath !== undefined) return ffmpegPath;
     if (US.audio && US.audio.ffmpeg) return (ffmpegPath = US.audio.ffmpeg());   // one search, shared with the sound tools
     const fs = require('fs'), cp = require('child_process');
-    const tries = process.platform === 'win32' ? ['C:\\ffmpeg\\bin\\ffmpeg.exe', 'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe'] : ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'];
+    const env = process.env, path = require('path');
+    // Windows: the usual hand-made folders, then winget, Chocolatey and Scoop (Premiere's PATH is the one it started with)
+    const tries = process.platform === 'win32' ? ['C:\\ffmpeg\\bin\\ffmpeg.exe', 'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+      env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe'),
+      path.join(env.ProgramData || 'C:\\ProgramData', 'chocolatey', 'bin', 'ffmpeg.exe'),
+      env.USERPROFILE && path.join(env.USERPROFILE, 'scoop', 'shims', 'ffmpeg.exe')].filter(Boolean) : ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'];
     ffmpegPath = tries.find(p => { try { return fs.existsSync(p); } catch (e) { return false; } }) || '';
     if (!ffmpegPath) { try { const out = cp.execFileSync(process.platform === 'win32' ? 'where' : 'which', ['ffmpeg'], { encoding: 'utf8', timeout: 4000, windowsHide: true }).split(/\r?\n/)[0].trim(); if (out && fs.existsSync(out)) ffmpegPath = out; } catch (e) { /* not installed */ } }
     return ffmpegPath;

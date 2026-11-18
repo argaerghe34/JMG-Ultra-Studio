@@ -43,7 +43,7 @@
     ],
     storylines: [
       { target: '.sl-themes', title: 'Themes', text: 'Pick a theme – or All lines, or the lines in no theme yet. The number is how many lines it has at the pickiness chosen above.' },
-      { target: '.sl-table', title: 'Every line in one table', text: 'Who, when, the line, its theme, ★ for a strong complete line, and its length. Click a column to sort; shift- or ⌘-click to pick several.', tip: 'Keys: J and K move, space plays, Return puts the lines at the playhead, / filters.' },
+      { target: '.sl-table', title: 'Every line in one table', text: `Who, when, the line, its theme, ★ for a strong complete line, and its length. Click a column to sort; shift- or ${US.fsx && US.fsx.isWin ? 'Ctrl' : '⌘'}-click to pick several.`, tip: 'Keys: J and K move, space plays, Return puts the lines at the playhead, / filters.' },
       { target: '.sl-insp', title: 'The line you picked', text: 'Read it in full, play it, open it in the Source Monitor, put it at the playhead, or find more like it. With several picked: put them all at the playhead, or make a new theme from them.' },
       { target: '.sl-find', title: 'Filter', text: 'Type a word, a speaker or a theme to narrow the table.', tip: 'Widen or undock the panel to see the themes, the table and the line side by side.' }
     ],

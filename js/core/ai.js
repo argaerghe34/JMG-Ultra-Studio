@@ -465,11 +465,21 @@
     if (!/^(localhost|127\.0\.0\.1|\[::1\]|::1)$/i.test(u.hostname)) throw new US.UserError('AI_FAILED', { title: 'The local AI must run on this computer.', action: 'Its address has to start with http://localhost – a model elsewhere would mean text leaving this computer.' });
     return u;
   }
+  /* "localhost" as 127.0.0.1 first: Windows resolves it to ::1 first, and Premiere's Node (17) doesn't try the other
+     address, while Ollama and LM Studio listen on 127.0.0.1 only – so they seemed not to be running on a PC. The Mac
+     already gets 127.0.0.1 first; this makes Windows the same. */
+  function localLookup(host, opts, cb) {
+    if (typeof opts === 'function') { cb = opts; opts = {}; }
+    if (!/^localhost$/i.test(host)) return require('dns').lookup(host, opts, cb);
+    const fam = typeof opts === 'number' ? opts : (opts && opts.family) || 0;
+    const list = (fam === 6 ? [] : [{ address: '127.0.0.1', family: 4 }]).concat(fam === 4 ? [] : [{ address: '::1', family: 6 }]);
+    return opts && opts.all ? cb(null, list) : cb(null, list[0].address, list[0].family);
+  }
   function httpLocal(method, pathname, body, timeoutMs = 600000) {
     const u = localTarget(), mod = u.protocol === 'https:' ? https : require('http');
     return new Promise((resolve, reject) => {
       const data = body ? Buffer.from(JSON.stringify(body)) : null;
-      const req = mod.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || (u.protocol === 'https:' ? 443 : 80), path: (u.pathname.replace(/\/$/, '') || '') + pathname, method, headers: data ? { 'content-type': 'application/json', 'content-length': data.length } : {}, timeout: timeoutMs }, res => {
+      const req = mod.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), lookup: localLookup, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: (u.pathname.replace(/\/$/, '') || '') + pathname, method, headers: data ? { 'content-type': 'application/json', 'content-length': data.length } : {}, timeout: timeoutMs }, res => {
         const chunks = []; res.on('data', c => chunks.push(c));
         res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8'); let json = null; try { json = JSON.parse(text); } catch (e) { /* not JSON */ } resolve({ status: res.statusCode, json, text }); });
       });
@@ -500,7 +510,7 @@
     let req = null;
     const p = new Promise((resolve, reject) => {
       const data = Buffer.from(JSON.stringify({ model, stream: true }));
-      req = mod.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || (u.protocol === 'https:' ? 443 : 80), path: (u.pathname.replace(/\/$/, '') || '') + '/api/pull', method: 'POST', headers: { 'content-type': 'application/json', 'content-length': data.length } }, res => {
+      req = mod.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), lookup: localLookup, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: (u.pathname.replace(/\/$/, '') || '') + '/api/pull', method: 'POST', headers: { 'content-type': 'application/json', 'content-length': data.length } }, res => {
         if (res.statusCode !== 200) { const c = []; res.on('data', x => c.push(x)); res.on('end', () => reject(new US.UserError('AI_FAILED', { title: res.statusCode === 404 ? 'This needs Ollama.' : 'The download didn’t start.', action: res.statusCode === 404 ? 'LM Studio downloads models in its own window; with Ollama (ollama.com) Ultra Studio can do it for you.' : 'Check Ollama is running, then try again.', detail: `${res.statusCode}: ${Buffer.concat(c).toString('utf8').slice(0, 300)}` }))); return; }
         let buf = '', failed = '';
         res.on('data', chunk => {
