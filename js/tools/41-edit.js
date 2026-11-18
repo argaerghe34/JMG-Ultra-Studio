@@ -389,7 +389,7 @@
     let only = null;
     if (scope.where === 'selection') {
       only = await US.host.call('editSelection', { seqId });
-      if (!only.length) throw new US.UserError('NOTHING_FOUND', { title: RES() ? 'Resolve doesn’t tell add-ons which clips are selected.' : 'No clips are selected in the Timeline.', action: RES() ? 'Put the playhead over the clip, or choose “This sequence”.' : 'Select the clips first, then ask again.' });
+      if (!only.length) throw new US.UserError('NOTHING_FOUND', { title: RES() ? 'No clips are selected, and there’s no clip under the playhead.' : 'No clips are selected in the Timeline.', action: RES() ? 'Select the clips in the Timeline (or put the playhead over one), or choose “This sequence”.' : 'Select the clips first, then ask again.' });
     }
     const m = timelineModel(info, heard, { only });
     if (scope.where === 'transcripts' && !m.lines.length) throw new US.UserError('NOTHING_FOUND', { title: 'No transcribed lines are heard in this sequence.', action: 'Transcribe the interviews in Story › 1 Interviews, or choose “This sequence”.' });
