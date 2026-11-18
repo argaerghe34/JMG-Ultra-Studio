@@ -82,12 +82,15 @@ module.exports = function (R) {
       return '';
     }
     // Resolve 21.2's JavaScript API: a Fusion tool has no GetInput/SetInput (measured 19 Nov 2026) – the comp runs Lua
-    // instead (Composition.Execute), which writes the words to a temporary file
-    const file = path.join(R.tempDir(), `words-${process.pid}-${Date.now()}-${Math.round(Math.random() * 1e6)}.txt`);
+    // instead (Composition.Execute), which writes the words to a temporary file. Execute returns before the script has
+    // run (measured: the file appears a moment later), so it's written beside and renamed when complete, and waited for.
+    const file = path.join(R.tempDir(), `words-${process.pid}-${Date.now()}-${Math.round(Math.random() * 1e6)}.txt`), part = file + '.part';
     try {
-      fusionLua(comp, `local f = io.open(${luaStr(file)}, "w"); if f then for _, t in pairs(comp:GetToolList(false, "TextPlus")) do local v = t:GetInput("StyledText"); if v and v ~= "" then f:write(v); break end end; f:close() end`);
+      fusionLua(comp, `local f = io.open(${luaStr(part)}, "w"); if f then for _, t in pairs(comp:GetToolList(false, "TextPlus")) do local v = t:GetInput("StyledText"); if v and v ~= "" then f:write(v); break end end; f:close(); os.rename(${luaStr(part)}, ${luaStr(file)}) end`);
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      for (let waited = 0; !R.exists(file) && waited < 3000; waited += 25) Atomics.wait(pause, 0, 0, 25);
       return R.exists(file) ? fs.readFileSync(file, 'utf8').trim() : '';
-    } finally { try { if (R.exists(file)) fs.unlinkSync(file); } catch (e) { /* temp */ } }
+    } finally { for (const f of [file, part]) { try { if (R.exists(f)) fs.unlinkSync(f); } catch (e) { /* temp */ } } }
   }
   const compOf = ti => tryCall(() => (ti.GetFusionCompCount() > 0 ? ti.GetFusionCompByIndex(1) : null), null);
   /** A Lua string literal (long brackets, so nothing in the text needs escaping). */
