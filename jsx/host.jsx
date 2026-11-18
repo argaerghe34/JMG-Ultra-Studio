@@ -478,28 +478,50 @@ var UStudio = (function () {
     };
     /**
      * Change markers in place: a.markers [{guid, name?, comment?, color?, start?, end?}] on the sequence (a.seqId), a
-     * clip (a.id), or a clip marker shown on a timeline ("clip:<item id>:<guid>"). -> {done, guids: {old: new}}
+     * clip (a.id), or a clip marker shown on a timeline ("clip:<item id>:<guid>"). -> {done, guids: {old: new}, remade}
+     * Each change is read back from a fresh copy of the markers; where it didn't stick (Premiere 2027 left a clip's own
+     * marker as it was), the marker is made again with the new values, so its guid changes (as in Resolve).
      */
+    function findMarker(coll, guid) { var m = coll.getFirstMarker(); while (m && m.guid !== guid) m = coll.getNextMarker(m); return m || null; }
+    function markerWants(m, want) {
+        var s0 = m.start.seconds, e0 = m.end.seconds, ns = want.start != null ? Number(want.start) : s0;
+        var ne = want.end != null ? Number(want.end) : ns + (e0 - s0);
+        if (ne < ns) ne = ns;
+        var col = 0; try { col = m.getColorByIndex(); } catch (e) { }
+        var chapter = false; try { chapter = String(m.type) === 'Chapter'; } catch (e) { }
+        return { start: ns, end: ne, moved: want.start != null || want.end != null,
+            name: want.name != null ? String(want.name) : String(m.name || ''), comment: want.comment != null ? String(want.comment) : String(m.comments || ''),
+            color: want.color != null ? Number(want.color) : col, chapter: chapter };
+    }
+    function markerIs(m, w) {
+        var col = -1; try { col = m.getColorByIndex(); } catch (e) { }
+        return m && String(m.name || '') === w.name && String(m.comments || '') === w.comment && col === w.color &&
+            Math.abs(m.start.seconds - w.start) < 0.03 && Math.abs(m.end.seconds - w.end) < 0.03;
+    }
     fn.updateMarkers = function (a) {
-        var out = { done: 0, guids: {} }, list = a.markers || [];
+        var out = { done: 0, guids: {}, remade: 0 }, list = a.markers || [];
         for (var i = 0; i < list.length; i++) {
-            var ch = list[i], cm = /^clip:(.+):([^:]+)$/.exec(ch.guid);
-            var coll = cm ? needItem(cm[1]).getMarkers() : a.seqId ? needSeq(a.seqId).markers : needItem(a.id).getMarkers(), want = cm ? cm[2] : ch.guid;
-            var m = coll.getFirstMarker();
-            while (m && m.guid !== want) m = coll.getNextMarker(m);
+            var ch = list[i], cm = /^clip:(.+):([^:]+)$/.exec(ch.guid), want = cm ? cm[2] : ch.guid;
+            var coll = function () { return cm ? needItem(cm[1]).getMarkers() : a.seqId ? needSeq(a.seqId).markers : needItem(a.id).getMarkers(); };
+            var c = coll(), m = findMarker(c, want);
             if (!m) continue;
-            if (ch.name != null) m.name = String(ch.name);
-            if (ch.comment != null) m.comments = String(ch.comment);
-            if (ch.color != null) { try { m.setColorByIndex(Number(ch.color)); } catch (e) { } }
-            if (ch.start != null || ch.end != null) {
-                var s0 = m.start.seconds, e0 = m.end.seconds, ns = ch.start != null ? Number(ch.start) : s0;
-                var ne = ch.end != null ? Number(ch.end) : ns + (e0 - s0);
-                if (ne < ns) ne = ns;
+            var w = markerWants(m, ch);
+            if (ch.name != null) m.name = w.name;
+            if (ch.comment != null) m.comments = w.comment;
+            if (ch.color != null) { try { m.setColorByIndex(w.color); } catch (e) { } }
+            if (w.moved) {
                 // later: the end moves first, so the start never passes it
-                var ts = new Time(); ts.seconds = ns;
-                if (ns > s0) { m.end = ne; m.start = ts; } else { m.start = ts; m.end = ne; }
+                var ts = new Time(); ts.seconds = w.start;
+                if (w.start > m.start.seconds) { m.end = w.end; m.start = ts; } else { m.start = ts; m.end = w.end; }
             }
-            out.done++; out.guids[ch.guid] = ch.guid;
+            var g = want, c2 = coll(), back = findMarker(c2, want);
+            if (!markerIs(back, w)) {
+                // didn't stick: make it again with the new values
+                if (back) c2.deleteMarker(back);
+                g = addMarkers(c2, [{ start: w.start, end: w.end > w.start ? w.end : null, name: w.name, comment: w.comment, color: w.color, chapter: w.chapter }])[0];
+                out.remade++;
+            }
+            out.done++; out.guids[ch.guid] = cm ? 'clip:' + cm[1] + ':' + g : g;
         }
         return out;
     };
