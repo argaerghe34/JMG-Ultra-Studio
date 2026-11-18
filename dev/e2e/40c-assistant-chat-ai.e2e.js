@@ -1,6 +1,6 @@
 // costs-ai – real AI requests (a few cents): run with `node dev/e2e/run.js 40c` or E2E_AI=1
 // Ask – one chat for everything, with the real AI in real Premiere: three clips in a fresh sequence, and the request
-// “colour every clip on V1 green and add a marker called Review at the start” with “don't ask” on. The AI must read the
+// “scale every clip on V1 to 120% and add a marker called Review at the start” with “don't ask” on. The AI must read the
 // sequence, make the changes on a copy (never the sequence itself), and report – and a question (“how many clips are in
 // it?”) in the same chat must be answered from what it read, without changing anything.
 const C = US.chat; T.assert(C, 'the chat is loaded');
@@ -15,16 +15,16 @@ const chat = C.newChat(), log = [], asked = [];
 const hooks = { event: it => log.push(it), status() {}, approve: async card => { asked.push(card.title); return { ok: true }; }, choose: async q => { asked.push('Q: ' + q.question); return q.options[0] || 'yes'; } };
 const spent0 = US.ai.spending().cost;
 for (let i = 0; i < 100 && US.jobs.current; i++) await T.sleep(200);
-await C.send(chat, 'Colour every clip on V1 green and add a marker called Review at the start of the first clip.', hooks, { mode: 'never', maxSteps: 10, budget: 1 });
+await C.send(chat, 'Scale every clip on V1 to 120% and add a marker called Review at the start of the first clip.', hooks, { mode: 'never', maxSteps: 10, budget: 1 });
 const end = log.find(i => i.k === 'end');
 const told = log.map(i => `${i.k}: ${i.text || i.reply || (i.plan || []).join(' / ') || ''}${i.result ? ' → ' + i.result : ''}`).join('\n');
 T.assert(end, 'it finished with a report:\n' + told);
 T.assert(log.some(i => i.k === 'understood' && i.text.length > 10) && log.some(i => i.k === 'plan' && i.plan.length), 'it said what it understood and its plan:\n' + told);
 T.assert(chat.work && chat.work.ours && chat.work.seqId !== seq.id, 'it worked on a copy: ' + JSON.stringify(chat.work));
 const copy = await US.host.call('editRead', { seqId: chat.work.seqId }), orig = await US.host.call('editRead', { seqId: seq.id });
-T.assert(copy.video[0].clips.length === 3 && copy.video[0].clips.every(c => c.label === 13), 'the copy’s clips are green (label 13): ' + copy.video[0].clips.map(c => c.label) + '\n' + told);
+T.assert(copy.video[0].clips.length === 3 && copy.video[0].clips.every(c => Math.abs(Number(c.scale) - 120) < 0.6), 'the copy’s clips are at 120%: ' + copy.video[0].clips.map(c => c.scale) + '\n' + told);
 T.assert((copy.markers || []).some(m => /review/i.test(m.name) && m.start < 0.5), 'a marker “Review” at the start of the copy: ' + JSON.stringify(copy.markers));
-T.assert(orig.video[0].clips.every(c => c.label !== 13) && !(orig.markers || []).some(m => /review/i.test(m.name)), 'the original is untouched');
+T.assert(!orig.video[0].clips.some(c => Math.abs(Number(c.scale) - 120) < 0.6) && !(orig.markers || []).some(m => /review/i.test(m.name)), 'the original is untouched');
 // a question in the same chat: answered, nothing changed
 const applied = log.filter(i => i.k === 'step' && /^Edit/.test(i.text)).length;
 await C.send(chat, 'How many clips are on V1 of it, and how long is it altogether?', hooks, { mode: 'never', maxSteps: 6, budget: 1 });
