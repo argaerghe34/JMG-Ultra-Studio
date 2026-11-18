@@ -686,7 +686,13 @@ var UStudio = (function () {
             if (used[key]) continue;
             used[key] = true;
             if (byPath[key]) { for (g = 0; g < byPath[key].length; g++) out.push(byPath[key][g]); }
-            else if (left[key] && left[key].best) { var ex = info(left[key].best); ex.existing = true; out.push(ex); }
+            else if (left[key] && left[key].best) {
+                // the clip there is offline but its file is back (a drive reconnected, a temporary file made again):
+                // link it to the file again, or the tool would get a clip it can't read
+                var bc = left[key].best;
+                try { if (bc.isOffline && bc.isOffline() && bc.canChangeMediaPath()) bc.changeMediaPath(paths[q], true); } catch (eR) { }
+                var ex = info(bc); ex.existing = true; out.push(ex);
+            }
         }
         // anything Premiere made that isn't one of the paths (a file it renamed): kept, after the rest
         for (g = 0; g < fresh.length; g++) if (!used[norm(fresh[g].path)]) out.push(fresh[g]);

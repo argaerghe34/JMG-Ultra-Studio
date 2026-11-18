@@ -49,6 +49,9 @@ T.assert(items.every(Boolean), 'the interviews imported');
 
 const st = S.loadState(), saved = JSON.parse(JSON.stringify({ transcripts: st.transcripts, speakers: st.speakers, glossary: st.glossary, proof: st.proof, voiceID: st.voiceID, scope: st.scope }));
 // the sound of each: rendered by Media Encoder (watched), not by Premiere
+// the sound goes through Media Encoder whatever this computer's setting is (put back afterwards)
+const keepBackground = US.settings.get('audio.background');
+US.settings.set('audio.background', true);
 const runs = [], realRun = US.encoder && US.encoder.run;
 if (US.encoder) US.encoder.run = async (tasks, job, opts) => { runs.push(tasks.map(t => ({ audio: t.audio, item: t.itemId }))); return realRun(tasks, job, opts); };
 const cache = [], notes = []; const note = (...a) => notes.push(a.join(' '));
@@ -119,5 +122,6 @@ try {
   return notes;
 } catch (e) { throw new Error(e.message + '\n      NOTES: ' + notes.join('\n      ')); } finally {
   if (US.encoder) US.encoder.run = realRun;
+  if (keepBackground === undefined) { delete US.settings.all()['audio.background']; US.settings.flush(); } else US.settings.set('audio.background', keepBackground);
   const s = S.state(); Object.assign(s, saved); if (!saved.voiceID) delete s.voiceID; if (!saved.proof) delete s.proof; S.reindex(); S.save();
 }
