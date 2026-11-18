@@ -402,7 +402,8 @@
       function drawBulk() {
         US.clear(bulk);
         const n = ticked.size; if (!src || !n) return;
-        bulk.append(h('b', `${n} ticked`),
+        // US.append skips the buttons left out (the DOM's own append would write “null”)
+        US.append(bulk, [h('b', `${n} ticked`),
           swatch(0, c => run('Recolouring', () => after(update(src, sel().map(m => ({ marker: m, fields: { color: c } })))))),
           ui.button('Rename…', { small: true, onClick: async () => { const pat = await ui.promptText({ title: 'Rename the ticked markers', label: '{n} a number · {name} the old name · {tc} its timecode', value: 'Shot {n}' }); if (pat) run('Renaming', () => after(update(src, rename(sel(), pat, src).map((x, i) => ({ marker: sel()[i], fields: { name: x.name } }))))); } }),
           ui.button('Move…', { small: true, title: 'Shift them earlier or later', onClick: async () => { const s = await ui.promptText({ title: 'Move the ticked markers', label: 'Seconds – negative for earlier (e.g. -2.5)', value: '1' }); const by = parseFloat(s); if (s != null && isFinite(by) && by) run('Moving', () => after(update(src, sel().map(m => ({ marker: m, fields: moveFields(m, by) }))))); } }),
@@ -410,7 +411,7 @@
           src.kind === 'sequence' && sel().some(m => !m.itemId) ? ui.button('Move onto the clips', { small: true, kind: 'ghost', title: 'Put them on the source clips under them instead of the timeline: they then show in every sequence that uses those clips, and move with the clips', onClick: () => run('Moving onto the clips', () => toClips(sel().filter(m => !m.itemId))) }) : null,
           src.kind === 'sequence' && sel().some(m => m.itemId) ? ui.button('Move onto the timeline', { small: true, kind: 'ghost', title: 'Take them off the clips and put them on this sequence’s timeline instead', onClick: async () => { const ms = sel().filter(m => m.itemId); if (await ui.confirm({ title: `Move ${US.plural(ms.length, 'clip marker')} onto the timeline?`, text: 'They come off the clips, so other sequences that use those clips no longer show them. Undo in ' + (RES ? 'Resolve' : 'Premiere') + ' brings them back.' })) run('Moving onto the timeline', () => toTimeline(ms)); } }) : null,
           ui.button('Delete', { small: true, kind: 'danger', onClick: async () => { if (await ui.confirm({ title: `Delete ${US.plural(n, 'marker')}?`, text: deleteWords(sel()) })) run('Deleting markers', () => after(remove(src, sel()))); } }),
-          ui.button('Untick', { small: true, kind: 'ghost', onClick: () => { ticked.clear(); draw(); } }));
+          ui.button('Untick', { small: true, kind: 'ghost', onClick: () => { ticked.clear(); draw(); } })]);
       }
       function draw() {
         US.clear(listBox);
@@ -421,9 +422,9 @@
         const counts = COLOURS.map(c => src.markers.filter(m => m.color === c.i).length);
         const chips = h('div.row.marker-chips', COLOURS.filter(c => counts[c.i]).map(c => h('button.marker-chip' + (!colours || colours.has(c.i) ? '.on' : ''), { style: { borderColor: c.hex }, title: c.name, onclick: () => { colours = colours || new Set(COLOURS.map(x => x.i)); if (colours.has(c.i)) colours.delete(c.i); else colours.add(c.i); if (colours.size === 8) colours = null; draw(); } }, h('i', { style: { background: c.hex } }), String(counts[c.i]))));
         const all = h('label.row', h('input', { type: 'checkbox', checked: list.length > 0 && list.every(m => ticked.has(m.guid)), onchange: e => { for (const m of list) { if (e.target.checked) ticked.add(m.guid); else ticked.delete(m.guid); } draw(); } }), h('span.field-hint', `Tick all ${list.length} shown`));
-        listBox.append(chips, list.length ? all : null,
+        US.append(listBox, [chips, list.length ? all : null,
           list.length ? h('div.marker-list', list.slice(0, 500).map(row)) : ui.empty(src.markers.length ? 'No markers match.' : 'No markers yet – add some below.'),
-          list.length > 500 ? h('div.field-hint', `Showing the first 500 of ${list.length}.`) : null);
+          list.length > 500 ? h('div.field-hint', `Showing the first 500 of ${list.length}.`) : null]);
         drawBulk();
         if (src.kind === 'sequence') trackSel.setOptions(tracks(), trackSel.value || 'v0');
         drawPlace();

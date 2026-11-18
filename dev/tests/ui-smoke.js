@@ -439,6 +439,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     const rows = mt.el.querySelectorAll('.marker-row');
     if (rows.length !== 2) errors.push(`markers: ${rows.length} rows`);
     if (mt.el.querySelectorAll('.marker-chip').length !== 2) errors.push('markers: no colour chips');
+    if (/null/.test(mt.el.textContent)) errors.push('markers: “null” written in the tab');
     const box = mt.el.querySelector('.marker-row input[type=checkbox]');
     if (box) { box.click(); await new Promise(r => setTimeout(r, 10)); if (!/1 ticked/.test(mt.el.querySelector('.marker-bulk').textContent)) errors.push('markers: no bulk bar after ticking'); }
     const search = mt.el.querySelector('input[placeholder^="Search names"]');
@@ -492,6 +493,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       calls.length = 0;
       const mv = Array.from(mt.el.querySelectorAll('.marker-bulk .btn')).find(b => b.textContent === 'Move onto the clips');
       if (!mv) errors.push('markers: no “Move onto the clips”');
+      if (/null/.test(mt.el.querySelector('.marker-bulk').textContent)) errors.push('markers: “null” in the ticked bar');
       else {
         mv.click(); await new Promise(r => setTimeout(r, 60));
         const add = calls.find(c => c[0] === 'addSequenceMarkers'), rem = calls.find(c => c[0] === 'removeSequenceMarkers');
