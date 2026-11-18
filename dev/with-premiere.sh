@@ -6,7 +6,7 @@ LOCK="$(cd "$(dirname "$0")" && pwd)/.premiere.lock"
 waited=0
 until mkdir "$LOCK" 2>/dev/null; do
   # a lock older than 20 minutes is from a crashed run
-  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +20 2>/dev/null)" ]; then rmdir "$LOCK" 2>/dev/null; continue; fi
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +20 2>/dev/null)" ]; then rm -rf "$LOCK"; sleep 1; continue; fi
   [ $((waited % 30)) -eq 0 ] && echo "Waiting for Premiere (another test is using it: $(cat "$LOCK/who" 2>/dev/null))…" >&2
   sleep 2; waited=$((waited + 2))
 done
