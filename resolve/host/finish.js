@@ -4,13 +4,15 @@
 // clips by script, so a range is a duration marker on the timeline whose customData starts "us-range-" – its length is
 // the part that renders and its name the file name (both editable in Resolve). Other groups of ranges stand for
 // Premiere's other layer tracks – Song Splitter's "Songs" – with customData "us-lyr-<group>~<id>"; their colour is the
-// marker's colour (Premiere label → LABEL_MARKER, and back).
+// marker's colour (Premiere label → LABEL_MARKER, and back). Ranges can also be Text+ titles on a video track named
+// like the group (Premiere's text layers): added, renamed, moved, recoloured and deleted by script (Resolve 21.1.2+:
+// TimelineItem.SetName, SetPosition / Timeline.MoveItems, SetRightOffset); where Resolve won't, a marker is added.
 'use strict';
 const path = require('path');
 const { engine } = require('./render');
 
 const GUIDE_PREFIX = 'Ultra Guide';
-const RANGE_TAG = 'us-range-', RANGE_COLOR = 'Fuchsia', LAYER_TAG = 'us-lyr-', RENDERS = 'Renders';
+const RANGE_TAG = 'us-range-', RANGE_COLOR = 'Fuchsia', RANGE_LABEL = 11 /* magenta: Resolve's Pink */, LAYER_TAG = 'us-lyr-', RENDERS = 'Renders';
 const { LABEL_MARKER } = require('./story');
 /** A marker colour back to the first Premiere label that uses it (Forest → Green → 5), or null. */
 const labelOfColour = c => { const i = LABEL_MARKER.indexOf(String(c || '')); return i >= 0 ? i : null; };
@@ -86,9 +88,122 @@ module.exports = function (R) {
       if (!isTextItem(ti, true)) continue;
       const plain = itemName(ti), words = textOfItem(ti);
       out.push({ name: /^(text\+?|fusion title)?\s*\d*$/i.test(plain.trim()) && words ? words : plain || words || 'Text', start: (ti.GetStart() - t0) / fps, end: (ti.GetEnd() - t0) / fps,
-        disabled: tryCall(() => ti.GetClipEnabled(), true) === false, nodeId: TEXT_ID + R.id(ti), label: labelOfColour(tryCall(() => ti.GetClipColor(), '')), kind: 'text', track: t });
+        disabled: tryCall(() => ti.GetClipEnabled(), true) === false, nodeId: TEXT_ID + R.id(ti), label: labelOfClip(tryCall(() => ti.GetClipColor(), '')), kind: 'text', track: t });
     }
     return out;
+  }
+
+  /* ---------- placing, renaming and moving titles (copied from mvfx.js's insertion, which stays as it is) ---------- */
+  /** A title's clip colour: Premiere label → Resolve clip colour (R.LABEL_COLORS), and back (older ones: marker names). */
+  const clipColourOf = label => (label != null && R.LABEL_COLORS[label]) || null;
+  function labelOfClip(c) { const i = R.LABEL_COLORS.indexOf(String(c || '')); return i >= 0 ? i : labelOfColour(c); }
+  /** The Edit page, where titles can be inserted (put back afterwards). */
+  async function onEditPage(fn) {
+    const api = R.api, page = tryCall(() => api.GetCurrentPage(), '');
+    if (!/^(edit|cut)$/.test(page || '')) tryCall(() => api.OpenPage('edit'), false);
+    try { return await fn(); } finally { try { if (page && api.GetCurrentPage() !== page && page !== 'media') api.OpenPage(page); } catch (e) { /* stays */ } }
+  }
+  const playheadTo = (tl, frame) => !!tryCall(() => tl.SetCurrentTimecode(R.framesToTC(frame, R.fps(tl), R.dropFrame(tl))), false)
+    && R.tcToFrames(String(tryCall(() => tl.GetCurrentTimecode(), '')), R.fps(tl)) === frame;
+  /** The video track a timeline item is on (1-based; -1 if Resolve doesn't say). */
+  function trackOf(tl, ti) {
+    const p = tryCall(() => ti.GetPosition(), null);
+    if (p && Number(p.trackIndex) > 0) return Number(p.trackIndex);
+    const r = tryCall(() => ti.GetTrackTypeAndIndex(), null), i = r ? (Array.isArray(r) ? r[1] : r.trackIndex) : null;
+    if (Number(i) > 0) return Number(i);
+    const id = R.id(ti);
+    for (let t = 1, n = tl.GetTrackCount('video'); t <= n; t++) if (items(tl, t).some(x => R.id(x) === id)) return t;
+    return -1;
+  }
+  /** Every clip on the timeline as text, to see that adding a title moved nothing else. */
+  function layout(tl, skipId) {
+    const out = [];
+    for (const kind of ['video', 'audio']) for (let t = 1, n = tl.GetTrackCount(kind); t <= n; t++) {
+      for (const ti of R.list(tl.GetItemListInTrack(kind, t)).filter(Boolean)) if (R.id(ti) !== skipId) out.push(`${kind}${t}:${ti.GetStart()}-${ti.GetEnd()}`);
+    }
+    return out.sort().join(',');
+  }
+  const freeOn = (tl, t, f, e, skipId) => !items(tl, t).some(x => R.id(x) !== skipId && x.GetStart() < e && x.GetEnd() > f);
+  /** A video track named like the group with room for frames f–e; a new one on top, named so, when none has. */
+  function roomFor(tl, group, f, e, skipId) {
+    for (const t of textTracks(tl, group)) if (freeOn(tl, t, f, e, skipId)) return { t, named: true, made: false };
+    const n = tl.GetTrackCount('video');
+    if (!tryCall(() => tl.AddTrack('video'), false) || tl.GetTrackCount('video') <= n) throw R.err('HOST_SCRIPT', 'AddTrack video refused', 'Resolve didn’t add a video track.', 'Check the timeline isn’t locked, then try again.');
+    const t = tl.GetTrackCount('video');
+    tryCall(() => tl.SetTrackName('video', t, String(group)), false);
+    return { t, named: groupKey(tl.GetTrackName('video', t)) === groupKey(group), made: true };
+  }
+  /** A title's length in frames: its end moved with the right offset (the frames left after its end). */
+  function setLength(ti, frames) {
+    const now = ti.GetEnd() - ti.GetStart();
+    if (now === frames) return true;
+    const ro = Number(tryCall(() => ti.GetRightOffset(), NaN));
+    if (isFinite(ro)) tryCall(() => ti.SetRightOffset(Math.max(0, ro + now - frames), false, false), false);
+    return ti.GetEnd() - ti.GetStart() === frames;
+  }
+  /** Move a title to track t at frame f (SetPosition, else Timeline.MoveItems). */
+  function moveTo(tl, ti, t, f) {
+    if (trackOf(tl, ti) === t && ti.GetStart() === f) return true;
+    const pos = { trackIndex: t, startFrame: f };
+    if (!tryCall(() => ti.SetPosition(pos, false), false)) tryCall(() => tl.MoveItems([ti], pos, false), false);
+    return trackOf(tl, ti) === t && ti.GetStart() === f;
+  }
+  /** The words a Text+ title shows. */
+  function setWords(ti, words) {
+    const comp = tryCall(() => (ti.GetFusionCompCount() > 0 ? ti.GetFusionCompByIndex(1) : null), null);
+    if (!comp) return false;
+    let ok = false;
+    for (const t of Object.values(tryCall(() => comp.GetToolList(false, 'TextPlus'), {}) || {})) if (tryCall(() => { t.SetInput('StyledText', String(words)); return true; }, false)) ok = true;
+    return ok;
+  }
+  /** A title's name: the clip's name and the words it shows (either is enough for the list). */
+  function nameTitle(ti, name) { const a = !!tryCall(() => ti.SetName(String(name)), false); const b = setWords(ti, name); return a || b; }
+  const drop = (tl, ti) => { if (ti) tryCall(() => tl.DeleteClips([ti], false), false); };
+  /**
+   * A Text+ title over start–end (seconds) on a track named like the group, named and coloured. Inserted after the last
+   * frame (an insert there can't push the edit along), trimmed there, then moved into place. -> {ti, t, named} or null
+   * (the reason in log) when Resolve won't – nothing is left behind then.
+   */
+  async function placeTitle(tl, a, log) {
+    const f = R.tlFrame(tl, a.start), e = R.tlFrame(tl, a.end), group = String(a.track || RENDERS), pr = P(), was = pr.GetCurrentTimeline();
+    let ti = null, made = null;
+    try {
+      return await onEditPage(async () => {
+        R.open(tl);
+        const before = layout(tl, ''), keep = tryCall(() => tl.GetCurrentTimecode(), '');
+        if (!playheadTo(tl, tl.GetEndFrame())) { log.push('the playhead couldn’t go after the last frame'); return null; }
+        for (const kind of ['Text+', 'Text']) {
+          ti = tryCall(() => (kind === 'Text+' ? tl.InsertFusionTitleIntoTimeline(kind) : tl.InsertTitleIntoTimeline(kind)), null);
+          if (ti) break;
+          log.push(`no ${kind} title inserted`);
+        }
+        if (keep) tryCall(() => tl.SetCurrentTimecode(keep), false);
+        if (!ti) return null;
+        if (layout(tl, R.id(ti)) !== before) {
+          drop(tl, ti);
+          throw R.err('HOST_SCRIPT', 'Inserting a title moved other clips', 'Resolve moved clips while adding the title.', 'Press Cmd+Z (Ctrl+Z on Windows) in Resolve to undo, then add the range as a range marker.');
+        }
+        if (!setLength(ti, e - f)) { log.push(`the title’s length couldn’t be set (${ti.GetEnd() - ti.GetStart()} frames, not ${e - f})`); drop(tl, ti); return null; }
+        made = roomFor(tl, group, f, e, R.id(ti));
+        if (!moveTo(tl, ti, made.t, f)) {
+          log.push(`the title couldn’t be moved to V${made.t} at ${f}`); drop(tl, ti);
+          if (made.made && !items(tl, made.t).length) tryCall(() => tl.DeleteTrack('video', made.t), false);
+          return null;
+        }
+        if (!nameTitle(ti, a.name)) log.push('the title’s name couldn’t be set');
+        tryCall(() => ti.SetClipColor(clipColourOf(R.num(a.label)) || clipColourOf(RANGE_LABEL)), false);
+        return { ti, t: made.t, named: made.named };
+      });
+    } finally { if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was); }
+  }
+  /** Move or trim a title to frames f–e: shorter first, then moved (to another track of the group if its own is busy), then longer. */
+  function retime(tl, ti, f, e, group) {
+    const id = R.id(ti);
+    if (e - f < ti.GetEnd() - ti.GetStart() && !setLength(ti, e - f)) return false;
+    let t = trackOf(tl, ti);
+    if (!freeOn(tl, t, f, e, id)) t = roomFor(tl, group, f, e, id).t;
+    if (!moveTo(tl, ti, t, f)) return false;
+    return setLength(ti, e - f);
   }
   function needText(tl, a) {
     for (const t of textTracks(tl, a.track)) for (const ti of items(tl, t)) if (TEXT_ID + R.id(ti) === String(a.nodeId)) return ti;
@@ -259,23 +374,41 @@ module.exports = function (R) {
       ts.forEach((t, k) => tl.SetTrackEnable('video', t, a.states && a.states.length === ts.length ? !!a.states[k] : !!a.on));
       return { track: ts[0] - 1, was, states };
     },
-    /** Premiere's “new track on top for render ranges”: in Resolve a group of range markers needs nothing made – just a
-        name no other group has. a: {seqId, name?} → {index, name, named, log} */
+    /**
+     * Premiere's “new track on top for render ranges”. Range markers: a group needs nothing made – just a name no other
+     * group has. Text titles (a.kinds 'text' or 'both'): a new video track on top with that name.
+     * a: {seqId, name?, kinds?} → {index, name, named, log}
+     */
     addRangeTrack(a) {
-      const have = new Set();
-      for (const m of Object.values(R.markers(R.needSeq(a.seqId)))) { const g = m && groupOf(m.customData); if (g) have.add(String(g).toLowerCase()); }
+      const tl = R.needSeq(a.seqId), have = new Set();
+      for (const m of Object.values(R.markers(tl))) { const g = m && groupOf(m.customData); if (g) have.add(String(g).toLowerCase()); }
+      const titles = a.kinds === 'text' || a.kinds === 'both';
+      if (titles) for (let t = 1, n = tl.GetTrackCount('video'); t <= n; t++) have.add(String(tl.GetTrackName('video', t) || '').trim().toLowerCase());
       const base = String(a.name || RENDERS).trim() || RENDERS;
       let name = base, k = 2; while (have.has(name.toLowerCase())) name = `${base} ${k++}`;
-      return { index: -1, name, named: true, log: [] };
+      if (!titles) return { index: -1, name, named: true, log: [] };
+      const n = tl.GetTrackCount('video');
+      if (!tryCall(() => tl.AddTrack('video'), false) || tl.GetTrackCount('video') <= n) throw R.err('HOST_SCRIPT', 'AddTrack video refused', 'Resolve didn’t add a video track.', 'Check the timeline isn’t locked, then try again.');
+      const t = tl.GetTrackCount('video');
+      tryCall(() => tl.SetTrackName('video', t, name), false);
+      const got = String(tl.GetTrackName('video', t) || '');
+      return { index: t - 1, name: groupKey(got) === groupKey(name) ? name : got, named: groupKey(got) === groupKey(name), log: [] };
     },
     /**
      * Add a render range: a duration marker over start–end, named, in group a.track ("Renders" by default) and the
      * colour of Premiere label a.label (else fuchsia). A marker can't share a frame with another, so a clash moves it
-     * on a frame. a: {seqId, name, start, end, track?, label?} → {track, named, kind:'marker', placed, renamed, log}
+     * on a frame. With a.as 'text' (Premiere: a text layer) it's a Text+ title showing its name on a video track named
+     * like the group (made on top the first time); if Resolve won't place one, a marker as above (log says why).
+     * a: {seqId, name, start, end, track?, label?, as?} → {track, named, kind:'marker'|'text', placed, renamed, log}
      */
-    addRenderRange(a) {
+    async addRenderRange(a) {
       const tl = R.needSeq(a.seqId), fps = R.fps(tl), log = [], start = R.num(a.start), end = R.num(a.end);
       if (start == null || end == null || !(end > start)) throw R.err('BAD_INPUT', 'Empty range ' + a.start + '–' + a.end, 'That range is empty.', 'Set In and Out points around the part to render, or move the playhead into the edit.');
+      if (a.as === 'text') {
+        const got = await placeTitle(tl, { name: String(a.name || 'Render'), start, end, track: a.track, label: a.label }, log);
+        if (got) return { track: got.t - 1, named: got.named, kind: 'text', placed: 1, renamed: 1, log };
+        log.unshift('added as a range marker: Resolve didn’t place the title');
+      }
       const taken = new Set(Object.keys(R.markers(tl)).map(Number)), label = R.num(a.label);
       const r = putRange(tl, fps, { name: a.name, start, end, colour: label != null && LABEL_MARKER[label] ? LABEL_MARKER[label] : RANGE_COLOR, note: 'Ultra Studio render range: its length is the part that renders, its name the file name.', customData: tagFor(a.track || RENDERS) }, taken);
       if (!r.ok) throw R.err('HOST_SCRIPT', `AddMarker at ${r.frame} refused${r.why ? ': ' + r.why : ''}`, 'Resolve didn’t add the render range.', 'Check the timeline isn’t locked, then try again.');
@@ -285,11 +418,17 @@ module.exports = function (R) {
     /** Change a range: name, colour (Premiere label), start, end – the marker is laid again with the same id. a: {seqId, track, nodeId, name?, label?, start?, end?} → {range, log} */
     editRenderRange(a) {
       if (String(a.nodeId).indexOf(TEXT_ID) === 0) {
-        // a text title: its colour can change here; its name and times are changed in the Timeline
-        const tl = R.needSeq(a.seqId), ti = needText(tl, a), label = R.num(a.label);
-        if (a.name != null || a.start != null || a.end != null) throw R.err('BAD_INPUT', 'Text ranges are edited in Resolve', 'Change that title in the Timeline.', 'Resolve doesn’t let add-ons rename or move titles: type the new name in the title, or drag its ends. The list follows by itself.');
-        if (label != null && LABEL_MARKER[label]) ti.SetClipColor(LABEL_MARKER[label]);
-        return { range: textRanges(tl, R.fps(tl), a.track).find(r => r.nodeId === String(a.nodeId)) || null, log: [] };
+        // a text title: renamed (its clip name and words), moved and trimmed in place, recoloured – the same title
+        const tl = R.needSeq(a.seqId), ti = needText(tl, a), label = R.num(a.label), fps = R.fps(tl), t0 = tl.GetStartFrame();
+        const name = a.name != null ? String(a.name).trim() : '';
+        if (name && !nameTitle(ti, name)) throw R.err('HOST_SCRIPT', 'SetName and StyledText refused', 'Resolve didn’t rename that title.', 'Type the new name in the title (Inspector) instead – the list follows by itself.');
+        if (R.num(a.start) != null || R.num(a.end) != null) {
+          const f = R.num(a.start) != null ? R.tlFrame(tl, R.num(a.start)) : ti.GetStart(), e = R.num(a.end) != null ? R.tlFrame(tl, R.num(a.end)) : ti.GetEnd();
+          if (!(e > f) || f < t0) throw R.err('BAD_INPUT', 'Range ' + (f - t0) / fps + '–' + (e - t0) / fps, 'That range is empty.', 'Make the end later than the start.');
+          if (!retime(tl, ti, f, e, a.track || RENDERS)) throw R.err('HOST_SCRIPT', `Title not moved to ${f}–${e} (now ${ti.GetStart()}–${ti.GetEnd()})`, 'Resolve didn’t move that title.', 'Drag its ends in the Timeline instead – the list follows by itself.');
+        }
+        if (clipColourOf(label)) ti.SetClipColor(clipColourOf(label));
+        return { range: textRanges(tl, fps, a.track).map(({ track, ...r }) => r).find(r => r.nodeId === String(a.nodeId)) || null, log: [] };
       }
       const tl = R.needSeq(a.seqId), fps = R.fps(tl), hit = needRange(tl, a), old = rangeOf(fps, hit.frame, hit.m), log = [];
       const start = R.num(a.start) != null ? R.num(a.start) : old.start, end = R.num(a.end) != null ? R.num(a.end) : old.end;

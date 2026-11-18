@@ -465,17 +465,19 @@
       async function fillTracks(seq) {
         let tracks = [];
         try { tracks = (await US.host.call('rangeTracks', { seqId: seq.id, all: !inResolve(), kinds: ro.kinds })).tracks || []; } catch (e) { /* older host */ }
-        // Premiere: every video track, top first – “V3 · Renders · 4 layers”; Resolve: the groups of range markers
+        // Premiere: every video track, top first – “V3 · Renders · 4 layers”; Resolve: the groups of range markers (and
+        // the tracks of titles)
         const name = t => (inResolve() ? t.name : `V${t.index + 1}${/^video \d+$/i.test(t.name) || !t.name ? '' : ' · ' + t.name}`);
         const opts = tracks.map(t => ({ value: t.name, label: `${name(t)} · ${t.count ? US.plural(t.count, inResolve() ? 'range' : 'layer') : 'no layers'}` }));
         if (!opts.some(o => o.value.toLowerCase() === String(ro.track || 'Renders').toLowerCase())) opts.unshift({ value: ro.track || 'Renders', label: `${ro.track || 'Renders'} (made on top when you add a range)` });
-        if (!inResolve()) opts.push({ value: NEW_TRACK, label: '＋ New track on top for render ranges' });
+        // Resolve: a real track only for titles (a new group of markers needs nothing made)
+        if (!inResolve() || (ro.kinds || 'adjustment') !== 'adjustment') opts.push({ value: NEW_TRACK, label: '＋ New track on top for render ranges' });
         trackSel.setOptions(opts, ro.track || 'Renders');
       }
       async function newTrack() {
         const s = US.ctx.sequence; if (!s) { ui.showError(new US.UserError('NO_SEQUENCE')); return; }
         try {
-          const r = await US.host.call('addRangeTrack', { seqId: s.id, name: 'Renders' });
+          const r = await US.host.call('addRangeTrack', { seqId: s.id, name: 'Renders', kinds: ro.kinds });
           ro.track = r.name; ro.colour = ''; saveRo();
           ui.toast({ type: 'ok', title: `New track “${r.name}” on top (V${r.index + 1})`, text: r.named ? 'Render ranges you add now go on it.' : 'Premiere didn’t let Ultra Studio name it, so it keeps its own name – that’s fine.', timeout: 6000 });
         } catch (e) { ui.showError(e); }
@@ -533,9 +535,9 @@
         return h('div.list-row.clickable' + (p ? '' : '.muted'), { title: 'Go to this range', onclick: () => US.host.call('setPlayhead', { seqId: s.id, seconds: r.start }).catch(e => ui.showError(e)) },
           h('span.swatch', { style: { background: colour } }),
           h('div.list-main', h('div.list-title', p ? p.name : r.name), h('div.list-sub', `${tcOf(s, r.start, zero)} – ${tcOf(s, r.end, zero)} · ${US.fmtDur(r.end - r.start)}${p ? '' : r.disabled ? ' · switched off' : ' · not rendered'}`)),
-          h('div.songs-actions', r.kind === 'text' ? h('span.pill', { title: inResolve() ? 'A Text title: rename or move it in the Timeline' : 'A text layer: its name is the words it shows' }, 'Text') : null,
-            inResolve() && r.kind === 'text' ? null : btn('Rename', 'Give this range (and its file) a name', async () => { const nm = await ui.promptText({ title: 'Render range name', value: r.name, ok: 'Rename' }); if (nm && nm.trim() && nm.trim() !== r.name) edit({ name: nm.trim() }, `Renamed to “${nm.trim()}”`); }),
-            inResolve() && r.kind === 'text' ? null : btn('Times…', 'Change where it starts and ends', async () => {
+          h('div.songs-actions', r.kind === 'text' ? h('span.pill', { title: inResolve() ? 'A Text+ title: its name is the words it shows' : 'A text layer: its name is the words it shows' }, 'Text') : null,
+            btn('Rename', 'Give this range (and its file) a name', async () => { const nm = await ui.promptText({ title: 'Render range name', value: r.name, ok: 'Rename' }); if (nm && nm.trim() && nm.trim() !== r.name) edit({ name: nm.trim() }, `Renamed to “${nm.trim()}”`); }),
+            btn('Times…', 'Change where it starts and ends', async () => {
               const t = await ui.promptText({ title: 'Start and end', label: 'As the Timeline shows them, e.g. ' + tcOf(s, r.start, zero) + ' – ' + tcOf(s, r.end, zero) + '. “In/Out” uses your In and Out points.', value: tcOf(s, r.start, zero) + ' – ' + tcOf(s, r.end, zero), ok: 'Change' });
               if (t == null) return;
               let a, b;
@@ -558,11 +560,11 @@
           const span = newRangeSpan(info, s.playhead);
           const name = rangeName.value.trim() || `Render ${have + 1}`;
           const label = newColour.get() === '' ? undefined : Number(newColour.get());
-          const asText = !inResolve() && ro.kinds === 'text';
+          const asText = ro.kinds === 'text';
           const r = await US.host.call('addRenderRange', Object.assign({ seqId: s.id, name, track: ro.track || undefined, label }, asText ? { as: 'text' } : {}, span));
           if (!r.placed) throw new US.UserError('HOST_SCRIPT', { title: 'Premiere didn’t place the render range.', action: 'Check the sequence isn’t locked, then try again.', detail: r.log.join('\n') });
           if (!r.named) ui.toast({ type: 'info', title: `Name the new top track “${ro.track || 'Renders'}”`, text: `Premiere didn’t let Ultra Studio name it. Double-click the track name in the Timeline and type ${ro.track || 'Renders'} – only that track’s layers are rendered.`, timeout: 15000 });
-          if (inResolve() && ro.kinds === 'text') ui.toast({ type: 'info', title: 'Added as a range marker', text: 'Resolve doesn’t let add-ons place titles, so the range is a marker with a length. To use a title, add a Text+ to the track yourself.', timeout: 10000 });
+          if (asText && r.kind === 'marker') { ui.toast({ type: 'info', title: 'Added as a range marker', text: 'Resolve didn’t place the title, so the range is a marker with a length (it renders just the same). Choose “Range markers” or “Both” above to see it.', timeout: 12000 }); US.log('warn', 'Render range added as a marker', (r.log || []).join('\n'), 'deliver'); }
           if (r.kind !== 'adjustment' && r.kind !== 'marker' && r.kind !== 'text') ui.toast({ type: 'info', title: 'Added as an invisible clip', text: 'There’s no adjustment layer in this project, so the range is an invisible clip instead. It renders just the same. Add one with File › New › Adjustment Layer if you’d rather.', timeout: 12000 });
           if (label != null) layerColours.remember(s.id, ro.track, [Object.assign({ name, label }, span)]);
           rangeName.value = '';
@@ -580,7 +582,7 @@
         ui.card(h('div.row', h('div.grow.card-title', 'Render ranges'), ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => { shownSig = ''; showRanges(); } })),
           ui.field('Ranges are', ui.segmented({ options: inResolve() ? [{ value: 'adjustment', label: 'Range markers' }, { value: 'text', label: 'Text titles' }, { value: 'both', label: 'Both' }] : [{ value: 'adjustment', label: 'Adjustment layers' }, { value: 'text', label: 'Text layers' }, { value: 'both', label: 'Both' }],
             value: ro.kinds || 'adjustment', onChange: x => { ro.kinds = x; ro.colour = ''; saveRo(); hideTextRow.classList.toggle('hidden', x === 'adjustment'); shownSig = ''; showRanges(); } }),
-            inResolve() ? 'Text titles count when they’re on a video track named like the ranges (e.g. “Renders”); the file is named after the title.' : 'Text layers show their name in the Timeline: each one’s length is a render, named after the words it shows. “Add a render range” then adds a text layer.'),
+            inResolve() ? 'Text titles count when they’re on a video track named like the ranges (e.g. “Renders”); the file is named after the title. “Add a render range” then adds a Text+ title.' : 'Text layers show their name in the Timeline: each one’s length is a render, named after the words it shows. “Add a render range” then adds a text layer.'),
           hideTextRow,
           h('div.grid2', ui.field(inResolve() ? 'Ranges' : 'Track', trackSel, inResolve() ? '' : 'The video track whose layers are the ranges – or a new one on top.'), ui.field('Colour', colourSel, 'Render only the layers of one colour.')),
           rangeTrackLine, rangeList,
@@ -591,7 +593,7 @@
           ui.toggle({ label: 'Start rendering straight away', hint: inResolve() ? 'Off: the renders wait in the Render Queue on the Deliver page until you press Render All.' : 'Off: the renders wait in Media Encoder’s queue until you press its green Start button.', value: !ro.queueOnly, onChange: x => { ro.queueOnly = !x; saveRo(); } }),
           ui.toggle({ label: 'Replace earlier renders with the same name', hint: 'Off: a new copy is saved as “Name (2)”.', value: !!ro.replace, onChange: x => { ro.replace = x; saveRo(); } }),
           folderRow()),
-        ui.note(inResolve() ? 'Each render range is a marker with a length on the timeline: its length is the part that renders, its name becomes the file name, and they render one after another in timeline order. Change or delete them here or in the Timeline.' : 'Each adjustment layer on the chosen track marks one render: its length is the part that exports, its name becomes the file name, and they all go to Media Encoder in timeline order. Switch a layer off (Enable in the Timeline) to skip it. Effects you add to a layer show in that render only.'),
+        ui.note(inResolve() ? 'Each render range is a marker with a length on the timeline (or a Text+ title, with “Text titles”): its length is the part that renders, its name becomes the file name, and they render one after another in timeline order. Change or delete them here or in the Timeline.' : 'Each adjustment layer on the chosen track marks one render: its length is the part that exports, its name becomes the file name, and they all go to Media Encoder in timeline order. Switch a layer off (Enable in the Timeline) to skip it. Effects you add to a layer show in that render only.'),
         rangeBtn, rangeOpen);
       // refresh by the clock while Render ranges is on screen (layers added or changed in the Timeline show up)
       setInterval(() => { if (!panes.ranges.classList.contains('hidden') && !v.el.closest('.hidden') && !document.hidden && !US.jobs.current) showRanges(true); }, 3000);

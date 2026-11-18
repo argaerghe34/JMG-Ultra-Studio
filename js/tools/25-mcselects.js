@@ -1,6 +1,7 @@
 /* JMG Ultra Studio – MC Selects: from a cut multicam edit, a new sequence of just the cameras you keep (say the two
    roaming cameras, not the static stage ones), each piece exactly as you cut it, back to back in edit order.
-   Premiere doesn't tell scripts which camera a multicam cut shows, so it's read from the saved project file. */
+   Premiere doesn't tell scripts which camera a multicam cut shows, so it's read from the saved project file; Resolve's
+   mcRead reads it from the timeline's FCPXML export and gives each cut its angle. */
 (function () {
   'use strict';
   const US = window.US, h = US.h, ui = US.ui;
@@ -186,14 +187,20 @@ public static class UsThumb {
   const keepOf = o => name => (o.cameras[name] || {}).keep !== false;
   const labelOf = o => name => { const v = (o.cameras[name] || {}).label; return v === '' || v == null ? null : Number(v); };
 
-  /** Read the edit and its cameras (saves the project first, so the file holds your latest camera choices). */
+  /** The angle of each cut that the host gave with it (Resolve) – the same Map as activeAngles. */
+  const anglesOfCuts = read => new Map(read.cuts.filter(c => c.angle != null).map(c => [c.startTicks + '|' + c.endTicks, Number(c.angle)]));
+  /** Read the edit and its cameras (Premiere: saves the project first, so the file holds your latest camera choices). */
   async function readEdit(seqId, job) {
     job.set({ who: 'premiere', msg: 'Reading the multicam cuts' });
     const read = await US.host.call('mcRead', { seqId });
     if (!read.cuts.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no multicam clips on V1 of this sequence.', action: 'Open your cut multicam sequence (the multicam clip on V1), then try again.' });
-    job.set({ msg: 'Saving the project, then reading which camera each cut shows' });
-    const pr = await US.host.call('storyProjectFile', { save: true });
-    const angles = activeAngles(readProjectFile(pr.path), seqId);
+    let angles;
+    if (US.app.is('resolve')) angles = anglesOfCuts(read);
+    else {
+      job.set({ msg: 'Saving the project, then reading which camera each cut shows' });
+      const pr = await US.host.call('storyProjectFile', { save: true });
+      angles = activeAngles(readProjectFile(pr.path), seqId);
+    }
     return { read, angles, cams: cameras(read, angles) };
   }
 
@@ -212,10 +219,8 @@ public static class UsThumb {
   /* ---------- the tool ---------- */
   US.tools.register({
     id: 'mcselects', name: 'MC Selects', short: 'MC Sel', icon: 'cameras', group: 'selects', order: 12,
-    // Premiere only: Resolve's scripting can't say which camera a multicam cut shows (dev/RESOLVE.md)
-    apps: ['premiere'],
     blurb: 'From your cut multicam edit, a sequence of just the cameras you keep, each clip as you cut it.',
-    hostFns: ['mcRead', 'mcBuild', 'storyProjectFile', 'newSequence', 'placeClips'],
+    hostFns: ['mcRead', 'mcBuild', 'newSequence', 'placeClips'].concat(US.app && US.app.is('resolve') ? [] : ['storyProjectFile']),
     create() {
       const v = ui.toolView({ icon: 'cameras', title: 'MC Selects', blurb: 'Keep the cameras you want from your cut multicam edit, say the roaming cameras and not the static stage ones. Each clip is exactly what you cut to, back to back in edit order, in a new sequence.' });
       const seqLine = h('div.field-hint'), list = h('div'), note = h('div');
@@ -254,7 +259,7 @@ public static class UsThumb {
         const s = US.ctx.sequence; if (!s) return ui.showError(new US.UserError('NO_SEQUENCE'));
         await US.jobs.run({ title: 'Making the MC Selects sequence', tool: 'mcselects' }, job => build(s.id, opts(), job));
       });
-      note.appendChild(ui.note('Ultra Studio saves the project first: Premiere only writes down which camera each cut shows when it saves. Your edit isn’t changed. The new sequence goes in “JMG Ultra Studio › MC Selects”.'));
+      note.appendChild(ui.note(US.app.is('resolve') ? 'Ultra Studio reads which angle each cut shows from an FCPXML of the timeline (a temporary file, deleted after). Your edit isn’t changed. The new timeline goes in “JMG Ultra Studio › MC Selects”.' : 'Ultra Studio saves the project first: Premiere only writes down which camera each cut shows when it saves. Your edit isn’t changed. The new sequence goes in “JMG Ultra Studio › MC Selects”.'));
       function renderCtx() { seqLine.textContent = US.ctx.sequence ? `Sequence: ${US.ctx.sequence.name}` : 'Open your cut multicam sequence in the Timeline first.'; }
       US.bus.on('context', renderCtx);
       v.body.append(seqLine, ui.card(h('div.row', h('div.grow.card-title', 'Cameras – keep or reject'), readBtn), thumbsToggle, list, totals), ui.card(audio), note, go);
@@ -264,12 +269,12 @@ public static class UsThumb {
   });
 
   US.actions.register({
-    id: 'mcselects.make', tool: 'mcselects', title: 'Make MC Selects from the multicam edit', changes: true, apps: ['premiere'],
+    id: 'mcselects.make', tool: 'mcselects', title: 'Make MC Selects from the multicam edit', changes: true,
     describe: 'From the open multicam edit, makes a new sequence of only the cameras kept in MC Selects, each clip as cut, back to back.',
     examples: ['make the multicam selects', 'pull the roaming camera shots out of the multicam'],
     match: t => /multi-?cam|mc selects/i.test(t) && /select|pull|keep|extract|roaming|b-?roll/i.test(t) ? { _score: 2 } : null,
     run: (p, job) => { const s = US.ctx.sequence; if (!s) throw new US.UserError('NO_SEQUENCE'); return build(s.id, opts(), job); }
   });
 
-  US.mcSelects = { activeAngles, cameras, plan, cameraName, readProjectFile, modelFromBytes, cameraModel, thumbnail };
+  US.mcSelects = { activeAngles, anglesOfCuts, readEdit, build, cameras, plan, cameraName, readProjectFile, modelFromBytes, cameraModel, thumbnail };
 })();
