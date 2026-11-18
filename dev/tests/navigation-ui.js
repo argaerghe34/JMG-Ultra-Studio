@@ -80,6 +80,15 @@ async function reachable() {
     out.modes[mode] = { railButtons: $$('.rail .rail-btn').length, missing, actionsMissing, how };
   }
   US.settings.set('ui.classicRail', false);
+  // ⌘K: every tool and every action is found by its own name, and the header's magnifier opens the box
+  const found = q => US.search.results(q).map(e => e.id);
+  out.searchMissingTools = US.tools.list().filter(d => !d.hidden || d.id === 'settings').filter(d => !found(d.name).includes('tool:' + d.id)).map(d => d.id);
+  out.searchMissingActions = US.actions.list().filter(a => !found(a.title).includes('action:' + a.id)).map(a => a.id);
+  const mag = $$('.header .icon-btn').find(b => b.dataset.search);
+  if (mag) { mag.click(); await tick(); }
+  out.searchOpens = !!w.document.querySelector('.search-scrim .search-input');
+  out.searchEmptyShowsTools = $$('.search-item').length >= 10;
+  if (US.search.close) US.search.close();
   out.places = US.PLACES.map(p => ({ id: p.id, tools: (p.id === 'advanced' ? ['advanced'] : US.placeTools(p.id).map(d => d.id)) }));
   out.advanced = US.ADVANCED_TOOLS.concat(US.PAUSED_TOOLS);
   out.errors = errors;

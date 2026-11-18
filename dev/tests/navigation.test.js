@@ -26,6 +26,14 @@ test('every tool can be reached by clicking – places and Classic rail', () => 
   }
 });
 
+test('⌘K finds every tool and every action by its name, and the header’s magnifier opens it', () => {
+  const r = nav();
+  assert.deepStrictEqual(r.searchMissingTools, [], 'search can’t find these tools: ' + r.searchMissingTools.join(', '));
+  assert.deepStrictEqual(r.searchMissingActions, [], 'search can’t find these actions: ' + r.searchMissingActions.join(', '));
+  assert.ok(r.searchOpens, 'the header’s search button didn’t open the box');
+  assert.ok(r.searchEmptyShowsTools, 'an empty search should list the tools');
+});
+
 test('the rail as places is short; Classic rail keeps one button per tool', () => {
   const r = nav();
   assert.ok(r.modes.places.railButtons <= 9, 'places rail has ' + r.modes.places.railButtons + ' buttons');

@@ -180,6 +180,7 @@
         US.build ? h('span.unpublished-tag', { title: `Not a released version – ${US.build.dev ? 'running straight from the source folder' : `a test copy${US.build.at ? ' from ' + new Date(US.build.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}${US.build.from ? ` (${US.build.from})` : ''}`}. Install a release to go back.` }, 'unpublished') : null)),
       h('div.ctx', els.ctxProject, els.ctxSeq),
       els.aiChip = h('button.ai-chip', { onclick: () => open('settings', { section: 'ai' }) }),
+      h('button.icon-btn', { title: `Search everything – tools, actions, interviews, settings (${US.fsx && US.fsx.isWin ? 'Ctrl' : '⌘'}K)`, dataset: { search: '1' }, onclick: () => US.search && US.search.open() }, US.icon('search', 16)),
       h('button.icon-btn', { title: 'Reload Ultra Studio – picks up a new version or test copy without closing the panel', onclick: () => reloadPanel() }, US.icon('refresh', 16)),
       h('button.icon-btn', { title: 'Activity log', onclick: () => toggleLog() }, US.icon('log', 16)),
       h('button.icon-btn', { title: 'Settings', onclick: () => open('settings') }, US.icon('gear', 16)));
