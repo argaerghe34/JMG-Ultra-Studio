@@ -2011,8 +2011,18 @@
     const ts = scopeTranscripts(await linesInScope(job));
     if (!ts.length) throw new US.UserError('NOTHING_FOUND', { title: 'There are no lines to read.', action: 'Choose what to work on in Story › 1 Interviews.' });
     // the first message is always the transcripts + the original request, so a follow-up reads it from the cache
-    const reqs = CTX().requests(ts, { feature: 'Ask', maxTokens: 16000, effort: 'medium', task: (k, n) => A().task(prev ? prev.request : request, k, n) });
-    const rounds = prev ? prev.rounds.concat([{ text: request }]) : [{ text: request }], r = rounds.length - 1;
+    // “what haven’t I used yet?”: the open sequence is the cut – its lines are named to the AI and left out of the answer
+    const round = { text: request }, wantCut = A().asksUnused(request);
+    let cut = null;
+    if (wantCut) {
+      const seq = US.ctx && US.ctx.sequence;
+      if (!seq) throw new US.UserError('NO_SEQUENCE', { title: US.say('Open the sequence that is your cut first.'), action: 'Then ask again – the answer leaves out what’s already in it.' });
+      cut = await cutLines(job, seq.id);
+      if (!cut.heard.size) throw new US.UserError('NOTHING_FOUND', { title: `None of your interviews are heard in “${cut.name}”.`, action: US.say('Open the sequence that is your cut, then ask again.') });
+      round.notes = CTX().parts(ts).map(p => A().cutNote(p, cut.heard));
+    } else if (prev && prev.cut) { try { cut = await cutLines(job, prev.cut.seqId); } catch (e) { cut = null; } }
+    const rounds = prev ? prev.rounds.concat([round]) : [round], r = rounds.length - 1, noteOf = (j, k) => (rounds[j].notes || [])[k] || '';
+    const reqs = CTX().requests(ts, { feature: 'Ask', maxTokens: 16000, effort: 'medium', task: (k, n) => A().task(prev ? prev.request : request, k, n) + noteOf(0, k) });
     if (reqs.length > 1 && US.ai.approveTotal) await US.ai.approveTotal(SAI().cost(reqs.map(b => b.req)).usd, `Ask (${reqs.length} parts)`);
     const out = [], missing = [];
     for (let k = 0; k < reqs.length; k++) {
@@ -2020,7 +2030,7 @@
       job && job.set && job.set({ who: 'ai', msg: reqs.length > 1 ? `${US.ai.label()} is reading part ${k + 1} of ${reqs.length}` : `${US.ai.label()} is reading ${US.plural(reqs[k].lines.length, 'line')}` });
       job && job.progress && job.progress(0.05 + 0.9 * k / reqs.length);
       const turns = [];
-      for (let j = 1; j <= r; j++) turns.push({ assistant: JSON.stringify((rounds[j - 1].parts || [])[k] || { answer: '', groups: [] }), user: A().followUp(rounds[j].text) });
+      for (let j = 1; j <= r; j++) turns.push({ assistant: JSON.stringify((rounds[j - 1].parts || [])[k] || { answer: '', groups: [] }), user: A().followUp(rounds[j].text) + noteOf(j, k) });
       const info = {}, ans = await SAI().ask(Object.assign({}, reqs[k].req, { turns }), info);
       if (!ans) missing.push({ part: k + 1, of: reqs.length, lines: reqs[k].lines.length, name: `Interviews ${reqs[k].part.map(p => p.n).join(', ')}`, error: info.error });
       out.push(ans || { answer: '', groups: [] });
@@ -2028,13 +2038,45 @@
     if (missing.length === reqs.length) throw missing[0].error || new US.UserError('AI_FAILED');
     rounds[r].parts = out;
     const result = A().organise(out, askIdx());
+    // asked for what isn't in the cut (now or earlier in this conversation): clips wholly in it never come back
+    if (cut && rounds.some(x => x.notes)) result.groups = A().withoutCut(result.groups, askIdx(), cut.heard);
     result.groups.forEach((g, i) => { g.label = THEME_PALETTE[i % THEME_PALETTE.length]; });
     const ask = prev || { id: US.uid('ask'), request, at: Date.now() };
     Object.assign(ask, { rounds, result, scope: scopeLabel(), by: US.ai.label(), updated: Date.now(), missing: SAI().missingNote(missing) });
+    if (cut) ask.cut = cutOf(ask, cut); else delete ask.cut;
     state.asks = [ask].concat(state.asks.filter(x => x !== ask)).slice(0, 20);
     saveNow();
     const t = A().totals(result.groups, askIdx());
     return { ask, summary: result.groups.length ? `${US.plural(result.groups.length, 'group')} · ${US.plural(t.clips, 'clip')} · ${US.fmtDur(t.seconds)}` : 'Answered in words – no clips' };
+  }
+  /** The lines of the interviews heard in a sequence (your cut) -> {seqId, name, heard: Set of line ids}. */
+  async function cutLines(job, seqId) {
+    const tl = await timelineTranscript(job, { seqId, tracks: 'auto' });
+    return { seqId, name: tl.info.name, heard: new Set(tl.result.entries.map(e => e.lineId)) };
+  }
+  /** What's kept with an answer about a cut: which sequence, when, and which of the answer's lines are in it. */
+  function cutOf(a, cut) {
+    const ids = new Set(a.result.groups.flatMap(g => askSpans(g).flatMap(s => s.lineIds)));
+    return { seqId: cut.seqId, name: cut.name, at: Date.now(), used: [...ids].filter(id => cut.heard.has(id)) };
+  }
+  /** Check an answer against a sequence (the open one unless given): each clip already in it gets marked on the card. */
+  async function askCut(job, { askId, seqId = null }) {
+    const a = askById(askId);
+    seqId = seqId || (US.ctx && US.ctx.sequence && US.ctx.sequence.id);
+    if (!seqId) throw new US.UserError('NO_SEQUENCE', { title: US.say('Open the sequence that is your cut first.') });
+    const cut = await cutLines(job, seqId);
+    a.cut = cutOf(a, cut); saveNow();
+    const t = A().cutTotals(a.result.groups, askIdx(), cut.heard);
+    return { cut: a.cut, totals: t, summary: t.all || t.part ? `${t.all} of ${US.plural(t.clips, 'clip')} already in “${cut.name}”${t.part ? ` · ${t.part} partly` : ''}` : `None of these clips are in “${cut.name}” yet` };
+  }
+  /** Take the clips that are wholly in the cut out of an answer. -> how many went */
+  function askLeaveOut(askId) {
+    const a = askById(askId);
+    if (!a.cut) return 0;
+    const idx = askIdx(), before = A().totals(a.result.groups, idx).clips;
+    a.result.groups = A().withoutCut(a.result.groups, idx, new Set(a.cut.used));
+    a.updated = Date.now(); saveNow();
+    return before - A().totals(a.result.groups, idx).clips;
   }
   function askById(id) { loadState(); const a = (state.asks || []).find(x => x.id === id); if (!a) throw new US.UserError('NOT_FOUND', { title: 'That answer isn’t here any more.', action: 'Ask again.' }); return a; }
   /** Each clip as one span from its first line to its last (its lead first, when wanted). */
@@ -2213,13 +2255,15 @@
       if (!ls.length) return null;
       const first = ls[0], last = ls[ls.length - 1], t = clipOfLine.get(first.id), multi = new Set(ls.map(l => l.speaker)).size > 1;
       const main = (ls.find(l => l.id === it.from) || first).speaker;
+      const used = a.cut ? A().inCut(it, idx, new Set(a.cut.used)) : '';
       const text = h('div.story-text.story-q-text.clamp', { title: 'Click to show it all', onclick: () => text.classList.toggle('clamp') },
         ls.map(l => h('span' + (l.id === it.lead ? '.story-q-asked' : ''), (multi ? `${speakerName(l.speaker)}: ` : '') + l.text + ' ')));
       const btn = (icon, title, fn) => h('button.icon-btn', { title, onclick: e => { e.stopPropagation(); fn(); } }, US.icon(icon, 13));
       return h('div.story-row.story-q-row',
         h('span.story-bar', { style: { background: labelHex(g.label) } }),
         h('div.story-main', text, it.note ? h('div.story-why', it.note) : null,
-          h('div.story-meta', `${[speakerName(main) !== speakerName('') ? speakerName(main) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(first.start)}–${US.fmtDur(last.end)} · ${US.fmtDur(last.end - first.start)}`)),
+          h('div.story-meta', `${[speakerName(main) !== speakerName('') ? speakerName(main) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(first.start)}–${US.fmtDur(last.end)} · ${US.fmtDur(last.end - first.start)}`,
+            used ? h('span.ask-incut' + (used === 'part' ? '.part' : ''), { title: `${used === 'part' ? 'Some of this clip is' : 'This clip is'} already heard in “${a.cut.name}”` }, used === 'part' ? 'partly in your cut' : 'in your cut') : null)),
         h('button.icon-btn', { title: RES ? 'Play this clip here' : 'Play in the Source Monitor', onclick: e => { e.stopPropagation(); cueLine(first); } }, US.icon('play', 15)),
         h('div.ask-moves', btn('up', 'Earlier', () => { move(g.items, i, -1); changed(); }), btn('down', 'Later', () => { move(g.items, i, 1); changed(); })),
         btn('close', 'Take this clip out', () => { g.items.splice(i, 1); if (!g.items.length) a.result.groups = a.result.groups.filter(x => x !== g); changed(); }));
@@ -2257,6 +2301,16 @@
       wrap.appendChild(ui.toggle({ label: 'Start each clip with the line before it when it’s needed', hint: 'Such as the question being asked.', value: lead(), onChange: x => { US.settings.set('ask.lead', x); draw(); } }));
       return wrap;
     }
+    /** Already in your cut: check the answer against the open sequence, then mark – or take out – what's in it. */
+    function cutRow(idx) {
+      const check = () => US.jobs.run({ title: 'Checking your cut', tool: 'story' }, job => askCut(job, { askId: a.id })).then(() => draw());
+      if (!a.cut) return h('div.row.ask-cut', ui.button('What’s already in my cut?', { small: true, kind: 'ghost', icon: 'target', title: US.say('Marks each clip that’s already heard in the open sequence – so you can see what you haven’t used yet'), onClick: check }));
+      const t = A().cutTotals(a.result.groups, idx, new Set(a.cut.used));
+      return h('div.row.ask-cut',
+        h('span.field-hint.grow', t.all || t.part ? `${t.all ? `${t.all} of ${US.plural(t.clips, 'clip')} already in “${a.cut.name}”` : `None wholly in “${a.cut.name}”`}${t.part ? ` · ${t.part} partly` : ''}` : `None of these clips are in “${a.cut.name}” yet`),
+        t.all ? ui.button('Take those out', { small: true, kind: 'ghost', title: 'Leaves only the clips you haven’t used', onClick: () => { const n = askLeaveOut(a.id); ui.toast({ type: 'ok', title: `${US.plural(n, 'clip')} taken out`, text: 'What’s left isn’t in your cut yet.', timeout: 4000 }); draw(); } }) : null,
+        ui.button('Check again', { small: true, kind: 'ghost', title: US.say('Against the sequence that’s open now'), onClick: check }));
+    }
     function draw() {
       US.clear(box);
       const idx = askIdx(), t = A().totals(a.result.groups, idx, { lead: lead() }), want = A().wantedLength(a.request);
@@ -2265,6 +2319,7 @@
       if (!a.result.groups.length) { box.appendChild(h('div.field-hint', 'No clips in this answer. Follow up with “show me the clips” if you want some.')); }
       else {
         box.appendChild(h('div.field-hint.ask-totals', `${US.plural(a.result.groups.length, 'group')} · ${US.plural(t.clips, 'clip')} · ${US.fmtDur(t.seconds)}${want ? ` (you asked for ${US.fmtDur(want)})` : ''} · from ${a.scope || 'all interviews'}`));
+        box.appendChild(cutRow(idx));
         a.result.groups.forEach((g, gi) => {
           const len = g.items.reduce((n, it) => n + A().lengthOf(it, idx, { lead: lead() }), 0);
           const btn = (icon, title, fn) => h('button.icon-btn', { title, onclick: e => { e.stopPropagation(); fn(); } }, US.icon(icon, 13));
@@ -4320,7 +4375,7 @@
     id: 'story.ask', tool: 'story', title: 'Ask your interviews', changes: false,
     describe: 'Ask anything about what the interviews say – find, list, compare or summarise, or pull a selection of clips (every story about a person or place, where people disagree, a 45-second opening on a topic, who mentions something and what they say). The AI reads the transcripts and answers in words and groups of clips that the editor checks before anything is built. Use this for any request about the content of the interviews that the other actions don’t cover.',
     params: { request: { type: 'string', default: '', desc: 'What to look for or ask, in the editor’s own words' } },
-    examples: ['every story about Grandma, in the order it happened', 'where do the interviewees disagree?', 'a 45-second opening about why they came'],
+    examples: ['every story about Grandma, in the order it happened', 'where do the interviewees disagree?', 'a 45-second opening about why they came', 'which stories about family haven’t I used yet?'],
     run: async (p, job) => { await ready(); needLines(); return askInterviews(job, { request: p.request }); }
   });
   US.actions.register({
@@ -4524,7 +4579,7 @@
     narrativePool, makeNarrative, narrativeColumn, narrativeGroups, buildNarrative, makePromo, latestNarrative: id => latestNarrative(id), trimOf,
     readsFor, setReads, readsPlan, rankCandidates,
     findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,
-    askInterviews, askSpans, buildAsk, markAsk, removeAskMarkers, askThemes, askText, askCard: (...a) => askCard(...a), asks: () => (loadState(), state.asks || []),
+    askInterviews, askCut, askLeaveOut, askSpans, buildAsk, markAsk, removeAskMarkers, askThemes, askText, askCard: (...a) => askCard(...a), asks: () => (loadState(), state.asks || []),
     findAnswers, buildAnswers, answerSpans, scopeTranscripts: (...a) => scopeTranscripts(...a), contextInfo: () => contextInfo(), contextLine: () => contextLine(),
     /** tests only: use a state object without a project */
     _useState(s) { session = null; clearTimeout(sharedTimer); sharedTimer = null; state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }

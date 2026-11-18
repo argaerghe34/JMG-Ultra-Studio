@@ -40,3 +40,6 @@
 .edit-results { margin: 6px 0 0 18px; padding: 0; font-size: 12px; color: var(--text-2); }
 .plan-steps li.running { font-weight: 600; }
 .plan-steps li.done::marker { color: var(--ok); }
+.ask-cut { align-items: center; gap: 6px; margin: 4px 0 6px; flex-wrap: wrap; }
+.ask-incut { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 10px; color: var(--ok); border: 1px solid currentColor; white-space: nowrap; }
+.ask-incut.part { color: var(--warn); }

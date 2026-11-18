@@ -163,7 +163,7 @@
         for (const a of US.actions.list()) for (const e of (a.examples || []).slice(0, 1)) { if (!per.has(a.tool)) per.set(a.tool, 0); if (per.get(a.tool) < 2) { ex.push(e); per.set(a.tool, per.get(a.tool) + 1); } }
         return ex.slice(0, n);
       }
-      const ASK_EXAMPLES = ['Every story about family, in the order it happened', 'Where do the interviewees disagree?', 'A 45-second opening about why they came', 'Who talks about their parents, and what do they say?', 'The funniest moments, best first'];
+      const ASK_EXAMPLES = ['Every story about family, in the order it happened', 'Where do the interviewees disagree?', 'A 45-second opening about why they came', 'Who talks about their parents, and what do they say?', 'The funniest moments, best first', 'Which stories about family haven’t I used yet?'];
       /** What the AI reads for an ask, and what it costs (the shared transcript). */
       function readsLine() { try { US.story.loadState(); return US.story.contextLine(); } catch (e) { return ''; } }
       const EDIT_EXAMPLES = ['A cross dissolve on every cut on V1', 'Punch in to 110% on each interview clip', 'Dip to black where the speaker changes', 'Lower thirds with the speaker’s name the first time each person talks', 'Audio fades of 12 frames on every music clip', 'Add the logo clip to the end of every sequence in the Shorts bin', 'Colour every clip longer than 20 seconds orange'];

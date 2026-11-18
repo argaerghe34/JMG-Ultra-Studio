@@ -101,3 +101,60 @@ test('narrative alternatives: the AI’s (with reasons) first, then the rest of 
   assert.ok(/Alternates: up to 40\./.test(req.user[1]), 'the AI names at most 40 with reasons; the rest come from the shortlist');
   assert.ok(!/\d+ lines you didn/.test(req.system), 'the count isn’t in the system text, so the cached listing is shared whatever the count');
 });
+
+test('already in your cut – the words: asking for what isn’t used yet is recognised; quotes about “used to” aren’t', () => {
+  for (const q of ['which stories about Grandma haven’t I used yet?', 'what is not in my cut', 'unused clips about faith', 'anything about the war missing from the edit', 'lines about family I didn’t use', 'what have we not used about faith', 'good lines that aren’t in the timeline', 'stories we never used']) assert.ok(A.asksUnused(q), q);
+  for (const q of ['every story about Grandma', 'who has not been to Israel', 'things they never used to do', 'she was not used to it', 'a 45-second opening', '']) assert.ok(!A.asksUnused(q), q);
+});
+
+test('already in your cut – the sums: whole, partly or not; clips wholly in it taken out; the note for the AI names runs of lines, nothing else', () => {
+  const idx = A.indexOf([RUTH, SAM]), heard = new Set(['a2', 'a3', 'a4', 'b1']);
+  const groups = [{ name: 'G', items: [{ key: 'ruth', from: 'a2', to: 'a4', lead: 'a1' }, { key: 'ruth', from: 'a4', to: 'a5', lead: '' }, { key: 'sam', from: 'b2', to: 'b2', lead: '' }] }, { name: 'H', items: [{ key: 'sam', from: 'b1', to: 'b1', lead: '' }] }];
+  assert.deepStrictEqual(groups[0].items.map(it => A.inCut(it, idx, heard)), ['all', 'part', ''], 'the lead doesn’t count');
+  assert.deepStrictEqual(A.cutTotals(groups, idx, heard), { all: 2, part: 1, clips: 4 });
+  const left = A.withoutCut(groups, idx, heard);
+  assert.deepStrictEqual(left.map(g => `${g.name}:${g.items.map(x => x.from).join(',')}`), ['G:a4,b2'], 'the group left empty goes');
+  assert.strictEqual(groups[0].items.length, 3, 'the answer itself isn’t touched');
+  const note = A.cutNote([{ lines: RUTH.lines }, { lines: SAM.lines }], heard);
+  assert.ok(/already uses these lines[^\n]*: a2–a4 b1\n/.test(note), note);
+  assert.ok(/doesn’t use any of these lines yet/.test(A.cutNote([{ lines: SAM.lines }], new Set(['a2']))));
+  assert.ok(A.cutNote([{ lines: RUTH.lines }], heard, 1).length < 400, 'capped');
+});
+
+test('“what haven’t I used yet?” reads the open sequence: its lines go to the AI after the task, used clips never come back, the rest are marked; a follow-up keeps the opening', async () => {
+  const st = S._useState({ transcripts: [Object.assign({ path: '/media/ruth.mov', itemId: 'item1', source: 'file' }, JSON.parse(JSON.stringify(RUTH))), Object.assign({ path: '/media/sam.mov', itemId: 'item2', source: 'file' }, JSON.parse(JSON.stringify(SAM)))] });
+  // the cut: Ruth from 3s to 15.2s (a2, a3 – a4 isn't in it), nothing of Sam
+  const INFO = { id: 's1', name: 'Main cut', fps: 25, video: [{ index: 0, clips: [] }], audio: [{ index: 0, name: 'A1', muted: false, clips: [{ start: 0, end: 12.2, in: 3, out: 15.2, speed: 1, itemId: 'item1', path: '/media/ruth.mov', name: 'ruth.mov' }] }] };
+  const calls = [], host = [], was = { ai: US.ai, call: US.host.call, ctx: US.ctx };
+  US.host.call = async (fn, a) => { host.push(fn); return fn === 'sequenceInfo' ? JSON.parse(JSON.stringify(INFO)) : fn === 'storySequenceTiming' ? null : {}; };
+  US.ai = { available: () => true, provider: () => 'claude', label: () => 'Claude', estimateFor: () => ({ usd: 0 }), approveTotal: async () => {},
+    json: async req => { calls.push(req); return { answer: 'Mostly Sam is left.', groups: [{ key: '', name: 'Grandmothers', summary: '', items: [
+      { from: 'a2', to: 'a3', lead: '', note: 'used all the same', score: 0.9, tag: '' }, { from: 'b1', to: 'b2', lead: '', note: 'Odessa', score: 0.8, tag: '' }] }] }; } };
+  let first, second, plain, checked;
+  try {
+    US.ctx = {};
+    await assert.rejects(() => S.askInterviews(job, { request: 'which grandmother stories haven’t I used yet?' }), e => e.code === 'NO_SEQUENCE', 'no sequence open: says so');
+    assert.strictEqual(calls.length, 0, 'and nothing is sent');
+    US.ctx = { sequence: { id: 's1', name: 'Main cut' } };
+    first = await S.askInterviews(job, { request: 'which grandmother stories haven’t I used yet?' });
+    second = await S.askInterviews(job, { request: 'shorter', askId: first.ask.id });
+    // an ordinary question doesn't read the sequence; the card's button checks it afterwards
+    host.length = 0;
+    plain = await S.askInterviews(job, { request: 'every story about grandmothers' });
+    assert.deepStrictEqual(host, [], 'an ordinary ask doesn’t read the sequence');
+    assert.ok(!plain.ask.cut && plain.ask.result.groups[0].items.length === 2, 'and keeps every clip');
+    checked = await S.askCut(job, { askId: plain.ask.id });
+    assert.deepStrictEqual(S.asks().find(x => x.id === plain.ask.id).cut.used, ['a2', 'a3']);
+    assert.strictEqual(S.askLeaveOut(plain.ask.id), 1, 'Take those out: the clip wholly in the cut goes');
+    assert.deepStrictEqual(S.asks().find(x => x.id === plain.ask.id).result.groups[0].items.map(x => x.from), ['b1']);
+  } finally { US.ai = was.ai; US.host.call = was.call; US.ctx = was.ctx; }
+  assert.ok(/haven’t I used yet\?”/.test(calls[0].user[1]) && /cut already uses these lines[^\n]*: a2–a3\n/.test(calls[0].user[1]), calls[0].user[1]);
+  assert.ok(!/a2–a3/.test(calls[0].user[0].text), 'not in the cached transcripts');
+  assert.ok(!/Main cut|ruth\.mov|item1/.test(JSON.stringify(calls)), 'no sequence, file or clip names sent');
+  assert.deepStrictEqual(first.ask.result.groups[0].items.map(x => `${x.from}-${x.to}`), ['b1-b2'], 'the clip that’s in the cut is left out even though the AI gave it');
+  assert.strictEqual(first.ask.cut.name, 'Main cut');
+  assert.strictEqual(calls[1].user[1], calls[0].user[1], 'follow-up: the same opening, read from the cache');
+  assert.deepStrictEqual(second.ask.result.groups[0].items.map(x => x.from), first.ask.result.groups[0].items.map(x => x.from), 'still without what’s in the cut');
+  assert.strictEqual(checked.summary, '1 of 2 clips already in “Main cut”');
+  assert.strictEqual(st.asks.length, 2);
+});
