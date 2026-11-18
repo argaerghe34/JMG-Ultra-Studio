@@ -668,16 +668,21 @@ var UStudio = (function () {
         var left = {}, nLeft = 0;
         for (q = 0; q < paths.length; q++) if (!byPath[norm(paths[q])] && !left[norm(paths[q])]) { left[norm(paths[q])] = { file: paths[q].replace(/^.*[\/\\]/, ''), best: null, score: -1 }; nLeft++; }
         if (nLeft) {
-            var inBin = {};
+            var inBin = {}, byName = {};
+            for (var lk in left) if (left.hasOwnProperty(lk)) byName[left[lk].file.toLowerCase()] = left[lk];
             walk(bin, function (c) { inBin[c.nodeId] = true; });
             walk(project().rootItem, function (c) {
                 if (c.type === 2) return;
                 var m = ''; try { m = c.getMediaPath(); } catch (e) { return; }
-                var l = left[norm(m)]; if (!l) return;
+                var l = left[norm(m)], same = !!l;
+                // Premiere 2027 also refuses a copy of a file it already has somewhere else (another drive, a copied
+                // folder): failing the exact file, a clip of a file with the same name will do
+                if (!l) { l = byName[String(m).replace(/^.*[\/\\]/, '').toLowerCase()]; if (!l || l.exact) return; }
                 try { if (c.isMulticamClip() || c.isMergedClip()) return; } catch (e1) { }
                 try { var md = c.getProjectMetadata(); if (/SubclipStart>[^<]+</.test(md) && /SubclipEnd>[^<]+</.test(md)) return; } catch (e2) { }
-                var score = (c.name === l.file ? 2 : 0) + (inBin[c.nodeId] ? 1 : 0);
-                if (score > l.score) { l.best = c; l.score = score; }
+                var score = (same ? 4 : 0) + (c.name === l.file ? 2 : 0) + (inBin[c.nodeId] ? 1 : 0);
+                if (same) l.exact = true;
+                if (score > l.score) { l.best = c; l.score = score; l.same = same; }
             });
         }
         var out = [], used = {};
@@ -690,7 +695,7 @@ var UStudio = (function () {
                 // the clip there is offline but its file is back (a drive reconnected, a temporary file made again):
                 // link it to the file again, or the tool would get a clip it can't read
                 var bc = left[key].best;
-                try { if (bc.isOffline && bc.isOffline() && bc.canChangeMediaPath()) bc.changeMediaPath(paths[q], true); } catch (eR) { }
+                try { if (left[key].same && bc.isOffline && bc.isOffline() && bc.canChangeMediaPath()) bc.changeMediaPath(paths[q], true); } catch (eR) { }
                 var ex = info(bc); ex.existing = true; out.push(ex);
             }
         }
