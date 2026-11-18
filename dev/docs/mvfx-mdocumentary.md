@@ -51,3 +51,41 @@ The **mVFX** tab holds a "Documentary pack" built from the same categories, with
 | **Looks** (5) | Faded memory, Warm archive, Cold night, Bleach, Sepia | Lumetri Color with matching settings, and the .cube saved for Lumetri's Input LUT | `SetLUT` of the .cube on the clip's first node |
 
 Everything stays editable in the editor. Where an editor can't do it, the button says so (like Quick effects).
+
+
+## Second study (18 Nov 2026): every element's preview clip, and how to build the same range in Premiere
+
+The collection page lists 81 elements (Final Cut Pro only – not sold for Premiere or Resolve): Typography 24, Placeholders 2,
+Overlay Effects 29 (six of them freeze frames), Add-ons 3, Transitions 8, Camera Movements 9, Backgrounds 6. Each has a
+6-second preview clip (transitions 1–3 s); all were viewed frame by frame (entrance, hold, exit).
+
+What the titles have in common – this is the look worth having:
+- Small type. Serif capitals and small capitals with wide letter-spacing, off-white on dark; a second line smaller and greyer.
+  Nothing boxed, no bars, no accent colour.
+- Letters arrive one at a time in a mixed order, each fading in from a soft blur over about half a second; the whole line is
+  there after about a second; the exit is the same, shorter.
+- Dates are objects: a year whose digits roll like a counter; a strip of weekdays with the day ringed by a pen stroke; a
+  ruled axis of ticks with a marker; a “time jump” where the axis slides and one date replaces another; a rolling clock time.
+- Lists are quiet: credits in two columns (role small and grey on the left, name on the right), a cast row, three facts side
+  by side each with a tiny label.
+- Handwriting for a human touch: a scrawled heading, a handwritten paragraph, a name with a curved pointer line, an arrow.
+- Longer text (a statement, a quote) sits on a dimmed picture and types on.
+- Freeze frames cut the person out of a blurred, drained background (needs a subject mask – not something an add-on can
+  make in Premiere or Resolve; ours hold the frame with a spotlight or black & white instead).
+
+How this can and can't be done in Premiere (checked against Adobe's scripting documentation and community answers):
+- Premiere's own text can't be animated per letter, and its letter-spacing can't be keyframed; add-ons can only set a
+  graphic's words and keyframe whole-clip Motion and Opacity. Per-letter animation normally comes from After Effects as a
+  Motion Graphics template – which we can't author here.
+- A pre-rendered clip with transparency is the recognised other route, and it gives exact control of the motion. So the
+  animated presets are drawn by the panel (canvas) and handed over as a numbered PNG sequence: straight alpha, square pixels,
+  the sequence's size and frame rate. Numbered stills take Premiere's “indeterminate media timebase” on import, so the clip's
+  frame rate is then set to the sequence's (`setOverrideFrameRate`); the e2e test compares exported frames with the drawing
+  to prove the rate, size and transparency.
+- Motion that feels smooth: entrances ease out (fast, then settling), exits ease in and are shorter, nothing overshoots;
+  letters are staggered by about a frame; a line takes 12–24 frames to draw; a hold long enough to read the words twice.
+
+Ours are original designs in that range (names, layout, timing and drawing are our own; no MotionVFX file, name or artwork
+is used): see `js/tools/39-mvfx-motion.js` and `dev/mvfx-preview.html` (every preset animating, outside the editor).
+Not built yet: a photo card (your own picture in a frame with a slow move), a map with a pin, a highlighted line of a
+scanned document, animated backgrounds.
