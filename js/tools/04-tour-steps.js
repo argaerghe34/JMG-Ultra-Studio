@@ -13,7 +13,7 @@
       { target: '@rail:story', title: 'Story – the heart of Ultra Studio', text: 'From interviews to a cut, step by step: read the transcripts, find the themes and the lines you need, build a sequence or a narrative, and share the documents.', tip: 'Lines (every theme and line in one table – great on a wide panel), Story wiki, Word cloud and Producer are tabs inside Story.' },
       { target: '@rail:cut', title: 'Cut', text: 'Tools that make the edit faster: Silence Cut takes the pauses out, Beat Cut cuts to the music. They always work on a copy.' },
       { target: '@rail:finish', title: 'Finish', text: 'Polish and check before export: one-click effects, every marker in one list, social safe zones and Final Check for black gaps and flash frames.' },
-      { target: '@rail:deliver', title: 'Deliver', text: 'Every export in one go – the master, vertical and square versions, render ranges, YouTube chapters and the episode text.' },
+      { target: '@rail:deliver', title: 'Deliver', text: 'Every export in one go – the master, vertical and square versions, render ranges, YouTube chapters, the episode text, and timelines to and from other editors.' },
       { target: '@rail:ask', title: 'Ask', text: 'Say what you want in plain English – run a tool, or ask anything about your interviews.', tip: 'Only text is ever sent to the AI: your request or transcript lines, never footage.' },
       { target: '@rail:advanced', title: 'Advanced', text: 'Tools for particular jobs – Selects, Subclip Maker, MC Selects, Take Sets, Song Splitter, Podcast – and the ones still in development.' },
       { target: '@search', title: 'Search everything', text: 'Find any tool, action, setting or line from your interviews. Type a few letters and press Return.', tip: 'Shortcut: ⌘K (Ctrl+K on Windows) while the panel is active.' },
@@ -86,7 +86,8 @@
     ],
     deliver: [
       { target: 'text:Outputs', title: 'Choose the outputs', text: 'The master plus vertical, square and portrait versions, sound only and a thumbnail – all in one go.' },
-      { target: 'text:Export', title: 'Export', text: 'Everything goes out together, named after the sequence and the date.', tip: 'The other tabs here: Render ranges, Bin export, Chapters and Episode text.' }
+      { target: 'text:Export', title: 'Export', text: 'Everything goes out together, named after the sequence and the date.', tip: 'The other tabs here: Render ranges, Bin export, Chapters and Episode text.' },
+      { target: 'text:Other editors', title: 'Other editors', text: 'Send this sequence to Final Cut Pro or another editor as a timeline file, or bring in a timeline one of them made – with a list of what didn’t come across.' }
     ],
     assistant: [
       { target: '@head', title: 'Ask', text: 'Say what you want in plain English: “cut the silences”, “markers on every beat”, or a question about your interviews.', tip: 'Anything that changes the project is shown as a plan first – nothing runs until you press Run.' }

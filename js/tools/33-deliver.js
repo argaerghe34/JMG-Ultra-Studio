@@ -381,12 +381,12 @@
   /* ---------- the tool ---------- */
   US.tools.register({
     id: 'deliver', name: 'Deliver', short: 'Deliver', icon: 'deliver', group: 'finish', order: 33,
-    blurb: 'Every export in one go, render ranges, every sequence in a bin, YouTube chapters, episode text.',
-    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'rangeTrackOutput', 'addRangeTrack', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead', 'binSequences', 'listBins'],
+    blurb: 'Every export in one go, render ranges, every sequence in a bin, YouTube chapters, episode text, timelines to and from other editors.',
+    hostFns: ['encoderPresets', 'encoderListen', 'queueExport', 'queueItemExport', 'startEncoderBatch', 'autoReframe', 'exportFrame', 'guideStatus', 'showGuides', 'addSequenceMarkers', 'removeSequenceMarkers', 'deliverPresets', 'renderRanges', 'rangeTracks', 'rangeTrackOutput', 'addRangeTrack', 'addRenderRange', 'editRenderRange', 'removeRenderRange', 'queueRangeExport', 'presetExtension', 'setPlayhead', 'binSequences', 'listBins', 'nleExport', 'nleImport', 'openSequence'],
     create() {
       const v = ui.toolView({ icon: 'deliver', title: 'Deliver', blurb: 'Export everything in one go, render the parts you mark, and make YouTube chapters.' });
-      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'bin', label: 'Bin export' }, { value: 'chapters', label: 'Chapters' }, { value: 'text', label: 'Episode text' }], value: 'pack', onChange: t => showTab(t) });
-      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), bin: h('div.tool-body'), chapters: h('div.tool-body'), text: h('div.tool-body') };
+      const tabs = ui.segmented({ options: [{ value: 'pack', label: 'Export pack' }, { value: 'ranges', label: 'Render ranges' }, { value: 'bin', label: 'Bin export' }, { value: 'chapters', label: 'Chapters' }, { value: 'text', label: 'Episode text' }, { value: 'move', label: 'Other editors' }], value: 'pack', onChange: t => showTab(t) });
+      const panes = { pack: h('div.tool-body'), ranges: h('div.tool-body'), bin: h('div.tool-body'), chapters: h('div.tool-body'), text: h('div.tool-body'), move: US.deliverMove ? US.deliverMove.pane() : h('div.tool-body') };
       const seqLine = h('div.field-hint');
 
       /* export pack */
@@ -711,7 +711,7 @@
       US.bus.on('context', () => { const id = US.ctx.sequence && US.ctx.sequence.id; if (id !== shownSeq) { shownSeq = id; refreshRanges(); } });
       function renderCtx() { seqLine.textContent = US.ctx.sequence ? `Sequence: ${US.ctx.sequence.name} (${US.ctx.sequence.width}×${US.ctx.sequence.height}, ${US.fmtDur(US.ctx.sequence.duration)})` : 'Open a sequence in the Timeline first.'; }
       US.bus.on('context', renderCtx);
-      v.body.append(seqLine, tabs, panes.pack, panes.ranges, panes.bin, panes.chapters, panes.text);
+      v.body.append(seqLine, tabs, panes.pack, panes.ranges, panes.bin, panes.chapters, panes.text, panes.move);
       showTab('pack');
       return { el: v.el, onShow(opt) { renderCtx(); if (opt && opt.tab) showTab(opt.tab); } };
     }
