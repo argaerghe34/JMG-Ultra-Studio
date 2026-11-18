@@ -49,15 +49,17 @@ test('the plan checked: unknown edits and empty picks left out (and said); cuts 
     { op: 'remove', targetsJson: '{"nameContains":"drone"}', paramsJson: '{"ripple":true}', why: 'no drone' },
     { op: 'transition', targetsJson: '{"tracks":["V1"],"every":"cuts"}', paramsJson: '{"name":"Cross Dissolve","at":"start","frames":12}', why: 'smooth joins' },
     { op: 'teleport', targetsJson: '{}', paramsJson: '{}', why: '' },
-    { op: 'label', targetsJson: '{"nameContains":"nothing like this"}', paramsJson: '{"label":2}', why: '' },
+    { op: 'enable', targetsJson: '{"nameContains":"nothing like this"}', paramsJson: '{"on":false}', why: '' },
+    { op: 'label', targetsJson: '{"tracks":["V1"]}', paramsJson: '{"label":2}', why: 'green' },
     { op: 'razor', targetsJson: '{"lines":["l2"]}', paramsJson: '{}', why: 'cut around Sam' }] }, m);
   assert.deepStrictEqual(p.steps.map(s => [s.op, s.targets.length]), [['remove', 1], ['transition', 3], ['razor', 1]]);
-  assert.deepStrictEqual(p.dropped, ['teleport: not something I can do here', 'Colour label: nothing matched']);
+  assert.deepStrictEqual(p.dropped, ['teleport: not something I can do here', 'Switch on/off: nothing matched', 'label: Premiere can’t colour clips on a timeline from a script – colour the clips in their bin instead (that colours every use of them)']);
   assert.deepStrictEqual(E.runOrder(p.steps).map(s => s.op), ['razor', 'transition', 'remove']);
   assert.strictEqual(E.describe(p.steps[1]), 'Cross Dissolve at the start (12 frames) · 3 clips on V1');
   assert.deepStrictEqual(E.clipTargets(m, { op: 'label', targets: [{ start: 5.2, end: 8.8, line: 'l2' }] }).map(t => t.id), ['c1', 'c3', 'c7'], 'a line stands for the clips under it');
   assert.ok(E.opsFor('timeline', true).every(k => E.OPS[k].resolve) && !E.opsFor('timeline', true).includes('transition'), 'Resolve: only what Resolve allows');
   assert.ok(E.opsFor('items', false).includes('move') && !E.opsFor('items', false).includes('transition'));
+  assert.ok(!E.opsFor('timeline', false).includes('label') && E.opsFor('items', false).includes('label') && E.opsFor('timeline', true).includes('label'), 'colour labels: in a bin everywhere; on a timeline only in Resolve');
 });
 
 test('plan → run on a copy (made once) → read back → the AI checks and plans what’s left; the outline is cached and sent once', async () => {

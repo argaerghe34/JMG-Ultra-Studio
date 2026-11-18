@@ -100,7 +100,7 @@ test('a whole conversation: understood and plan shown → a question answered �
   const x = setup([
     T('ask', { question: 'Dissolves on the picture only, or the sound too?', options: ['Picture only', 'Picture and sound'], kind: 'choice' }, 'One thing to check first.', { understood: 'You want a dissolve on every cut of the open sequence, then a check.', plan: ['Read the sequence', 'Add the dissolves on a copy', 'Check the cut'] }),
     T('timeline', {}, 'Reading your sequence.'),
-    T('edit', { where: 'sequence', steps: [{ op: 'transition', targets: { tracks: ['V1'], every: 'cuts' }, params: { name: 'Cross Dissolve', at: 'start' }, why: 'the joins' }, { op: 'label', targets: { tracks: ['V1'] }, params: { label: 13 }, why: 'so you can see them' }, { op: 'teleport', targets: {}, params: {} }] }, 'Adding them on a copy.'),
+    T('edit', { where: 'sequence', steps: [{ op: 'transition', targets: { tracks: ['V1'], every: 'cuts' }, params: { name: 'Cross Dissolve', at: 'start' }, why: 'the joins' }, { op: 'motion', targets: { tracks: ['V1'] }, params: { scale: 110 }, why: 'a little closer' }, { op: 'label', targets: { tracks: ['V1'] }, params: { label: 13 }, why: 'so you can see them' }, { op: 'teleport', targets: {}, params: {} }] }, 'Adding them on a copy.'),
     T('action', { id: 'check.run' }, 'Checking it.'),
     T('finish', { reply: 'A dissolve is on the one join on V1, in a copy.', done: ['1 dissolve'], notDone: ['Sound fades – you chose picture only'], check: ['The join at 0:06'], next: ['Make them 20 frames'] }),
     T('finish', { reply: 'It is 14 seconds long.' }, '', { understood: 'You want to know how long the copy is.' })]);
@@ -120,11 +120,12 @@ test('a whole conversation: understood and plan shown → a question answered �
     assert.ok(/SEQUENCE “My cut”/.test(res(1)) && /c1\tV1/.test(res(1)) && !/PROJECT CLIPS/.test(res(1)));
     // the approval card: the checked steps with what they touch; only the ticked one ran, on a copy
     const card = log.find(i => i.k === 'approve?').card;
-    assert.deepStrictEqual([card.risk, card.steps.length, card.dropped.length], ['new', 2, 1]);
+    assert.deepStrictEqual([card.risk, card.steps.length, card.dropped.length], ['new', 2, 2]);
+    assert.ok(card.dropped.some(d => /^label: Premiere can’t colour clips on a timeline from a script/.test(d)), 'colouring timeline clips isn’t offered in Premiere, and the card says why');
     assert.ok(/a copy of “My cut” \(yours stays as it is\)/.test(card.detail));
     const applied = x.host.filter(h => h[0] === 'editApply');
-    assert.deepStrictEqual(applied.map(h => [h[1].seqId, h[1].op]), [['copy1', 'transition']], 'the unticked label step didn’t run; the editor’s own sequence is untouched');
-    assert.ok(/Cross Dissolve at the start · 1 clip on V1: 1 done/.test(res(2)) && /unticked 1 step/.test(res(2)) && /Left out: teleport/.test(res(2)) && /copy “My cut – Ask”, now your working sequence/.test(res(2)), res(2));
+    assert.deepStrictEqual(applied.map(h => [h[1].seqId, h[1].op]), [['copy1', 'transition']], 'the unticked framing step didn’t run; the editor’s own sequence is untouched');
+    assert.ok(/Cross Dissolve at the start · 1 clip on V1: 1 done/.test(res(2)) && /unticked 1 step/.test(res(2)) && /Left out: label: Premiere can’t colour clips on a timeline[^\n]*teleport/.test(res(2)) && /copy “My cut – Ask”, now your working sequence/.test(res(2)), res(2));
     assert.deepStrictEqual(chat.work, { seqId: 'copy1', name: 'My cut – Ask', ours: true });
     assert.strictEqual(ran, 1, 'a panel tool that only reads isn’t asked about');
     assert.ok(/No problems found/.test(res(3)));

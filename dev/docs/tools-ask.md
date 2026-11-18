@@ -34,6 +34,8 @@ One chat box for everything. Type what you want in your own words: *“cut the s
 
 **Already in your cut**: ask *which stories about Grandma haven’t I used yet?* (or *what’s not in my cut*, *unused lines about faith*) with your cut open, and the answer leaves out every clip that’s already heard in that sequence. On any other answer, press **What’s already in my cut?**: each clip that’s in the open sequence is marked *in your cut* (or *partly*), and **Take those out** leaves only what you haven’t used. The AI is only told which transcript lines the cut has – never the sequence, its name or any footage.
 
+In Premiere, Ask can colour clips in a bin (every use of them takes the colour) but not single clips on a timeline – Premiere gives add-ons no way to do that, so Ask says so and offers the bin colour or markers instead.
+
 In DaVinci Resolve the edits are framing, opacity, colour labels, on/off, deleting and markers: Resolve doesn’t let add-ons add transitions, effects, speed changes, keyframes or text, and doesn’t say which timeline clips are selected (the clip under the playhead stands in).
 
 **Recipes**: a chain of steps saved under a name – *Get interviews ready*, *Check and deliver*, or your own. After a plan or a request finishes, press **Save as a recipe**. Run one from the welcome's **Recipes** chips, **All recipes…**, or by typing *run my … recipe*. Steps run one after another on the open project; a step in words is asked in the chat, like typing it.

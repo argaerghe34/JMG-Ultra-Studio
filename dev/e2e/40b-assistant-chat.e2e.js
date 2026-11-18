@@ -1,5 +1,5 @@
 // Ask – one chat for everything, in real Premiere (no AI cost: the AI's turns are a stand-in script).
-// Three clips in a fresh sequence. Chat A: reads the sequence, punches in on every clip on V1 and colours them – approved from the card, with the second step (the colour) unticked – on a copy; then reports. Chat B, at the same time:
+// Three clips in a fresh sequence. Chat A: reads the sequence, punches in on every clip on V1, switches the first one off and colours them – approved from the card, with the second step (switching off) unticked – on a copy; then reports. The colour isn't offered: Premiere can't colour timeline clips, and the card says so. Chat B, at the same time:
 // reads the project and adds a marker on the first clip of the same sequence, in the sequence itself (asked first, as
 // it changes the editor's own). Both finish; the steps in Premiere took turns; the original only has B's marker.
 // (The check is on scale, which Premiere reads back; a timeline clip's colour label can't be read from a script here.)
@@ -14,9 +14,9 @@ const step = (tool, args = {}, say = '', extra = {}) => Object.assign({ say, und
 const a = C.newChat(), b = C.newChat();
 const script = {
   [a.id]: [step('timeline', {}, 'Reading the sequence.', { understood: 'Punch in on the clips on V1 and colour them, on a copy.', plan: ['Read it', 'Punch in and colour on a copy'] }),
-    step('edit', { where: 'sequence', steps: [{ op: 'motion', targets: { tracks: ['V1'] }, params: { scale: 120 }, why: 'punch in' }, { op: 'label', targets: { tracks: ['V1'] }, params: { label: 13 }, why: 'green' }] }, 'On a copy.'),
+    step('edit', { where: 'sequence', steps: [{ op: 'motion', targets: { tracks: ['V1'] }, params: { scale: 120 }, why: 'punch in' }, { op: 'enable', targets: { tracks: ['V1'], every: 'first' }, params: { on: false }, why: 'hide it' }, { op: 'label', targets: { tracks: ['V1'] }, params: { label: 13 }, why: 'green' }] }, 'On a copy.'),
     step('timeline', {}, 'Checking it.'),
-    step('finish', { reply: 'Punched in, on a copy.', done: ['3 clips at 120%'], notDone: ['The colour – you unticked it'] })],
+    step('finish', { reply: 'Punched in, on a copy.', done: ['3 clips at 120%'], notDone: ['Switching the first clip off – you unticked it', 'The colour – Premiere can’t colour timeline clips'] })],
   [b.id]: [step('project', {}, 'Looking at the project.', { understood: 'A marker on the first clip, in the sequence itself.', plan: ['Find the sequence', 'Add the marker'] }),
     step('edit', { where: 'sequence', sequence: NAME, inPlace: true, steps: [{ op: 'marker', targets: { tracks: ['V1'], every: 'first' }, params: { name: 'Ask test', color: 1 }, why: '' }] }),
     step('finish', { reply: 'Marker added.', done: ['1 marker'] })]
@@ -26,7 +26,7 @@ let both = 0, most = 0;   // AI requests in flight at once: the chats think side
 US.ai = Object.assign({}, realAI, { available: () => true, label: () => 'Claude', provider: () => 'claude',
   json: async req => { sent.push(req); most = Math.max(most, ++both); await T.sleep(150); both--; const x = script[req.as.id].shift(); if (!x) throw new Error('no more scripted turns'); return x; } });
 const logs = { a: [], b: [] }, cards = [], states = [];
-const hooks = (k, chat) => ({ event: it => logs[k].push(it), status: () => states.push(`${k}:${chat.status}`), approve: async card => { cards.push({ k, risk: card.risk, title: card.title, detail: card.detail, steps: (card.steps || []).map(s => E.describe(s)) }); return { ok: true, steps: k === 'a' ? card.steps.slice(0, 1) : card.steps }; }, choose: async () => null });
+const hooks = (k, chat) => ({ event: it => logs[k].push(it), status: () => states.push(`${k}:${chat.status}`), approve: async card => { cards.push({ k, risk: card.risk, title: card.title, detail: card.detail, dropped: card.dropped || [], steps: (card.steps || []).map(s => E.describe(s)) }); return { ok: true, steps: k === 'a' ? card.steps.slice(0, 1) : card.steps }; }, choose: async () => null });
 try {
   for (let i = 0; i < 100 && US.jobs.current; i++) await T.sleep(200);
   await Promise.all([C.send(a, 'punch in on the clips on V1 and colour them green', hooks('a', a), { mode: 'ask' }), C.send(b, `add a marker called Ask test on the first clip of ${NAME}, in the sequence itself`, hooks('b', b), { mode: 'own' })]);
@@ -37,14 +37,15 @@ T.assert(most === 2, 'the two chats were thinking at the same time');
 T.assert(logs.a.some(i => i.k === 'understood') && logs.a.some(i => i.k === 'plan') && logs.a.filter(i => i.k === 'step').length === 3, 'chat A showed what it understood, its plan and its three steps');
 // the cards: A's makes something new (a copy), B's changes the editor's own sequence
 const ca = cards.find(c => c.k === 'a'), cb = cards.find(c => c.k === 'b');
-T.assert(ca && ca.risk === 'new' && ca.steps.length === 2 && /scale 120% · 3 clips on V1/.test(ca.steps[0]) && /Colour .* · 3 clips on V1/.test(ca.steps[1]) && /a copy of/.test(ca.detail), 'A’s card: ' + JSON.stringify(ca));
+T.assert(ca && ca.risk === 'new' && ca.steps.length === 2 && /scale 120% · 3 clips on V1/.test(ca.steps[0]) && /Switch off · 1 clip on V1/.test(ca.steps[1]) && /a copy of/.test(ca.detail), 'A’s card: ' + JSON.stringify(ca));
+T.assert(US.app.is('resolve') || (ca.dropped.length === 1 && /Premiere can’t colour clips on a timeline/.test(ca.dropped[0])), 'colouring timeline clips isn’t offered in Premiere, and the card says why: ' + JSON.stringify(ca.dropped));
 T.assert(cb && cb.risk === 'own' && /ITSELF – no copy/.test(cb.detail), 'B’s card: ' + JSON.stringify(cb));
 // what Premiere has now: the copy's clips are at 120% and not green (the unticked step didn't run); the original is at its own size and has B's marker
 T.assert(a.work && a.work.ours && a.work.name === `${NAME} – Ask`, 'A works on its copy: ' + JSON.stringify(a.work));
 const copy = await US.host.call('editRead', { seqId: a.work.seqId }), orig = await US.host.call('editRead', { seqId: seq.id });
 const at120 = c => Math.abs(Number(c.scale) - 120) < 0.6;
 T.assert(copy.video[0].clips.length === 3 && copy.video[0].clips.every(at120), 'the copy’s clips are at 120%: ' + copy.video[0].clips.map(c => c.scale) + ' – ' + JSON.stringify(logs.a.filter(i => i.k === 'step' || i.k === 'warn').map(i => (i.text || '') + (i.result ? ' → ' + i.result : ''))).slice(0, 700));
-T.assert(copy.video[0].clips.every(c => c.label !== 13), 'the unticked colour didn’t run: ' + copy.video[0].clips.map(c => c.label));
+T.assert(copy.video[0].clips.every(c => !c.disabled), 'the unticked step didn’t run – no clip is switched off: ' + copy.video[0].clips.map(c => c.disabled));
 T.assert(orig.video[0].clips.length === 3 && !orig.video[0].clips.some(at120), 'the original’s clips are the size they were: ' + orig.video[0].clips.map(c => c.scale));
 T.assert((orig.markers || []).some(m => m.name === 'Ask test'), 'B’s marker is on the original: ' + JSON.stringify((orig.markers || []).map(m => m.name)));
 // the AI was sent text only, under each chat's own name

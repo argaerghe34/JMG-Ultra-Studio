@@ -23,7 +23,7 @@
     zoom: { where: 'timeline', resolve: false, title: 'Slow zoom', params: 'from, to: scale percent (punch-in 100→110, pull-out 110→100); seconds: only the first (or last, with at: "end") seconds, else the whole clip', desc: 'A keyframed zoom across each clip (punch-in or Ken Burns).' },
     opacity: { where: 'timeline', resolve: true, title: 'Opacity', params: 'value: percent', desc: 'Set each clip’s opacity.' },
     volume: { where: 'timeline', resolve: false, title: 'Volume', params: 'db: change in dB (−6 quieter, +3 louder)', desc: 'Raise or lower each audio clip.' },
-    label: { where: 'both', resolve: true, title: 'Colour label', params: 'label: 0 Violet, 1 Iris, 2 Caribbean, 3 Lavender, 4 Cerulean, 5 Forest, 6 Rose, 7 Mango, 8 Purple, 9 Blue, 10 Teal, 11 Magenta, 12 Tan, 13 Green, 14 Brown, 15 Yellow', desc: 'Colour each clip.' },
+    label: { where: 'both', resolve: true, timeline: 'resolve', title: 'Colour label', params: 'label: 0 Violet, 1 Iris, 2 Caribbean, 3 Lavender, 4 Cerulean, 5 Forest, 6 Rose, 7 Mango, 8 Purple, 9 Blue, 10 Teal, 11 Magenta, 12 Tan, 13 Green, 14 Brown, 15 Yellow', desc: 'Colour each clip.' },
     enable: { where: 'timeline', resolve: true, title: 'Switch on/off', params: 'on: true | false', desc: 'Switch each clip on or off (Enable).' },
     remove: { where: 'timeline', resolve: true, title: 'Delete', params: 'ripple: true closes the gap', desc: 'Delete each clip from the sequence.' },
     rename: { where: 'both', resolve: false, title: 'Rename', params: 'name: the new name; use {n} for a number and {name} for the old name, e.g. "Interview {n}"', desc: 'Rename each clip.' },
@@ -36,7 +36,12 @@
     append: { where: 'any', resolve: true, title: 'Add a clip to sequences', params: 'clip: a clip id from PROJECT CLIPS (p…) or its exact name; track: "V2" (the video track it goes on – made if a sequence hasn’t got it); audio: true to bring its sound too, false for picture only; audioTrack: "A2" (default: the same number as track); place: "after" (default – after everything in the sequence, gap: seconds of space before it) | "endAt" (the added clip ENDS where the anchor clip ends or starts) | "startAt" (it STARTS there); anchor: a clip query for the clip to line up with in each sequence, e.g. {"tracks":["V3"],"nameContains":"Contrast 1"} (adjustment layers, titles and graphics count as clips; add "every":"first" or "last" if there may be several); anchorEdge: "end" (default) | "start"; transition: {"name":"Cross Dissolve","at":"start"|"end"|"both","seconds":2} on the added clip (Premiere only)', desc: 'Add one clip from the project to each sequence picked, on one track: after everything already in it, or lined up with another clip in each sequence (its end or start), with a transition on it if asked. It changes the editor’s own sequences, not copies – the editor confirms first. Targets are sequences: {"sequences":["s3","s8"]} or {"bin":"part of the bin path","nameContains":""}.' },
   };
   /** The edits that make sense here: for this kind of scope, and that this editor allows. */
-  const opsFor = (kind, resolve = RES()) => Object.entries(OPS).filter(([, o]) => (o.where === 'both' || o.where === 'any' || o.where === kind) && (!resolve || o.resolve)).map(([k]) => k);
+  // timeline: 'resolve' – on a timeline only Resolve can do it: Premiere gives a script no way to colour (or read the
+  // colour of) a clip on a timeline (found in Premiere 2027, 18 Nov 2026); clips in a bin can be coloured in both.
+  const opsFor = (kind, resolve = RES()) => Object.entries(OPS).filter(([, o]) => (o.where === 'both' || o.where === 'any' || o.where === kind) && (!resolve || o.resolve) && !(kind === 'timeline' && !resolve && o.timeline === 'resolve')).map(([k]) => k);
+  const NO_TIMELINE_LABELS = 'Premiere can’t colour clips on a timeline from a script – colour the clips in their bin instead (that colours every use of them)';
+  /** Why an edit the AI asked for isn't on offer here. */
+  const whyNot = (op, where) => (OPS[op] && !OPS[op].resolve && RES() ? 'Premiere only' : OPS[op] && OPS[op].timeline === 'resolve' && !RES() ? NO_TIMELINE_LABELS : where);
 
   /* ---------- reading what's there, as a model and as text ---------- */
   const r2 = x => Math.round(x * 100) / 100;
@@ -202,6 +207,7 @@
       `- "sequencesJson": "" for ${kind === 'items' ? 'the clips shown above' : 'the sequence shown above'}. To make an edit in OTHER sequences – one or many at once – give {"sequences":["s3","s8"]} or {"bin":"part of the bin path","nameContains":"part of the name"} from SEQUENCES. "targetsJson" then picks the clips inside EACH of those sequences with a clip query: {"tracks":["V1"],"kind":"video|audio","nameContains":"","minSeconds":0,"maxSeconds":0,"label":0-15,"from":seconds,"to":seconds,"every":"all|first|last|everyOther|cuts"} (no c… ids or transcript lines – those belong to ${kind === 'items' ? 'one sequence only' : 'the sequence shown'}). Example: a 2-second Dip to Black on the first clip on V1 of every sequence called "All Songs": op "transition", sequencesJson {"nameContains":"All Songs"}, targetsJson {"tracks":["V1"],"every":"first"}, paramsJson {"name":"Dip to Black","at":"start","seconds":2}.`,
       '- "append", and every edit with "sequencesJson", changes the editor’s own sequences (no copies); the panel asks them to confirm before it runs, so mention that in "reply".',
       '', 'EDITS:', ...ops.map(k => `- ${k}: ${OPS[k].desc} Settings: ${OPS[k].params}`),
+      ...(RES() ? [] : ['Colour labels: Premiere gives no way to colour a clip on a timeline or to read its colour there. Asked to colour clips in a sequence, say so in "reply" and suggest colouring them in their bin (that colours every use) or markers instead.']),
       ...(kind === 'items' ? ['', 'EDITS FOR SEQUENCES (only with "sequencesJson"):', ...opsFor('timeline').filter(k => !ops.includes(k)).map(k => `- ${k}: ${OPS[k].desc} Settings: ${OPS[k].params}`)] : [])
     ].join('\n');
   }
@@ -293,7 +299,7 @@
     for (const s of (r && r.steps) || []) {
       const op = String(s.op || ''), sq = op === 'append' ? null : parseJson(s.sequencesJson);
       if (sq) {
-        if (!onSeqs.has(op)) { dropped.push(`${op || '?'}: ${OPS[op] && !OPS[op].resolve && RES() ? 'Premiere only' : 'not something I can do in other sequences'}`); continue; }
+        if (!onSeqs.has(op)) { dropped.push(`${op || '?'}: ${whyNot(op, 'not something I can do in other sequences')}`); continue; }
         const picked = pickSequences(m.project, sq);
         if (picked.ask.length) { for (const k of picked.ask) if (!questions.some(y => y.ask === k.ask)) questions.push(k); continue; }
         let q = parseJson(s.targetsJson) || {}, p = parseJson(s.paramsJson) || {};
@@ -303,7 +309,7 @@
         steps.push({ op, query: q, params: p, why: String(s.why || ''), multi: true, perSeq, targets: perSeq.flatMap(x => x.targets) });
         continue;
       }
-      if (!ok.has(op)) { dropped.push(`${op || '?'}: ${OPS[op] && !OPS[op].resolve && RES() ? 'Premiere only' : 'not something I can do here'}`); continue; }
+      if (!ok.has(op)) { dropped.push(`${op || '?'}: ${whyNot(op, 'not something I can do here')}`); continue; }
       let q = {}, p = {};
       try { q = s.targetsJson ? JSON.parse(s.targetsJson) : {}; } catch (e) { q = {}; }
       try { p = s.paramsJson ? JSON.parse(s.paramsJson) : {}; } catch (e) { p = {}; }
@@ -652,5 +658,5 @@
     run: async () => ({ summary: 'Type this in Ask – it plans the edit and shows it to you first.' })
   });
 
-  US.editAsk = { OPS, opsFor, timelineModel, itemsModel, projectModel, projectOutline, outline, select, checkPlan, appendStep, pickSequences, readOthers, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
+  US.editAsk = { OPS, opsFor, NO_TIMELINE_LABELS, timelineModel, itemsModel, projectModel, projectOutline, outline, select, checkPlan, appendStep, pickSequences, readOthers, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
 })();
