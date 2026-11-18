@@ -1,3 +1,9 @@
+## What's new in 1.3.38.1
+
+- **Ask (Premiere): markers it adds work.** In 1.3.38, a marker Ask added could fail with "Illegal Parameter type" yet stay in the sequence, so trying again added it twice. Markers now go on once, and a marker that can't be finished is removed before Ask reports the problem.
+- **Ask: a cut it builds from interview lines keeps every line it chose** and says whether it runs long or short against the length you asked for, instead of quietly dropping a line.
+- Checked in real Premiere Pro with five hard requests in four Ask chats, using a real AI (52 of 52 checks).
+
 ## What's new in 1.3.38
 
 **A new, clearer layout – nothing taken away**
