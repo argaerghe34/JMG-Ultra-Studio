@@ -183,7 +183,7 @@
     if (r.log && r.log.length) US.log('warn', 'Podcast switch notes', r.log.join('\n'), 'podcast');
     await US.host.call('openSequence', { seqId: copy.id });
     const st = stats(segs);
-    return { summary: `“${copy.name}”: ${US.plural(st.shots, 'shot')}, ${US.fmtDur(st.average, true)} on average. Every camera is still there – switch a piece on or off to change a shot. The original is unchanged.`, copy };
+    return { summary: `“${copy.name}”: ${US.plural(st.shots, 'shot')}, ${US.fmtDur(st.average, true)} on average. Every camera is still there – switch a piece on or off to change a shot. The original is unchanged.${r.notes && r.notes.length ? ' ' + r.notes.join(' ') : ''}`, copy };
   }
 
   US.actions.register({

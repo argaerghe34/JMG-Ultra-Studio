@@ -18,6 +18,8 @@ const LABEL_MARKER = ['Lavender', 'Blue', 'Cyan', 'Lavender', 'Sky', 'Green', 'R
 const HL = 'us-hl-', TH = 'us-th-';               // customData of our highlight / theme-name markers
 const SCRATCH = 'JMG Ultra Studio/.scratch';      // where scratch timelines live while they exist
 const STORY_FOLDER = 'JMG Ultra Studio';
+/** A copy Story's insert at the playhead made (later inserts go into it rather than making another). */
+const INSERTED = / – lines inserted( \d+)?$/;
 /** Same as 22-story-sync.js: characters Windows doesn't allow in file names. */
 const safeName = s => String(s || 'Project').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/[. ]+$/, '') || 'Project';
 /** Windows paths are handled the Windows way on any computer (tests run on a Mac). */
@@ -25,6 +27,7 @@ const P = p => (/^[A-Za-z]:[\\/]|^\\\\/.test(p) ? path.win32 : path.posix);
 const isWinPath = p => P(p) === path.win32;
 
 module.exports = (R, fns) => {
+  const RB = require('./rebuild').make(R);
   /* ---------- small helpers ---------- */
   function clipTiming(item) {
     const p = R.props(item), fps = R.clipFps(item, p), tc = String(p['Start TC'] || '');
@@ -414,21 +417,38 @@ module.exports = (R, fns) => {
       return { found: true, seqId: R.id(tl), start: at, end: r.end, track, placed: r.placed };
     },
     /**
-     * Lines at the playhead of the open timeline. Resolve has no insert by script, doesn't say which tracks are
-     * targeted, and a clip laid over another is pushed to that one's end (measured, Resolve 21) – so they go on the
-     * first track pair that's free there (a new one when none is); the playhead then moves past them.
-     * a: {clips:[{id, in, out, label?}], mode} -> {seqId, start, end, track, mode:'overwrite'}
+     * Lines at the playhead of the open timeline. Resolve doesn't say which tracks are targeted, and a clip laid over
+     * another is pushed to that one's end (measured, Resolve 21) – so they go on the first track pair that's free
+     * there (a new one when none is); the playhead then moves past them.
+     * mode 'insert': Resolve has no insert by script, so the rest of the timeline is moved along by the lines' length
+     * (resolve/host/rebuild.js: items moved, a clip under the playhead laid again in two pieces with its look) – on a
+     * copy, "<name> – lines inserted", which is opened; once that copy is open, later inserts go into it.
+     * a: {clips:[{id, in, out, label?}], mode} -> {seqId, seqName, start, end, track, mode, copied?, notes?}
      */
     storyPlaceAtPlayhead(a) {
-      const tl = R.needSeq(null), fps = R.fps(tl);
+      let tl = R.needSeq(null);
+      const fps = R.fps(tl);
       const f = R.tcToFrames(String(tryCall(() => tl.GetCurrentTimecode(), '') || ''), fps), at = isFinite(f) ? Math.max(0, R.tlSec(tl, f)) : R.tlDuration(tl);
-      const len = (a.clips || []).reduce((k, c) => k + (R.num(c.out) - R.num(c.in)), 0), s = R.tlFrame(tl, at), e = R.tlFrame(tl, at + len);
+      const len = (a.clips || []).reduce((k, c) => k + (R.num(c.out) - R.num(c.in)), 0);
+      let copied = false, notes = [];
+      if (a.mode === 'insert' && (a.clips || []).length && len > 0) {
+        if (!INSERTED.test(String(tl.GetName() || ''))) {
+          const c = fns.cloneSequence({ seqId: R.id(tl), name: `${tl.GetName()} – lines inserted` });
+          tl = R.open(R.needSeq(c.id)); copied = true;
+        }
+        const p = R.tlFrame(tl, at) - tl.GetStartFrame(), L = R.tlFrame(tl, at + len) - R.tlFrame(tl, at);
+        try { notes = RB.remap(tl, [{ s: 0, e: p, to: 0 }, { s: p, e: Infinity, to: p + L }], { from: p, verb: 'insert' }).notes; }
+        catch (e) { if (copied) tryCall(() => R.pool().DeleteTimelines([tl])); throw e; }
+      }
+      const s = R.tlFrame(tl, at), e = R.tlFrame(tl, at + len);
       const busy = (type, t) => R.list(t <= tl.GetTrackCount(type) ? tl.GetItemListInTrack(type, t) : []).some(ti => ti && ti.GetStart() < e && ti.GetEnd() > s);
       let track = 1;
       while (busy('video', track) || busy('audio', track)) track++;
       const r = placeRun(tl, a.clips || [], at, track - 1, track - 1);
       tryCall(() => tl.SetCurrentTimecode(R.framesToTC(R.tlFrame(tl, r.end), fps, R.dropFrame(tl))));
-      return { seqId: R.id(tl), start: at, end: r.end, track: track - 1, mode: 'overwrite', placed: r.placed };
+      const out = { seqId: R.id(tl), seqName: String(tl.GetName() || ''), start: at, end: r.end, track: track - 1, mode: a.mode === 'insert' ? 'insert' : 'overwrite', placed: r.placed };
+      if (a.mode === 'insert') Object.assign(out, { copied, notes });
+      return out;
     },
     /**
      * Resolve can't load a clip into the Source Viewer by script: the clip is selected in the Media Pool with the

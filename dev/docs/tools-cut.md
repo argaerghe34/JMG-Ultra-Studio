@@ -16,7 +16,7 @@ For a synced video podcast: the cameras stacked on video tracks, each person's m
 - **How it cuts**: **Long-form**, **Standard** or **Promo**, or set the **Shortest shot** (a quick reply doesn't flash a cut) and **Longest shot** (then a reaction shot of someone listening, or the wide) yourself. **Cut after the voice starts** a few frames late, as an editor would; **ignore replies** like *yeah* and *mm-hm*; **wide** when people talk over each other, on long silences, and at the start and the end; cutaways land on sentence ends when Story has transcripts. **Shuffle the variety** picks differently (and repeatably) when there's more than one choice.
 - Changing a rule redraws the edit at once: a coloured strip of the shots, how much each camera is used, and **every switch** in a list – untick one to stay on the shot before, ▶ to see it.
 - **Make the switched copy**: a copy of the sequence with every camera still stacked, cut at each switch and only the active one switched on. To change a shot later, switch a piece on (or the one above it off). The original isn't changed.
-- In DaVinci Resolve the same, except that Resolve can't cut clips by script, so each camera track is laid again in pieces from the same source times. Resolve Studio's own SmartSwitch is another option there.
+- In DaVinci Resolve the same, except that Resolve can't cut clips by script, so each camera track is laid again in pieces from the same source times – each piece keeps its clip's grade, effects, colour, flags and markers. Resolve Studio's own SmartSwitch is another option there.
 - The **Podcast episode** recipe (Ask › Recipes) switches the cameras, cuts the fillers and false starts from the switched copy, and writes the episode text.
 
 ### Silence Cut – tighten interviews

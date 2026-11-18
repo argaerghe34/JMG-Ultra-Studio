@@ -20,7 +20,7 @@ const RATES = ['16', '18', '23.976', '24', '25', '29.97', '30', '47.952', '48', 
 const safeName = s => String(s || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/[. ]+$/, '').trim();
 
 module.exports = (R) => {
-  const pathMemo = new Map();
+  const pathMemo = new Map(), RB = require('./rebuild').make(R);
 
   /* ---------- small helpers (candidates for base.js) ---------- */
   const tryCall = (fn, dflt) => { try { const v = fn(); return v == null ? dflt : v; } catch (e) { return dflt; } };
@@ -374,15 +374,15 @@ module.exports = (R) => {
 
     /**
      * Ripple-remove time ranges across all tracks (like Premiere's Extract). a: {seqId, ranges:[[start,end],…]} seconds.
-     * Resolve has no razor, so every item that ends after the first range is taken off and its kept parts are appended
-     * again, moved left by the time removed before them. Items before the first range aren't touched. Clip enable
-     * state, clip colour, clip properties (zoom, position, opacity…), item markers and links are carried over; timeline
-     * markers move with the cut (a marker inside a removed range goes). Titles, generators, subtitles and retimed clips
-     * can't be rebuilt by script: if any would have to move, nothing changes and a plain error says why.
-     * Returns {cuts, removed, duration} like Premiere.
+     * Resolve has no razor: resolve/host/rebuild.js lays the timeline again after the first range – items that only
+     * move are moved (keeping their grade, Fusion and effects), cut clips are laid again in pieces with their grade,
+     * effects, colour, flags, markers, enabled state and links copied across, titles and generators are trimmed and
+     * moved. Timeline markers move with the cut (one inside a removed range goes). Clips with a speed change that would
+     * be cut are refused before anything changes; what couldn't come across is named in notes.
+     * Returns {cuts, removed, duration, notes} like Premiere (plus notes).
      */
     extractRanges(a) {
-      const tl = R.needSeq(a.seqId), fps = R.fps(tl), t0 = tl.GetStartFrame();
+      const tl = R.needSeq(a.seqId), fps = R.fps(tl);
       let cuts = 0;
       const rs = [];
       for (const r of a.ranges || []) {
@@ -395,131 +395,15 @@ module.exports = (R) => {
       const ranges = [];
       for (const r of rs) { const last = ranges[ranges.length - 1]; if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]); else ranges.push(r.slice()); }
       const before = R.tlDuration(tl);
-      if (!ranges.length) return { cuts: 0, removed: 0, duration: before };
-      const first = ranges[0][0];
-      const removedBefore = f => { let d = 0; for (const [s, e] of ranges) { if (s >= f) break; d += Math.min(f, e) - s; } return d; };
-      const shift = f => f - removedBefore(f);
-      const inside = f => ranges.some(([s, e]) => f >= s && f < e);
-      const keep = (s, e) => {
-        const out = []; let p = s;
-        for (const [rs0, re] of ranges) { if (re <= p) continue; if (rs0 >= e) break; if (rs0 > p) out.push([p, rs0]); p = Math.max(p, re); if (p >= e) break; }
-        if (p < e) out.push([p, e]);
-        return out;
-      };
-
-      // 1. what has to move, and can it?
-      const moving = [], bad = [], lockedTracks = [];
-      let untouchedEnd = 0;
-      for (const type of ['video', 'audio']) {
-        for (let t = 1, n = tl.GetTrackCount(type); t <= n; t++) {
-          let any = false;
-          for (const ti of R.list(tl.GetItemListInTrack(type, t))) {
-            if (!ti) continue;
-            const s = ti.GetStart() - t0, e = ti.GetEnd() - t0;
-            if (e <= first) { untouchedEnd = Math.max(untouchedEnd, e); continue; }
-            any = true;
-            const mpi = tryCall(() => ti.GetMediaPoolItem(), null), src = Number(tryCall(() => ti.GetSourceStartFrame(), NaN)), srcEnd = Number(tryCall(() => ti.GetSourceEndFrame(), NaN));
-            const cfps = mpi ? R.clipFps(mpi) : fps;
-            if (!mpi || !isFinite(src)) { bad.push(`${type} ${t}: “${tryCall(() => ti.GetName(), '')}” (no Media Pool clip)`); continue; }
-            if (isFinite(srcEnd) && Math.abs((srcEnd - src) - (e - s) * cfps / fps) > 1.5) { bad.push(`${type} ${t}: “${tryCall(() => ti.GetName(), '')}” (speed change)`); continue; }
-            moving.push({ ti, type, track: t, s, e, mpi, src, cfps, id: R.id(ti) });
-          }
-          if (any && tryCall(() => tl.GetIsTrackLocked(type, t), false)) lockedTracks.push([type, t]);
-        }
-      }
-      for (let t = 1, n = tryCall(() => tl.GetTrackCount('subtitle'), 0); t <= n; t++) {
-        for (const ti of R.list(tryCall(() => tl.GetItemListInTrack('subtitle', t), []))) if (ti && ti.GetEnd() - t0 > first) bad.push(`subtitle ${t}: “${tryCall(() => ti.GetName(), '')}”`);
-      }
-      if (bad.length) {
-        throw R.err('HOST_SCRIPT', 'Can’t rebuild: ' + bad.slice(0, 20).join('; ') + (bad.length > 20 ? ` and ${bad.length - 20} more` : ''),
-          `Resolve can’t move ${bad.length === 1 ? 'one item' : bad.length + ' items'} on this timeline by script (titles, generators, subtitles or speed changes).`,
-          'Nothing in your original timeline changed. Move those items to before the first cut, or render them in place, then try again.');
-      }
-
-      // 2. remember what each item carries, and plan its kept parts
-      const ids = new Set(moving.map(m => m.id)), infos = [], parts = [];
-      for (const m of moving) {
-        m.enabled = tryCall(() => m.ti.GetClipEnabled(), true) !== false;
-        m.color = String(tryCall(() => m.ti.GetClipColor(), '') || '');
-        m.props = tryCall(() => m.ti.GetProperty(), null);
-        m.markers = tryCall(() => R.markers(m.ti), {}) || {};
-        m.links = R.list(tryCall(() => m.ti.GetLinkedItems(), [])).map(x => R.id(x)).filter(x => ids.has(x));
-        for (const [ps, pe] of keep(m.s, m.e)) {
-          const srcStart = m.src + Math.round((ps - m.s) * m.cfps / fps), srcLen = Math.max(1, Math.round((pe - ps) * m.cfps / fps));
-          const rec = shift(ps);
-          infos.push({ mediaPoolItem: m.mpi, startFrame: srcStart, endFrame: srcStart + srcLen, trackIndex: m.track, recordFrame: t0 + rec, mediaType: m.type === 'video' ? 1 : 2 });
-          parts.push({ m, ps, pe, rec });
-        }
-      }
-      // link groups: originals linked to each other share a group (smallest id)
-      const group = new Map(moving.map(m => [m.id, m.id]));
-      const root = id => { while (group.get(id) !== id) id = group.get(id); return id; };
-      for (const m of moving) for (const l of m.links) { const x = root(m.id), y = root(l); if (x !== y) group.set(x < y ? y : x, x < y ? x : y); }
-
-      // 3. timeline markers that move
-      const tlMarks = R.markers(tl), moveMarks = [];
-      for (const [k, mk] of Object.entries(tlMarks)) {
-        const f = Number(k), dur = Math.max(1, Number(mk.duration) || 1);
-        if (f + dur <= first) continue;
-        if (inside(f)) { moveMarks.push({ f, drop: true }); continue; }
-        const nf = shift(f), nd = Math.max(1, shift(f + dur) - nf);
-        if (nf !== f || nd !== dur) moveMarks.push({ f, nf, nd, mk });
-      }
-
-      // 4. rebuild (on the copy the tool made)
-      R.open(tl);
-      for (const [type, t] of lockedTracks) tryCall(() => tl.SetTrackLock(type, t, false));
-      try {
-        if (moving.length && !tl.DeleteClips(moving.map(m => m.ti), false)) throw R.err('HOST_SCRIPT', 'DeleteClips failed', 'Resolve didn’t make the cuts.', 'Nothing in your original timeline changed. Try again; if it keeps happening, send the activity log to support.');
-        if (infos.length) {
-          const got = R.list(R.pool().AppendToTimeline(infos)).filter(Boolean);
-          if (!got.length) throw R.err('HOST_SCRIPT', `AppendToTimeline placed nothing (${infos.length} parts)`, 'Resolve didn’t make the cuts.', 'Nothing in your original timeline changed. Send the activity log to support.');
-        }
-        // find each new part by track and start, then give it back what the original had
-        const at = new Map();
-        for (const type of ['video', 'audio']) for (let t = 1, n = tl.GetTrackCount(type); t <= n; t++) for (const ti of R.list(tl.GetItemListInTrack(type, t))) if (ti) at.set(`${type}:${t}:${ti.GetStart() - t0}`, ti);
-        const missing = [], linkSets = new Map();
-        for (const p of parts) {
-          const m = p.m, ti = at.get(`${m.type}:${m.track}:${p.rec}`) || at.get(`${m.type}:${m.track}:${p.rec - 1}`) || at.get(`${m.type}:${m.track}:${p.rec + 1}`);
-          if (!ti) { missing.push(`${m.type} ${m.track} at ${(p.rec / fps).toFixed(2)} s`); continue; }
-          if (!m.enabled) tryCall(() => ti.SetClipEnabled(false));
-          if (m.color) tryCall(() => ti.SetClipColor(m.color));
-          if (m.props && typeof m.props === 'object') {
-            const now = tryCall(() => ti.GetProperty(), {}) || {};
-            // only real values go back (a None/NaN from GetProperty sent to SetProperty could abort Resolve)
-            for (const [k, v] of Object.entries(R.clean(m.props))) if ((typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') && JSON.stringify(now[k]) !== JSON.stringify(v)) tryCall(() => ti.SetProperty(k, v));
-          }
-          for (const [k, mk] of Object.entries(m.markers)) {
-            const o = Number(k) - (p.ps - m.s);
-            if (o >= 0 && o < p.pe - p.ps) tryCall(() => ti.AddMarker(o, String(mk.color || 'Blue'), String(mk.name || ''), String(mk.note || ''), Math.max(1, Math.round(Number(mk.duration) || 1)), String(mk.customData || '')));
-          }
-          const key = root(m.id) + '@' + p.rec;
-          (linkSets.get(key) || linkSets.set(key, []).get(key)).push(ti);
-        }
-        if (tl.SetClipsLinked) for (const list of linkSets.values()) if (list.length > 1) tryCall(() => tl.SetClipsLinked(list, true));
-        // timeline markers: take off every one that moves, then put them back in order (one marker per frame)
-        // by customData when only that marker has it (the user's own markers may share one or have none), else by frame
-        const cdCount = new Map();
-        for (const mk of Object.values(tlMarks)) if (mk && mk.customData) cdCount.set(mk.customData, (cdCount.get(mk.customData) || 0) + 1);
-        for (const x of moveMarks) { const cd = tlMarks[x.f] && tlMarks[x.f].customData; R.deleteMarker(tl, x.f, cd && cdCount.get(cd) === 1 ? cd : ''); }
-        const taken = new Set(Object.keys(R.markers(tl)).map(Number));
-        for (const x of moveMarks.filter(y => !y.drop).sort((p, q) => p.nf - q.nf)) {
-          let f = x.nf; while (taken.has(f)) f++;
-          if (tryCall(() => tl.AddMarker(f, String(x.mk.color || 'Blue'), String(x.mk.name || ''), String(x.mk.note || ''), x.nd, String(x.mk.customData || '')), false)) taken.add(f);
-        }
-        // check: the timeline should now end where the plan says
-        let want = untouchedEnd;
-        for (const p of parts) want = Math.max(want, p.rec + (p.pe - p.ps));
-        const got = tl.GetEndFrame() - t0;
-        if (missing.length || Math.abs(got - want) > 1) {
-          throw R.err('HOST_SCRIPT', `Rebuild: ${missing.length ? 'missing ' + missing.slice(0, 10).join(', ') + '; ' : ''}timeline ends at frame ${got}, expected ${want}`,
-            'Resolve didn’t make a cut where expected.', 'Nothing in your original timeline changed. Send the activity log to support.');
-        }
-      } finally {
-        for (const [type, t] of lockedTracks) tryCall(() => tl.SetTrackLock(type, t, true));
-      }
+      if (!ranges.length) return { cuts: 0, removed: 0, duration: before, notes: [] };
+      // the kept spans, each moved left by what was removed before it
+      const segs = [];
+      let p = 0, gone = 0;
+      for (const [s, e] of ranges) { if (s > p) segs.push({ s: p, e: s, to: p - gone }); gone += e - s; p = e; }
+      segs.push({ s: p, e: Infinity, to: p - gone });
+      const { notes } = RB.remap(tl, segs, { from: ranges[0][0], verb: 'cut' });
       const after = R.tlDuration(tl);
-      return { cuts, removed: before - after, duration: after };
+      return { cuts, removed: before - after, duration: after, notes };
     },
 
     /** Track output on/off (the eye / speaker). a: {seqId, video, index (0-based), mute} */
