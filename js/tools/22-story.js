@@ -60,7 +60,8 @@
     if (!ident) return Promise.resolve(null);
     if (resAsk && resAsk.ident === ident) return resAsk.p;
     const store = US.projectStore(ident);
-    const p = US.host.call('storyProjectFile', { prefer: store.get('storyFolder', '') || undefined }).then(r => {
+    // the same question the project's store asks as the project opens (js/core/store.js: US.projectFolder)
+    const p = (US.projectFolder ? US.projectFolder.ask(ident) : US.host.call('storyProjectFile', { prefer: store.get('storyFolder', '') || undefined })).then(r => {
       if (projectIdent() !== ident) return null;
       if (r.folder && r.folder !== store.get('storyFolder', '')) store.set('storyFolder', r.folder);   // so it doesn't move
       resRef = { ident, local: 'resolve:' + (r.id || ident), shared: r.path || '', reason: r.reason || '', folder: r.folder || '' };
@@ -72,6 +73,12 @@
     resAsk = { ident, p };
     return p;
   }
+  // the project's folder chosen on Home: Story's copy moves there too (this computer's copy is kept and written there)
+  US.bus.on('project-folder', f => {
+    if (!RES || !resRef || !f || f.ident !== resRef.ident || (f.path || '') === resRef.shared) return;
+    flushShared(); resAsk = null; resRef = null; statePath = '';   // nothing saved until it's loaded from the new place
+    askResolveRef();
+  });
   /** Await before changing Story (Resolve: the project's Story must be loaded first). */
   async function ready() { if (RES && US.ctx.project) await askResolveRef(); }
   /** -> {local, shared}: this computer's copy is keyed on local, the copy that travels sits beside shared. */
