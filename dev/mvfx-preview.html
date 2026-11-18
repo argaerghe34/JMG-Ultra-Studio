@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- mVFX motion titles, outside the editor: every preset animating on a stand-in picture. Serve the repo folder
+     (python3 -m http.server) and open /dev/mvfx-preview.html ; ?id=ti-film shows one large; ?t=1.2 freezes time. -->
+<html><head><meta charset="utf-8"><title>mVFX preview</title>
+<style>body{background:#1a1a1a;color:#ccc;font:12px -apple-system,sans-serif;margin:10px}.g{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:8px}.t canvas{width:100%;display:block;background:#000}.t div{padding:3px 2px}h2{font-size:13px;margin:14px 0 6px}</style></head>
+<body><script>window.US = {};</script>
+<script src="../js/tools/39-mvfx-motion.js"></script>
+<script>
+const M = US.mvfxMotion, q = new URLSearchParams(location.search), only = q.get('id'), fixed = q.get('t'), bg = q.get('bg') || 'footage', cols = q.get('cols');
+if (cols) document.body.style.setProperty('--cols', cols);
+const has = f => document.fonts.check('12px "' + f + '"');
+const pick = l => l.find(has) || l[l.length - 1];
+const fonts = { serif: pick(['Baskerville', 'Cochin', 'Hoefler Text', 'Cambria', 'Georgia']), sans: pick(['Avenir Next', 'Helvetica Neue', 'Segoe UI', 'Arial']), mono: pick(['Menlo', 'Consolas', 'Courier New']), hand: pick(['Bradley Hand', 'Noteworthy', 'Ink Free', 'Segoe Print', 'cursive']) };
+function plate(ctx, W, H) {
+  if (bg === 'black') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); return; }
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#5a6066'); g.addColorStop(1, '#22262b'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const r = ctx.createRadialGradient(W * 0.6, H * 0.42, 0, W * 0.6, H * 0.42, H * 0.55); r.addColorStop(0, 'rgba(214,180,140,0.95)'); r.addColorStop(1, 'rgba(60,55,50,0)'); ctx.fillStyle = r; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#30343a'; ctx.fillRect(W * 0.5, H * 0.58, W * 0.2, H * 0.42); ctx.beginPath(); ctx.arc(W * 0.6, H * 0.45, H * 0.13, 0, 7); ctx.fill();
+}
+const list = M.PRESETS.filter(p => !only || p.id === only), tiles = [];
+for (const g of M.GROUPS) {
+  const ps = list.filter(p => p.group === g.id); if (!ps.length) continue;
+  document.body.insertAdjacentHTML('beforeend', '<h2>' + g.name + '</h2><div class="g" id="' + g.id + '"></div>');
+  for (const p of ps) {
+    const c = document.createElement('canvas'); c.width = only ? 1920 : 960; c.height = only ? 1080 : 540;
+    const v = { text: {}, colours: {}, fonts, scale: 1, dx: 0, dy: 0 }; for (const f of p.fields) v.text[f.id] = f.value;
+    const ctx = c.getContext('2d'), scene = M.prepare(ctx, c.width, c.height, p, v, p.duration);
+    const d = document.createElement('div'); d.className = 't'; d.appendChild(c); d.insertAdjacentHTML('beforeend', '<div>' + p.label + ' – ' + p.sub + '</div>');
+    document.getElementById(g.id).appendChild(d); tiles.push({ c, ctx, scene });
+  }
+}
+const t0 = performance.now();
+(function loop() {
+  for (const x of tiles) { const t = fixed != null ? (fixed === 'hold' ? M.holdTime(x.scene) : +fixed) : ((performance.now() - t0) / 1000) % (x.scene.total + 0.6); plate(x.ctx, x.c.width, x.c.height); M.draw(x.ctx, x.scene, t); }
+  if (fixed == null) requestAnimationFrame(loop);
+})();
+</script></body></html>

@@ -87,3 +87,16 @@ test('mvfxMove: refused plainly (no keyframes by script)', async () => {
   const r = await S.run('mvfxMove', { seqId: S.seqId, targets: [{ kind: 'video', track: 0, start: 0 }], keys: [] });
   assert.ok(r.unsupported && /Resolve doesn’t let add-ons keyframe/.test(r.why));
 });
+
+test('mvfxClip: the drawn frames come in as one image-sequence clip in the mVFX bin and land on a free mVFX track; a second at the same time takes the next track', async () => {
+  const S = withTimeline(), dir = path.join(S.dir, 'nm-rule-abc');
+  fs.mkdirSync(dir); for (let i = 1; i <= 125; i++) fs.writeFileSync(path.join(dir, `nm-rule_${String(i).padStart(4, '0')}.png`), 'x');
+  const first = path.join(dir, 'nm-rule_0001.png');
+  const r = await S.run('mvfxClip', { seqId: S.seqId, first, frames: 125, fps: 25, start: 2, seconds: 5, name: 'Ruled · Mira Haddad' });
+  assert.strictEqual(r.trackName, 'mVFX 1'); assert.ok(Math.abs(r.start - 2) < 0.05, 'at 2 s: ' + r.start);
+  const again = await S.run('mvfxClip', { seqId: S.seqId, first, frames: 125, fps: 25, start: 4, seconds: 5, name: 'Ruled · Mira Haddad' });
+  assert.strictEqual(again.trackName, 'mVFX 2', 'the first track is busy from 2 to 7 s');
+  const later = await S.run('mvfxClip', { seqId: S.seqId, first, frames: 125, fps: 25, start: 8, seconds: 2, name: 'x' });
+  assert.strictEqual(later.trackName, 'mVFX 1', 'free again after 7 s');
+  await assert.rejects(() => S.run('mvfxClip', { seqId: S.seqId, first: path.join(dir, 'missing_0001.png'), frames: 10, fps: 25, start: 0, seconds: 1 }), /NOTHING_FOUND|aren’t there/);
+});

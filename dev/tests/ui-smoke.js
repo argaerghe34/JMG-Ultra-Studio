@@ -32,7 +32,7 @@ US.host.call = async (fn, a) => {
   }
 };
 US.ctx = { project: { name: 'Test', path: path.join(process.env.HOME, 'test.prproj') }, sequence: { id: 's1', name: 'Cut', fps: 25, duration: 30 } };
-for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '39-mvfx-fusion', '39-mvfx-looks', '39-mvfx-pack', '39-mvfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
+for (const f of ['22-story-glossary', '22-story-clips', '22-story-heat', '22-story-script', '22-story-reference', '22-story-crops', '22-story-drag', '22-story-voices', '22-story-proof', '22-story-ai', '22-story-board', '22-story-export', '22-story-moments', '22-story-narrative', '22-story-questions', '22-story-context', '22-story-ask', '22-story-timeline', '22-story', '40-assistant', '41-edit', '42-recipes', '29-words', '35-markers', '36-quickfx', '39-mvfx-fusion', '39-mvfx-looks', '39-mvfx-motion', '39-mvfx-pack', '39-mvfx', '37-producer', '38-wiki', '43-agent']) run(`js/tools/${f}.js`);
 const T = US.transcript, S = US.story;
 US.tools.open = () => {}; // no app shell here; the test drives the Story screen directly
 
@@ -499,10 +499,39 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     w.document.body.appendChild(mt.el);
     await new Promise(r => setTimeout(r, 30));
     const tiles = mt.el.querySelectorAll('.mvfx-tile');
-    if (tiles.length !== 8) errors.push(`mvfx: ${tiles.length} lower thirds`);
+    if (tiles.length !== 6) errors.push(`mvfx: ${tiles.length} animated names`);
     const groups = mt.el.querySelectorAll('.mvfx-groups .seg');
-    if (groups.length !== 9) errors.push(`mvfx: ${groups.length} groups`);
-    Array.from(tiles).find(t => /Tag/.test(t.textContent)).click();   // Tag has no painted art (there is no canvas here), just two text layers
+    if (groups.length !== 12) errors.push(`mvfx: ${groups.length} groups`);
+    // an animated title: drawn frame by frame (a stand-in canvas here), the still stretch linked, then one clip asked for
+    {
+      const drawn = [], fake = { font: '10px x', measureText(t) { return { width: Array.from(t).length * (parseFloat((/(\d+)px/.exec(this.font) || [0, 10])[1]) * 0.5) }; }, fillText(t) { drawn.push(t); } };
+      for (const k of ['save', 'restore', 'fillRect', 'clearRect', 'beginPath', 'closePath', 'moveTo', 'lineTo', 'stroke', 'fill', 'rect', 'clip', 'translate', 'rotate', 'arc', 'setLineDash', 'strokeRect']) fake[k] = () => {};
+      fake.createLinearGradient = fake.createRadialGradient = () => ({ addColorStop() {} });
+      const wasCtx = w.HTMLCanvasElement.prototype.getContext, wasBlob = w.HTMLCanvasElement.prototype.toBlob, wasCall0 = US.host.call, calls0 = [];
+      w.HTMLCanvasElement.prototype.getContext = () => fake;
+      w.HTMLCanvasElement.prototype.toBlob = cb => cb({ arrayBuffer: async () => new Uint8Array([137, 80, 78, 71]).buffer });
+      US.host.call = async (fn, a) => { calls0.push([fn, a]); if (fn === 'sequenceInfo') return { id: 's1', name: 'Cut', fps: 25, width: 1920, height: 1080, duration: 30 }; if (fn === 'mvfxClip') return { itemId: 'c1', track: 3, trackName: 'mVFX 1', start: a.start, end: a.start + a.seconds }; return wasCall0(fn, a); };
+      try {
+        const nameIn = mt.el.querySelector('.mvfx-editor input.input');
+        nameIn.value = 'Mira Haddad'; nameIn.dispatchEvent(new w.Event('input'));
+        mt.el.querySelector('.btn.primary').click();
+        await new Promise(r => setTimeout(r, 400));
+        const mc = calls0.find(c => c[0] === 'mvfxClip');
+        if (!mc) errors.push('mvfx: no clip asked for ' + JSON.stringify(calls0.map(c => c[0])) + ' ' + mt.el.querySelector('.pad-status').textContent);
+        else {
+          const dir = path.dirname(mc[1].first), files = fs.readdirSync(dir).filter(x => /\.png$/.test(x));
+          if (mc[1].frames !== 125 || files.length !== 125 || mc[1].fps !== 25 || mc[1].seconds !== 5 || mc[1].start !== 0) errors.push(`mvfx: clip ${JSON.stringify(mc[1])} with ${files.length} files`);
+          if (!/Ruled_0001\.png$|nm-rule_0001\.png$/.test(mc[1].first) || !fs.existsSync(path.join(dir, 'title.json'))) errors.push('mvfx: frames named ' + mc[1].first);
+          const made = JSON.parse(fs.readFileSync(path.join(dir, 'title.json'), 'utf8'));
+          if (made.preset !== 'nm-rule' || made.values.text.name !== 'Mira Haddad') errors.push('mvfx: title.json ' + JSON.stringify(made).slice(0, 200));
+          if (!drawn.includes('M') || !/Mira Haddad/.test(mc[1].name)) errors.push('mvfx: the name wasn’t drawn letter by letter / named: ' + mc[1].name);
+          if (!/Ruled added at/.test(mt.el.textContent)) errors.push('mvfx: no report: ' + mt.el.querySelector('.pad-status').textContent);
+        }
+      } finally { w.HTMLCanvasElement.prototype.getContext = wasCtx; w.HTMLCanvasElement.prototype.toBlob = wasBlob; US.host.call = wasCall0; }
+    }
+    Array.from(groups).find(b => /Plain text/.test(b.textContent)).click();
+    await new Promise(r => setTimeout(r, 30));
+    Array.from(mt.el.querySelectorAll('.mvfx-tile')).find(t => /Tag/.test(t.textContent)).click();   // Tag has no painted art (there is no canvas here), just two text layers
     const inputs = mt.el.querySelectorAll('.mvfx-editor input.input');
     if (inputs.length < 2) errors.push('mvfx: no name/role fields');
     inputs[0].value = 'Mira Haddad'; inputs[0].dispatchEvent(new w.Event('input'));
@@ -530,7 +559,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       const mv = calls.filter(c => c[0] === 'mvfxMove');
       if (mv.length !== 1 || mv[0][1].keys.length !== 2 || mv[0][1].keys[1].scale !== 112 || mv[0][1].targets[0].start !== 4) errors.push('mvfx: push in keys ' + JSON.stringify(mv.map(c => c[1])));
     } finally { US.host.call = wasCall; for (const k of Object.keys(US.settings.all()).filter(k => k.startsWith('mvfx.'))) US.settings.set(k, undefined); }
-    checks.push(`mvfx: ${tiles.length} lower thirds, ${groups.length} groups, Tag → 2 text layers, Push in → keyframes`);
+    checks.push(`mvfx: ${tiles.length} animated names, ${groups.length} groups, Ruled → 125 frames as one clip, Tag → 2 text layers, Push in → keyframes`);
   }
   // Agent: a goal → its plan shown → Go → steps listed → what it made, with the sequences to open; then a follow-up
   {

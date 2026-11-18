@@ -110,6 +110,36 @@ module.exports = (R, fns) => {
       } finally { if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was); }
     },
 
+    /**
+     * An animated title: the PNG frames the panel drew, imported as one image-sequence clip and laid on a free mVFX
+     * track. a: {seqId, first (the first frame's path), frames, fps, start, seconds, name, binPath}
+     * -> {itemId, track (0-based), trackName, start, end, note, log}
+     */
+    async mvfxClip(a) {
+      const tl = R.needSeq(a.seqId), pr = R.project(), was = pr.GetCurrentTimeline(), log = [];
+      const m = /^(.*?)(\d+)(\.[a-z0-9]+)$/i.exec(path.basename(a.first));
+      if (!m || !R.exists(a.first)) throw R.err('NOTHING_FOUND', 'No frames at ' + a.first, 'The title’s frames aren’t there.', 'Try again.');
+      const first = Number(m[2]), n = Math.max(1, Number(a.frames) || 1), pattern = path.join(path.dirname(a.first), m[1] + '%0' + m[2].length + 'd' + m[3]);
+      const folder = R.ensureBin(a.binPath || 'JMG Ultra Studio/mVFX');
+      let got = R.inFolder(folder, () => R.list(R.pool().ImportMedia([{ FilePath: pattern, StartIndex: first, EndIndex: first + n - 1 }])).filter(Boolean));
+      if (!got.length) { log.push('sequence import gave nothing; importing the first frame'); got = R.inFolder(folder, () => R.list(R.pool().ImportMedia([a.first])).filter(Boolean)); }
+      if (!got.length) throw R.err('HOST_SCRIPT', 'ImportMedia gave nothing for ' + pattern, 'Resolve didn’t import the title’s frames.', 'Try again – or drag the folder into the Media Pool by hand.');
+      const item = got[0];
+      if (a.name) tryCall(() => item.SetClipProperty('Clip Name', String(a.name)), false);
+      try {
+        R.open(tl);
+        const half = 0.5 / R.fps(tl), end = Number(a.start) + Number(a.seconds);
+        let t = 0;
+        for (let k = 1; k <= 12 && !t; k++) { const c = ourTrack(tl, k); if (!R.list(tl.GetItemListInTrack('video', c)).filter(Boolean).some(ti => R.tlSec(tl, ti.GetStart()) < end - half && R.tlSec(tl, ti.GetEnd()) > Number(a.start) + half)) t = c; }
+        if (!t) throw R.err('BAD_INPUT', 'Twelve mVFX tracks are busy at ' + a.start, 'There are already twelve titles on top of each other here.', 'Move the playhead, or remove some.');
+        const placed = R.list(R.pool().AppendToTimeline([R.clipInfo(item, 0, Number(a.seconds), { trackIndex: t, recordFrame: R.tlFrame(tl, a.start), mediaType: 1 })])).filter(Boolean);
+        if (!placed.length) throw R.err('HOST_SCRIPT', 'AppendToTimeline placed nothing on V' + t, 'Resolve didn’t place the title.', 'Check the track isn’t locked, then try again.');
+        const ti = placed[0], start = R.tlSec(tl, ti.GetStart()), stop = R.tlSec(tl, ti.GetEnd());
+        try { ti.SetClipColor && ti.SetClipColor('Tan'); } catch (e) { /* a help only */ }
+        return { itemId: R.id(item), track: t - 1, trackName: String(tl.GetTrackName('video', t) || ''), start, end: stop, log, note: Math.abs((stop - start) - Number(a.seconds)) > 0.2 ? `Resolve laid it ${Math.round((stop - start) * 10) / 10} s long` : '' };
+      } finally { if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was); }
+    },
+
     /** Hold the frame at a.at: exportFrame → a still on an mVFX track at the playhead (Resolve lays stills 5 s long). a: {seqId, at, seconds, outBase, binPath} */
     async mvfxFreeze(a) {
       const tl = R.needSeq(a.seqId), pr = R.project(), was = pr.GetCurrentTimeline();
