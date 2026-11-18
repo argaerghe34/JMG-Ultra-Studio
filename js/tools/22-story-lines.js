@@ -28,7 +28,7 @@
       const insp = h('div.sl-insp');
       const body = h('div.sl-body', themesEl, h('div.sl-mid', table), insp);
       const empty = h('div');
-      const keys = h('div.sl-keys', 'Keys: ', h('span.kbd', 'J'), h('span.kbd', 'K'), ' move · ', h('span.kbd', 'space'), ' play · ', h('span.kbd', '↵'), ' at the playhead · ', h('span.kbd', '/'), ' filter · shift- or ⌘-click picks several');
+      const keys = h('div.sl-keys', 'Keys: ', h('span.kbd', 'J'), h('span.kbd', 'K'), ' move · ', h('span.kbd', 'space'), ' play · ', h('span.kbd', '↵'), ' at the playhead · ', h('span.kbd', '/'), ` filter · shift- or ${US.fsx && US.fsx.isWin ? 'Ctrl' : '⌘'}-click picks several`);
       const tools = h('div.sl-tools', find, picky.el || picky, summary);
       v.body.append(tools, empty, body, keys);
       find.addEventListener('input', () => { query = find.value.trim().toLowerCase(); limit = 400; draw(); });
