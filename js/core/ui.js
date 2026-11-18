@@ -144,12 +144,17 @@
     return h('div.empty', US.icon(icon, 28), h('div.empty-title', title), text && h('div.empty-text', text), action);
   };
   ui.note = (text, type = 'info') => h('div.note.' + type, US.icon(type === 'warn' ? 'warn' : 'info', 15), h('span', text));
+  /** The same note wherever a feature needs AI and none is set up: what it needs, and one button to fix it (UI review). */
+  ui.needsAI = (text = 'This needs AI.') => h('div.needs-ai', ui.note(text + ' Only text is ever sent – never footage.', 'info'),
+    h('div.row', ui.button('Add a key', { small: true, kind: 'primary', icon: 'gear', onClick: () => US.tools.open('settings', { section: 'ai' }) }),
+      ui.button('What works without AI', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings', { section: 'without-ai' }) })));
   ui.stat = (value, label) => h('div.stat', h('div.stat-val', value), h('div.stat-label', label));
   ui.stats = (...items) => h('div.stats', items);
 
   /** Standard tool screen: header + scrollable body. Returns {el, body, setSubtitle} */
   ui.toolView = function ({ icon, title, blurb, help }) {
-    const sub = h('div.tool-blurb', blurb);
+    // a long description shows two lines; a click shows the rest (and hides it again) – nothing is cut, only folded
+    const sub = h('div.tool-blurb', { title: 'Click to read more', onclick: () => sub.classList.toggle('open') }, blurb);
     const body = h('div.tool-body');
     const el = h('div.tool',
       h('div.tool-head', h('div.tool-icon', US.icon(icon, 20)), h('div.tool-titles', h('div.tool-title', title), sub),

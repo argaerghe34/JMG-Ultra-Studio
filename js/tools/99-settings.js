@@ -187,6 +187,8 @@
             h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
           ], { open: true })),
         sentCard(),
+        tourCard(),
+        layoutCard(),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
         US.app.is('resolve') ? null : ui.card(h('div.card-title', 'Listening to sound'),
           ui.toggle({ label: 'Render sound in the background (Media Encoder)', value: US.settings.get('audio.background', true) !== false, onChange: x => US.settings.set('audio.background', !!x), hint: 'When a tool needs to hear a clip or sequence that isn’t a plain WAV – Tell the voices apart, Silence Cut, Beat Cut, Song Splitter, Podcast – Media Encoder renders its sound while you carry on editing in Premiere. Off (or if Media Encoder isn’t there): Premiere renders it itself, and is busy until it’s done.' })),
@@ -204,6 +206,24 @@
         about(),
         codeCard()
       );
+      /* The tour: the whole app, or one tab (js/tools/03-tour.js) */
+      function tourCard() {
+        if (!US.tour) return null;
+        const tours = US.tour.list().filter(t => t.id !== 'overview');
+        const pick = ui.select({ options: tours.map(t => ({ value: t.id, label: t.name })), value: tours[0] && tours[0].id });
+        return h('div', { dataset: { section: 'tour' } }, ui.card(h('div.card-title', 'Take the tour'),
+          h('div.muted', 'Pop-ups that point at the real screen: what each part does, with tips. Esc stops it at any time.'),
+          h('div.row', ui.button('Take the tour', { kind: 'primary', icon: 'info', onClick: () => US.tour.start('overview') })),
+          ui.field('Or a short tour of one tab', h('div.row', h('div.grow', pick.el || pick), ui.button('Show me', { small: true, onClick: () => US.tour.start((pick.value != null ? pick.value : (pick.el || pick).value) || tours[0].id) })))));
+      }
+      /* Layout: the rail as places (default) or one button per tool as before (UI review, 18 Nov 2026) */
+      function layoutCard() {
+        return h('div', { dataset: { section: 'layout' } }, ui.card(h('div.card-title', 'Layout'),
+          ui.toggle({ label: 'Classic rail – one button per tool', value: US.classicRail(), hint: 'Off: the rail has eight places in the order of the work (Home, Bring in, Story, Cut, Finish, Deliver, Ask, Advanced), each place shows its tools as tabs, and Home starts with where the project is and the next step. On: the rail and Home as they were before, one rail button for each tool.',
+            onChange: x => { US.settings.set('ui.classicRail', !!x); US.rebuildRail && US.rebuildRail(); } }),
+          ui.toggle({ label: 'Story › Build: one at a time', value: US.settings.get('story.buildChooser', true) !== false, hint: 'On: Build asks “What do you want to make?” and shows that card (Show all shows every card). Off: every Build card, one under the other, as before.',
+            onChange: x => US.settings.set('story.buildChooser', !!x) })));
+      }
       /* Updates: one button checks GitHub for a newer version and installs it (js/tools/98-update.js) */
       function updatesCard() {
         if (!US.update) return null;

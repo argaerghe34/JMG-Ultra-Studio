@@ -317,7 +317,7 @@
           w ? h('div.field-hint', `Made from ${US.plural(w.interviews.length, 'interview')} (${(st.wiki.lines || 0).toLocaleString('en-GB')} lines) on ${new Date(st.wiki.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} by ${st.wiki.by}.`) : h('div.field-hint', 'Not made yet: the AI reads every interview once and writes the wiki. It’s kept with the project.'),
           stale ? ui.note('Interviews have been added or changed since – update it to include them.', 'warn') : null,
           st.wiki && st.wiki.missing ? ui.note(st.wiki.missing, 'warn') : null,
-          aiOn ? null : ui.note('The wiki needs AI – add a key in Settings › AI.', 'info'),
+          aiOn ? null : ui.needsAI('The wiki needs AI.'),
           h('div.row', w && !stale ? null : btn, w ? ui.button('Save as Word', { small: true, kind: 'ghost', icon: 'folder', onClick: saveDoc }) : null, w && !stale ? h('span.right', ui.button('Update', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => btn.click() })) : null),
           (() => { try { return h('div.field-hint', S().contextLine()); } catch (e) { return null; } })()));
       }

@@ -349,7 +349,7 @@
       const briefBox = () => h('textarea.input', { rows: 3, placeholder: 'Optional: what it’s for – e.g. a 3-minute film for the charity’s donors about how the bakery brought the street together', oninput: e => US.settings.set('producer.brief', e.target.value) }, US.settings.get('producer.brief', US.settings.get('story.brief', '')));
       const costLine = () => { try { return h('div.field-hint', S().contextLine()); } catch (e) { return null; } };
       const clientHint = () => (String(S().state().narrativeContext || '').trim() ? h('div.field-hint', 'The client’s notes from Story › 4 Build are read too.') : null);
-      const blocked = () => { try { need(); return null; } catch (e) { return ui.card(ui.note(e.title || e.message, 'info'), e.action ? h('div.field-hint', e.action) : null, e.code === 'AI_KEY' ? null : ui.button('Open Story', { small: true, onClick: () => S().open('transcripts') })); } };
+      const blocked = () => { try { need(); return null; } catch (e) { return ui.card(ui.note(e.title || e.message, 'info'), e.action ? h('div.field-hint', e.action) : null, e.code === 'AI_KEY' ? ui.needsAI('Producer needs AI.') : ui.button('Open Story', { small: true, onClick: () => S().open('transcripts') })); } };
 
       /* notes on the cut */
       function renderNotes() {

@@ -66,6 +66,37 @@
   }
   US.homeNews = { parseNews };
 
+  /* ---------- the guided Home (UI review, mock-up 1): where the project is, the next step, what you did last ---------- */
+  /** The last results, kept across sessions (Settings' data folder): [{tool, title, summary, ok, t}] newest first. */
+  const recent = () => US.settings.get('home.recent', []) || [];
+  US.bus.on('jobend', (job, r) => {
+    if (!job || !job.tool || job.tool === 'home' || r.cancelled) return;
+    const list = recent().filter(x => !(x.tool === job.tool && x.title === job.title));
+    list.unshift({ tool: job.tool, title: job.title, summary: String(r.summary || '').slice(0, 140), ok: !!r.ok, t: Date.now() });
+    US.settings.set('home.recent', list.slice(0, 6));
+  });
+  const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 60 * 24 ? `${Math.round(m / 60)} h ago` : new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+  const STAGES = [['bring', 'Bring in'], ['story', 'Story'], ['cut', 'Cut'], ['finish', 'Finish'], ['deliver', 'Deliver']];
+  /** Where the project is: each stage done / now / to do, from Story's counts and the tools that finished. */
+  function stagesOf(c) {
+    const ran = new Set(recent().filter(x => x.ok).map(x => US.placeOf ? US.placeOf(x.tool) : null));
+    const done = {
+      bring: !!(c && c.interviews) || ran.has('bring'),
+      story: !!(c && c.narratives) || ran.has('story') && !!(c && c.themes),
+      cut: ran.has('cut'), finish: ran.has('finish'), deliver: ran.has('deliver')
+    };
+    const now = (STAGES.find(([id]) => !done[id]) || ['deliver'])[0];
+    return STAGES.map(([id, name]) => ({ id, name, state: done[id] ? 'done' : id === now ? 'now' : 'todo' }));
+  }
+  /** The one suggested next step: {title, text, go: [label, fn], also?: [label, fn]} */
+  function nextStep(c, open) {
+    if (!US.ctx.project) return { title: 'Open a project', text: US.say('Open a project in Premiere – Ultra Studio follows whichever project and sequence are open.') };
+    if (!c || !c.interviews) return { title: 'Read the interviews', text: 'Story starts from the transcripts – Premiere’s own, or files you import. Everything else in Story builds on them.', go: ['Open Story › 1 Interviews', () => open('transcripts')] };
+    if (!c.themes) return { title: 'Find the themes', text: `Story has read ${US.plural(c.interviews, 'interview')} (${c.lines.toLocaleString()} lines). Next, group the best lines by what they’re about.`, go: ['Find the themes', () => open('themes')] };
+    if (!c.narratives) return { title: 'Find the lines you need', text: `Story found ${US.plural(c.themes, 'theme')}. Look for anything they missed – a topic, a phrase, the funny or poignant moments – or go straight to building.`, go: ['Open Find', () => open('find')], also: ['Skip to Build', () => open('build')] };
+    return { title: 'Build and check the cut', text: `${US.plural(c.narratives, 'narrative')} ready. Build it as a sequence, then catch flash frames and gaps with Final Check before you deliver.`, go: ['Open Build', () => open('build')], also: ['Final Check', () => US.tools.open('check')] };
+  }
+
   US.tools.register({
     id: 'home', name: 'Home', short: 'Home', icon: 'home', order: 0,
     create() {
@@ -131,10 +162,49 @@
       const drawNight = () => { if (!US.overnight) return; US.clear(nightReport); const c = US.overnight.reportCard(); if (c) nightReport.appendChild(c); if (!nightSetup.firstChild) nightSetup.appendChild(US.overnight.setupCard()); };
       US.bus.on('overnight-report', drawNight);
       drawNight();
-      v.body.append(hero, news, nightReport, featuredCard, results, nightSetup, groups);
+      // the guided Home's own parts: the project's stages with the next step, and what you did last
+      const guide = h('div'), recentBox = h('div');
+      function renderGuide() {
+        US.clear(guide); US.clear(recentBox);
+        if (classic()) return;
+        const c = storyCounts(), st = stagesOf(c), nx = nextStep(c, openSection), sq = US.ctx.sequence;
+        guide.appendChild(h('div.card.featured-card.home-next', { dataset: { section: 'next' } },
+          h('div.home-where', US.ctx.project ? [US.keep(US.ctx.project.name), sq ? [' · ', US.keep(sq.name), ' · ', US.fmtDur(sq.duration)] : ''] : US.say('No project open')),
+          h('ol.home-stages', { 'aria-label': 'Where this project is' }, st.map((s, i) => h('li.' + s.state, h('button', { title: s.state === 'done' ? `${s.name}: done` : s.name, onclick: () => US.openPlace ? US.openPlace(s.id) : null },
+            h('span.home-dot', s.state === 'done' ? US.icon('check', 11) : String(i + 1)), h('span', s.name))))),
+          h('div.group-title', 'Next step'), h('div.tile-name.home-next-title', nx.title), h('div.muted', nx.text),
+          nx.go ? h('div.row', ui.button(nx.go[0], { kind: 'primary', onClick: nx.go[1] }), nx.also ? ui.button(nx.also[0], { onClick: nx.also[1] }) : null) : null));
+        const rs = recent().slice(0, 3).filter(x => US.tools.get(x.tool));
+        if (rs.length) recentBox.append(h('div.group-title', 'Pick up where you left off'), h('div.list', rs.map(x => {
+          const d = US.tools.get(x.tool);
+          return h('button.tile.home-recent', { dataset: { tool: x.tool }, onclick: () => US.tools.open(x.tool) }, h('div.tool-icon', US.icon(d.icon, 15)),
+            h('div', h('div.tile-name', d.name, ' ', h('span.pill' + (x.ok ? '.okp' : '.warnp'), x.ok ? 'done' : 'didn’t finish')), h('div.tile-blurb', US.keep(`${x.title} – ${x.summary}`)), h('div.field-hint', ago(x.t))));
+        })));
+      }
+      const classic = () => !!(US.classicRail && US.classicRail());
+      /** Guided: the stages and next step first, the tools, then this computer's checks. Classic: as before. */
+      function layout() {
+        hero.classList.toggle('home-compact', !classic());
+        if (classic()) v.body.append(hero, news, nightReport, featuredCard, results, nightSetup, groups);
+        else v.body.append(guide, nightReport, recentBox, featuredCard, groups, nightSetup, news, hero, results);
+        renderGuide();
+      }
+      layout();
+      US.bus.on('context', US.debounce(() => { if (US.tools.current === 'home') renderGuide(); }, 300));
 
       function renderTiles() {
         US.clear(groups);
+        const tile = d => h('button.tile', { onclick: () => US.tools.open(d.id) }, h('div.tool-icon', US.icon(d.icon, 17)), h('div', h('div.tile-name', d.name), h('div.tile-blurb', d.blurb || '')));
+        // the rail as places: the same places here, in the same order (Classic rail keeps the groups below)
+        if (US.PLACES && US.classicRail && !US.classicRail()) {
+          for (const p of US.PLACES.filter(p => p.id !== 'home')) {
+            const tools = (p.id === 'advanced' ? [US.tools.get('advanced')].filter(Boolean) : US.placeTools(p.id)).filter(d => d.id !== US.FEATURED);
+            if (!tools.length) continue;
+            groups.appendChild(h('div.group-title', p.name));
+            groups.appendChild(h('div.tiles', tools.map(tile)));
+          }
+          return;
+        }
         for (const g of US.GROUPS) {
           const tools = US.tools.list().filter(d => d.group === g.id && US.onRail(d) && d.id !== US.FEATURED);
           if (!tools.length) continue;
@@ -284,7 +354,7 @@
         });
       }
 
-      return { el: v.el, onShow() { renderFeatured(); renderTiles(); renderCtx(); } };
+      return { el: v.el, onShow() { renderFeatured(); renderTiles(); renderCtx(); layout(); } };
     }
   });
 })();
