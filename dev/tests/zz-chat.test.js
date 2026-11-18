@@ -6,7 +6,7 @@
 const assert = require('assert');
 const { load, test } = require('./harness');
 global.ResizeObserver = global.ResizeObserver || function () { return { observe() {} }; };
-const US = load(['time', 'audio', 'dsp', 'transcript', 'ui', 'app', 'ai', 'js/tools/22-story-glossary.js', 'js/tools/22-story-board.js', 'js/tools/22-story-export.js', 'js/tools/22-story-timeline.js', 'js/tools/22-story-narrative.js', 'js/tools/22-story-moments.js', 'js/tools/22-story-ai.js', 'js/tools/22-story-context.js', 'js/tools/22-story-ask.js', 'js/tools/22-story-voices.js', 'js/tools/22-story.js', 'js/tools/14-footage.js', 'js/tools/40-assistant-chat.js', 'js/tools/41-edit.js']);
+const US = load(['time', 'audio', 'dsp', 'transcript', 'ui', 'app', 'ai', 'js/tools/22-story-glossary.js', 'js/tools/22-story-board.js', 'js/tools/22-story-export.js', 'js/tools/22-story-timeline.js', 'js/tools/22-story-narrative.js', 'js/tools/22-story-moments.js', 'js/tools/22-story-ai.js', 'js/tools/22-story-context.js', 'js/tools/22-story-ask.js', 'js/tools/22-story-voices.js', 'js/tools/22-story.js', 'js/tools/14-footage.js', 'js/tools/36-quickfx.js', 'js/tools/40-assistant-chat.js', 'js/tools/41-edit.js']);
 const C = US.chat;
 C._tick = 2;
 
@@ -51,8 +51,10 @@ test('the rules and the brief: every tool, the edits, every panel tool with its 
   assert.ok(/You don’t watch video or hear audio/.test(r) && /written descriptions Ultra Studio keeps of each clip/.test(r) && /Adobe Premiere Pro/.test(r));
   assert.ok(/- transition: /.test(r) && /- move: /.test(r) && /- silence\.cut \[silence\] – Cut the pauses \(changes the project\)\. Removes pauses\.\n    settings: minPause \(number\) = 0\.5: Shortest pause/.test(r), 'edits and panel tools listed');
   assert.ok(/"understood"/.test(r) && /call "ask"/.test(r) && /Never say something was done that a tool did not report/.test(r));
-  const rr = C.rules({ resolve: true, actions: [], ops: { timeline: US.editAsk.opsFor('timeline', true), items: US.editAsk.opsFor('items', true) } });
+  const rr = C.rules({ resolve: true, actions: [], ops: { timeline: US.editAsk.opsFor('timeline', true, '21.0'), items: US.editAsk.opsFor('items', true, '21.0') } });
   assert.ok(/DaVinci Resolve/.test(rr) && !/- transition: /.test(rr));
+  const r21 = C.rules({ resolve: true, actions: [], ops: { timeline: US.editAsk.opsFor('timeline', true, '21.2'), items: US.editAsk.opsFor('items', true, '21.2') } });
+  assert.ok(/- transition: /.test(r21) && /- speed: /.test(r21) && !/- zoom: /.test(r21) && /add-ons can’t make keyframed zooms, text layers or cuts/.test(r21), 'Resolve 21.2: transitions and speed offered; keyframes, text and cuts said plainly');
   const b = C.brief({ editor: 'Premiere Pro', project: 'Bakery film', sequence: { name: 'Cut v3', duration: 185 }, selection: 4, story: { interviews: [{ name: 'Ruth', lines: 120, speakers: ['Ruth'] }], lines: 120, themes: [], brief: '' }, mode: 'own' });
   assert.ok(/PROJECT: Bakery film/.test(b) && /OPEN SEQUENCE: “Cut v3” – 3:05/.test(b) && /SELECTED IN THE PROJECT PANEL: 4 clips/.test(b) && /- Ruth: 120 lines/.test(b) && /approves changes to their own sequences/.test(b));
   assert.ok(!C.actionsHere().some(a => /^(story\.ask|edit\.ask|agent\.run)$/.test(a.id)), 'its own tools do those');

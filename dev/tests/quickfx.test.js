@@ -64,14 +64,38 @@ test('your own buttons: saved as plain settings and read back the same; a broken
   const back = Q.ownPresets(saved.concat([{ type: 'punch', value: 5000 }, null, 'x']));
   assert.deepStrictEqual(back.map(p => [p.id, p.label]), made.map(p => [p.id, p.label]));
   assert.deepStrictEqual(Q.ownPresets(undefined), []);
-  assert.deepStrictEqual(Object.keys(Q.OWN).filter(t => Q.works({ op: Q.OWN[t].op }, true)), ['punch', 'opacity']);
+  assert.deepStrictEqual(Object.keys(Q.OWN).filter(t => Q.works({ op: Q.OWN[t].op }, true, '21.0.4')), ['punch', 'opacity']);
+  assert.deepStrictEqual(Object.keys(Q.OWN).filter(t => Q.works({ op: Q.OWN[t].op }, true, '21.2.0.6')), Object.keys(Q.OWN), 'Resolve 21.2: every kind');
 });
 
-test('Resolve: moves and opacity work; transitions, effects, speed and volume don’t', () => {
-  const ok = Q.PRESETS.filter(p => Q.works(p, true)).map(p => p.op);
-  assert.ok(ok.length && ok.every(op => op === 'motion' || op === 'opacity'), ok.join());
+test('Resolve: what each version lets add-ons do – the one list (US.resolveEdits), and plain words for the rest', () => {
+  const old = Q.PRESETS.filter(p => Q.works(p, true, '20.3.1')).map(p => p.id);
+  assert.deepStrictEqual(old, ['punch110', 'punch120', 'punchAlt', 'reset', 'flip', 'half', 'solid'], 'Resolve 20: moves, the flip and opacity');
+  const off = Q.PRESETS.filter(p => !Q.works(p, true, '21.2.0.6')).map(p => p.id);
+  assert.deepStrictEqual(off, ['dipWhite', 'film', 'zoomIn', 'zoomOut', 'bw', 'stabilise', 'lumetri'], 'Resolve 21.2: only keyframes and what Resolve has no such thing for');
+  assert.deepStrictEqual(Q.PRESETS.filter(p => p.op === 'effect' && Q.works(p, true, '21.1')).map(p => p.id), ['flip'], 'effects from 21.1.2; the flip is an Inspector switch');
+  const RE = US.resolveEdits;
+  assert.match(RE.why('transition', { version: '20.3.1' }), /^Resolve 21\.1 or later lets add-ons make transitions – update Resolve/);
+  assert.match(RE.why('zoom', { version: '21.2' }), /doesn’t let add-ons make keyframed zooms/);
+  assert.match(RE.why('effect', { version: '21.2', name: 'Black & White' }), /no Black & White effect – set Saturation to 0 on the Color page/);
+  assert.strictEqual(RE.why('effect', { version: '19.0', name: 'Horizontal Flip' }), '');
+  assert.strictEqual(RE.cantList('21.2'), 'keyframed zooms, text layers or cuts');
+  assert.strictEqual(RE.cantList('21.0'), 'transitions, speed changes, volume changes, effects, keyframed zooms, text layers or cuts');
+  assert.ok(RE.selects('21.0.4') && !RE.selects('21.0.3') && RE.atLeast('21.10', '21.2'));
   assert.ok(Q.PRESETS.every(p => Q.works(p, false)));
   assert.strictEqual(new Set(Q.PRESETS.map(p => p.id)).size, Q.PRESETS.length, 'ids are unique');
+});
+
+test('punch in every other in Resolve, with one clip picked: In to Out on its track when set, else the whole track; nothing picked: every clip', () => {
+  const info = { duration: 20, inPoint: 0, outPoint: 20, video: [{ index: 0, clips: [{ start: 0, end: 4 }, { start: 4, end: 9 }, { start: 9, end: 12 }, { start: 12, end: 20 }] }, { index: 1, clips: [{ start: 2, end: 6 }] }], audio: [{ index: 0, clips: [{ start: 0, end: 20 }] }] };
+  const one = { kind: 'video', track: 0, start: 4, end: 9, underPlayhead: true };
+  const w = Q.widerPick(info, one);
+  assert.deepStrictEqual([w.sel.map(x => x.start), w.note], [[0, 4, 9, 12], ' (the whole of V1)']);
+  const r = Q.widerPick(Object.assign({}, info, { inPoint: 3, outPoint: 11 }), one);
+  assert.deepStrictEqual([r.sel.map(x => x.start), r.note], [[0, 4, 9], ' (In to Out on V1)'], 'clips touching In–Out');
+  assert.deepStrictEqual(Q.widerPick(info, null), { sel: null, note: ' (every clip – Resolve had no clips selected)' });
+  const ts = Q.targetsFor(info, w.sel, 'video'), c = Q.calls(Q.PRESETS.find(p => p.id === 'punchAlt'), ts, {});
+  assert.deepStrictEqual(c[0].targets.map(t => t.start), [4, 12], 'the 2nd and 4th clip of V1, not V2');
 });
 
 test('the report: done, skipped, and why when nothing was done', () => {

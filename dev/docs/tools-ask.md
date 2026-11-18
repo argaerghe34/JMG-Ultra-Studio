@@ -36,6 +36,6 @@ One chat box for everything. Type what you want in your own words: *“cut the s
 
 In Premiere, Ask can colour clips in a bin (every use of them takes the colour) but not single clips on a timeline – Premiere gives add-ons no way to do that, so Ask says so and offers the bin colour or markers instead.
 
-In DaVinci Resolve the edits are framing, opacity, colour labels, on/off, deleting and markers: Resolve doesn’t let add-ons add transitions, effects, speed changes, keyframes or text, and doesn’t say which timeline clips are selected (the clip under the playhead stands in).
+In DaVinci Resolve the edits are framing, flips, opacity, colour labels, on/off, renaming, deleting and markers; from Resolve 21.1 also transitions, speed and volume, and from 21.1.2 effects (by Resolve’s names – Premiere’s common ones are translated). Resolve doesn’t let add-ons make keyframed zooms, text layers or razor cuts, so Ask leaves those out and says so. **Selected clips** are the ones selected in Resolve’s Timeline (Resolve 21.0.4 and later); with none, or in older Resolve, the clip under the playhead stands in.
 
 **Recipes**: a chain of steps saved under a name – *Get interviews ready*, *Check and deliver*, or your own. After a plan or a request finishes, press **Save as a recipe**. Run one from the welcome's **Recipes** chips, **All recipes…**, or by typing *run my … recipe*. Steps run one after another on the open project; a step in words is asked in the chat, like typing it.

@@ -3,6 +3,8 @@
 // reads the project and adds a marker on the first clip of the same sequence, in the sequence itself (asked first, as
 // it changes the editor's own). Both finish; the steps in Premiere took turns; the original only has B's marker.
 // (The check is on scale, which Premiere reads back; a timeline clip's colour label can't be read from a script here.)
+// In Resolve, timeline clips can be coloured: the card offers the colour as a third step (unticked here, so the copy's
+// clips stay uncoloured), and at the end the colour is set on the copy and read back.
 const C = US.chat, E = US.editAsk; T.assert(C && E, 'the chat is loaded');
 const BIN = 'Test – Ask chat', NAME = 'Test – Ask chat';
 const items = await T.importOnce(['C001_sharp_static.mp4', 'C002_blurry.mp4', 'C003_dark.mp4'].map(f => T.media('concert', f)), BIN);
@@ -37,8 +39,10 @@ T.assert(most === 2, 'the two chats were thinking at the same time');
 T.assert(logs.a.some(i => i.k === 'understood') && logs.a.some(i => i.k === 'plan') && logs.a.filter(i => i.k === 'step').length === 3, 'chat A showed what it understood, its plan and its three steps');
 // the cards: A's makes something new (a copy), B's changes the editor's own sequence
 const ca = cards.find(c => c.k === 'a'), cb = cards.find(c => c.k === 'b');
-T.assert(ca && ca.risk === 'new' && ca.steps.length === 2 && /scale 120% · 3 clips on V1/.test(ca.steps[0]) && /Switch off · 1 clip on V1/.test(ca.steps[1]) && /a copy of/.test(ca.detail), 'A’s card: ' + JSON.stringify(ca));
-T.assert(US.app.is('resolve') || (ca.dropped.length === 1 && /Premiere can’t colour clips on a timeline/.test(ca.dropped[0])), 'colouring timeline clips isn’t offered in Premiere, and the card says why: ' + JSON.stringify(ca.dropped));
+const RES = US.app.is('resolve');
+T.assert(ca && ca.risk === 'new' && ca.steps.length === (RES ? 3 : 2) && /scale 120% · 3 clips on V1/.test(ca.steps[0]) && /Switch off · 1 clip on V1/.test(ca.steps[1]) && (!RES || /Colour .*· 3 clips on V1/.test(ca.steps[2])) && /a copy of/.test(ca.detail), 'A’s card: ' + JSON.stringify(ca));
+if (RES) T.assert(!ca.dropped.length, 'Resolve colours timeline clips: the colour step is on the card, nothing left out: ' + JSON.stringify(ca.dropped));
+else T.assert(ca.dropped.length === 1 && /Premiere can’t colour clips on a timeline/.test(ca.dropped[0]), 'colouring timeline clips isn’t offered in Premiere, and the card says why: ' + JSON.stringify(ca.dropped));
 T.assert(cb && cb.risk === 'own' && /ITSELF – no copy/.test(cb.detail), 'B’s card: ' + JSON.stringify(cb));
 // what Premiere has now: the copy's clips are at 120% and not green (the unticked step didn't run); the original is at its own size and has B's marker
 T.assert(a.work && a.work.ours && a.work.name === `${NAME} – Ask`, 'A works on its copy: ' + JSON.stringify(a.work));
@@ -46,6 +50,7 @@ const copy = await US.host.call('editRead', { seqId: a.work.seqId }), orig = awa
 const at120 = c => Math.abs(Number(c.scale) - 120) < 0.6;
 T.assert(copy.video[0].clips.length === 3 && copy.video[0].clips.every(at120), 'the copy’s clips are at 120%: ' + copy.video[0].clips.map(c => c.scale) + ' – ' + JSON.stringify(logs.a.filter(i => i.k === 'step' || i.k === 'warn').map(i => (i.text || '') + (i.result ? ' → ' + i.result : ''))).slice(0, 700));
 T.assert(copy.video[0].clips.every(c => !c.disabled), 'the unticked step didn’t run – no clip is switched off: ' + copy.video[0].clips.map(c => c.disabled));
+if (RES) T.assert(copy.video[0].clips.every(c => c.label == null), 'Resolve: the unticked colour step didn’t run – the copy’s clips have no colour: ' + copy.video[0].clips.map(c => c.label));
 T.assert(orig.video[0].clips.length === 3 && !orig.video[0].clips.some(at120), 'the original’s clips are the size they were: ' + orig.video[0].clips.map(c => c.scale));
 T.assert((orig.markers || []).some(m => m.name === 'Ask test'), 'B’s marker is on the original: ' + JSON.stringify((orig.markers || []).map(m => m.name)));
 // the AI was sent text only, under each chat's own name
@@ -57,7 +62,8 @@ US.tools.open('assistant');
 await T.sleep(100);
 const view = Array.from(document.querySelectorAll('.chat-input')).map(i => i.closest('.tool')).find(v => v && v.offsetParent !== null) || document.querySelector('.chat-input').closest('.tool');
 T.assert(view.querySelector('.chat-tab.chat-new') && !view.querySelector('.chat-mode') && view.querySelectorAll('.chat-opts select').length === 3 && !US.tools.get('agent'), 'one chat box: chats as tabs, how often it asks, which AI, the spending limit – and no Agent tab');
-let labels = '';
-try { const x = await US.host.call('editApply', { seqId: a.work.seqId, op: 'label', params: { label: 13 }, targets: copy.video[0].clips.map(c => ({ kind: 'video', track: 0, start: c.start, end: c.end })) }); const back = await US.host.call('editRead', { seqId: a.work.seqId }); labels = `set on ${x.done}, skipped ${(x.skipped || []).length}${x.skipped && x.skipped[0] ? ' (' + x.skipped[0].why + ')' : ''}, read back: ${back.video[0].clips.map(c => c.label)}`; } catch (e) { labels = 'failed: ' + (e.title || e.message); }
+let labels = '', labelsOk = false;
+try { const x = await US.host.call('editApply', { seqId: a.work.seqId, op: 'label', params: { label: 13 }, targets: copy.video[0].clips.map(c => ({ kind: 'video', track: 0, start: c.start, end: c.end })) }); const back = await US.host.call('editRead', { seqId: a.work.seqId }); labels = `set on ${x.done}, skipped ${(x.skipped || []).length}${x.skipped && x.skipped[0] ? ' (' + x.skipped[0].why + ')' : ''}, read back: ${back.video[0].clips.map(c => c.label)}`; labelsOk = x.done === 3 && back.video[0].clips.every(c => c.label === 13); } catch (e) { labels = 'failed: ' + (e.title || e.message); }
 await US.host.call('deleteSequence', { seqId: a.work.seqId }).catch(() => {});
+if (RES) T.assert(labelsOk, 'Resolve colours the copy’s timeline clips Green and reads it back: ' + labels);
 return { timelineLabels: labels, cards: cards.map(c => `${c.k}: ${c.risk} – ${c.steps.join(' | ')}`), waited: [...new Set(states)].join(' '), a: endA.reply, b: endB.reply };
