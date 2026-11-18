@@ -27,17 +27,27 @@
     'Bahnschrift': { ps: ['Bahnschrift', 'Bahnschrift-Bold'], role: 'sans' },
     'Open Sans': { ps: ['OpenSans-Regular', 'OpenSans-Bold'], role: 'sans' },
     'Arial': { ps: ['ArialMT', 'Arial-BoldMT'], role: 'sans' },
+    'Cochin': { ps: ['Cochin', 'Cochin-Bold'], role: 'serif' },
+    'Didot': { ps: ['Didot', 'Didot-Bold'], role: 'serif' },
+    'Bradley Hand': { ps: ['BradleyHandITCTT-Bold', 'BradleyHandITCTT-Bold'], role: 'hand' },
+    'Noteworthy': { ps: ['Noteworthy-Light', 'Noteworthy-Bold'], role: 'hand' },
+    'Marker Felt': { ps: ['MarkerFelt-Thin', 'MarkerFelt-Wide'], role: 'hand' },
+    'Ink Free': { ps: ['InkFree', 'InkFree'], role: 'hand' },
+    'Segoe Print': { ps: ['SegoePrint', 'SegoePrint-Bold'], role: 'hand' },
+    'Segoe Script': { ps: ['SegoeScript', 'SegoeScript-Bold'], role: 'hand' },
+    'Comic Sans MS': { ps: ['ComicSansMS', 'ComicSansMS-Bold'], role: 'hand' },
     'Menlo': { ps: ['Menlo-Regular', 'Menlo-Bold'], role: 'mono' },
     'American Typewriter': { ps: ['AmericanTypewriter', 'AmericanTypewriter-Bold'], role: 'mono' },
     'Consolas': { ps: ['Consolas', 'Consolas-Bold'], role: 'mono' },
     'Courier New': { ps: ['CourierNewPSMT', 'CourierNewPS-BoldMT'], role: 'mono' }
   };
-  const ROLES = { serif: 'Serif (titles, quotes)', sans: 'Sans (names, roles)', mono: 'Typewriter (stamps, dates)' };
+  const ROLES = { serif: 'Serif (titles, quotes)', sans: 'Sans (names, roles)', mono: 'Typewriter (stamps, dates)', hand: 'Handwriting (notes, signatures)' };
   // the first family of each role that this computer has (document.fonts.check), else the last (always there)
   const PREFER = {
-    serif: ['Georgia', 'Baskerville', 'Palatino', 'Palatino Linotype', 'Cambria', 'Hoefler Text', 'Garamond', 'Times New Roman'],
+    serif: ['Baskerville', 'Cochin', 'Cambria', 'Georgia', 'Palatino', 'Palatino Linotype', 'Cambria', 'Hoefler Text', 'Garamond', 'Times New Roman'],
     sans: ['Helvetica Neue', 'Avenir Next', 'Segoe UI', 'Gill Sans', 'Calibri', 'Bahnschrift', 'Open Sans', 'Arial'],
-    mono: ['Menlo', 'American Typewriter', 'Consolas', 'Courier New']
+    mono: ['Menlo', 'American Typewriter', 'Consolas', 'Courier New'],
+    hand: ['Bradley Hand', 'Noteworthy', 'Ink Free', 'Segoe Print', 'Segoe Script', 'Marker Felt', 'Comic Sans MS']
   };
   /** Which families this computer has. check(family) -> bool (document.fonts.check in the panel, a stub in tests). */
   function available(check) {
@@ -65,10 +75,11 @@
   const NAME = { id: 'name', label: 'Name', value: 'Ruth Adler' }, ROLE = { id: 'role', label: 'Title or role', value: 'Founder, Riverside Trust' };
   const T = (o) => Object.assign({ type: 'text', role: 'sans', size: 0.045, bold: false, caps: false, tracking: 0, colour: 'text', align: 'left', anim: 'fade' }, o);
   const R = (o) => Object.assign({ type: 'rect', colour: 'accent', anim: 'fade' }, o);
-  const title = (id, label, sub, fields, layers, extra) => Object.assign({ id, group: 'lower', kind: 'title', label, sub, fields, layers, duration: 5, inSec: 0.6, outSec: 0.5 }, extra);
+  const title = (id, label, sub, fields, layers, extra) => Object.assign({ id, group: 'plain', kind: 'title', label, sub, fields, layers, duration: 5, inSec: 0.6, outSec: 0.5 }, extra);
 
-  const PRESETS = [
-    // ----- lower thirds: the interviewee's name and role, bottom left, never boxed -----
+  const MOTION = (US.mvfxMotion && US.mvfxMotion.PRESETS) || [];   // the animated titles (39-mvfx-motion.js) come first
+  const PRESETS = MOTION.concat([
+    // ----- plain text (the editor's own text layers): lower thirds: the interviewee's name and role, bottom left, never boxed -----
     title('hairline', 'Hairline', 'name over a thin rule', [NAME, ROLE], [
       R({ x: 0.08, y: 0.805, w: 0.22, h: 0.003, anim: 'grow' }),
       T({ field: 'name', role: 'serif', size: 0.058, y: 0.765, x: 0.08, anim: 'rise' }),
@@ -114,47 +125,47 @@
     title('chapter', 'Chapter', 'a numbered chapter card', [{ id: 'small', label: 'Small line', value: 'Chapter One' }, { id: 'big', label: 'Title', value: 'The River' }], [
       T({ field: 'small', size: 0.026, caps: true, tracking: 0.3, colour: 'accent', align: 'centre', x: 0.5, y: 0.42, anim: 'fade' }),
       T({ field: 'big', role: 'serif', size: 0.11, align: 'centre', x: 0.5, y: 0.53, anim: 'rise', maxWidth: 0.8 })
-    ], { group: 'titles', duration: 5, inSec: 0.9, outSec: 0.7 }),
+    ], { duration: 5, inSec: 0.9, outSec: 0.7 }),
     title('section', 'Section number', '01 / a heading', [{ id: 'num', label: 'Number', value: '01' }, { id: 'big', label: 'Heading', value: 'Before the flood' }], [
       T({ field: 'num', role: 'mono', size: 0.05, colour: 'accent', x: 0.12, y: 0.5, anim: 'fade' }),
       R({ x: 0.2, y: 0.47, w: 0.003, h: 0.06, colour: 'muted', anim: 'growY' }),
       T({ field: 'big', role: 'serif', size: 0.07, x: 0.23, y: 0.5, anim: 'slide', maxWidth: 0.6 })
-    ], { group: 'titles' }),
+    ], {}),
     title('opening', 'Opening title', 'the film’s name, wide letters', [{ id: 'big', label: 'Title', value: 'A Quiet Harvest' }, { id: 'small', label: 'Under it', value: 'A film by Jacob Gersch' }], [
       T({ field: 'big', role: 'serif', size: 0.1, caps: true, tracking: 0.22, align: 'centre', x: 0.5, y: 0.48, anim: 'fade', maxWidth: 0.86 }),
       T({ field: 'small', size: 0.024, caps: true, tracking: 0.3, colour: 'muted', align: 'centre', x: 0.5, y: 0.6, anim: 'fade' })
-    ], { group: 'titles', duration: 6, inSec: 1.4, outSec: 1 }),
+    ], { duration: 6, inSec: 1.4, outSec: 1 }),
     title('location', 'Location & date', 'a corner stamp', [{ id: 'place', label: 'Place', value: 'Hebron Valley, Kenya' }, { id: 'date', label: 'Date', value: 'March 2024' }], [
       R({ x: 0.06, y: 0.1, w: 0.004, h: 0.085, anim: 'growY' }),
       T({ field: 'place', size: 0.04, bold: true, x: 0.08, y: 0.125, anim: 'slide' }),
       T({ field: 'date', role: 'mono', size: 0.026, colour: 'muted', x: 0.08, y: 0.168, anim: 'slide' })
-    ], { group: 'titles', duration: 4 }),
+    ], { duration: 4 }),
     title('timejump', 'Time jump', '“Three years later”', [{ id: 'big', label: 'Words', value: 'Three years later' }], [
       T({ field: 'big', role: 'serif', size: 0.072, caps: true, tracking: 0.16, align: 'centre', x: 0.5, y: 0.5, anim: 'fade', maxWidth: 0.86 })
-    ], { group: 'titles', duration: 3.5, inSec: 0.8, outSec: 0.8 }),
+    ], { duration: 3.5, inSec: 0.8, outSec: 0.8 }),
     title('quote', 'Quote', 'a pull quote with who said it', [{ id: 'quote', label: 'Quote', value: 'We rebuilt the bridge before the road, because people needed to cross.' }, { id: 'who', label: 'Who said it', value: 'Ruth Adler' }], [
       T({ field: 'mark', role: 'serif', size: 0.18, colour: 'accent', align: 'centre', x: 0.5, y: 0.3, anim: 'fade', fixed: '“' }),
       T({ field: 'quote', role: 'serif', size: 0.052, align: 'centre', x: 0.5, y: 0.5, anim: 'rise', maxWidth: 0.7, lines: 3 }),
       T({ field: 'who', size: 0.026, caps: true, tracking: 0.2, colour: 'muted', align: 'centre', x: 0.5, y: 0.7, anim: 'fade' })
-    ], { group: 'titles', duration: 6, inSec: 0.9, outSec: 0.7 }),
+    ], { duration: 6, inSec: 0.9, outSec: 0.7 }),
     title('credits', 'Credits', 'roles on the left, names on the right', [{ id: 'list', label: 'Lines (role: name, one per line)', value: 'Director: Jacob Gersch\nCamera: Amal Said\nEditor: Noa Levin\nSound: Tom Rees', multiline: true }], [
       T({ field: 'list', part: 'left', size: 0.024, caps: true, tracking: 0.14, colour: 'muted', align: 'right', x: 0.46, y: 0.5, anim: 'fade', lines: 8, lineHeight: 1.9 }),
       T({ field: 'list', part: 'right', role: 'serif', size: 0.036, align: 'left', x: 0.52, y: 0.5, anim: 'fade', lines: 8, lineHeight: 1.27 })
-    ], { group: 'titles', duration: 7, inSec: 1, outSec: 0.8 }),
+    ], { duration: 7, inSec: 1, outSec: 0.8 }),
     title('threenames', 'Three names', 'three people side by side', [{ id: 'a', label: 'First', value: 'Ruth Adler' }, { id: 'b', label: 'Second', value: 'Daniel Okafor' }, { id: 'c', label: 'Third', value: 'Mira Haddad' }], [
       T({ field: 'a', role: 'serif', size: 0.05, align: 'centre', x: 0.25, y: 0.5, anim: 'rise' }),
       T({ field: 'b', role: 'serif', size: 0.05, align: 'centre', x: 0.5, y: 0.5, anim: 'rise' }),
       T({ field: 'c', role: 'serif', size: 0.05, align: 'centre', x: 0.75, y: 0.5, anim: 'rise' }),
       R({ x: 0.2, y: 0.56, w: 0.6, h: 0.003, colour: 'muted', anim: 'grow' })
-    ], { group: 'titles', duration: 5 }),
+    ], { duration: 5 }),
     title('endcard', 'End card', 'a closing line and a smaller one', [{ id: 'big', label: 'Line', value: 'In memory of those who stayed' }, { id: 'small', label: 'Under it', value: 'riversidetrust.org' }], [
       T({ field: 'big', role: 'serif', size: 0.062, align: 'centre', x: 0.5, y: 0.47, anim: 'fade', maxWidth: 0.8, lines: 2 }),
       T({ field: 'small', role: 'mono', size: 0.026, colour: 'muted', align: 'centre', x: 0.5, y: 0.6, anim: 'fade' })
-    ], { group: 'titles', duration: 8, inSec: 1.5, outSec: 1.5 }),
+    ], { duration: 8, inSec: 1.5, outSec: 1.5 }),
     title('caption', 'Caption', 'a subtitle-style line at the bottom', [{ id: 'line', label: 'Words', value: 'Archive footage, 1987' }], [
       R({ x: 0.3, y: 0.86, w: 0.4, h: 0.07, colour: 'ink', alpha: 0.6, anim: 'fade', fit: 'line' }),
       T({ field: 'line', size: 0.034, align: 'centre', x: 0.5, y: 0.895, anim: 'fade', maxWidth: 0.8 })
-    ], { group: 'titles', duration: 4, inSec: 0.3, outSec: 0.3 }),
+    ], { duration: 4, inSec: 0.3, outSec: 0.3 }),
 
     // ----- timelines and dates -----
     title('dateruler', 'Date ruler', 'a year on a ticked line', [{ id: 'date', label: 'Date', value: 'October 1991' }], [
@@ -162,21 +173,21 @@
       R({ x: 0.2, y: 0.57, w: 0.6, h: 0.003, colour: 'muted', anim: 'grow' }),
       R({ x: 0.499, y: 0.53, w: 0.002, h: 0.04, anim: 'growY' }),
       ...[0.25, 0.3, 0.35, 0.4, 0.45, 0.55, 0.6, 0.65, 0.7, 0.75].map(x => R({ x: x - 0.001, y: 0.56, w: 0.002, h: 0.02, colour: 'muted', anim: 'fade' }))
-    ], { group: 'dates', duration: 4, inSec: 0.8, outSec: 0.6 }),
+    ], { duration: 4, inSec: 0.8, outSec: 0.6 }),
     title('erabar', 'Era bar', 'from one year to another', [{ id: 'from', label: 'From', value: '1987' }, { id: 'to', label: 'To', value: '1994' }, { id: 'what', label: 'What', value: 'The drought years' }], [
       T({ field: 'from', role: 'mono', size: 0.04, colour: 'muted', align: 'right', x: 0.24, y: 0.5, anim: 'fade' }),
       R({ x: 0.27, y: 0.497, w: 0.46, h: 0.006, anim: 'grow' }),
       T({ field: 'to', role: 'mono', size: 0.04, colour: 'muted', align: 'left', x: 0.76, y: 0.5, anim: 'fade' }),
       T({ field: 'what', role: 'serif', size: 0.05, align: 'centre', x: 0.5, y: 0.58, anim: 'rise' })
-    ], { group: 'dates', duration: 4 }),
+    ], { duration: 4 }),
     title('stamp', 'Typewriter stamp', 'file no. and a date, top right', [{ id: 'a', label: 'Line 1', value: 'FILE 24 / RA' }, { id: 'b', label: 'Line 2', value: '14 MARCH 2024' }], [
       T({ field: 'a', role: 'mono', size: 0.03, caps: true, tracking: 0.1, align: 'right', x: 0.93, y: 0.11, anim: 'wipe' }),
       T({ field: 'b', role: 'mono', size: 0.03, caps: true, tracking: 0.1, colour: 'muted', align: 'right', x: 0.93, y: 0.155, anim: 'wipe' })
-    ], { group: 'dates', duration: 4, inSec: 0.7, outSec: 0.3 }),
+    ], { duration: 4, inSec: 0.7, outSec: 0.3 }),
     title('daycount', 'Day counter', '“Day 12”, big and plain', [{ id: 'big', label: 'Words', value: 'Day 12' }, { id: 'small', label: 'Under it', value: 'Nairobi' }], [
       T({ field: 'big', size: 0.11, bold: true, x: 0.08, y: 0.18, anim: 'slide' }),
       T({ field: 'small', size: 0.03, caps: true, tracking: 0.2, colour: 'muted', x: 0.085, y: 0.27, anim: 'slide' })
-    ], { group: 'dates', duration: 4 }),
+    ], { duration: 4 }),
 
     // ----- overlays: drawn by the painter (procedural), no text -----
     { id: 'grain', group: 'overlays', kind: 'overlay', label: 'Film grain', sub: 'fine moving grain', paint: 'grain', duration: 5, blend: 'overlay', alpha: 0.35 },
@@ -231,19 +242,20 @@
     { id: 'lkcold', group: 'looks', kind: 'look', label: 'Cold night', sub: 'blue shadows, clean whites', look: 'cold' },
     { id: 'lkbleach', group: 'looks', kind: 'look', label: 'Bleach', sub: 'high contrast, drained', look: 'bleach' },
     { id: 'lksepia', group: 'looks', kind: 'look', label: 'Sepia', sub: 'brown-toned, old photograph', look: 'sepia' }
-  ];
-  const GROUPS = [
-    { id: 'lower', name: 'Lower thirds', hint: 'name and role' }, { id: 'titles', name: 'Titles & cards', hint: 'chapters, quotes, credits' },
-    { id: 'dates', name: 'Timelines & dates', hint: 'years and stamps' }, { id: 'overlays', name: 'Overlays', hint: 'grain, leaks, bars' },
+  ]);
+  const GROUPS = ((US.mvfxMotion && US.mvfxMotion.GROUPS) || []).concat([
+    { id: 'overlays', name: 'Overlays', hint: 'grain, leaks, bars' },
     { id: 'backgrounds', name: 'Backgrounds', hint: 'plates for titles' }, { id: 'freeze', name: 'Freeze frames', hint: 'hold the frame' },
-    { id: 'moves', name: 'Movements', hint: 'camera moves' }, { id: 'transitions', name: 'Transitions', hint: 'over the cut' }, { id: 'looks', name: 'Looks', hint: 'five colour grades' }
-  ];
+    { id: 'moves', name: 'Movements', hint: 'camera moves' }, { id: 'transitions', name: 'Transitions', hint: 'over the cut' }, { id: 'looks', name: 'Looks', hint: 'five colour grades' },
+    { id: 'plain', name: 'Plain text', hint: 'simple titles as the editor’s own text layers' }
+  ]);
   const byId = id => PRESETS.find(p => p.id === id) || null;
 
   /* ---------- values: what the user typed, the colours and fonts ---------- */
   /** Default values for a preset: its fields' sample text, the colours, fonts by role, size 1, position offset 0. */
   function defaults(preset, fonts) {
-    const v = { text: {}, colours: Object.assign({}, DOC), fonts: Object.assign({ serif: 'Georgia', sans: 'Arial', mono: 'Courier New' }, fonts || {}), scale: 1, dx: 0, dy: 0, duration: preset.duration || 5, alpha: preset.alpha != null ? preset.alpha : 1 };
+    const v = { text: {}, colours: Object.assign({}, DOC), fonts: Object.assign({ serif: 'Georgia', sans: 'Arial', mono: 'Courier New', hand: 'Comic Sans MS' }, fonts || {}), scale: 1, dx: 0, dy: 0, duration: preset.duration || 5, alpha: preset.alpha != null ? preset.alpha : 1 };
+    if (preset.kind === 'motion') { v.shadow = preset.shadow || 0; v.rot = 0; v.stretch = 1; v.opt = {}; for (const o of preset.options || []) v.opt[o.id] = o.value; }
     for (const f of preset.fields || []) v.text[f.id] = f.value;
     return v;
   }

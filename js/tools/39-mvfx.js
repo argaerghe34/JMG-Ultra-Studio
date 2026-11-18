@@ -1,20 +1,23 @@
 /* JMG Ultra Studio – mVFX: the Documentary pack as a tab. Browse the presets (thumbnails painted by the pack's own
    painter), type the words (speaker names from Story offered), pick colours, fonts, size and position, watch the
-   preview, then add it at the playhead – or apply a movement or look to the selected clips. Premiere gets native text
-   layers (Basic Title) plus PNG art and keyframes; Resolve gets our Fusion templates (installed into its Effects
-   Library) inserted at the playhead. Pure parts: 39-mvfx-pack.js, 39-mvfx-fusion.js, 39-mvfx-looks.js. */
+   preview, then add it at the playhead – or apply a movement or look to the selected clips.
+   The animated titles, dates, credits and marks (39-mvfx-motion.js) are drawn here frame by frame and given to the
+   editor as one clip with transparency (a PNG sequence at the sequence's size and frame rate) – the same in Premiere
+   and Resolve; neither editor can animate its own text letter by letter from an add-on. The Plain text group still
+   makes the editor's own text layers (Premiere: Basic Title plus PNG art and keyframes; Resolve: our Fusion templates).
+   Pure parts: 39-mvfx-motion.js, 39-mvfx-pack.js, 39-mvfx-fusion.js, 39-mvfx-looks.js. */
 (function () {
   'use strict';
   const US = window.US, h = US.h, ui = US.ui, fs = require('fs'), path = require('path');
   const RES = US.app.is('resolve');
-  const P = () => US.mvfxPack, F = () => US.mvfxFusion, LK = () => US.mvfxLooks;
+  const P = () => US.mvfxPack, F = () => US.mvfxFusion, LK = () => US.mvfxLooks, M = () => US.mvfxMotion;
   const BIN = 'JMG Ultra Studio/mVFX';
 
   /* ---------- files ---------- */
-  /** PNG art lives next to the project ("JMG Ultra Studio mVFX"), like Safe Zones' guides; else Documents › JMG Ultra Studio › mVFX. */
+  /** Pictures and title clips live in the project's own "JMG Ultra Studio" folder (so they travel with it), in mVFX; else Documents › JMG Ultra Studio › mVFX. */
   function artDir() {
     const proj = US.ctx.project && US.ctx.project.path;
-    if (proj && !RES) { const d = path.join(path.dirname(proj), 'JMG Ultra Studio mVFX'); try { fs.mkdirSync(d, { recursive: true }); fs.accessSync(d, fs.constants.W_OK); return d; } catch (e) { /* read-only */ } }
+    if (proj && !RES) { const d = path.join(path.dirname(proj), 'JMG Ultra Studio', 'mVFX'); try { fs.mkdirSync(d, { recursive: true }); fs.accessSync(d, fs.constants.W_OK); return d; } catch (e) { /* read-only */ } }
     return US.fsx.ensureDir(path.join(US.fsx.exportsDir(), 'mVFX'));
   }
   async function writePNG(canvas, file) {
@@ -49,16 +52,16 @@
   /* ---------- values and settings ---------- */
   const get = (k, d) => US.settings.get('mvfx.' + k, d), set = (k, x) => US.settings.set('mvfx.' + k, x);
   let fonts = null;
-  function fontsNow() { if (!fonts) { const av = P().available(fontCheck); fonts = Object.assign({ serif: av.serif[0], sans: av.sans[0], mono: av.mono[0] }, get('fonts', {})); } return fonts; }
+  function fontsNow() { if (!fonts) { const av = P().available(fontCheck); fonts = Object.assign({ serif: av.serif[0], sans: av.sans[0], mono: av.mono[0], hand: av.hand[0] }, get('fonts', {})); } return fonts; }
   /** The values for a preset: its defaults, the user's pack-wide colours and fonts, and what they last typed for it. */
   function valuesFor(preset) {
     const v = P().defaults(preset, fontsNow());
     Object.assign(v.colours, get('colours', {}));
     const saved = get('values.' + preset.id, null);
-    if (saved) { Object.assign(v.text, saved.text || {}); for (const k of ['scale', 'dx', 'dy', 'duration', 'alpha', 'cx', 'cy', 'seconds']) if (saved[k] != null) v[k] = saved[k]; }
+    if (saved) { Object.assign(v.text, saved.text || {}); for (const k of ['scale', 'dx', 'dy', 'duration', 'alpha', 'cx', 'cy', 'seconds', 'shadow', 'rot', 'stretch', 'push']) if (saved[k] != null) v[k] = saved[k]; if (saved.opt) v.opt = Object.assign(v.opt || {}, saved.opt); }
     return v;
   }
-  function remember(preset, v) { set('values.' + preset.id, { text: v.text, scale: v.scale, dx: v.dx, dy: v.dy, duration: v.duration, alpha: v.alpha, cx: v.cx, cy: v.cy, seconds: v.seconds }); set('colours', v.colours); set('fonts', v.fonts); fonts = v.fonts; }
+  function remember(preset, v) { set('values.' + preset.id, { text: v.text, scale: v.scale, dx: v.dx, dy: v.dy, duration: v.duration, alpha: v.alpha, cx: v.cx, cy: v.cy, seconds: v.seconds, shadow: v.shadow, rot: v.rot, stretch: v.stretch, opt: v.opt, push: v.push }); set('colours', v.colours); set('fonts', v.fonts); fonts = v.fonts; }
   /** Names Story knows (the people in the transcripts), for the name fields. */
   function storyPeople() {
     try {
@@ -111,6 +114,76 @@
     job && job.set({ who: 'premiere', msg: 'Adding the text layers' });
     return US.host.call('mvfxApply', { seqId: seq.id, start, seconds, name: preset.label, layers });
   }
+  /** What decides how an animated title looks – the same values give the same frames (so they're drawn once). */
+  const motionKey = (preset, v, W, H, fps, total) => P().hashOf({ id: preset.id, t: v.text, c: v.colours, f: v.fonts, s: [v.scale, v.dx, v.dy, v.shadow, v.rot, v.stretch], o: v.opt, W, H, fps, total, e: 1 });
+  /**
+   * Draw an animated title's frames as PNGs with transparency (the still stretch in the middle is one picture, linked).
+   * -> {dir, first, frames, drawn, reused}
+   */
+  async function renderMotion(preset, v, size, total, job) {
+    const W = size.width, H = size.height, fps = Number(size.fps) || 25;
+    const dir = path.join(artDir(), `${preset.id}-${motionKey(preset, v, W, H, fps, total)}`), file = i => path.join(dir, `${preset.id}_${String(i + 1).padStart(4, '0')}.png`), done = path.join(dir, 'title.json');
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    if (!ctx) throw new US.UserError('HOST_SCRIPT', { title: 'The title couldn’t be drawn.', action: 'Close and reopen the panel, then try again.', detail: 'no 2D canvas' });
+    const scene = M().prepare(ctx, W, H, preset, v, total), list = M().frames(scene, fps);
+    if (fs.existsSync(done) && fs.existsSync(file(list.length - 1))) return { dir, first: file(0), frames: list.length, drawn: 0, reused: true };
+    fs.mkdirSync(dir, { recursive: true });
+    let drawn = 0;
+    for (const fr of list) {
+      job && job.check && job.check();
+      if (fr.same != null) { try { fs.linkSync(file(fr.same), file(fr.i)); } catch (e) { fs.copyFileSync(file(fr.same), file(fr.i)); } continue; }
+      ctx.clearRect(0, 0, W, H);
+      M().draw(ctx, scene, fr.t);
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      fs.writeFileSync(file(fr.i), Buffer.from(await blob.arrayBuffer()));
+      drawn++;
+      job && job.progress(0.05 + 0.75 * (fr.i + 1) / list.length, `Drawing the title · frame ${fr.i + 1} of ${list.length}`);
+    }
+    // what made it: lets the tab load a title's words back, and marks the folder complete
+    fs.writeFileSync(done, JSON.stringify({ preset: preset.id, values: { text: v.text, colours: v.colours, fonts: v.fonts, scale: v.scale, dx: v.dx, dy: v.dy, shadow: v.shadow, rot: v.rot, stretch: v.stretch, opt: v.opt, duration: total }, width: W, height: H, fps, frames: list.length }, null, 1));
+    return { dir, first: file(0), frames: list.length, drawn, reused: false };
+  }
+  /** An animated title at `start`: drawn, imported as one clip, laid on a free mVFX track (Premiere: with a slow push in if asked). */
+  async function addMotion(preset, v, seq, start, seconds, job, beforePlacing) {
+    job && job.set({ who: 'computer', msg: 'Drawing the title' });
+    const fps = seq.fps || 25, r = await renderMotion(preset, v, { width: seq.width, height: seq.height, fps }, seconds, job);
+    if (beforePlacing) await beforePlacing();
+    job && job.set({ who: 'premiere', msg: 'Placing it' }); job && job.progress(0.85);
+    const name = `${preset.label} · ${String(Object.values(v.text || {})[0] || '').replace(/\s+/g, ' ').slice(0, 40)}`.replace(/ · $/, '');
+    const out = await US.host.call('mvfxClip', { seqId: seq.id, first: r.first, frames: r.frames, fps, start, seconds: r.frames / fps, name, binPath: BIN });
+    const notes = [out.note].filter(Boolean);
+    if (v.push && !RES) {
+      const len = out.end - out.start, mv = await US.host.call('mvfxMove', { seqId: seq.id, targets: [{ kind: 'video', track: out.track, start: out.start, end: out.end }], keys: [{ at: 0, scale: 100, x: 0, y: 0 }, { at: Math.max(0.1, len - 1 / fps), scale: 104, x: 0, y: 0 }], ease: false });
+      if (!mv.done) notes.push('the slow push wasn’t added');
+    }
+    return Object.assign(out, { dir: r.dir, frames: r.frames, drawn: r.drawn, note: notes.join(' · ') });
+  }
+  /**
+   * The animated title that's selected in the Timeline (Resolve: under the playhead): what it was made from, read from
+   * the title.json beside its frames. -> {preset, values, target: {kind, track, start, end}}
+   */
+  async function selectedTitle() {
+    const seq = await seqNow(), sel = (await US.host.call('editSelection', { seqId: seq.id })).filter(x => x.kind === 'video');
+    const none = () => new US.UserError('NOTHING_FOUND', { title: RES ? 'There’s no animated title under the playhead.' : 'No animated title is selected.', action: RES ? 'Put the playhead on a title this tab added (on an mVFX track), then try again.' : 'Click a title this tab added (on an mVFX track) in the Timeline, then try again.' });
+    if (!sel.length) throw none();
+    const info = await US.host.call('sequenceInfo', { seqId: seq.id }), half = 0.5 / (info.fps || 25);
+    for (const x of sel) {
+      const tr = (info.video || []).find(t => t.index === x.track), clip = tr && (tr.clips || []).find(c => Math.abs(c.start - x.start) <= half);
+      if (!clip || !clip.path) continue;
+      let dir = String(clip.path); try { if (!fs.statSync(dir).isDirectory()) dir = path.dirname(dir); } catch (e) { dir = path.dirname(dir); }
+      const file = path.join(dir, 'title.json');
+      if (!fs.existsSync(file)) continue;
+      const made = JSON.parse(fs.readFileSync(file, 'utf8')), preset = P().byId(made.preset);
+      if (!preset) continue;
+      const values = valuesFor(preset);
+      Object.assign(values.text, made.values.text || {}); Object.assign(values.colours, made.values.colours || {}); Object.assign(values.fonts, made.values.fonts || {});
+      for (const k of ['scale', 'dx', 'dy', 'shadow', 'rot', 'stretch', 'duration']) if (made.values[k] != null) values[k] = made.values[k];
+      if (made.values.opt) values.opt = Object.assign({}, values.opt, made.values.opt);
+      return { preset, values, target: { kind: 'video', track: x.track, start: clip.start, end: clip.end } };
+    }
+    throw none();
+  }
   /** An overlay, background or freeze look at `start` for `seconds`. */
   async function addPlate(preset, v, seq, start, seconds, job, extra = {}) {
     if (RES) {
@@ -134,6 +207,13 @@
     if (!ready.ok) throw new US.UserError('BAD_INPUT', { title: ready.why, action: 'Choose another preset, or do this one in the editor.' });
     const seq = await seqNow(), start = opts.at != null ? opts.at : seq.playhead, seconds = Math.max(0.5, Number(v.duration || preset.duration || 5));
     const where = `at ${US.fmtDur(start)}`;
+    if (preset.kind === 'motion') {
+      // replacing a title already on the timeline: the new one is drawn first, then the old clip goes and the new takes its place
+      const old = opts.replace, at = old ? old.start : start;
+      const r = await addMotion(preset, v, seq, at, seconds, job, old ? async () => { const x = await US.host.call('editApply', { seqId: seq.id, op: 'remove', params: { ripple: false }, targets: [old] }); if (!x.done) throw new US.UserError('HOST_SCRIPT', { title: 'The old title couldn’t be removed.', action: 'Delete it in the Timeline, then add the new one at the playhead.', detail: JSON.stringify(x.skipped || x.log || '') }); } : null);
+      if (old) return { summary: `${preset.label} replaced at ${US.fmtDur(at)} on ${r.trackName || 'V' + (r.track + 1)}${r.note ? ' · ' + r.note : ''}`, result: r };
+      return { summary: `${preset.label} added ${where} on ${r.trackName || 'V' + (r.track + 1)}${r.note ? ' · ' + r.note : ''}`, result: r };
+    }
     if (preset.kind === 'title') {
       const r = await addTitle(preset, v, seq, start, seconds, job);
       return { summary: `${preset.label} added ${where} on ${r.trackName || 'V' + (r.track + 1)}${r.note ? ' · ' + r.note : ''}`, result: r };
@@ -206,13 +286,15 @@
   US.addIcon && US.addIcon('mvfx', 'M2.5 4.5h15v11h-15zM2.5 8h15M6 4.5v11M14 4.5v11M8.5 12.5l2-2.5 1.5 1.5 1.5-2');
   US.tools.register({
     id: 'mvfx', name: 'mVFX', short: 'mVFX', icon: 'mvfx', group: 'finish', order: 28.6,
-    blurb: 'A documentary titles pack: lower thirds, chapters, dates, overlays, backgrounds, freeze frames, camera moves, transitions and looks – native and editable in the editor.',
-    hostFns: ['mvfxApply', 'mvfxFreeze', 'mvfxMove', 'mvfxLook', 'mvfxTemplates', 'editRead', 'editSelection', 'editApply', 'importFiles', 'findGuideItem', 'sequenceInfo'],
+    blurb: 'A documentary titles pack: animated names, titles, dates, timelines, quotes, credits and hand-drawn marks, plus overlays, backgrounds, freeze frames, camera moves, transitions and looks.',
+    hostFns: ['mvfxClip', 'mvfxApply', 'mvfxFreeze', 'mvfxMove', 'mvfxLook', 'mvfxTemplates', 'editRead', 'editSelection', 'editApply', 'importFiles', 'findGuideItem', 'sequenceInfo'],
     create() {
-      const v = ui.toolView({ icon: 'mvfx', title: 'mVFX', blurb: RES ? 'Pick a preset, type the words, add it at the playhead. The pack goes into Resolve’s Effects Library as Fusion titles and generators, so everything stays editable in the Inspector.' : 'Pick a preset, type the words, add it at the playhead. Premiere gets real text layers (edit them in Essential Graphics) with the rules and bars as pictures underneath, and keyframes for the moves.', help: h('div', h('p', 'Nine groups: lower thirds, titles and cards, timelines and dates, overlays, backgrounds, freeze frames, movements, transitions and looks. Click a thumbnail, fill in the words (names from Story are offered), set colours, fonts, size and position, and press the big button.'), h('p', RES ? 'Resolve lays titles and generators at the playhead, 5 seconds long – trim them in the Timeline. Movements can’t be keyframed by add-ons (Punch is a still punch-in) and transitions can’t be added, so those say so. Install the pack once; new templates show after a restart.' : 'Titles go on tracks named “mVFX 1, 2, 3…” above the edit: each line is its own text layer, so you can change the words, font or colour in Essential Graphics. Movements and looks go on the selected clips.')) });
+      const v = ui.toolView({ icon: 'mvfx', title: 'mVFX', blurb: 'Pick a preset, type the words, watch it play, then add it at the playhead. Names, titles, dates, quotes, credits and marks arrive animated, as one clip with a see-through background; movements and looks go on the clips you select.', help: h('div', h('p', 'Nine groups: lower thirds, titles and cards, timelines and dates, overlays, backgrounds, freeze frames, movements, transitions and looks. Click a thumbnail, fill in the words (names from Story are offered), set colours, fonts, size and position, and press the big button.'), h('p', RES ? 'Resolve lays titles and generators at the playhead, 5 seconds long – trim them in the Timeline. Movements can’t be keyframed by add-ons (Punch is a still punch-in) and transitions can’t be added, so those say so. Install the pack once; new templates show after a restart.' : 'Titles go on tracks named “mVFX 1, 2, 3…” above the edit: each line is its own text layer, so you can change the words, font or colour in Essential Graphics. Movements and looks go on the selected clips.')) });
       const status = h('div.pad-status'), say = (t, kind = '') => { status.textContent = t; status.className = 'pad-status' + (kind ? ' ' + kind : ''); };
-      let group = get('group', 'lower'), preset = P().byId(get('preset', 'hairline')) || P().PRESETS[0], values = valuesFor(preset), scope = get('scope', 'selection');
+      let group = get('group', 'names'), preset = P().byId(get('preset', 'nm-rule')) || P().PRESETS[0], values = valuesFor(preset), scope = get('scope', 'selection');
+      if (!P().GROUPS.some(g => g.id === group)) group = preset.group;   // a group from an older version
       const grid = h('div.mvfx-grid'), editor = h('div.mvfx-editor');
+      let replacing = null;   // the title on the timeline being changed: {kind, track, start, end}
       const scopeSeg = ui.segmented({ value: scope, onChange: x => { scope = x; set('scope', x); }, options: [{ value: 'selection', label: RES ? 'Clip under the playhead' : 'Selected clips' }, { value: 'all', label: 'Every clip' }] });
 
       /* thumbnails */
@@ -225,6 +307,13 @@
         if (!ctx) return;   // no canvas (the headless smoke test)
         ctx.clearRect(0, 0, W, H);
         const vv = p === preset ? values : valuesFor(p);
+        if (p.kind === 'motion') {
+          plate(ctx, W, H, 'footage');
+          const tile = c !== preview ? Object.assign({}, vv, { scale: (vv.scale || 1) * (M().TILE[p.id] || 1.5) }) : vv;   // small tiles: the type enlarged so it reads
+          const total = Number(vv.duration || p.duration || 5), scene = M().prepare(ctx, W, H, p, tile, total);
+          M().draw(ctx, scene, t === 1 ? M().holdTime(scene) : t * total);
+          return;
+        }
         if (p.kind === 'background') { P().paint(ctx, W, H, p, vv, { t }); return; }
         plate(ctx, W, H, p.kind === 'title' || p.kind === 'overlay' || p.kind === 'freeze' || p.kind === 'transition' || p.kind === 'look' ? 'footage' : 'plain');
         if (p.kind === 'look') { const id = ctx.getImageData(0, 0, W, H); LK().applyToImageData(p.look, id.data); ctx.putImageData(id, 0, 0); return; }
@@ -242,10 +331,19 @@
       function drawGrid() {
         US.clear(grid);
         for (const p of P().PRESETS.filter(x => x.group === group)) {
-          const c = h('canvas', { width: 240, height: 135 }), ok = P().readiness(p, RES).ok;
+          const c = h('canvas', { width: p.kind === 'motion' ? 480 : 240, height: p.kind === 'motion' ? 270 : 135 }), ok = P().readiness(p, RES).ok;
           const tile = h('button.mvfx-tile' + (p.id === preset.id ? '.on' : '') + (ok ? '' : '.off'), { title: ok ? p.sub : P().readiness(p, RES).why, onclick: () => choose(p) }, c, h('span.mvfx-tile-label', p.label), h('span.mvfx-tile-sub', p.sub));
           grid.appendChild(tile);
           requestAnimationFrame(() => thumb(p, c));
+          if (p.kind === 'motion') {   // an animated preset plays in its tile while the pointer is on it
+            let raf = null;
+            tile.addEventListener('mouseenter', () => {
+              const t0 = performance.now(), len = Number(p.duration || 5) * 1000;
+              const step = () => { thumb(p, c, Math.min(0.9999, ((performance.now() - t0) % (len + 500)) / len)); raf = requestAnimationFrame(step); };
+              if (!raf) raf = requestAnimationFrame(step);
+            });
+            tile.addEventListener('mouseleave', () => { if (raf) cancelAnimationFrame(raf); raf = null; thumb(p, c); });
+          }
         }
       }
       const groupSeg = ui.segmented({ value: group, onChange: x => { group = x; set('group', x); drawGrid(); const first = P().PRESETS.find(p => p.group === x); if (first && preset.group !== x) choose(first); }, options: P().GROUPS.map(g => ({ value: g.id, label: g.name, title: g.hint })) });
@@ -257,12 +355,13 @@
       function drawPreview(t = 1) { thumb(preset, preview, t); }
       function play() {
         if (playing) cancelAnimationFrame(playing);
-        const t0 = performance.now(), len = Math.max(400, ((preset.inSec || 0.6) + 0.08 * ((preset.layers || []).length || 1)) * 1000 + 300);
-        const step = () => { const t = (performance.now() - t0) / len; drawPreview(Math.min(1, t)); if (t < 1) playing = requestAnimationFrame(step); else playing = null; };
+        const whole = preset.kind === 'motion';   // an animated title plays right through, at its real speed
+        const t0 = performance.now(), len = whole ? Number(values.duration || preset.duration || 5) * 1000 : Math.max(400, ((preset.inSec || 0.6) + 0.08 * ((preset.layers || []).length || 1)) * 1000 + 300);
+        const step = () => { const t = (performance.now() - t0) / len; drawPreview(whole ? Math.min(0.9999, t) : Math.min(1, t)); if (t < 1) playing = requestAnimationFrame(step); else { playing = null; if (whole) drawPreview(1); } };
         playing = requestAnimationFrame(step);
       }
       function choose(p) {
-        if (preset !== p) { preset = p; values = valuesFor(p); set('preset', p.id); }
+        if (preset !== p) { preset = p; values = valuesFor(p); set('preset', p.id); replacing = null; }
         drawGrid(); drawEditor(); play();
       }
       function drawEditor() {
@@ -275,13 +374,20 @@
           const pick = people.length && /^(name|who|a|b|c)$/.test(f.id) ? ui.select({ placeholder: 'From Story…', options: people.map(n => ({ value: n, label: US.keep(n) })), onChange: n => { if (!n) return; values.text[f.id] = n; input.value = n; change(); } }) : null;
           return ui.field(f.label, pick ? h('div.row', input, pick) : input);
         });
-        const roles = Array.from(new Set((preset.layers || []).filter(l => l.type === 'text').map(l => l.role)));
+        const motion = preset.kind === 'motion', use = motion ? M().uses(preset, values) : null;
+        const roles = motion ? use.roles : Array.from(new Set((preset.layers || []).filter(l => l.type === 'text').map(l => l.role)));
         const av = P().available(fontCheck);
         const fontSel = roles.map(r => ui.field(P().ROLES[r], ui.select({ value: values.fonts[r], options: av[r].concat(Object.keys(P().FAMILIES).filter(f => P().FAMILIES[f].role === r && !av[r].includes(f))).map(f => ({ value: f, label: f + (av[r].includes(f) ? '' : ' (not on this computer)') })), onChange: x => { values.fonts[r] = x; change(); } })));
-        const colourRoles = Array.from(new Set((preset.layers || []).map(l => l.colour).concat(preset.kind === 'freeze' && preset.paint === 'box' ? ['accent'] : [])));
-        const colours = colourRoles.map(r => h('label.mvfx-colour', h('input', { type: 'color', value: values.colours[r] || '#ffffff', oninput: e => { values.colours[r] = e.target.value; change(); } }), h('span', { text: 'Text', accent: 'Accent', muted: 'Second line', ink: 'Bar' }[r] || r)));
+        const colourRoles = motion ? use.colours : Array.from(new Set((preset.layers || []).map(l => l.colour).concat(preset.kind === 'freeze' && preset.paint === 'box' ? ['accent'] : [])));
+        const colours = colourRoles.map(r => h('label.mvfx-colour', h('input', { type: 'color', value: values.colours[r] || '#ffffff', oninput: e => { values.colours[r] = e.target.value; change(); } }), h('span', { text: motion && !roles.length ? 'Line' : 'Text', accent: motion ? 'Marker' : 'Accent', muted: 'Second line', ink: 'Bar' }[r] || r)));
+        const options = (preset.options || []).map(o => ui.field(o.label, ui.segmented({ value: (values.opt || {})[o.id] || o.value, options: o.choices, onChange: x => { values.opt = Object.assign({}, values.opt, { [o.id]: x }); change(); } })));
         const sliders = [];
-        if (preset.layers && preset.layers.length) {
+        if (motion) {
+          if (preset.stretch) sliders.push(ui.slider({ label: 'Width', min: 0.3, max: 3, step: 0.05, value: values.stretch || 1, fmt: x => Math.round(x * 100) + '%', onInput: x => { values.stretch = x; drawPreview(1); }, onChange: () => change() }));
+          if (preset.rotate) sliders.push(ui.slider({ label: 'Turn', min: -180, max: 180, step: 1, value: values.rot || 0, fmt: x => Math.round(x) + '°', onInput: x => { values.rot = x; drawPreview(1); }, onChange: () => change() }));
+          sliders.push(ui.slider({ label: 'Shadow behind (for bright pictures)', min: 0, max: 1, step: 0.05, value: values.shadow != null ? values.shadow : 0, fmt: x => Math.round(x * 100) + '%', onInput: x => { values.shadow = x; drawPreview(1); }, onChange: () => change() }));
+        }
+        if ((preset.layers && preset.layers.length) || motion) {
           sliders.push(ui.slider({ label: 'Size', min: 0.5, max: 1.8, step: 0.05, value: values.scale || 1, fmt: x => Math.round(x * 100) + '%', onInput: x => { values.scale = x; drawPreview(1); }, onChange: () => change() }));
           sliders.push(h('div.row', ui.slider({ label: 'Across', min: -0.4, max: 0.4, step: 0.01, value: values.dx || 0, fmt: x => (x > 0 ? '+' : '') + Math.round(x * 100) + '%', onInput: x => { values.dx = x; drawPreview(1); }, onChange: () => change() }), ui.slider({ label: 'Up / down', min: -0.4, max: 0.4, step: 0.01, value: values.dy || 0, fmt: x => (x > 0 ? '+' : '') + Math.round(x * 100) + '%', onInput: x => { values.dy = x; drawPreview(1); }, onChange: () => change() })));
         }
@@ -289,18 +395,26 @@
         if (preset.kind === 'freeze' && preset.paint) sliders.push(h('div.row', ui.slider({ label: 'Spot across', min: 0.1, max: 0.9, step: 0.01, value: values.cx != null ? values.cx : 0.5, fmt: x => Math.round(x * 100) + '%', onInput: x => { values.cx = x; drawPreview(1); }, onChange: () => change() }), ui.slider({ label: 'Spot down', min: 0.1, max: 0.9, step: 0.01, value: values.cy != null ? values.cy : 0.5, fmt: x => Math.round(x * 100) + '%', onInput: x => { values.cy = x; drawPreview(1); }, onChange: () => change() })));
         if (preset.kind !== 'move' && preset.kind !== 'look') sliders.push(ui.slider({ label: preset.kind === 'transition' ? 'Length' : 'Length on the timeline', min: 0.3, max: 15, step: 0.1, value: preset.kind === 'transition' ? (values.seconds || preset.seconds || 1) : (values.duration || preset.duration || 5), fmt: x => x.toFixed(1) + ' s', onChange: x => { if (preset.kind === 'transition') values.seconds = x; else values.duration = x; change(); }, hint: RES && preset.kind !== 'transition' ? 'Resolve lays titles and generators 5 s long – trim them in the Timeline.' : '' }));
         const onClips = preset.kind === 'move' || preset.kind === 'look' || (preset.kind === 'transition' && !RES);
+        const push = motion && !RES ? ui.toggle({ label: 'Slow push in while it’s on screen', value: !!values.push, onChange: x => { values.push = x; remember(preset, values); } }) : null;
         const btnLabel = preset.kind === 'move' ? `Apply ${preset.label}` : preset.kind === 'look' ? `Apply the ${preset.label} look` : preset.kind === 'transition' ? (RES ? `Lay ${preset.label} over the playhead` : `Add ${preset.label} at the cuts`) : preset.kind === 'freeze' ? 'Hold the frame at the playhead' : `Add ${preset.label} at the playhead`;
-        const go = ui.actionButton(btnLabel, () => US.jobs.run({ title: `mVFX: ${preset.label}`, tool: 'mvfx' }, async job => { const r = await apply(preset, values, { scope }, job); say(r.summary, 'ok'); return r; }));
+        const swap = motion && replacing;
+        const go = ui.actionButton(swap ? 'Replace the title on the timeline' : btnLabel, () => US.jobs.run({ title: `mVFX: ${preset.label}`, tool: 'mvfx' }, async job => { const r = await apply(preset, values, { scope, replace: swap ? replacing : null }, job); if (swap) { replacing = null; drawEditor(); } say(r.summary, 'ok'); return r; }));
+        const loadBtn = motion ? ui.button(RES ? 'Change the title under the playhead…' : 'Change the selected title…', { small: true, kind: 'ghost', onClick: async () => {
+          try { const t = await selectedTitle(); preset = t.preset; values = t.values; replacing = t.target; group = preset.group; groupSeg.set && groupSeg.set(group); drawGrid(); drawEditor(); say(`Loaded “${preset.label}” from ${US.fmtDur(t.target.start)} – change it, then press Replace.`); }
+          catch (e) { say((e.title || e.message || String(e)) + (e.action ? ' ' + e.action : ''), 'warn'); }
+        } }) : null;
         if (!ready.ok) go.setEnabled(false);
         editor.append(
           h('div.mvfx-editor-head', h('div.mvfx-editor-title', preset.label), h('div.field-hint', preset.sub)),
           h('div.mvfx-preview-wrap', preview, h('button.btn.small.ghost.mvfx-play', { title: 'Play the animation', onclick: play }, US.icon('play', 14), h('span', 'Play'))),
           !ready.ok ? ui.note(ready.why, 'warn') : null,
-          fields.length ? ui.card(...fields) : null,
+          fields.length || options.length ? ui.card(...fields, ...options) : null,
           (colours.length || fontSel.length) ? ui.section('Colours and fonts', [colours.length ? h('div.mvfx-colours', colours) : null, ...fontSel], { open: false, hint: 'for the whole pack' }) : null,
-          sliders.length ? ui.card(...sliders) : null,
+          sliders.length ? ui.card(...sliders, push) : null,
+          motion ? h('div.field-hint', 'Added as one clip with a see-through background, drawn at this sequence’s size and frame rate. To change the words later, change them here and add it again, then delete the old clip.' + (RES ? '' : ' It’s kept in the project’s JMG Ultra Studio › mVFX folder.')) : null,
           onClips ? ui.card(h('div.field-label', 'Apply to'), scopeSeg) : null,
-          go, status);
+          swap ? ui.note(`Changing the title at ${US.fmtDur(replacing.start)} – it will be replaced where it is.`, 'info') : null,
+          go, loadBtn, status);
         drawPreview(1);
       }
       const install = RES ? ui.section('Resolve’s Effects Library', [h('div.field-hint', 'Every preset is also a Fusion title or generator you can drag from Effects Library › Titles / Generators › JMG Ultra Studio. The one you add from here is written (with your words in it) just before it’s inserted.'), h('div.row', { style: { marginTop: '6px' } }, ui.button('Install the whole pack', { small: true, icon: 'check', onClick: () => US.jobs.run({ title: 'mVFX: install the pack', tool: 'mvfx' }, async job => { const r = await installAll(job); say(r.summary, 'ok'); return r; }) }), h('span.field-hint', (() => { const i = get('installed', null); return i ? `${i.n} templates installed ${new Date(i.at).toLocaleDateString()}` : 'not installed yet'; })()))], { open: !get('installed', null), hint: 'Fusion templates' }) : null;
@@ -310,5 +424,5 @@
     }
   });
 
-  US.mvfx = { apply, installAll, valuesFor, storyPeople, artDir, lutFile, paintPNG };
+  US.mvfx = { apply, installAll, valuesFor, storyPeople, artDir, lutFile, paintPNG, renderMotion, selectedTitle };
 })();

@@ -2,7 +2,7 @@
 // templates Resolve gets, and the five looks (.cube files, Lumetri settings).
 const assert = require('assert');
 const { load, test } = require('./harness');
-const US = load(['time', 'js/tools/36-quickfx.js', 'js/tools/39-mvfx-fusion.js', 'js/tools/39-mvfx-looks.js', 'js/tools/39-mvfx-pack.js']);
+const US = load(['time', 'js/tools/36-quickfx.js', 'js/tools/39-mvfx-fusion.js', 'js/tools/39-mvfx-looks.js', 'js/tools/39-mvfx-motion.js', 'js/tools/39-mvfx-pack.js']);
 const P = US.mvfxPack, F = US.mvfxFusion, L = US.mvfxLooks;
 
 /** A 2D context that remembers what was drawn. */
@@ -18,22 +18,23 @@ function ctx() {
 }
 global.document.createElement = () => ({ width: 0, height: 0, getContext: () => ctx(), classList: { add() {} }, setAttribute() {}, appendChild() {}, style: {} });
 
-test('the pack: 61 original presets in nine groups, unique ids, every text layer names a field of its preset', () => {
-  assert.strictEqual(P.PRESETS.length, 61);
-  assert.deepStrictEqual(P.GROUPS.map(g => g.id), ['lower', 'titles', 'dates', 'overlays', 'backgrounds', 'freeze', 'moves', 'transitions', 'looks']);
+test('the pack: 34 animated and 61 other original presets in twelve groups, unique ids, every text layer names a field of its preset', () => {
+  assert.strictEqual(P.PRESETS.length, 95);
+  assert.strictEqual(P.PRESETS.filter(p => p.kind === 'motion').length, 34);
+  assert.deepStrictEqual(P.GROUPS.map(g => g.id), ['names', 'titles', 'time', 'words', 'marks', 'overlays', 'backgrounds', 'freeze', 'moves', 'transitions', 'looks', 'plain']);
   assert.strictEqual(new Set(P.PRESETS.map(p => p.id)).size, P.PRESETS.length);
   for (const p of P.PRESETS) {
     assert.ok(P.GROUPS.some(g => g.id === p.group), p.id + ' group');
     for (const l of p.layers || []) if (l.type === 'text' && !l.fixed) assert.ok((p.fields || []).some(f => f.id === l.field), `${p.id}: layer field ${l.field}`);
   }
-  assert.strictEqual(P.PRESETS.filter(p => p.group === 'lower').length, 8);
+  assert.strictEqual(P.PRESETS.filter(p => p.group === 'plain').length, 22);   // the editor's own text layers: 8 lower thirds, 10 cards, 4 dates
   assert.strictEqual(P.PRESETS.filter(p => p.kind === 'look').length, 5);
   assert.ok(!JSON.stringify(P.PRESETS).match(/motionvfx|mDocumentary/i), 'nothing of theirs in ours');
 });
 
 test('fonts: a family per role from what the computer has (the last one always), PostScript names for Premiere', () => {
   const av = P.available(f => f === 'Baskerville' || f === 'Segoe UI');
-  assert.deepStrictEqual(av, { serif: ['Baskerville'], sans: ['Segoe UI'], mono: ['Courier New'] });
+  assert.deepStrictEqual(av, { serif: ['Baskerville'], sans: ['Segoe UI'], mono: ['Courier New'], hand: ['Comic Sans MS'] });
   assert.strictEqual(P.psName('Georgia', true), 'Georgia-Bold');
   assert.strictEqual(P.psName('Helvetica Neue', false), 'HelveticaNeue');
   assert.strictEqual(P.psName('My Odd Font', true), 'MyOddFont-Bold');

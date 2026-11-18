@@ -177,6 +177,34 @@
         return out;
     };
 
+    /** The lowest "mVFX n" track with nothing between start and start + seconds (a new one on top when all are busy). */
+    function freeOurTrack(seq, start, seconds, log) {
+        for (var n = 1; n <= 12; n++) {
+            var t = ourTrack(seq, n, log), tr = seq.videoTracks[t], busy = false;
+            for (var k = 0; k < tr.clips.numItems && !busy; k++) { var c = tr.clips[k]; if (c.start.seconds < start + seconds - 0.001 && c.end.seconds > start + 0.001) busy = true; }
+            if (!busy) return t;
+        }
+        throw U.err('BAD_INPUT', 'Twelve mVFX tracks are busy at ' + start, 'There are already twelve titles on top of each other here.', 'Move the playhead, or remove some.');
+    }
+    /**
+     * An animated title: the PNG frames the panel drew, imported as one clip (numbered stills at the sequence's frame
+     * rate) and laid on a free mVFX track. a: {seqId, first (the first frame's path), fps, start, seconds, name, binPath}
+     * -> {itemId, track, trackName, start, end, existing, log}
+     */
+    fn.mvfxClip = function (a) {
+        var seq = U.needSeq(a.seqId), log = [];
+        var items = fn.importFiles({ paths: [a.first], binPath: a.binPath || 'JMG Ultra Studio/mVFX', asNumberedStills: true });
+        if (!items.length) throw U.err('HOST_SCRIPT', 'Frames not imported: ' + a.first, 'Premiere didn’t import the title’s frames.', 'Try again – or import the folder by hand (File › Import, tick Image Sequence).');
+        var it = U.needItem(items[0].id);
+        // numbered stills come in at Preferences › Media › Indeterminate Media Timebase: make them the sequence's rate
+        try { if (a.fps) it.setOverrideFrameRate(Number(a.fps)); } catch (e) { log.push('frame rate: ' + e); }
+        if (a.name && !items[0].existing) { try { it.name = String(a.name); } catch (e1) { } }
+        var t = freeOurTrack(seq, a.start, a.seconds, log);
+        var ti = placeStill(seq, t, it, a.start, a.seconds, log);
+        var tn = ''; try { tn = String(seq.videoTracks[t].name); } catch (e2) { }
+        return { itemId: items[0].id, track: t, trackName: tn, start: ti.start.seconds, end: ti.end.seconds, existing: !!items[0].existing, log: log };
+    };
+
     /** Hold the frame at a.at: exported as PNG and laid above the edit for a.seconds. a: {seqId, at, seconds, outBase, binPath} -> {itemId, track, start, end, path} */
     fn.mvfxFreeze = function (a) {
         var seq = U.needSeq(a.seqId), log = [];
