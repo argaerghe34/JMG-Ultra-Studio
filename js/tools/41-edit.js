@@ -14,19 +14,20 @@
 
   /* ---------- the edits the AI may use ---------- */
   // where: 'timeline' (clips or ranges on a sequence) | 'items' (clips in the Project panel / Media Pool)
-  // resolve: false = Premiere only (Resolve doesn't let add-ons do it)
+  // resolve: false = Premiere only (Resolve doesn't let add-ons do it); 'check' = it depends on the Resolve version
+  // (US.resolveEdits in 36-quickfx.js, the one list of what Resolve allows)
   const OPS = {
-    transition: { where: 'timeline', resolve: false, title: 'Transition', params: 'name: "Cross Dissolve" | "Dip to Black" | "Dip to White" | "Film Dissolve" | "Additive Dissolve" | "Morph Cut" (audio: "Constant Power" | "Constant Gain" | "Exponential Fade"); at: "start" | "end" | "both"; frames: number, or seconds: number (default half a second)', desc: 'Add a transition to each clip. On audio clips it is an audio fade.' },
-    effect: { where: 'timeline', resolve: false, title: 'Effect', params: 'name: as Premiere’s Effects panel shows it, e.g. "Gaussian Blur", "Lumetri Color", "Black & White", "Warp Stabilizer", "Crop" (audio: "DeNoise", "Parametric Equalizer")', desc: 'Add an effect to each clip.' },
-    speed: { where: 'timeline', resolve: false, title: 'Speed', params: 'percent: number (50 = half speed)', desc: 'Change each clip’s speed (the clip gets longer or shorter).' },
+    transition: { where: 'timeline', resolve: 'check', title: 'Transition', params: 'name: "Cross Dissolve" | "Dip to Black" | "Dip to White" | "Film Dissolve" | "Additive Dissolve" | "Morph Cut" (audio: "Constant Power" | "Constant Gain" | "Exponential Fade"); at: "start" | "end" | "both"; frames: number, or seconds: number (default half a second)', desc: 'Add a transition to each clip. On audio clips it is an audio fade.' },
+    effect: { where: 'timeline', resolve: 'check', title: 'Effect', params: 'name: as Premiere’s Effects panel shows it, e.g. "Gaussian Blur", "Lumetri Color", "Black & White", "Warp Stabilizer", "Crop" (audio: "DeNoise", "Parametric Equalizer")', desc: 'Add an effect to each clip.' },
+    speed: { where: 'timeline', resolve: 'check', title: 'Speed', params: 'percent: number (50 = half speed)', desc: 'Change each clip’s speed (the clip gets longer or shorter).' },
     motion: { where: 'timeline', resolve: true, title: 'Scale / position', params: 'scale: percent; x, y: 0–1 across the frame (0.5 = centre); rotation: degrees – give only what changes', desc: 'Set framing on each video clip.' },
     zoom: { where: 'timeline', resolve: false, title: 'Slow zoom', params: 'from, to: scale percent (punch-in 100→110, pull-out 110→100); seconds: only the first (or last, with at: "end") seconds, else the whole clip', desc: 'A keyframed zoom across each clip (punch-in or Ken Burns).' },
     opacity: { where: 'timeline', resolve: true, title: 'Opacity', params: 'value: percent', desc: 'Set each clip’s opacity.' },
-    volume: { where: 'timeline', resolve: false, title: 'Volume', params: 'db: change in dB (−6 quieter, +3 louder)', desc: 'Raise or lower each audio clip.' },
+    volume: { where: 'timeline', resolve: 'check', title: 'Volume', params: 'db: change in dB (−6 quieter, +3 louder)', desc: 'Raise or lower each audio clip.' },
     label: { where: 'both', resolve: true, timeline: 'resolve', title: 'Colour label', params: 'label: 0 Violet, 1 Iris, 2 Caribbean, 3 Lavender, 4 Cerulean, 5 Forest, 6 Rose, 7 Mango, 8 Purple, 9 Blue, 10 Teal, 11 Magenta, 12 Tan, 13 Green, 14 Brown, 15 Yellow', desc: 'Colour each clip.' },
     enable: { where: 'timeline', resolve: true, title: 'Switch on/off', params: 'on: true | false', desc: 'Switch each clip on or off (Enable).' },
     remove: { where: 'timeline', resolve: true, title: 'Delete', params: 'ripple: true closes the gap', desc: 'Delete each clip from the sequence.' },
-    rename: { where: 'both', resolve: false, title: 'Rename', params: 'name: the new name; use {n} for a number and {name} for the old name, e.g. "Interview {n}"', desc: 'Rename each clip.' },
+    rename: { where: 'both', resolve: 'check', title: 'Rename', params: 'name: the new name; use {n} for a number and {name} for the old name, e.g. "Interview {n}"', desc: 'Rename each clip.' },
     marker: { where: 'both', resolve: true, title: 'Marker', params: 'name, comment; color: 0 Green, 1 Red, 2 Purple, 3 Orange, 4 Yellow, 5 White, 6 Blue, 7 Cyan', desc: 'A marker over each clip or line (sequence markers on a timeline, clip markers in a bin).' },
     text: { where: 'timeline', resolve: false, title: 'Text', params: 'text: what it says ({speaker} and {says} use the line’s); style: "title" | "lowerThird"; seconds: how long (default 4)', desc: 'A text layer at the start of each clip or line, on a top track called “Ask text”.' },
     razor: { where: 'timeline', resolve: false, title: 'Cut', params: '(none) – cuts every track at the start and end of each clip or line picked', desc: 'Razor the whole sequence at the start and end of each target.' },
@@ -38,10 +39,13 @@
   /** The edits that make sense here: for this kind of scope, and that this editor allows. */
   // timeline: 'resolve' – on a timeline only Resolve can do it: Premiere gives a script no way to colour (or read the
   // colour of) a clip on a timeline (found in Premiere 2027, 18 Nov 2026); clips in a bin can be coloured in both.
-  const opsFor = (kind, resolve = RES()) => Object.entries(OPS).filter(([, o]) => (o.where === 'both' || o.where === 'any' || o.where === kind) && (!resolve || o.resolve) && !(kind === 'timeline' && !resolve && o.timeline === 'resolve')).map(([k]) => k);
+  const RE = () => US.resolveEdits;
+  /** Can Resolve (this version; '' = the one the panel is in) do this edit here? A rename in a bin works in every Resolve. */
+  const resolveOk = (k, kind, version) => OPS[k].resolve === true || (OPS[k].resolve === 'check' && (kind === 'items' || !RE() || RE().can(k, version != null ? { version } : undefined)));
+  const opsFor = (kind, resolve = RES(), version) => Object.entries(OPS).filter(([k, o]) => (o.where === 'both' || o.where === 'any' || o.where === kind) && (!resolve || resolveOk(k, kind, version)) && !(kind === 'timeline' && !resolve && o.timeline === 'resolve')).map(([k]) => k);
   const NO_TIMELINE_LABELS = 'Premiere can’t colour clips on a timeline from a script – colour the clips in their bin instead (that colours every use of them)';
   /** Why an edit the AI asked for isn't on offer here. */
-  const whyNot = (op, where) => (OPS[op] && !OPS[op].resolve && RES() ? 'Premiere only' : OPS[op] && OPS[op].timeline === 'resolve' && !RES() ? NO_TIMELINE_LABELS : where);
+  const whyNot = (op, where) => (OPS[op] && RES() && !resolveOk(op, 'timeline') ? ((RE() && RE().why(op)) || 'Premiere only') : OPS[op] && OPS[op].timeline === 'resolve' && !RES() ? NO_TIMELINE_LABELS : where);
 
   /* ---------- reading what's there, as a model and as text ---------- */
   const r2 = x => Math.round(x * 100) / 100;
@@ -200,8 +204,8 @@
         ? '- "targetsJson": a JSON object string picking clips: {"ids":["i3","i7"]} or a query {"nameContains":"","fileContains":"","kind":"video|audio|still|sequence","label":0-15,"bin":"part of a bin path","minSeconds":0,"maxSeconds":0}. Leave out what you don’t need; {} means all.'
         : '- "targetsJson": a JSON object string picking clips or lines: {"ids":["c3","c7"]}, or a query {"tracks":["V1"],"kind":"video|audio","nameContains":"","fileContains":"","minSeconds":0,"maxSeconds":0,"label":0-15,"disabled":false,"effect":"has this effect","noEffect":"","speakers":["Ruth"],"says":"words in what they say","speakerChange":true,"from":seconds,"to":seconds,"every":"all|first|last|everyOther|cuts"}; "cuts" = every clip but the first on its track (the joins). For transcript lines: {"lines":true or ["l4","l9"],"speakers":[],"says":""} – for markers, text, cuts or to find the clips under them. Prefer a query to long id lists. Leave out what you don’t need.',
       '- Picture edits (transition on video, motion, zoom, effect on video, opacity) go on video tracks; volume and audio fades on audio tracks. A video clip and its sound are separate clips (Vn and An).',
-      '- Never invent clip ids, effect or transition names: use Premiere’s own names. If something can’t be done with these edits, say so in "reply" and leave it out.',
-      `- "reply": one or two short sentences in plain British English saying what you’ll do (or found). "done": true when nothing more is needed.${RES() ? ' Resolve can’t add transitions, effects, speed changes, keyframes, text or cuts by script – say so if asked.' : ''}`,
+      RES() ? '- Never invent clip ids, effect or transition names: use the names in Resolve’s Effects Library (Premiere’s common names – Cross Dissolve, Dip to Black, Gaussian Blur, Horizontal Flip, Constant Power – are translated). If something can’t be done with these edits, say so in "reply" and leave it out.' : '- Never invent clip ids, effect or transition names: use Premiere’s own names. If something can’t be done with these edits, say so in "reply" and leave it out.',
+      `- "reply": one or two short sentences in plain British English saying what you’ll do (or found). "done": true when nothing more is needed.${RES() && RE() ? ` Resolve doesn’t let add-ons make ${RE().cantList()} – say so if asked.` : ''}`,
       '- The other sequences, bins and clips in the project are listed under SEQUENCES and PROJECT CLIPS. Only "append" uses them.',
       '- If you are not sure what the editor means – which clip, which sequences or bin, which track, with sound or not – do NOT guess: return no steps and ask in "questions" (at most 4, one thing each). "kind" is how they answer: "clip" (they pick a project clip), "bin", "sequences" (they pick the bin they’re in), "track", "choice" (give 2–5 "options"), "text". "options" is [] except for "choice" (for "clip" you may list likely clip names). When the answers come back, plan; ask again only about what is still unclear.',
       `- "sequencesJson": "" for ${kind === 'items' ? 'the clips shown above' : 'the sequence shown above'}. To make an edit in OTHER sequences – one or many at once – give {"sequences":["s3","s8"]} or {"bin":"part of the bin path","nameContains":"part of the name"} from SEQUENCES. "targetsJson" then picks the clips inside EACH of those sequences with a clip query: {"tracks":["V1"],"kind":"video|audio","nameContains":"","minSeconds":0,"maxSeconds":0,"label":0-15,"from":seconds,"to":seconds,"every":"all|first|last|everyOther|cuts"} (no c… ids or transcript lines – those belong to ${kind === 'items' ? 'one sequence only' : 'the sequence shown'}). Example: a 2-second Dip to Black on the first clip on V1 of every sequence called "All Songs": op "transition", sequencesJson {"nameContains":"All Songs"}, targetsJson {"tracks":["V1"],"every":"first"}, paramsJson {"name":"Dip to Black","at":"start","seconds":2}.`,
@@ -658,5 +662,5 @@
     run: async () => ({ summary: 'Type this in Ask – it plans the edit and shows it to you first.' })
   });
 
-  US.editAsk = { OPS, opsFor, NO_TIMELINE_LABELS, timelineModel, itemsModel, projectModel, projectOutline, outline, select, checkPlan, appendStep, pickSequences, readOthers, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
+  US.editAsk = { OPS, opsFor, resolveOk, whyNot, NO_TIMELINE_LABELS, timelineModel, itemsModel, projectModel, projectOutline, outline, select, checkPlan, appendStep, pickSequences, readOthers, trackIndex, unplace, QUESTION_KINDS, runOrder, describe, rules, read, plan, run, check, undoItems, clipTargets, PLAN_SCHEMA, scopeLabel, recent: store };
 })();
