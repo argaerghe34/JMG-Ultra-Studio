@@ -22,7 +22,18 @@ function as212(F, tl) {
     ti._props.FlipX = false; ti._props.FlipY = false; ti._props.AudioVolume = 0; ti._props.AudioVolumeEnabled = true; ti._speed = 100; ti._fx = [];
     ti.GetType = () => kind;
     ti.SetName = n => { ti._label = n; return true; };
-    ti.AddTransition = o => { if (o.type === 'Nope' || (o.category && o.category !== (kind === 'audio' ? 'audio' : 'simple'))) return null; tl._transitions.push(Object.assign({ item: ti.GetName(), start: ti.GetStart() }, o)); return { GetType: () => 'transition' }; };
+    // like Resolve 21.2 (measured): all four strings needed; 'center' at a start needs media before the clip's first frame;
+    // the transition then shows among the track's items, starting where it sits
+    ti.AddTransition = o => {
+      if (!['type', 'category', 'position', 'alignment'].every(k => typeof o[k] === 'string')) throw new Error('Execute: AddTransition: Error response (errorStr:type, category, position and alignment must be strings) (errorCode:2)');
+      if (o.category !== (kind === 'audio' ? 'audio' : 'simple')) throw new Error('Execute: AddTransition: Error response (errorStr:unrecognized category) (errorCode:2)');
+      if (o.type === 'Nope' || (o.alignment === 'center' && o.position === 'start' && ti._srcStart === 0)) throw new Error('Execute: AddTransition: Error response (errorStr:failed to place transition) (errorCode:6)');
+      tl._transitions.push(Object.assign({ item: ti.GetName(), start: ti.GetStart() }, o));
+      const at = o.position === 'start' ? ti._start : ti._end - o.duration;
+      const tr = { _start: at, _end: at + o.duration, GetType: () => 'transition', GetName: () => o.type, GetStart: () => tr._start, GetEnd: () => tr._end, GetMediaPoolItem: () => null, GetUniqueId: () => 'tr' + at, GetClipEnabled: () => true };
+      tl.GetItemListInTrack(kind, t); (kind === 'video' ? tl._v : tl._a)[t - 1].push(tr);
+      return tr;
+    };
     ti.SetSpeed = o => { if (!(o.Percentage > 0)) return false; const len = ti._end - ti._start, nl = Math.round(len * 100 / o.Percentage); ti._speed = o.Percentage; if (o.RippleTimeline) for (const x of tl.GetItemListInTrack(kind, t)) if (x._start >= ti._end) { x._start += nl - len; x._end += nl - len; } ti._end = ti._start + nl; return true; };
     ti.GetSpeed = () => ({ Percentage: ti._speed, PitchCorrection: true });
     ti.AddEffect = (cat, id) => { const e = LIBRARY.concat([{ id: 'Noise Reduction', category: 'audio', name: 'Noise Reduction' }]).find(x => x.id === id && x.category === cat); if (!e) return null; const fx = { GetInfo: () => Object.assign({}, e) }; ti._fx.push(fx); return fx; };
@@ -81,7 +92,11 @@ test('transitions: Premiere’s names in Resolve’s words, across a cut (centre
   const S = setup();
   const r = await S.run('editApply', { seqId: S.seqId, op: 'transition', params: { name: 'Cross Dissolve', at: 'start', frames: 12 }, targets: [S.v(4), S.v(6)] });
   assert.strictEqual(r.done, 2);
-  assert.deepStrictEqual(S.tl._transitions.map(t => [t.item, t.type, t.category, t.position, t.alignment, t.duration]), [['B.mp4', 'Cross Dissolve', 'simple', 'start', 'center', 12], ['C.mp4', 'Cross Dissolve', 'simple', 'start', 'center', 12]]);
+  assert.deepStrictEqual(S.tl._transitions.map(t => [t.item, t.type, t.category, t.position, t.alignment, t.duration]), [['B.mp4', 'Cross Dissolve', 'simple', 'start', 'right', 12], ['C.mp4', 'Cross Dissolve', 'simple', 'start', 'right', 12]], 'B and C start at their media’s first frame: no room across the cut, so the dissolve starts on it');
+  const info = await S.run('editRead', { seqId: S.seqId });
+  assert.deepStrictEqual(info.video[0].clips.map(c => c.name), ['A.mp4', 'B.mp4', 'C.mp4'], 'transitions aren’t read as clips');
+  assert.strictEqual((await S.run('editApply', { seqId: S.seqId, op: 'motion', params: { scale: 120 }, targets: [S.v(4)] })).done, 1);
+  assert.strictEqual(S.tl.GetItemListInTrack('video', 1).find(i => i.GetName() === 'B.mp4').GetProperty('ZoomX'), 1.2, 'the clip, not the transition starting with it');
   S.tl._transitions.length = 0;
   await S.run('editApply', { seqId: S.seqId, op: 'transition', params: { name: 'Dip to Black', at: 'both', seconds: 1 }, targets: [S.v(0)] });
   assert.deepStrictEqual(S.tl._transitions.map(t => [t.type, t.position, t.alignment, t.duration]), [['Dip To Color Dissolve', 'start', 'right', 25], ['Dip To Color Dissolve', 'end', 'center', 25]], 'the timeline’s first frame: inside the clip; the cut: across it');

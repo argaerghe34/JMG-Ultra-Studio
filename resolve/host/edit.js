@@ -45,10 +45,12 @@ function cantName(op, name) {
 
 module.exports = (R, fns) => {
   const tryCall = (f, d) => { try { const v = f(); return v == null ? d : v; } catch (e) { return d; } };
+  // Resolve 21.1+ lists transitions among a track's items, starting where the clip they sit on starts (measured in 21.2)
+  const isTransition = ti => typeof ti.GetType === 'function' && tryCall(() => ti.GetType(), '') === 'transition';
   /** The timeline item on a track (0-based, as Premiere counts) that starts at this time (within half a frame). */
   function clipAt(tl, kind, track, start) {
     const half = 0.5 / R.fps(tl);
-    for (const ti of R.list(tl.GetItemListInTrack(kind === 'audio' ? 'audio' : 'video', track + 1)).filter(Boolean)) if (Math.abs(R.tlSec(tl, ti.GetStart()) - start) <= half) return ti;
+    for (const ti of R.list(tl.GetItemListInTrack(kind === 'audio' ? 'audio' : 'video', track + 1)).filter(Boolean)) if (!isTransition(ti) && Math.abs(R.tlSec(tl, ti.GetStart()) - start) <= half) return ti;
     return null;
   }
   const labelOfColour = c => { const i = R.LABEL_COLORS.indexOf(String(c || '')); return i >= 0 ? i : null; };
@@ -75,14 +77,23 @@ module.exports = (R, fns) => {
   function neighbour(tl, ti, at) {
     const tt = tryCall(() => ti.GetTrackTypeAndIndex(), null), type = tt ? tt[0] : 'video', track = tt ? tt[1] : 1;
     const edge = at === 'start' ? ti.GetStart() : ti.GetEnd();
-    return R.list(tl.GetItemListInTrack(type, track)).filter(Boolean).some(o => o !== ti && (at === 'start' ? Math.abs(o.GetEnd() - edge) < 1 : Math.abs(o.GetStart() - edge) < 1));
+    return R.list(tl.GetItemListInTrack(type, track)).filter(Boolean).some(o => o !== ti && !isTransition(o) && (at === 'start' ? Math.abs(o.GetEnd() - edge) < 1 : Math.abs(o.GetStart() - edge) < 1));
   }
-  /** A transition at one end of a clip (across the cut when another clip meets it there, else inside the clip). -> bool */
+  /**
+   * A transition at one end of a clip. Measured in Resolve 21.2 (18 Nov 2026): type, category ('simple' for the built-in
+   * video ones, 'audio' for the Cross Fades), position and alignment must all be given as strings; 'center' fails
+   * ("failed to place transition") when the clip after the cut has no media before its first frame, so it's tried
+   * across the cut first, then starting or ending on it, inside this clip. -> '' when added, else Resolve's own words
+   */
   function addTransition(tl, ti, kind, name, at, frames) {
-    const opts = { type: name, position: at, alignment: neighbour(tl, ti, at) ? 'center' : at === 'start' ? 'right' : 'left', duration: Math.max(1, Math.round(frames)) };
-    const tries = [Object.assign({ category: kind === 'audio' ? 'audio' : 'simple' }, opts), opts, Object.assign({}, opts, { alignment: at === 'start' ? 'right' : 'left' })];
-    for (const o of tries) if (tryCall(() => ti.AddTransition(o), null)) return true;
-    return false;
+    const inside = at === 'start' ? 'right' : 'left', other = at === 'start' ? 'left' : 'right';
+    const aligns = neighbour(tl, ti, at) ? ['center', inside, other] : [inside];
+    let last = '';
+    for (const alignment of aligns) {
+      try { if (ti.AddTransition({ type: String(name), category: kind === 'audio' ? 'audio' : 'simple', position: at, alignment, duration: Math.max(1, Math.round(frames)) })) return ''; }
+      catch (e) { last = String((e && e.message) || e).replace(/^.*errorStr:([^)]*)\).*$/, '$1'); if (/already has a transition/.test(last)) return ''; }
+    }
+    return last || 'Resolve placed nothing';
   }
 
   return {
@@ -165,10 +176,10 @@ module.exports = (R, fns) => {
           } else if (a.op === 'transition') {
             const name = TRANSITIONS[key(p.name)] || String(p.name || (g.kind === 'audio' ? 'Cross Fade +3 dB' : 'Cross Dissolve'));
             const frames = p.frames || (p.seconds ? p.seconds * fps : Math.round(fps / 2));
-            let n = 0;
-            for (const at of p.at === 'both' || !p.at ? ['start', 'end'] : [p.at]) if (addTransition(tl, ti, g.kind, name, at, frames)) n++;
+            let n = 0, err = '';
+            for (const at of p.at === 'both' || !p.at ? ['start', 'end'] : [p.at]) { const e = addTransition(tl, ti, g.kind, name, at, frames); if (!e) n++; else err = e; }
             if (n) { out.done += n; continue; }
-            why = `Resolve didn’t add “${name}” – check its name in the Effects Library, and that the clip has room for it`;
+            why = `Resolve didn’t add “${name}” (${err}) – check its name in the Effects Library, and that the clip has room for it`;
           } else if (a.op === 'speed') {
             const pc = Number(p.percent);
             if (!(pc > 0)) why = 'no speed given';
