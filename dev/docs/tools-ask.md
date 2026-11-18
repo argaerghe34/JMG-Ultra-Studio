@@ -26,7 +26,7 @@ One chat box for everything. Type what you want in your own words: *“cut the s
 - **Models on this computer are optional and never downloaded by default.** Settings lists each one with what it is for, where it is used, its size and the memory it wants, with **Download** and **Remove**. If a feature needs one that isn’t there, it asks first. They run in Ollama, a free app (ollama.com).
 - **Looking at a clip for a question**: when the descriptions don’t answer it, Ask takes a few stills of the clips in question – after a **May I?** card when they leave your computer, naming the clips.
 - Never video, never sound. Settings › What was sent to AI lists every still that went (which clip and time); the pictures themselves aren’t kept there. A project set to *nothing leaves this computer* only ever uses a model on this computer.
-- Nothing pops up: stills are read inside the panel (or with ffmpeg if it’s installed). Clips the panel can’t read are listed and left for Overnight prep’s Selects step, which makes the small copies; Media Encoder is never started just for this.
+- Nothing pops up: stills are read inside the panel (or with ffmpeg if it’s installed; in Resolve, Resolve saves them for a clip neither can read). Clips that still can’t be read are listed and left for Overnight prep’s Selects step, which makes the small copies; Media Encoder is never started just for this.
 
 **Without an AI key** the built-in commands still work: type one (or click an example) and it shows a plan to **Run**. With AI on, a short built-in command typed in a new chat also runs this way – instantly and free.
 
