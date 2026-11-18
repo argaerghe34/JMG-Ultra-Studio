@@ -194,7 +194,9 @@ function make({ fps = 25, width = 1920, height = 1080, projectName = 'Test', leg
           if (currentTl === tl) {
             const set = /SetInput\("StyledText", \[(=*)\[([\s\S]*?)\]\1\]\)/.exec(lua), get = /io\.open\(\[(=*)\[([\s\S]*?)\]\1\], "w"\)/.exec(lua);
             if (set && tools.Template) tools.Template._inputs.StyledText = set[2];
-            if (get) fs.writeFileSync(get[2], tools.Template ? String(tools.Template._inputs.StyledText || '') : '');
+            const ren = /os\.rename\(\[(=*)\[([\s\S]*?)\]\1\], \[(=*)\[([\s\S]*?)\]\3\]\)/.exec(lua);
+            // (Resolve runs the script a moment after Execute returns, in its own process; here at once)
+            if (get) { fs.writeFileSync(get[2], tools.Template ? String(tools.Template._inputs.StyledText || '') : ''); if (ren) fs.renameSync(ren[2], ren[4]); }
           }
           throw new Error('Execute: Parse - Unknown object type detected for key:result (type:-1)');
         };
