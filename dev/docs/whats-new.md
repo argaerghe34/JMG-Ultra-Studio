@@ -1,3 +1,38 @@
+## What's new in 1.3.38
+
+**A new, clearer layout – nothing taken away**
+- **The rail has eight places, in the order of the work:** Home, Bring in, Story, Cut, Finish, Deliver, Ask, Advanced. A place with several tools shows them as tabs along the top (Story › Story, Lines, Story wiki, Word cloud, Producer; Cut › Silence Cut, Beat Cut; Finish › Quick effects, Markers, Safe Zones, Final Check), and each place opens the tool you used last there. **Advanced is as before**, with every tool in it, In development included. Prefer the old rail? **Settings › Layout › Classic rail** brings back one button per tool.
+- **Search everything (⌘K, Ctrl+K on Windows, or the magnifier in the header):** every action by its plain name (Return runs it, on a copy, asking first when it changes the project), every tool and where it lives, lines from your interviews, and settings. Tab sends your words to Ask.
+- **Take the tour:** pop-ups that point at the real screen and say what each part does, with tips. Start it from Settings › Take the tour, from Search, or from the **?** beside any tab's title. The first time the new layout opens, it offers the tour once.
+- **Story › Lines, the wide view:** every theme and line in one table. With a wide panel, the themes are on the left, the lines in the middle and the line you pick on the right. Sort, filter by word, speaker or theme, play a line, open it in the Source Monitor, put one or several **at the playhead**, or drag them onto the timeline. J/K, space and Return work.
+- **Home starts with this project:** the five stages, ticked as you go, **one suggested next step**, then *Pick up where you left off*. Everything that was on Home is still below.
+- **Story › 4 Build asks "What do you want to make?"** and shows just that card. **Show all** shows every card, and Settings › Layout › *Story › Build: one at a time* turns it off.
+- Wiki and Producer without an AI key show one note with **Add a key**, and save folders read *Documents › JMG Ultra Studio › …* instead of long paths.
+
+**Ask is one chat for everything**
+- Say what you want in your own words: run a tool, change a sequence or the project, ask about your interviews, or several things in a row. It says what it understood and its plan, asks when it isn't sure (with answers to click), asks before it changes anything (**Proceed / Always proceed / Skip**; you choose how often), and reports what it did, what it couldn't do and what to check. Sequence edits go on a copy.
+- **Several chats at once** (press **+**), and each chat can use its own AI.
+- **You control the spending:** choose an amount where a request stops to ask (50c to $10, or none). A card lets you carry on, lift the limit for that chat, or stop. The cost is always shown.
+- **The Agent tab is gone.** Ask does its job: search, lines, themes, build and versions all live in the chat.
+- **Ask knows your cut:** *Which stories about Grandma haven't I used yet?* leaves out what's in the open sequence, and **What's already in my cut?** marks the clips you've used.
+- In Premiere, Ask doesn't offer to colour clips on a timeline (Premiere can't do it from a script). It offers the bin colour or markers instead.
+
+**Footage in words (off until you switch it on)**
+- Ask and Search can find shots by what's in them. Each clip gets a few small stills (taken in the panel, never with Media Encoder), described once and kept with the project. Who looks is up to you: Claude, Gemini, or a model on this computer (downloaded only when you press Download). **Settings › AI › Footage** switches it on **per project**. A project set to *nothing leaves this computer* sends nothing, and video and sound are never sent.
+
+**Markers**
+- **New markers go on › Timeline / Clips / Both.** With *Clips*, a marker goes on the clip under it, so it shows in every sequence that uses that part of the clip and moves with it. The list shows the clips' markers too. Ticked markers can be moved onto the clips or back onto the timeline.
+- The colour buttons show their whole names. Fixed: switching the list to *Clips selected in the Project panel* no longer changes where every tool puts its markers, and the stray "null" under the list is gone.
+
+**Quick effects**
+- **Punch in every other:** 110% on every second clip, so an interview's jump cuts look like two camera angles.
+- **Make your own button:** save your own punch-in, speed, opacity or volume (115%, 75%, −6 dB…), or any effect or transition by name, as a button. Star it, or × to delete it.
+
+**mVFX (In development): animated documentary titles.** Names, titles, dates, quotes, credits and hand-drawn marks, drawn frame by frame and placed as one clip. Change a title already on the timeline, and presets play in their tile when you hover.
+
+**Fixes**
+- Premiere 2027: importing a file it refuses because the project already has a copy from another place (another drive, a copied folder) now uses that clip. A clip that went offline is linked to its file again when the file is back.
+
 ## What's new in 1.3.37
 
 - **Everything Ultra Studio does for a project now lives with the project.** Each project has a **JMG Ultra Studio** folder next to it (next to the `.prproj`; for Resolve, next to the project's media), made as soon as the project is open, with a *Read me* saying what's in it. Open the project on another computer – the Mac or the PC, from the same drive or a copy of the folder – and it all opens where you left it: nothing is made again and no AI is paid for twice.
