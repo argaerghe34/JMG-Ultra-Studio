@@ -251,6 +251,8 @@
       { t: 'line', x1: 0.3, y1: 0.5, x2: 0.7, y2: 0.5, w: 0.0016, at: 0.1, dur: 1, from: 'centre' }
     ], { duration: 4, stretch: true, rotate: true, shadow: 0.3 })
   ];
+  // how much a preset is enlarged in its small tile (about its anchor), so the type can be read there
+  const TILE = {'nm-inline': 2.1, 'nm-stack': 2.3, 'nm-rule': 2.3, 'nm-centre': 2.3, 'nm-hand': 2.2, 'nm-place': 2.1, 'ti-film': 1, 'ti-chapter': 1.5, 'ti-later': 2, 'ti-hand': 1.6, 'ti-close': 1.5, 'ti-series': 1.5, 'ti-facts': 1.15, 'dt-year': 2.2, 'dt-calendar': 1.8, 'dt-clock': 1.9, 'dt-pointer': 2.2, 'dt-axis': 1.25, 'dt-jump': 1.25, 'dt-span': 1.7, 'wd-quote': 1.6, 'wd-script': 1.35, 'wd-statement': 1.7, 'wd-credits': 1.7, 'wd-cast': 1.15, 'wd-file': 2.3, 'wd-source': 1.8, 'mk-arrow': 1.4, 'mk-circle': 1.4, 'mk-underline': 1.4, 'mk-bracket': 1.3, 'mk-note': 1.6, 'mk-highlight': 1.3, 'mk-rule': 1.4};
   const GROUPS = [
     { id: 'names', name: 'Names', hint: 'who is speaking, where and when' }, { id: 'titles', name: 'Titles', hint: 'film titles and chapter cards' },
     { id: 'time', name: 'Dates & time', hint: 'years, calendars, timelines' }, { id: 'words', name: 'Quotes & credits', hint: 'quotes, statements, credits' },
@@ -534,5 +536,5 @@
     return { roles: Array.from(roles), colours: Array.from(colours).filter(c => /^(text|muted|accent)$/.test(c)) };
   }
 
-  US.mvfxMotion = { PRESETS, GROUPS, uses, prepare, draw, frames, holdTime, parseDate, weekday, ring, wobble, smooth, rng, easeOut, easeIn, easeInOut, cssFont, rgba };
+  US.mvfxMotion = { PRESETS, GROUPS, TILE, uses, prepare, draw, frames, holdTime, parseDate, weekday, ring, wobble, smooth, rng, easeOut, easeIn, easeInOut, cssFont, rgba };
 })();

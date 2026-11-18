@@ -309,7 +309,8 @@
         const vv = p === preset ? values : valuesFor(p);
         if (p.kind === 'motion') {
           plate(ctx, W, H, 'footage');
-          const total = Number(vv.duration || p.duration || 5), scene = M().prepare(ctx, W, H, p, vv, total);
+          const tile = c !== preview ? Object.assign({}, vv, { scale: (vv.scale || 1) * (M().TILE[p.id] || 1.5) }) : vv;   // small tiles: the type enlarged so it reads
+          const total = Number(vv.duration || p.duration || 5), scene = M().prepare(ctx, W, H, p, tile, total);
           M().draw(ctx, scene, t === 1 ? M().holdTime(scene) : t * total);
           return;
         }
@@ -330,7 +331,7 @@
       function drawGrid() {
         US.clear(grid);
         for (const p of P().PRESETS.filter(x => x.group === group)) {
-          const c = h('canvas', { width: 240, height: 135 }), ok = P().readiness(p, RES).ok;
+          const c = h('canvas', { width: p.kind === 'motion' ? 480 : 240, height: p.kind === 'motion' ? 270 : 135 }), ok = P().readiness(p, RES).ok;
           const tile = h('button.mvfx-tile' + (p.id === preset.id ? '.on' : '') + (ok ? '' : '.off'), { title: ok ? p.sub : P().readiness(p, RES).why, onclick: () => choose(p) }, c, h('span.mvfx-tile-label', p.label), h('span.mvfx-tile-sub', p.sub));
           grid.appendChild(tile);
           requestAnimationFrame(() => thumb(p, c));
