@@ -107,7 +107,7 @@
       const seg = ui.segmented({ options: [{ value: 'local', label: 'On this computer', title: 'Nothing leaves this computer' }, { value: 'cloud', label: 'Cloud', title: 'Stills and sound are sent to Gemini (or stills to Claude) – asked first, with the cost' }, { value: 'off', label: 'Off' }], value: r,
         onChange: async x => { if (x === 'cloud') { if (!(await confirmCloud())) { draw(); return; } } else U().setRoute(x); draw(); } });
       const pros = (title, good, bad, est) => h('div.und-route', h('div.list-title', title), h('ul', good.map(g => h('li.und-pro', g)), bad.map(b => h('li.und-con', b))), est ? h('div.field-hint', est) : null);
-      return ui.card(h('div.card-title', 'This project', name ? h('span.right', US.keep(name)) : null),
+      return h('div.und-block', h('div.und-head', 'This project', name ? h('span.right', US.keep(name)) : null),
         h('div.field-hint', 'Ultra Studio can look at your footage and listen to it, so Ask, Story and Selects know what’s in it – what each shot shows over time, reactions and gestures no transcript has, and what can be heard: music, applause, laughter, wind, a raised voice. Choose where that happens for this project.'),
         US.ctx.project ? ui.field('Where it happens', seg, off ? 'This project is set to “nothing leaves this computer” (Settings › AI): the cloud can’t be chosen for it.' : r === 'cloud' ? `Cloud is on for this project: ${US.ai.mediaModel().label}. Switch back any time.` : 'Cloud is off until you choose it here, and you’re shown the cost first.') : ui.note('Open a project to choose.', 'info'),
         h('div.grid2',
@@ -120,7 +120,7 @@
     }
 
     function statusCard() {
-      return ui.card(h('div.card-title', 'What it’s doing'), chip(),
+      return h('div.und-block', h('div.und-head', 'What it’s doing'), chip(),
         ui.toggle({ label: 'Work in the background while the computer is quiet', hint: 'Small slices, only when no job is running, the processor is free, the panel is responsive and the battery isn’t low. It stops the moment you start something. Nothing opens Media Encoder or any window.', value: U().backgroundOn(), onChange: x => set('background', x) }),
         ui.toggle({ label: 'Let big jobs run in the background too', hint: 'Off: looking at more than about 20 minutes’ worth of work is scheduled (Overnight prep, or Run now) instead of started while you edit. On: it works through it in quiet moments.', value: US.settings.get('understand.heavyInBackground', false) === true, onChange: x => set('heavyInBackground', x) }));
     }
@@ -145,7 +145,7 @@
               : ui.button(`Download (${size}${extra})`, { small: true, kind: 'primary', disabled: !rt.supported(), title: rt.supported() ? `From ${new URL(m.files[0].url).hostname}, checked before it’s used` : 'The helper that runs models isn’t available for this kind of computer', onClick: () => US.jobs.run({ title: `Downloading ${m.name}`, tool: 'settings' }, job => Mo.download(m.id, job)).then(draw) })));
       });
       const p = Mo.pendingUpdates(), chk = US.settings.get('understand.updateCheck', null);
-      return ui.card(h('div.card-title', 'Models on this computer'),
+      return h('div.und-block', h('div.und-head', 'Models on this computer'),
         h('div.field-hint', 'Nothing here is downloaded until you press Download – the size is on the button. Each comes straight from its makers’ page over HTTPS and is only used once its checksum matches. They run in a small helper program (llama.cpp, open source) that Ultra Studio starts hidden on this computer only and stops when it’s idle.'),
         h('div.grid2', ui.field('Vision model – looks at the shots', visionSel), ui.field('Listening', listenSel, 'Built in: music, applause, silence, wind, noise and a raised voice, measured here. A listening model adds laughter and tone of voice, 30 seconds at a time.')),
         h('div.list', rows),
@@ -167,9 +167,8 @@
     }
     draw();
     US.bus.on('context', () => { if (box.isConnected !== false) draw(); });
-    const wrap = h('div', box);
-    wrap.dataset.section = 'understand';
-    return wrap;
+    // Settings puts it in its own closed dropdown, in a [data-section="understand"] box (US.tools.open('settings', {section: 'understand'}))
+    return box;
   }
 
   /* automatic updates: checked once a day at most, taken only when the editor asked for that, the computer is quiet and plugged in */

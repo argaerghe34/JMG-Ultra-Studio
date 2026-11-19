@@ -7,7 +7,11 @@ const { w, US, $$, tick, boot, errors } = require('./panel-dom');
   const out = { errors };
   try {
     await boot();
-    const sec = (US.settingsSections.list || []).find(s => s.id === 'understand') || { create: US.understandUI.create, title: 'Vision & listening models' };
+    const sec = US.settingsSections.list().find(s => s.id === 'understand');
+    // in Settings itself: one closed dropdown with this title, in the box Search and “Open Settings” jump to – no cards of its own
+    US.tools.open('settings'); await tick();
+    const inSettings = w.document.querySelector('.settings-extra > [data-section="understand"]');
+    out.inSettings = inSettings ? { title: (inSettings.querySelector('.section-head') || {}).textContent || '', closed: !!inSettings.querySelector('.section.closed'), ownCards: inSettings.querySelectorAll('.card .card').length, cardTitles: Array.from(inSettings.querySelectorAll('.card-title')).map(x => x.textContent) } : null;
     out.title = sec.title;
     // this project's footage, as counted
     US.understand.queue.items = Array.from({ length: 12 }, (_, i) => ({ id: 'c' + i, path: '/f/C' + i + '.mp4', name: 'C' + i + '.mp4', duration: 150 }));
@@ -15,7 +19,7 @@ const { w, US, $$, tick, boot, errors } = require('./panel-dom');
     US.secrets.set('geminiKey', 'g-test');
     const el = sec.create(); w.document.body.appendChild(el); await tick();
     const text = el.textContent;
-    out.section = el.dataset.section;
+    out.section = el.classList.contains('und-settings') ? 'understand' : '';
     out.routes = $$('.segmented .seg', el).map(b => b.textContent.trim());
     out.prosCons = { pros: $$('.und-pro', el).length, cons: $$('.und-con', el).length };
     out.estimate = { footage: /12 clips, /.test(text), local: /Cost: nothing/.test(text), cloud: /prices read on 19 Nov 2026/.test(text), assumed: /an estimate/.test(text) };

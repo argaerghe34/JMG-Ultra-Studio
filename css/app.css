@@ -580,7 +580,11 @@ body.pv-dragging, body.pv-dragging * { cursor: grabbing !important; user-select:
 .pv-colhide { background: none; border: 0; text-align: left; padding: 5px 6px; border-radius: var(--radius-s); color: var(--text); cursor: pointer; font-size: 12px; }
 .pv-colhide:hover { background: var(--surface-3); }
 /* ===== Seeing and hearing the footage (js/tools/99-understand.js, Selects' search) – notes 23–29 ===== */
-.und-settings { display: flex; flex-direction: column; gap: 10px; }
+.und-settings { display: flex; flex-direction: column; gap: 14px; }
+.und-block { display: flex; flex-direction: column; gap: 8px; }
+.und-block + .und-block { border-top: 1px solid var(--border); padding-top: 12px; }
+.und-head { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.und-head .right { margin-left: auto; font-weight: 400; color: var(--text-3); }
 .und-chip { display: flex; flex-direction: column; gap: 6px; }
 .und-chip .pill { white-space: normal; }
 .und-route { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; }

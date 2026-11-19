@@ -383,6 +383,8 @@ test('Settings › Vision & listening models in jsdom: both routes with pros, co
   let o; try { o = JSON.parse(last); } catch (e) { throw new Error('understand-ui.js gave no result:\n' + (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-1500)); }
   assert.deepStrictEqual(o.errors, []);
   assert.deepStrictEqual([o.title, o.section, o.routes], ['Vision & listening models', 'understand', ['On this computer', 'Cloud', 'Off']]);
+  assert.ok(o.inSettings && /Vision & listening models/.test(o.inSettings.title) && o.inSettings.closed, 'in Settings as a closed dropdown: ' + JSON.stringify(o.inSettings));
+  assert.deepStrictEqual([o.inSettings.ownCards, o.inSettings.cardTitles], [0, []], 'no cards inside Settings’ card (they would break Settings’ order)');
   assert.ok(o.prosCons.pros >= 6 && o.prosCons.cons >= 6, 'pros and cons for both');
   assert.deepStrictEqual(o.estimate, { footage: true, local: true, cloud: true, assumed: true }, 'the estimate is for this project, and says what is assumed');
   assert.ok(o.downloads.length === 4 && o.downloads.every(t => /\d (MB|GB)/.test(t)) && o.deleteButtons === 0, 'nothing downloaded; each size is on its button: ' + o.downloads);
