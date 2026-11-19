@@ -120,6 +120,12 @@
     const r = await US.host.call('mvfxTemplates', { write: [tpl] });
     return r;
   }
+  /**
+   * How Premiere's Source Text is written when it can't be read (27.0): one route of jsx/tools/mvfx.jsx › writeBlob
+   * ('json' | 'len32-utf16' | 'len32-bytes'), kept in the setting mvfx.textRoute once dev/probes/mvfx-settext.js has
+   * shown which one Premiere shows; null tries them in order.
+   */
+  const textRoute = () => get('textRoute', null) || null;
   /** A title (or a freeze frame's name tag) at `start`. -> the host's result */
   async function addTitle(preset, v, seq, start, seconds, job) {
     if (RES) {
@@ -134,7 +140,8 @@
     const layers = P().premiereLayers(preset, v, seq, paths, measure);
     for (const L of layers) if (L.kind === 'still') L.itemId = await importPNG(L.path);
     job && job.set({ who: 'premiere', msg: 'Adding the text layers' });
-    return US.host.call('mvfxApply', { seqId: seq.id, start, seconds, name: preset.label, layers });
+    const out = await US.host.call('mvfxApply', { seqId: seq.id, start, seconds, name: preset.label, layers, textRoute: textRoute() });
+    return out;
   }
   /** What decides how an animated title looks – the same values give the same frames (so they're drawn once). */
   const motionKey = (preset, v, W, H, fps, total, art) => P().hashOf(Object.assign({ id: preset.id, t: v.text, c: v.colours, f: v.fonts, s: [v.scale, v.dx, v.dy, v.shadow, v.rot, v.stretch], o: v.opt, W, H, fps, total, e: 1 }, art ? { art: 1 } : {}));
@@ -219,7 +226,7 @@
     }
     job && job.set({ who: 'premiere', msg: 'Adding the text layers' }); job && job.progress(0.9);
     const layers = texts.map(t => ({ kind: 'text', text: t.text, family: t.family, font: P().psName(t.family, t.bold), bold: t.bold, size: t.px, colour: t.colour, x: t.cx, y: t.cy, width: t.width, align: 'centre', tracking: t.tracking, anim: t.anim, name: t.text.split('\n')[0].slice(0, 40) }));
-    const out = await US.host.call('mvfxApply', { seqId: seq.id, start, seconds: len, name: preset.label, layers });
+    const out = await US.host.call('mvfxApply', { seqId: seq.id, start, seconds: len, name: preset.label, layers, textRoute: textRoute() });
     if (art) { out.art = art; out.tracks = [art.track].concat(out.tracks || []); }
     return Object.assign(out, { editable: true, textLayers: layers.length, note: [art && art.note, out.note].filter(Boolean).join(' · ') });
   }

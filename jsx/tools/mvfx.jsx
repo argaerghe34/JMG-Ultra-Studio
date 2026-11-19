@@ -77,12 +77,78 @@
     }
     function setParam(sheet, key, val) { var p = sheet[key]; if (!p || !p.mParamValues || !p.mParamValues.length) return false; for (var i = 0; i < p.mParamValues.length; i++) p.mParamValues[i][1] = val; return true; }
     /**
-     * Words, font, size, colour, tracking and bold into a text layer: every Source Text JSON it has, only the keys that
-     * exist. Reports what took (and the template's base size, so the panel can scale the layer when the size can't be set).
+     * Premiere 27.0 (seen 19 Nov 2026): the Text component's Source Text reads back as ONE character – the stored value is
+     * binary (seemingly a 4-byte little-endian length, then the JSON) and ExtendScript cuts it at the first zero byte, so
+     * it can't be read and edited. Instead the value is WRITTEN from scratch, by one of these routes:
+     *   json         the JSON alone
+     *   len32-utf16  the JSON's length as two UTF-16 units (low, high), then the JSON
+     *   len32-bytes  the JSON's length as four characters, one byte each (little-endian), then the JSON
+     * What came back after each write is logged ("read" = the escaped first characters). dev/probes/mvfx-settext.js
+     * tries every route on a real Basic Title and counts the text's pixels in an exported frame – the only true check.
      */
-    function setText(ti, L, log) {
+    var TEXT_ROUTES = ['json', 'len32-utf16', 'len32-bytes'];
+    function sourceTextProperty(ti) {
+        try {
+            for (var k = 0; k < ti.components.numItems; k++) {
+                var c = ti.components[k];
+                if (!/^(Text|AE\.ADBE Text)$/.test(String(c.displayName)) && String(c.matchName) !== 'AE.ADBE Text') continue;
+                for (var p = 0; p < c.properties.numItems; p++) if (String(c.properties[p].displayName) === 'Source Text') return c.properties[p];
+            }
+        } catch (e) { }
+        return null;
+    }
+    function escFew(x) { var r = '', s = String(x == null ? '' : x); for (var k = 0; k < s.length && k < 12; k++) { var c = s.charCodeAt(k); r += (c < 32 || c > 126) ? '\\u' + ('000' + c.toString(16)).slice(-4) : s.charAt(k); } return r + (s.length > 12 ? '…(' + s.length + ')' : ''); }
+    /** The Source Text JSON for a text layer, built from nothing. */
+    function textJSON(L) {
+        var rgb = hexRgb(L.colour || '#ffffff'), sheet = { mText: String(L.text) };
+        if (L.font) sheet.mFontName = { mParamValues: [[0, String(L.font)]] };
+        if (L.size) sheet.mFontSize = { mParamValues: [[0, Number(L.size)]] };
+        sheet.mFillColor = { mParamValues: [[0, (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]]] };
+        if (L.tracking != null) sheet.mTracking = { mParamValues: [[0, Math.round(Number(L.tracking) * 1000)]] };
+        sheet.mFauxBold = { mParamValues: [[0, !!L.bold && !/bold|black|heavy/i.test(String(L.font || ''))]] };
+        return JSON.stringify({ mTextParam: { mStyleSheet: sheet, mAlignment: 2 } });
+    }
+    function routeValue(route, json) {
+        var n = json.length;
+        if (route === 'len32-utf16') return String.fromCharCode(n & 0xFFFF, (n >>> 16) & 0xFFFF) + json;
+        if (route === 'len32-bytes') return String.fromCharCode(n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255) + json;
+        return json;
+    }
+    /**
+     * Write the words into a Source Text that can't be read. opts.route: one route only (the probe; or the panel once
+     * the right one is known). Without it the routes are tried in order until what reads back has changed and isn't
+     * empty – a hint, not proof (Premiere may store a value it then can't show). -> {took, route, tries:[{route, read, error}]}
+     */
+    function writeBlob(prop, L, opts, log) {
+        var json = textJSON(L), before = '', res = { took: false, route: '', tries: [] };
+        try { before = String(prop.getValue()); } catch (e) { }
+        var routes = opts && opts.route ? [opts.route] : TEXT_ROUTES;
+        for (var i = 0; i < routes.length; i++) {
+            var t = { route: routes[i], read: '', error: '' };
+            try { prop.setValue(routeValue(routes[i], json), true); } catch (e1) { t.error = String(e1); }
+            try { t.read = escFew(prop.getValue()); } catch (e2) { t.read = 'unreadable'; }
+            res.tries.push(t);
+            var after = ''; try { after = String(prop.getValue()); } catch (e3) { }
+            if (!t.error && after.length && after !== before) { res.took = true; res.route = routes[i]; if (!(opts && opts.route)) break; }
+        }
+        log.push('Source Text written from scratch (was ' + escFew(before) + '): ' + (function () { var a = []; for (var k = 0; k < res.tries.length; k++) a.push(res.tries[k].route + ' → ' + (res.tries[k].error || res.tries[k].read)); return a.join('; '); })());
+        return res;
+    }
+    /**
+     * Words, font, size, colour, tracking and bold into a text layer: every Source Text JSON it has, only the keys that
+     * exist – or, when the Source Text can't be read (Premiere 27.0), written from scratch (writeBlob). Reports what took
+     * (and the template's base size, so the panel can scale the layer when the size can't be set). opts: {route}
+     */
+    function setText(ti, L, log, opts) {
         var list = textProperties(ti), out = { words: false, font: false, size: false, colour: false, keys: [], baseSize: 0, forms: [] };
-        if (!list.length) { log.push('no Source Text'); return out; }
+        if (!list.length) {
+            var st = sourceTextProperty(ti);
+            if (!st) { log.push('no Source Text'); return out; }
+            var b = writeBlob(st, L, opts, log);
+            out.forms.push('blob'); out.route = b.route; out.tries = b.tries;
+            if (b.took) { out.words = true; out.font = !!L.font; out.size = !!L.size; out.colour = !!L.colour; }
+            return out;
+        }
         var rgb = hexRgb(L.colour || '#ffffff');
         for (var n = 0; n < list.length; n++) {
             var e = list[n], o = e.json;
@@ -168,7 +234,7 @@
      * Lay a preset's layers, each on the lowest free "mVFX n" track above the one before (so a second title over the
      * same moment never lands on the first). a: {seqId, start, seconds, name, layers:[{kind:'still', itemId, anim, name,
      * blend?, alpha?} | {kind:'text', text, font, size (px), colour, bold, x, y (px, the text's centre), anim, name}]}
-     * anim: {type, inSec, outSec, dx, dy (px), delay (s)}
+     * anim: {type, inSec, outSec, dx, dy (px), delay (s)}. a.textRoute: write Source Text by this route only (see writeBlob)
      * -> {placed, track (the first), trackName, tracks, start, end, text:[{words, font, size, colour, keys}], log}
      */
     fn.mvfxApply = function (a) {
@@ -193,7 +259,7 @@
                     var again = clipAt(seq, 'video', t, a.start);
                     if (again) ti = again;
                 }
-                var r = setText(ti, L, log);
+                var r = setText(ti, L, log, a.textRoute ? { route: a.textRoute } : null);
                 out.text.push(r);
                 // the words sit centred on the frame: move the whole graphic so they sit where the preset wants them.
                 // Position is a fraction of the frame (0.5, 0.5 = the middle) – pixels would throw the words out of the picture.
@@ -359,6 +425,6 @@
     };
 
     /** Resolve's Fusion templates – nothing to install for Premiere. a: {write:[{name, kind, body}]} -> {dir, written, restart} */
-    U.mvfxText = { setText: setText, textProperties: textProperties, animate: animate };
+    U.mvfxText = { setText: setText, textProperties: textProperties, animate: animate, sourceTextProperty: sourceTextProperty, textJSON: textJSON, routeValue: routeValue, ROUTES: TEXT_ROUTES };
     fn.mvfxTemplates = function (a) { return { dir: '', written: [], restart: false, note: 'Premiere needs no templates: titles are made with Basic Title.' }; };
 })(UStudio);
