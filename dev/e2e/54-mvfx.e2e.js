@@ -52,7 +52,11 @@ if (RES) {
 }
 
 // Premiere
-US.settings.set('mvfx.textDrawn', undefined);   // try the text layers afresh in this Premiere
+// whether this Premiere takes a text layer's words is remembered in a setting shared with the installed copy: tried
+// afresh here, and put back as it was at the end (also when a check fails)
+const wasDrawn = US.settings.get('mvfx.textDrawn', null);
+US.settings.set('mvfx.textDrawn', undefined);
+try {
 const lt = await M.apply(P.byId('hairline'), v(P.byId('hairline'), { name: 'Mira Haddad', role: 'Nurse' }), { at: 1 }, job);
 notes.push('hairline: ' + lt.summary);
 let info;
@@ -122,3 +126,4 @@ const tr = await M.apply(P.byId('trleak'), v(P.byId('trleak')), { scope: 'all' }
 T.assert(tr.result.cuts === 2 && tr.result.done === 2, 'light leak at 2 cuts with 2 dissolves: ' + tr.summary);
 notes.push('leak: ' + tr.summary);
 return notes;
+} finally { US.settings.set('mvfx.textDrawn', wasDrawn == null ? undefined : wasDrawn); }

@@ -25,7 +25,9 @@ if (US.mvfxPack.sourceTextFB) L.fb = US.mvfxPack.sourceTextFB({ text: L.text, fo
 const lines = [`Premiere ${(await US.host.rawEval('app.version + " (" + app.build + ")"'))} · ${W}×${H} · routes ${routes.join(', ')}`];
 const outDir = path.join(US.mvfx.artDir(), 'probe-settext'); fs.mkdirSync(outDir, { recursive: true });
 try {
-  const placed = JSON.parse(await US.host.rawEval(`(function () {
+  // nothing binary is written into the script's own text: the samples are numbers turned into characters inside
+  // ExtendScript, and L.fb is plain hex. The whole script is caught, so a failure comes back with its line.
+  const raw = await US.host.rawEval(`(function () { try {
     var s = null, ss = app.project.sequences, out = [], L = ${JSON.stringify(L)}, cases = ${JSON.stringify(cases)};
     for (var i = 0; i < ss.numSequences; i++) if (ss[i].sequenceID == ${JSON.stringify(seq.id)}) s = ss[i];
     app.project.openSequence(s.sequenceID);
@@ -36,9 +38,10 @@ try {
     var spare = null, trips = [];
     try { spare = s.importMGT(f, String(Math.round(100 * 254016000000)), 1, 0); } catch (e) { trips.push('spare importMGT: ' + e); }
     var stp = spare && UStudio.mvfxText.sourceTextProperty(spare);
-    var samples = ['plain', 'A\u00e9\u0080\u00ffB', 'A\u20ac\uabcd\u017cB', 'AB\u0000CD'];
+    var samples = [[72, 101, 108, 108, 111], [65, 233, 128, 255, 66], [65, 8364, 43981, 380, 66], [65, 66, 0, 67, 68]];
     for (var q = 0; q < samples.length && stp; q++) {
-      var want = samples[q] === 'plain' ? 'Hello' : samples[q], got = '';
+      var want = '', got = '';
+      for (var w = 0; w < samples[q].length; w++) want += String.fromCharCode(samples[q][w]);
       try { stp.setValue(want, true); got = String(stp.getValue()); } catch (e) { got = 'threw ' + e; }
       var codes = function (x) { var a = []; for (var c = 0; c < x.length; c++) a.push(x.charCodeAt(c).toString(16)); return a.join(' '); };
       trips.push('wrote [' + codes(want) + '] read back [' + codes(got) + ']');
@@ -52,7 +55,10 @@ try {
       out.push(r);
     }
     return JSON.stringify(out);
-  })()`, 60000));
+  } catch (err) { return JSON.stringify([{ error: 'the script threw: ' + err + ' (line ' + err.line + ')' }]); } })()`, 60000);
+  let placed;
+  try { placed = JSON.parse(raw); }
+  catch (e) { lines.push('Premiere answered with something that is not JSON (' + String(raw).length + ' characters): ' + Array.from(String(raw).slice(0, 1500)).map(ch => { const c = ch.charCodeAt(0); return c < 32 || c > 126 ? '<' + c.toString(16) + '>' : ch; }).join('')); placed = []; }
   const c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d', { willReadFrequently: true });
   for (const p of placed) {
     if (p.trips) { lines.push('round trip (UTF-16 units in hex): ' + p.trips.join(' · ')); continue; }
