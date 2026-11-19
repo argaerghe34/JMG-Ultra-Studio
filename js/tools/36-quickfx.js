@@ -86,7 +86,8 @@
   const RESOLVE_OPS = {
     transition: { since: '21.1', what: 'transitions' }, speed: { since: '21.1', what: 'speed changes' }, volume: { since: '21.1', what: 'volume changes' },
     effect: { since: '21.1.2', what: 'effects' }, rename: { since: '20.2', what: 'renaming timeline clips' },
-    zoom: { since: null, what: 'keyframed zooms' }, text: { since: null, what: 'text layers' }, razor: { since: null, what: 'cuts' }
+    zoom: { since: null, what: 'keyframed zooms' }, text: { since: null, what: 'text layers' }, razor: { since: null, what: 'cuts' },
+    trim: { since: null, what: 'trims' }, shift: { since: null, what: 'slides of a clip along the timeline' }, set: { since: null, what: 'effect settings by name' }
   };
   // Premiere's names Resolve has nothing like (Resolve does them elsewhere); flips are an Inspector switch in every Resolve
   const RESOLVE_NO_NAME = { 'black & white': 'set Saturation to 0 on the Color page', 'lumetri color': 'grade it on the Color page', 'warp stabilizer': 'use Stabilization in the Inspector', 'crop': 'use Cropping in the Inspector', 'film dissolve': 'try Cross Dissolve', 'dip to white': 'use Dip to Black, then set the dip’s colour in the Inspector' };

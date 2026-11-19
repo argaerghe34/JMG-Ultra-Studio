@@ -31,6 +31,55 @@
         var speed = 1; try { speed = Math.abs(ti.getSpeed()) || 1; } catch (e) { }
         var t = new Time(); t.seconds = ti.inPoint.seconds + (seqSec - ti.start.seconds) * speed; return t;
     }
+    /**
+     * Trim a clip where it lies (nothing after it moves): p.length (seconds, from its start), p.tail (seconds added to –
+     * or with a minus taken off – its end), p.head (the same at its start; the picture underneath stays in step).
+     */
+    function trimClip(seq, ti, p) {
+        var s = ti.start.seconds, e = ti.end.seconds, sp = 1, ns = s, ne = e, t;
+        try { sp = Math.abs(ti.getSpeed()) || 1; } catch (x) { }
+        if (p.length != null && isFinite(Number(p.length))) ne = s + Number(p.length);
+        if (p.tail != null && isFinite(Number(p.tail))) ne = ne + Number(p.tail);
+        if (p.head != null && isFinite(Number(p.head))) ns = Math.max(0, s - Number(p.head));
+        if (!(ne - ns > 1 / U.seqFps(seq))) throw U.err('BAD_INPUT', 'trim leaves nothing', 'Nothing would be left of the clip.');
+        if (ns !== s) {
+            var i0 = ti.inPoint.seconds, ni = i0 + (ns - s) * sp;
+            if (ni < 0) { ns = s - i0 / sp; ni = 0; }   // no more of the clip before its first frame
+            t = new Time(); t.seconds = ni; ti.inPoint = t;
+            t = new Time(); t.seconds = ns; ti.start = t;
+        }
+        if (ne !== e) { t = new Time(); t.seconds = ne; ti.end = t; }
+        return 1;
+    }
+    /** Slide a clip earlier or later by p.seconds (it writes over what is there; nothing ripples). */
+    function shift(ti, p) {
+        var d = Number(p.seconds);
+        if (!isFinite(d) || d === 0) throw U.err('BAD_INPUT', 'no seconds given', 'Say how many seconds to move it by.');
+        if (ti.start.seconds + d < 0) d = -ti.start.seconds;
+        var t = new Time(); t.seconds = d; ti.move(t);
+        return 1;
+    }
+    function esc(x) { return String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    /**
+     * Set one setting of an effect that is on the clip (Motion, Opacity, Crop, Lumetri Color, Volume, anything added):
+     * p.effect and p.property as the Effect Controls panel names them; p.value, or p.keys [{at (seconds from the clip's
+     * start), value}] for keyframes.
+     */
+    function setProp(ti, p) {
+        var c = component(ti, new RegExp('^' + esc(p.effect) + '$', 'i'));
+        if (!c) throw U.err('BAD_INPUT', 'no effect ' + p.effect, 'That clip has no “' + p.effect + '” – add the effect first.');
+        var pr = property(c, new RegExp('^' + esc(p.property) + '$', 'i'));
+        if (!pr) { var names = []; for (var k = 0; k < c.properties.numItems && names.length < 30; k++) if (c.properties[k].displayName) names.push(c.properties[k].displayName); throw U.err('BAD_INPUT', 'no setting ' + p.property, '“' + p.effect + '” has no setting called “' + p.property + '”. It has: ' + names.join(', ') + '.'); }
+        if (p.keys && p.keys.length) {
+            pr.setTimeVarying(true);
+            for (var i = 0; i < p.keys.length; i++) { var kt = mediaTime(ti, ti.start.seconds + Number(p.keys[i].at || 0)); pr.addKey(kt); pr.setValueAtKey(kt, p.keys[i].value, true); }
+        } else {
+            if (p.value == null) throw U.err('BAD_INPUT', 'no value', 'Give the value to set.');
+            try { if (pr.isTimeVarying()) pr.setTimeVarying(false); } catch (e) { }
+            pr.setValue(p.value, true);
+        }
+        return 1;
+    }
     function labelOf(ti) { try { if (typeof ti.getColorLabel === 'function') { var l = Number(ti.getColorLabel()); return isFinite(l) ? l : null; } } catch (e) { } return null; }
     var PLAIN = /^(Motion|Opacity|Time Remapping|Volume|Channel Volume|Panner|Audio Clip Mixer|Vector Motion|Speed)$/i;
 
@@ -184,7 +233,7 @@
         var seq = U.needSeq(a.seqId), p = a.params || {}, out = { done: 0, skipped: [], log: [] }, q = null;
         var targets = (a.targets || []).slice(0);
         // removing with ripple, last first, so earlier times stay put
-        if (a.op === 'remove' || a.op === 'speed') targets.sort(function (x, y) { return y.start - x.start; });   // from the end: a ripple doesn't move what's still to do
+        if (a.op === 'remove' || a.op === 'speed' || (a.op === 'shift' && Number(p.seconds) > 0)) targets.sort(function (x, y) { return y.start - x.start; });   // from the end: a ripple doesn't move what's still to do
         if (/^(transition|effect|speed|razor)$/.test(a.op)) q = U.openAndQE(seq);
         if (a.op === 'razor') {
             var times = {}, list = [];
@@ -222,6 +271,9 @@
                 else if (a.op === 'enable') { ti.disabled = !p.on; out.done += (!!ti.disabled === !p.on) ? 1 : 0; }
                 else if (a.op === 'rename') { ti.name = String(p.name || ti.name); out.done++; }
                 else if (a.op === 'remove') { ti.remove(!!p.ripple, false); out.done++; }
+                else if (a.op === 'trim') out.done += trimClip(seq, ti, p);
+                else if (a.op === 'shift') out.done += shift(ti, p);
+                else if (a.op === 'set') out.done += setProp(ti, p);
                 else throw U.err('BAD_INPUT', 'Unknown edit ' + a.op);
             } catch (e) {
                 out.skipped.push({ start: g.start, track: g.track, kind: g.kind, why: String((e && (e.usTitle || e.message)) || e) });
@@ -348,5 +400,53 @@
             if (total > off && items.length < lim) items.push({ id: c.nodeId, name: c.name, bin: bin, path: p, kind: k });
         });
         return a.idsOnly ? { total: total, ids: ids } : { total: total, items: items };
+    };
+    /* ---------- Ask: the sequence itself, its tracks and the selection ---------- */
+    /**
+     * A sequence's name and its In and Out. a: {seqId, name, inPoint, outPoint (seconds; -1 clears both)}
+     * -> {done:[what changed], failed:[why], was:{name}}
+     */
+    fn.seqSet = function (a) {
+        var s = U.needSeq(a.seqId), out = { done: [], failed: [], was: { name: s.name } };
+        if (a.name != null && String(a.name) !== '') { try { s.name = String(a.name); out.done.push('name'); } catch (e) { out.failed.push('name: ' + e); } }
+        if (a.outPoint != null && Number(a.outPoint) >= 0) { try { s.setOutPoint(Number(a.outPoint)); out.done.push('out'); } catch (e2) { out.failed.push('out: ' + e2); } }
+        if (a.inPoint != null && Number(a.inPoint) >= 0) { try { s.setInPoint(Number(a.inPoint)); out.done.push('in'); } catch (e3) { out.failed.push('in: ' + e3); } }
+        return out;
+    };
+    /**
+     * Tracks: add some, or name, lock or switch one off. a: {seqId, kind:'video'|'audio', add (how many), index, name,
+     * locked, muted} -> {done:[…], failed:[…], video, audio (how many tracks there are now)}
+     */
+    fn.trackSet = function (a) {
+        var s = U.needSeq(a.seqId), out = { done: [], failed: [] }, audio = a.kind === 'audio';
+        if (Number(a.add) > 0) {
+            var n = Math.min(8, Number(a.add)), before = audio ? s.audioTracks.numTracks : s.videoTracks.numTracks;
+            try {
+                var q = U.openAndQE(s);
+                // addTracks(numVideo, videoIndex, numAudio, audioType, audioIndex, numSubmix, submixType, submixIndex)
+                q.addTracks(audio ? 0 : n, s.videoTracks.numTracks, audio ? n : 0, 1, s.audioTracks.numTracks, 0, 0, 0);
+            } catch (e) { out.failed.push('add: ' + e); }
+            var now = audio ? s.audioTracks.numTracks : s.videoTracks.numTracks;
+            if (now > before) out.done.push('added ' + (now - before)); else if (!out.failed.length) out.failed.push('add: Premiere did not add a track');
+        }
+        if (a.index != null) {
+            var tr = audio ? s.audioTracks[Number(a.index)] : s.videoTracks[Number(a.index)];
+            if (!tr) out.failed.push('there is no such track');
+            else {
+                if (a.name != null) { try { tr.name = String(a.name); if (String(tr.name) === String(a.name)) out.done.push('name'); else out.failed.push('name: Premiere does not let a script name a track'); } catch (e1) { out.failed.push('name: Premiere does not let a script name a track'); } }
+                if (a.muted != null) { try { tr.setMute(a.muted ? 1 : 0); out.done.push(a.muted ? 'off' : 'on'); } catch (e2) { out.failed.push('mute: ' + e2); } }
+                if (a.locked != null) { try { if (typeof tr.setLocked === 'function') { tr.setLocked(a.locked ? 1 : 0); out.done.push(a.locked ? 'locked' : 'unlocked'); } else out.failed.push('lock: this Premiere does not let a script lock a track'); } catch (e3) { out.failed.push('lock: ' + e3); } }
+            }
+        }
+        out.video = s.videoTracks.numTracks; out.audio = s.audioTracks.numTracks;
+        return out;
+    };
+    /** Select clips on the timeline (and nothing else). a: {seqId, targets:[{kind, track, start}]} -> how many are selected */
+    fn.selectClips = function (a) {
+        var s = U.needSeq(a.seqId), n = 0, t, c, i;
+        for (t = 0; t < s.videoTracks.numTracks; t++) for (c = 0; c < s.videoTracks[t].clips.numItems; c++) { try { s.videoTracks[t].clips[c].setSelected(false, true); } catch (e) { } }
+        for (t = 0; t < s.audioTracks.numTracks; t++) for (c = 0; c < s.audioTracks[t].clips.numItems; c++) { try { s.audioTracks[t].clips[c].setSelected(false, true); } catch (e2) { } }
+        for (i = 0; i < (a.targets || []).length; i++) { var g = a.targets[i], ti = clipAt(s, g.kind, g.track, g.start); if (ti) { try { ti.setSelected(true, true); n++; } catch (e3) { } } }
+        return n;
     };
 })(UStudio);

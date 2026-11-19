@@ -471,6 +471,79 @@
     }
   };
 
+  /* ---------- the editor itself: sequences, tracks, markers, the playhead, a frame – typed commands, nothing free-form ---------- */
+  const EDITOR = {
+    'sequence.settings': { risk: 'read', words: 'Read a sequence’s settings', args: '{}' },
+    'sequence.duplicate': { risk: 'new', words: 'Duplicate a sequence', args: '{"name":"the copy’s name"}' },
+    'sequence.rename': { risk: 'own', words: 'Rename a sequence', args: '{"name":"the new name"}' },
+    'sequence.inout': { risk: 'own', words: 'Set a sequence’s In and Out', args: '{"in":seconds,"out":seconds}' },
+    'sequence.extract': { risk: 'new', words: 'Take time ranges out of a sequence (ripple) – on a copy', args: '{"ranges":[[start,end],…] in seconds}' },
+    'track.add': { risk: 'new', words: 'Add tracks – on a copy', args: '{"kind":"video|audio","count":1}' },
+    'track.set': { risk: 'new', words: 'Name, lock or switch off a track – on a copy', args: '{"track":"V2","name":"B-roll","locked":true,"off":false}' },
+    'marker.list': { risk: 'read', words: 'List a sequence’s markers', args: '{}' },
+    'marker.add': { risk: 'own', words: 'Add markers to a sequence', args: '{"markers":[{"at":seconds,"end":seconds,"name":"","comment":"","color":0-7}]}' },
+    'marker.change': { risk: 'own', words: 'Change markers', args: '{"markers":[{"id":"from marker.list","name":"","comment":"","color":0-7,"at":seconds,"end":seconds}]}' },
+    'marker.remove': { risk: 'own', words: 'Remove markers', args: '{"ids":["from marker.list"]}' },
+    playhead: { risk: 'read', words: 'Move the playhead', args: '{"at":seconds}' },
+    select: { risk: 'read', words: 'Select clips on the timeline', args: '{"clips":[{"track":"V1","at":seconds (where the clip starts)}]}' },
+    frame: { risk: 'new', words: 'Save one frame as a picture', args: '{"at":seconds}' }
+  };
+  T.editor = {
+    desc: 'Work the editor itself, beyond the panel’s tools – one typed command a call: args {"do":"…","sequence":"an s… id or name – leave out for your working sequence or the open one", …}. Commands: ' + Object.entries(EDITOR).map(([k, v]) => `${k} ${v.args} – ${v.words}`).join('; ') + '. Clips themselves (trim, move in time, effects and their settings and keyframes, transitions, speed, volume, delete, cut, rename, switch off) are the "edit" tool; putting clips in is "place"; bins and clips in the project are bins, find, makebin, move, import. Changes to tracks and extracting go on a copy; markers, a new name and In/Out are made on the sequence named (asked first; Undo takes them back).',
+    risk: a => (EDITOR[a && a.do] || { risk: 'read' }).risk,
+    title: a => { const e = EDITOR[a.do]; return e ? `${e.words}${a.sequence ? ` – “${clip(a.sequence, 30)}”` : ''}${a.name && /rename|duplicate/.test(a.do) ? ` → “${clip(a.name, 30)}”` : ''}${a.do === 'marker.remove' ? ` (${arr(a.ids).length})` : ''}` : `Editor: ${a.do}`; },
+    before: async (a, x) => {
+      const e = EDITOR[a.do];
+      if (!e) return { error: `ERROR: there is no editor command “${a.do}”. Commands: ${Object.keys(EDITOR).join(', ')}.` };
+      const sq = await x.seqFor(a.sequence); if (sq.error) return { error: sq.error };
+      const mine = !!(x.chat.work && x.chat.work.ours && x.chat.work.seqId === sq.seqId), copies = /^(sequence\.extract|track\.)/.test(a.do);
+      const st = { sq, mine, copies, e };
+      if (a.do === 'sequence.rename' || a.do === 'sequence.duplicate') { st.name = String(a.name || '').replace(/[\\/:*?"<>|]/g, '').trim().slice(0, 80); if (!st.name) return { error: 'ERROR: give the name in "name".' }; }
+      if (a.do === 'sequence.inout' && !(+a.in >= 0) && !(+a.out >= 0)) return { error: 'ERROR: give "in" and/or "out" in seconds.' };
+      if (a.do === 'sequence.extract') { st.ranges = arr(a.ranges).map(r => [Math.max(0, +r[0]), +r[1]]).filter(r => r[1] > r[0]).slice(0, 200); if (!st.ranges.length) return { error: 'ERROR: give "ranges": [[start, end], …] in seconds.' }; }
+      if (a.do === 'track.add') { st.kind = a.kind === 'audio' ? 'audio' : 'video'; st.count = Math.max(1, Math.min(8, +a.count || 1)); }
+      if (a.do === 'track.set') { st.tr = trackOf(a.track, ''); if (!st.tr) return { error: 'ERROR: give the track, e.g. "V2" or "A1".' }; if (a.name == null && a.locked == null && a.off == null) return { error: 'ERROR: give "name", "locked" or "off".' }; }
+      if (a.do === 'marker.add') { st.markers = arr(a.markers).map(m => ({ start: +m.at, end: +m.end > +m.at ? +m.end : +m.at, name: String(m.name || 'Ask').slice(0, 64), comment: String(m.comment || '').slice(0, 500), color: +m.color >= 0 && +m.color <= 7 ? +m.color : 6 })).filter(m => m.start >= 0).slice(0, 200); if (!st.markers.length) return { error: 'ERROR: give "markers": [{at, name}].' }; }
+      if (a.do === 'marker.change') { st.changes = arr(a.markers).filter(m => m && m.id).map(m => Object.assign({ guid: String(m.id) }, m.name != null ? { name: String(m.name) } : {}, m.comment != null ? { comment: String(m.comment) } : {}, m.color != null ? { color: +m.color } : {}, +m.at >= 0 ? { start: +m.at } : {}, +m.end >= 0 ? { end: +m.end } : {})).slice(0, 200); if (!st.changes.length) return { error: 'ERROR: give "markers": [{id, …}] with ids from marker.list.' }; }
+      if (a.do === 'marker.remove') { st.ids = arr(a.ids).map(String).slice(0, 500); if (!st.ids.length) return { error: 'ERROR: give "ids" from marker.list.' }; }
+      if (a.do === 'select') { st.targets = arr(a.clips).map(c => { const t = trackOf(c && c.track, ''); return t && +c.at >= 0 ? { kind: t.kind, track: t.index, start: +c.at } : null; }).filter(Boolean); if (!st.targets.length) return { error: 'ERROR: give "clips": [{track, at}].' }; }
+      if ((a.do === 'playhead' || a.do === 'frame') && !(+a.at >= 0)) return { error: 'ERROR: give "at" in seconds.' };
+      if (e.risk === 'read') return { state: st };
+      // its own markers may go without a word; taking the editor's own markers off is a deletion
+      const madeHere = new Set((x.chat.journal || []).filter(j => j.kind === 'markers' && !j.undone).flatMap(j => j.guids || []));
+      const extra = a.do === 'marker.remove' && st.ids.some(id => !madeHere.has(id)) ? [{ id: 'deletes', text: `It removes ${US.plural(st.ids.filter(id => !madeHere.has(id)).length, 'marker')} of yours from “${sq.name}” – Undo here can’t bring ${st.ids.length === 1 ? 'it' : 'them'} back.` }] : [];
+      return { state: st, info: { extra }, card: { detail: `${copies ? (mine ? `On “${sq.name}” (the copy this chat made).` : `On a copy of “${sq.name}” (yours stays as it is).`) : `On “${sq.name}”${a.do === 'sequence.duplicate' ? ' – a new copy; yours stays as it is' : ' itself'}.`}${st.name ? `\nName: “${st.name}”` : ''}${st.ranges ? `\n${st.ranges.slice(0, 12).map(r => `${fmtT(r[0])}–${fmtT(r[1])}`).join(', ')} taken out, the rest closed up.` : ''}${st.markers ? `\n${st.markers.slice(0, 8).map(m => `${fmtT(m.start)} ${m.name}`).join(', ')}` : ''}` } };
+    },
+    run: async (a, x) => {
+      const st = x.state, sq = st.sq; let seqId = sq.seqId, name = sq.name, copied = '';
+      const J = x.job;
+      if (st.copies && !st.mine) {
+        J.set({ who: editor(), msg: 'Making a copy of the sequence to work on' });
+        const c = await US.host.call('cloneSequence', { seqId, name: `${sq.name} – Ask`, binPath: 'JMG Ultra Studio/Ask' });
+        seqId = c.id; name = c.name; copied = ` on the copy “${c.name}”, now your working sequence (the editor’s “${sq.name}” is unchanged)`;
+        x.chat.work = { seqId, name, ours: true }; x.chat.versions.push({ seqId, name, why: `copy of “${sq.name}”` }); x.journal({ kind: 'seq', seqId, name });
+      }
+      const failed = r => (arr(r && r.failed).length ? ` NOT done: ${r.failed.join('; ')}.` : '');
+      switch (a.do) {
+        case 'sequence.settings': { const i = await US.host.call('sequenceInfo', { seqId, clips: false }); x.note(`“${i.name}” – ${i.width}×${i.height}, ${Math.round(i.fps * 100) / 100} fps`); return `SEQUENCE “${i.name}” (id ${i.id}): ${i.width}×${i.height}, ${Math.round(i.fps * 1000) / 1000} fps, ${fmtT(i.duration)} (${Math.round(i.duration * 100) / 100} s); video tracks ${arr(i.video).length} (${arr(i.video).map(t => `V${t.index + 1}${t.name && !/^Video \d+$/.test(t.name) ? ` “${t.name}”` : ''}${t.muted ? ' off' : ''}${t.locked ? ' locked' : ''}`).join(', ')}); audio tracks ${arr(i.audio).length} (${arr(i.audio).map(t => `A${t.index + 1}${t.muted ? ' muted' : ''}${t.locked ? ' locked' : ''}`).join(', ')}); In ${i.inPoint != null && i.inPoint >= 0 ? fmtT(i.inPoint) : 'not set'}, Out ${i.outPoint != null && i.outPoint > 0 ? fmtT(i.outPoint) : 'not set'}; playhead ${i.playhead != null ? fmtT(i.playhead) : '?'}; ${arr(i.markers).length} markers.`; }
+        case 'sequence.duplicate': { const c = await US.host.call('cloneSequence', { seqId, name: st.name, binPath: 'JMG Ultra Studio/Ask' }); x.journal({ kind: 'seq', seqId: c.id, name: c.name }); await US.host.call('openSequence', { seqId }).catch(() => {}); x.note(`Copied as “${c.name}”`); return `A copy “${c.name}” (id ${c.id}) is in the bin JMG Ultra Studio / Ask. “${sq.name}” is still the one open.`; }
+        case 'sequence.rename': { const r = await US.host.call('seqSet', { seqId, name: st.name }); if (arr(r.done).includes('name')) { x.journal({ kind: 'seqname', seqId, name: st.name, was: (r.was && r.was.name) || sq.name }); if (x.chat.work && x.chat.work.seqId === seqId) x.chat.work.name = st.name; x.chat.project = null; } x.note(arr(r.done).includes('name') ? `Renamed to “${st.name}”` : 'Not renamed'); return `${arr(r.done).includes('name') ? `“${sq.name}” is now called “${st.name}”.` : ''}${failed(r)}`; }
+        case 'sequence.inout': { const r = await US.host.call('seqSet', { seqId, inPoint: +a.in >= 0 ? +a.in : null, outPoint: +a.out >= 0 ? +a.out : null }); x.journal({ kind: 'cant', text: `The In and Out of “${name}” were changed (set them again in the editor)` }); x.note(`In/Out: ${arr(r.done).join(', ') || 'not set'}`); return `Set on “${name}”: ${arr(r.done).join(', ') || 'nothing'}.${failed(r)}`; }
+        case 'sequence.extract': { const r = await US.host.call('extractRanges', { seqId, ranges: st.ranges }); await US.host.call('openSequence', { seqId }).catch(() => {}); const n = typeof r === 'number' ? r : r && r.cuts != null ? r.cuts : r && r.done != null ? r.done : st.ranges.length; x.note(`${US.plural(n, 'range')} taken out`); return `${n} of ${st.ranges.length} ranges taken out${copied || ` of “${name}”`}; what followed each has moved up – read the timeline again before using times.`; }
+        case 'track.add': { const r = await US.host.call('trackSet', { seqId, kind: st.kind, add: st.count }); x.note(arr(r.done).join(', ') || 'No track added'); return `${arr(r.done).join(', ') || 'Nothing added'}${copied}: there are ${r.video} video and ${r.audio} audio tracks now.${failed(r)}`; }
+        case 'track.set': { const r = await US.host.call('trackSet', { seqId, kind: st.tr.kind, index: st.tr.index, name: a.name != null ? String(a.name) : null, locked: a.locked != null ? !!a.locked : null, muted: a.off != null ? !!a.off : null }); x.note(`${a.track}: ${arr(r.done).join(', ') || 'unchanged'}`); return `${a.track}${copied}: ${arr(r.done).join(', ') || 'nothing changed'}.${failed(r)}`; }
+        case 'marker.list': { const i = await US.host.call('sequenceInfo', { seqId, clips: false }), ms = arr(i.markers); x.note(US.plural(ms.length, 'marker')); return ms.length ? `${ms.length} markers on “${i.name}” (id, at, end, colour, name, comment):\n${ms.slice(0, 300).map(m => `${m.guid}\t${Math.round(m.start * 100) / 100}\t${Math.round((m.end || m.start) * 100) / 100}\t${m.color}\t${m.name || ''}\t${clip(m.comment || '', 80)}`).join('\n')}` : `“${i.name}” has no markers.`; }
+        case 'marker.add': { const g = arr(await US.host.call('addSequenceMarkers', { seqId, markers: st.markers })); if (g.length) x.chat.journal.some(j => j.kind === 'seq' && j.seqId === seqId && !j.undone) || x.journal({ kind: 'markers', seqId, name, guids: g }); x.note(`${US.plural(g.length, 'marker')} added`); return `${g.length} markers added to “${name}”: ${g.map((id, k) => `${id} at ${fmtT(st.markers[k] ? st.markers[k].start : 0)}`).slice(0, 40).join('; ')}.`; }
+        case 'marker.change': { const r = (await US.host.call('updateMarkers', { seqId, markers: st.changes })) || {}; x.journal({ kind: 'cant', text: `${US.plural(r.done || 0, 'marker')} on “${name}” changed (change ${r.done === 1 ? 'it' : 'them'} back by hand)` }); x.note(`${US.plural(r.done || 0, 'marker')} changed`); return `${r.done || 0} of ${st.changes.length} markers changed.${r.guids && Object.keys(r.guids).length ? ` New ids: ${Object.entries(r.guids).map(([o, n]) => `${o} → ${n}`).slice(0, 30).join('; ')}.` : ''}`; }
+        case 'marker.remove': { const n = await US.host.call('removeSequenceMarkers', { seqId, guids: st.ids }); for (const j of x.chat.journal || []) if (j.kind === 'markers' && !j.undone && j.seqId === seqId) { j.guids = (j.guids || []).filter(g => !st.ids.includes(g)); if (!j.guids.length) j.undone = true; } x.note(`${US.plural(+n || 0, 'marker')} removed`); return `${+n || 0} markers removed from “${name}”.`; }
+        case 'playhead': await US.host.call('setPlayhead', { seqId, seconds: +a.at }); x.note(`Playhead at ${fmtT(a.at)}`); return `The playhead is at ${fmtT(a.at)} in “${name}” (it is open).`;
+        case 'select': { const n = await US.host.call('selectClips', { seqId, targets: st.targets }); x.note(`${US.plural(+n || 0, 'clip')} selected`); return +n ? `${n} of ${st.targets.length} clips are selected in “${name}”.` : (editor() === 'resolve' ? 'Resolve doesn’t let add-ons select clips on a timeline – say which clips by track and time instead.' : 'None of those clips were found – use the track and start time from the timeline reading.'); }
+        case 'frame': { const base = path.join(US.fsx.ensureDir(path.join(US.fsx.exportsDir ? US.fsx.exportsDir() : require('os').tmpdir(), 'Frames')), `${String(name).replace(/[\\/:*?"<>|]/g, '')} ${fmtT(a.at).replace(':', 'm')}s ${Date.now() % 100000}`); const f = await US.host.call('exportFrame', { seqId, seconds: +a.at, outBase: base }); const file = typeof f === 'string' ? f : (f && (f.path || f.file)) || base + '.png'; x.journal({ kind: 'cant', text: `The picture “${path.basename(file)}” stays on the disk` }); x.note(`Saved ${path.basename(file)}`); return `The frame at ${fmtT(a.at)} of “${name}” is saved: ${file}`; }
+        default: return 'ERROR: unknown editor command.';
+      }
+    }
+  };
+
   US.chatTools = Object.assign(US.chatTools || {}, T);
   /** For the first request of a chat: which clips the project has now, so “what’s new” can be told later. */
   async function seeProject(chat) {
@@ -479,5 +552,5 @@
     try { const r = await US.host.call('askFind', { idsOnly: true }); if (r && Array.isArray(r.ids)) chat._seen = new Set(r.ids); } catch (e) { /* “what’s new” goes by file dates then */ }
     chat._seeing = false;
   }
-  US.chatAgent = { LIMITS, MEDIA, licenceWords, sizeOf, brollRow, bestOf, downloadReasons, trackOf, delayOf, inWords, mediaIn, remember, recall, knownFolders, mayRead, seeProject, tools: T };
+  US.chatAgent = { EDITOR, LIMITS, MEDIA, licenceWords, sizeOf, brollRow, bestOf, downloadReasons, trackOf, delayOf, inWords, mediaIn, remember, recall, knownFolders, mayRead, seeProject, tools: T };
 })();

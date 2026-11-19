@@ -8,7 +8,7 @@
 'use strict';
 
 /** What no Resolve lets add-ons do (21.2). */
-const RESOLVE_CANT = { zoom: 'keyframed zooms', text: 'text layers', razor: 'cuts' };
+const RESOLVE_CANT = { zoom: 'keyframed zooms', text: 'text layers', razor: 'cuts', trim: 'trims', shift: 'slides of a clip along the timeline', set: 'effect settings by name' };
 /** What needs a newer Resolve: the first version that has it, and the words. */
 const NEEDS = {
   transition: { since: '21.1', what: 'transitions', has: ti => typeof ti.AddTransition === 'function' },
@@ -247,6 +247,37 @@ module.exports = (R, fns) => {
       R.forget();
       return { removed, kept };
     },
+
+    /* ---------- Ask: the timeline itself, its tracks and the selection (as jsx/tools/edit.jsx) ---------- */
+    /** a: {seqId, name, inPoint, outPoint} -> {done, failed, was:{name}} – Resolve gives add-ons no way to set In and Out. */
+    seqSet(a) {
+      const tl = R.needSeq(a.seqId), out = { done: [], failed: [], was: { name: String(tl.GetName() || '') } };
+      if (a.name != null && String(a.name) !== '') { if (tryCall(() => tl.SetName(String(a.name)), false)) out.done.push('name'); else out.failed.push('name: Resolve would not rename it (is there another timeline with that name?)'); }
+      if ((a.inPoint != null && +a.inPoint >= 0) || (a.outPoint != null && +a.outPoint >= 0)) {
+        const fps = R.fps(tl), f = s => tl.GetStartFrame() + Math.round(+s * fps);
+        if (typeof tl.SetMarkInOut === 'function' && tryCall(() => tl.SetMarkInOut(a.inPoint != null && +a.inPoint >= 0 ? f(a.inPoint) : tl.GetStartFrame(), a.outPoint != null && +a.outPoint >= 0 ? f(a.outPoint) : tl.GetEndFrame()), false)) out.done.push('in', 'out');
+        else out.failed.push('in and out: this Resolve doesn’t let add-ons set them – set them on the Edit page');
+      }
+      return out;
+    },
+    /** a: {seqId, kind, add, index, name, locked, muted} -> {done, failed, video, audio} */
+    trackSet(a) {
+      const tl = R.needSeq(a.seqId), out = { done: [], failed: [] }, type = a.kind === 'audio' ? 'audio' : 'video';
+      if (+a.add > 0) { let n = 0; for (let i = 0; i < Math.min(8, +a.add); i++) if (tryCall(() => (type === 'audio' ? tl.AddTrack('audio', 'stereo') : tl.AddTrack('video')), false)) n++; if (n) out.done.push('added ' + n); else out.failed.push('add: Resolve would not add a track'); }
+      if (a.index != null) {
+        const k = +a.index + 1;
+        if (!(k >= 1 && k <= tl.GetTrackCount(type))) out.failed.push('there is no such track');
+        else {
+          if (a.name != null) { if (tryCall(() => tl.SetTrackName(type, k, String(a.name)), false)) out.done.push('name'); else out.failed.push('name: Resolve would not name it'); }
+          if (a.muted != null) { if (tryCall(() => tl.SetTrackEnable(type, k, !a.muted), false)) out.done.push(a.muted ? 'off' : 'on'); else out.failed.push('mute: Resolve would not switch it'); }
+          if (a.locked != null) { if (typeof tl.SetTrackLock === 'function' && tryCall(() => tl.SetTrackLock(type, k, !!a.locked), false)) out.done.push(a.locked ? 'locked' : 'unlocked'); else out.failed.push('lock: this Resolve doesn’t let add-ons lock a track'); }
+        }
+      }
+      out.video = tl.GetTrackCount('video'); out.audio = tl.GetTrackCount('audio');
+      return out;
+    },
+    /** Resolve gives add-ons no way to select timeline clips: says so (0 selected). */
+    selectClips() { return 0; },
 
     /* ---------- Ask: finding its way round a big project (as jsx/tools/edit.jsx) ---------- */
     /** a: {filter, offset, limit} -> {total, bins:[{id, path, clips, bins}]} */

@@ -55,7 +55,7 @@ test('the rules and the brief: every tool, the edits, every panel tool with its 
   const rr = C.rules({ resolve: true, actions: [], ops: { timeline: US.editAsk.opsFor('timeline', true, '21.0'), items: US.editAsk.opsFor('items', true, '21.0') } });
   assert.ok(/DaVinci Resolve/.test(rr) && !/- transition: /.test(rr));
   const r21 = C.rules({ resolve: true, actions: [], ops: { timeline: US.editAsk.opsFor('timeline', true, '21.2'), items: US.editAsk.opsFor('items', true, '21.2') } });
-  assert.ok(/- transition: /.test(r21) && /- speed: /.test(r21) && !/- zoom: /.test(r21) && /add-ons can’t make keyframed zooms, text layers or cuts/.test(r21), 'Resolve 21.2: transitions and speed offered; keyframes, text and cuts said plainly');
+  assert.ok(/- transition: /.test(r21) && /- speed: /.test(r21) && !/- zoom: /.test(r21) && /add-ons can’t make keyframed zooms, text layers, cuts, trims, slides of a clip along the timeline or effect settings by name/.test(r21), 'Resolve 21.2: transitions and speed offered; keyframes, text and cuts said plainly');
   const b = C.brief({ editor: 'Premiere Pro', project: 'Bakery film', sequence: { name: 'Cut v3', duration: 185 }, selection: 4, story: { interviews: [{ name: 'Ruth', lines: 120, speakers: ['Ruth'] }], lines: 120, themes: [], brief: '' }, mode: 'own' });
   assert.ok(/PROJECT: Bakery film/.test(b) && /OPEN SEQUENCE: “Cut v3” – 3:05/.test(b) && /SELECTED IN THE PROJECT PANEL: 4 clips/.test(b) && /- Ruth: 120 lines/.test(b) && /approves changes to their own sequences/.test(b));
   assert.ok(!C.actionsHere().some(a => /^(story\.ask|edit\.ask|agent\.run)$/.test(a.id)), 'its own tools do those');

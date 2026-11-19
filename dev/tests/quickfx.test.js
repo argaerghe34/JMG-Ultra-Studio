@@ -79,8 +79,8 @@ test('Resolve: what each version lets add-ons do – the one list (US.resolveEdi
   assert.match(RE.why('zoom', { version: '21.2' }), /doesn’t let add-ons make keyframed zooms/);
   assert.match(RE.why('effect', { version: '21.2', name: 'Black & White' }), /no Black & White effect – set Saturation to 0 on the Color page/);
   assert.strictEqual(RE.why('effect', { version: '19.0', name: 'Horizontal Flip' }), '');
-  assert.strictEqual(RE.cantList('21.2'), 'keyframed zooms, text layers or cuts');
-  assert.strictEqual(RE.cantList('21.0'), 'transitions, speed changes, volume changes, effects, keyframed zooms, text layers or cuts');
+  assert.strictEqual(RE.cantList('21.2'), 'keyframed zooms, text layers, cuts, trims, slides of a clip along the timeline or effect settings by name');
+  assert.strictEqual(RE.cantList('21.0'), 'transitions, speed changes, volume changes, effects, keyframed zooms, text layers, cuts, trims, slides of a clip along the timeline or effect settings by name');
   assert.ok(RE.selects('21.0.4') && !RE.selects('21.0.3') && RE.atLeast('21.10', '21.2'));
   assert.ok(Q.PRESETS.every(p => Q.works(p, false)));
   assert.strictEqual(new Set(Q.PRESETS.map(p => p.id)).size, Q.PRESETS.length, 'ids are unique');
