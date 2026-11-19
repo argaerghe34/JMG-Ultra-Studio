@@ -137,5 +137,21 @@
     }
   });
 
-  US.subclipMaker = { plan };
+  /* ---------- Ask: make the subclips in the background (the same as the tab's button, with what is chosen there) ---------- */
+  US.actions && US.actions.register && US.actions.register({
+    id: 'subclips.make', tool: 'subclips', title: 'Make subclips', changes: true,
+    describe: 'Makes a subclip of every clip in a bin from its In and Out points (or of every clip on the open sequence), into a bin of subclips. New project items only – the clips themselves aren’t changed.',
+    params: { from: { type: 'enum', options: ['bin', 'timeline'], default: 'bin', desc: 'The clips of a bin, or the clips on the open sequence' }, bin: { type: 'string', default: '', desc: 'The bin’s name or path (for from: bin) – leave out for the one chosen in the Subclip Maker tab' },
+      name: { type: 'string', default: '', desc: 'The name of the bin of subclips – leave out for the usual one' }, same: { type: 'enum', options: ['add', 'replace'], default: 'add', desc: 'Subclips with the same names already there: add alongside them, or replace them (the earlier ones are moved to an “earlier” bin)' }, handles: { type: 'number', default: 0, desc: 'Seconds of handle each side (0 = none)' } },
+    examples: ['make subclips of the bin Interviews', 'subclips from every clip on this timeline'],
+    match: t => (/\bsub-?clips?\b/i.test(t) && /\b(make|create|turn|from)\b/i.test(t) ? { from: /\b(timeline|sequence)\b/i.test(t) ? 'timeline' : 'bin', _score: 2.3 } : null),
+    run: async (p, job) => {
+      const o = Object.assign({}, opts(), { from: p.from === 'timeline' ? 'timeline' : 'bin', into: 'new', newName: String(p.name || ''), handles: +p.handles > 0, handleSecs: +p.handles || 0 });
+      if (o.from === 'bin' && p.bin) { const w = String(p.bin).toLowerCase(), bins = (await US.host.call('listBins')).filter(b => b.path !== '(Project root)'), hit = bins.filter(b => b.path.toLowerCase() === w || b.path.split(' / ').pop().toLowerCase() === w); const one = hit.length ? hit : bins.filter(b => b.path.toLowerCase().includes(w)); if (one.length !== 1) throw new US.UserError('BAD_INPUT', { title: one.length ? `More than one bin matches “${p.bin}”.` : `There is no bin “${p.bin}”.`, action: 'Give the bin’s full path.' }); o.binId = one[0].id; }
+      const r = await make(o, p.same === 'replace' ? 'replace' : 'add', job);
+      return { summary: r.summary, binPath: r.target };
+    }
+  });
+
+  US.subclipMaker = { plan, make };
 })();

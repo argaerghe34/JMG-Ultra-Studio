@@ -717,6 +717,15 @@
         if (!ok.ok) return refusedNow();
         return (risk === 'read' ? withHands : withChanges)(async job => {
           if (chat.work && chat.work.ours) { await US.host.call('openSequence', { seqId: chat.work.seqId }).catch(() => {}); if (US.refreshContext) await US.refreshContext(); }
+          // a panel tool that changes the open sequence itself (act.onCopy) works on a copy when Ask runs it – made once, then the working sequence
+          else if (act.onCopy && US.ctx && US.ctx.sequence) {
+            const sq = US.ctx.sequence;
+            job.set({ who: 'premiere', msg: 'Making a copy of the sequence to work on' });
+            const c = await US.host.call('cloneSequence', { seqId: sq.id, name: `${sq.name} – Ask`, binPath: 'JMG Ultra Studio/Ask' });
+            chat.work = { seqId: c.id, name: c.name, ours: true }; chat.versions.push({ seqId: c.id, name: c.name, why: `copy of “${sq.name}”` });
+            journal({ kind: 'seq', seqId: c.id, name: c.name });
+            await US.host.call('openSequence', { seqId: c.id }).catch(() => {}); if (US.refreshContext) await US.refreshContext();
+          }
           const before = US.ctx && US.ctx.sequence && US.ctx.sequence.id;
           job.set({ who: 'studio', msg: US.say ? US.say(act.title) : act.title });
           const quiet = quietly(); let out;

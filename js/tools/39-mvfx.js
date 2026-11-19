@@ -794,5 +794,25 @@
     }
   });
 
-  US.mvfx = { apply, installAll, valuesFor, storyPeople, artDir, lutFile, paintPNG, renderMotion, renderFilm, selectedTitle, clipUnder, editablePlan, plateAnim };
+  /* ---------- Ask: add or apply a preset in the background (the same as the tab's Add button) ---------- */
+  const presetNamed = want => { const w = String(want || '').trim().toLowerCase(), all = P().PRESETS; return all.find(p => p.id.toLowerCase() === w) || all.find(p => String(p.label).toLowerCase() === w) || (all.filter(p => String(p.label).toLowerCase().includes(w)).length === 1 ? all.find(p => String(p.label).toLowerCase().includes(w)) : null); };
+  US.actions && US.actions.register && US.actions.register({
+    id: 'mvfx.add', tool: 'mvfx', title: 'Add an mVFX title, overlay, move or look', changes: true, onCopy: true,
+    describe: 'Adds one mVFX preset to the sequence: a title or lower third (with its words) at a time, an overlay or background, or a move, look or transition on the clips. Presets by kind: ' + ['title', 'text', 'motion', 'overlay', 'background', 'move', 'look', 'transition', 'freeze'].map(k => { const ps = (US.mvfxPack ? US.mvfxPack.PRESETS : []).filter(p => p.kind === k); return ps.length ? `${k}: ${ps.map(p => p.label).slice(0, 14).join(', ')}` : ''; }).filter(Boolean).join(' · ') + '. Works on a copy of the sequence when Ask runs it.',
+    params: { preset: { type: 'string', default: '', desc: 'The preset’s name, e.g. Hairline' }, words: { type: 'string', default: '', desc: 'The words for a title, as field=value pairs: “name=Ruth Cohen; role=Baker” (fields are usually name, role, title, line)' },
+      at: { type: 'number', default: -1, desc: 'Where to add it, in seconds of the sequence (-1 = at the playhead)' }, seconds: { type: 'number', default: 0, desc: 'How long it stays (0 = the preset’s usual length)' }, scope: { type: 'enum', options: ['selection', 'all'], default: 'selection', desc: 'For moves, looks and transitions: the selected clips, or every clip' } },
+    examples: ['add a Hairline lower third for Ruth Cohen, Baker', 'put film grain over the sequence'],
+    match: () => null,
+    run: async (p, job) => {
+      const preset = presetNamed(p.preset);
+      if (!preset) throw new US.UserError('BAD_INPUT', { title: `There is no mVFX preset “${p.preset}”.`, action: 'Use a name from the list in mVFX.' });
+      const v = valuesFor(preset);
+      for (const pair of String(p.words || '').split(/[;\n]/)) { const m = /^\s*([\w ]+?)\s*[=:]\s*(.+?)\s*$/.exec(pair); if (m) { const k = Object.keys(v.text).find(x => x.toLowerCase() === m[1].toLowerCase()); if (k) v.text[k] = m[2]; } }
+      if (+p.seconds > 0) v.duration = +p.seconds;
+      const r = await apply(preset, v, Object.assign({ scope: p.scope === 'all' ? 'all' : 'selection' }, +p.at >= 0 ? { at: +p.at } : {}), job);
+      return { summary: r.summary };
+    }
+  });
+
+  US.mvfx = { apply, presetNamed, installAll, valuesFor, storyPeople, artDir, lutFile, paintPNG, renderMotion, renderFilm, selectedTitle, clipUnder, editablePlan, plateAnim };
 })();
