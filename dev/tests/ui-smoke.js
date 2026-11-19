@@ -632,6 +632,15 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       await new Promise(r => setTimeout(r, 60));
       if (calls.filter(c => c[0] === 'mvfxMove').length !== 1) errors.push('mvfx: a tile’s + didn’t apply ' + JSON.stringify(calls.map(c => c[0])));
       if (mt.el.querySelector('.mvfx-bar') !== mt.el.querySelector('.tool-body').lastElementChild) errors.push('mvfx: the bar isn’t the last thing in the view');
+      // Every clip: the picture clips only – never the titles, grain and held frames on our own mVFX tracks
+      calls.length = 0;
+      US.host.call = async (fn, a) => { calls.push([fn, a]); if (fn === 'sequenceInfo') return { id: 's1', name: 'Cut', fps: 25, width: 1920, height: 1080, duration: 30 }; if (fn === 'editRead') return { fps: 25, video: [{ index: 0, name: 'Video 1', clips: [{ start: 0, end: 4 }, { start: 4, end: 8 }, { start: 8, end: 12 }] }, { index: 1, name: 'mVFX 1', clips: [{ start: 1, end: 6 }, { start: 3, end: 6 }] }, { index: 2, name: 'mVFX 2', clips: [{ start: 1, end: 6 }] }], audio: [] }; if (fn === 'mvfxMove') return { done: 1, skipped: [] }; if (fn === 'mvfxLook') return { done: a.targets.length, skipped: [], set: ['Temperature'] }; return wasCall(fn, a); };
+      const all = await US.mvfx.apply(US.mvfxPack.byId('pushin'), null, { scope: 'all' }, US.jobs.testJob('mvfx'));
+      const moved = calls.filter(c => c[0] === 'mvfxMove');
+      if (all.result.done !== 3 || moved.length !== 3 || moved.some(c => c[1].targets[0].track !== 0 || !c[1].onlyPicture)) errors.push('mvfx: Every clip touched our own tracks: ' + all.summary + ' ' + JSON.stringify(moved.map(c => c[1].targets)));
+      const lk = await US.mvfx.apply(US.mvfxPack.byId('lkwarm'), null, { scope: 'all' }, US.jobs.testJob('mvfx'));
+      const looked = calls.find(c => c[0] === 'mvfxLook');
+      if (!looked || looked[1].targets.length !== 3 || looked[1].targets.some(t => t.track !== 0) || !looked[1].onlyPicture) errors.push('mvfx: a look on Every clip touched our own tracks: ' + lk.summary);
       // every preset of every group: its settings show without a stray “null” or “undefined”, tiles can be dragged
       US.host.call = wasCall;
       for (const g of Array.from(groups)) {
