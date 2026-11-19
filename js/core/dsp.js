@@ -670,7 +670,55 @@
     return out;
   }
 
+  /* =================== sound events for seeing and hearing (the built-in listener, no model) =================== */
+  /**
+   * What can be heard in a clip, from its 16 kHz mono sound, measured here: music, applause or cheering, silence, wind,
+   * steady noise, and moments where the voice is raised well above its usual level. No model and nothing to download –
+   * so it can't tell laughter from talk or say what a sound is; a listening model adds that.
+   * -> {events: [{type: 'music'|'applause'|'silence'|'wind'|'noise'|'emphasis', start, end, conf}], speech: seconds of
+   *     talk, quality: {level, floor, snr (dB of talk above the quiet parts), label: 'clean'|'some noise'|'noisy'|'no speech'}}
+   */
+  async function soundEvents(data, sr, { onProgress, check } = {}) {
+    const duration = data.length / sr, events = [];
+    if (duration < 1) return { events, speech: 0, quality: { level: -100, floor: -100, snr: 0, label: 'no speech' }, duration };
+    const cls = await classify(data, sr, { onProgress: f => onProgress && onProgress(f * 0.8), check });
+    const secs = cls.seconds, runs = [];
+    for (let i = 0; i < secs.length; i++) { const l = runs[runs.length - 1]; if (l && l.type === secs[i].type) l.end = i + 1; else runs.push({ type: secs[i].type, start: i, end: i + 1 }); }
+    const avg = (r, k) => { let t = 0; for (let i = r.start; i < r.end; i++) t += secs[i].f[k]; return t / (r.end - r.start); };
+    const talk = secs.filter(x => x.type === 'talk').map(x => x.f.db), all = secs.map(x => x.f.db);
+    const floor = percentile(all, 0.1), level = talk.length ? percentile(talk, 0.5) : percentile(all, 0.5);
+    for (const r of runs) {
+      const len = r.end - r.start;
+      if (r.type === 'silence' && len >= 2) events.push({ type: 'silence', start: r.start, end: Math.min(duration, r.end), conf: 0.9 });
+      else if (r.type === 'song' && len >= 5) events.push({ type: 'music', start: r.start, end: Math.min(duration, r.end), conf: len >= 12 ? 0.75 : 0.55 });
+      else if (r.type === 'applause' && len >= 2) {
+        // a short, bright, noise-like burst is clapping or cheering; a long or dull one is just the sound of the place
+        const bright = avg(r, 'cent') > 1800 && avg(r, 'flat') > 0.3;
+        events.push({ type: bright && len <= 45 ? 'applause' : 'noise', start: r.start, end: Math.min(duration, r.end), conf: bright && len <= 45 ? 0.6 : 0.5 });
+      }
+    }
+    // the voice well above its usual level for a second or more: emphasis, a shout, a laugh, a cheer over talk
+    if (talk.length >= 6) {
+      let s0 = -1;
+      for (let i = 0; i <= secs.length; i++) {
+        const hot = i < secs.length && secs[i].type === 'talk' && secs[i].f.db > level + 7;
+        if (hot && s0 < 0) s0 = i;
+        if (!hot && s0 >= 0) { events.push({ type: 'emphasis', start: s0, end: Math.min(duration, i), conf: 0.5 }); s0 = -1; }
+      }
+    }
+    const w = await windAndDeadAir(data, sr, { onProgress: f => onProgress && onProgress(0.8 + f * 0.2), check });
+    for (const x of w.wind) {
+      events.push({ type: 'wind', start: Math.round(x.start * 10) / 10, end: Math.round(Math.min(duration, x.end) * 10) / 10, conf: 0.6 });
+      // the same stretch isn't also “applause”, “noise” or (a steady rumble can pass for it) “music”
+      for (let i = events.length - 2; i >= 0; i--) { const e = events[i]; if ((e.type === 'applause' || e.type === 'noise' || e.type === 'music') && Math.min(e.end, x.end) - Math.max(e.start, x.start) > 0.5 * (e.end - e.start)) events.splice(i, 1); }
+    }
+    events.sort((a, b) => a.start - b.start);
+    const snr = talk.length ? level - floor : 0;
+    return { events, speech: talk.length, duration, quality: { level: Math.round(level), floor: Math.round(floor), snr: Math.round(snr), label: !talk.length ? 'no speech' : snr >= 25 ? 'clean' : snr >= 14 ? 'some noise' : 'noisy' } };
+  }
+
   US.dsp = {
+    soundEvents,
     fft, hann, eachSpectrum, stft, onsetStrength, tempo, beatTrack, chromaFrames, analyseBeats,
     levelStats, findPauses, kWeighting, loudness, LoudnessMeter, peaks, quietSpectrum, detectHum, windAndDeadAir, classify, songParts, SENS_DEFAULT,
     util: { amax, mean, std, percentile, movingAverage, medianFilter, db, cosDist, chromaMean }

@@ -111,6 +111,21 @@
   const stillsOn = () => !projectOffline() && !!stillsProjects()[projectOf().key];
   function setStills(on) { const m = Object.assign({}, stillsProjects()); if (on) m[projectOf().key] = projectOf().name; else delete m[projectOf().key]; US.settings.set('ai.stillsProjects', m); }
 
+  /* ---------- seeing and hearing (the user's choice of 19 Nov 2026): sound – and stills with it – to a cloud model ----------
+     user blocks {media: {kind: 'audio'|'video', data (base64), mime, bytes, seconds, note}}. Off for every project until
+     the editor chooses “Cloud” for it in Settings › Vision & listening models (asked with the estimate); never for a
+     project set to “nothing leaves this computer”. Only US.ai.media() sends them, and what was sent keeps a line
+     with the size – not the sound. */
+  const isMedia = b => !!(b && typeof b === 'object' && b.media && b.media.data);
+  const mediaOf = user => (Array.isArray(user) ? user.filter(isMedia) : []);
+  const mediaBytes = m => +m.bytes || Math.floor(String(m.data).length * 3 / 4);
+  const fmtBytes = n => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+  const mediaNote = m => `[${m.kind === 'video' ? 'video' : 'sound'}${m.note ? ': ' + m.note : ''} – ${m.seconds ? Math.round(m.seconds) + ' s, ' : ''}${fmtBytes(mediaBytes(m))}; the ${m.kind === 'video' ? 'video' : 'sound'} itself isn’t kept here]`;
+  const mediaProjects = () => US.settings.get('ai.mediaProjects', {}) || {};
+  /** May sound and stills of the open project's footage go to a cloud model? (Never for a project kept on this computer.) */
+  const mediaOn = () => !projectOffline() && !!mediaProjects()[projectOf().key];
+  function setMedia(on) { const m = Object.assign({}, mediaProjects()); if (on) m[projectOf().key] = projectOf().name; else delete m[projectOf().key]; US.settings.set('ai.mediaProjects', m); }
+
   /** Rough cost before sending: ~3.6 characters per token for English; output allowance grows with effort (thinking). */
   function blocksText(x) { return Array.isArray(x) ? x.map(b => (typeof b === 'string' ? b : b.text || '')).join('\n') : (x && typeof x === 'object' ? x.text || '' : String(x || '')); }
   const turnsText = turns => (turns || []).map(t => String(t.assistant || '') + String(t.user || '')).join('');
@@ -185,7 +200,7 @@
   const projectOf = () => { const p = US.ctx && US.ctx.project; return p ? { key: US.fsx.hash(p.path || p.name), name: p.name || 'Project' } : { key: 'no-project', name: 'No project open' }; };
   /** The request as the provider receives it, in order: [{role, text, cached}] */
   function partsOf({ system, user, turns, schema }) {
-    const out = [], add = (role, x) => { for (const b of [].concat(x || [])) { const text = typeof b === 'string' ? b : isImage(b) ? imageNote(b.image) : (b && b.text) || ''; if (text) out.push({ role, text, cached: !!(b && b.cache) }); } };
+    const out = [], add = (role, x) => { for (const b of [].concat(x || [])) { const text = typeof b === 'string' ? b : isImage(b) ? imageNote(b.image) : isMedia(b) ? mediaNote(b.media) : (b && b.text) || ''; if (text) out.push({ role, text, cached: !!(b && b.cache) }); } };
     add('system', system); add('user', user);
     for (const t of turns || []) { add('assistant', String(t.assistant || '')); add('user', String(t.user || '')); }
     if (schema) out.push({ role: 'format', text: 'Answer format (JSON schema): ' + JSON.stringify(schema), cached: false });
@@ -296,7 +311,7 @@
     const cost = provider === 'gemini' ? 'no charge within Google’s free allowance' : `about ${fmtUSD(est.usd)}${est.cachedTokens ? ` (${est.cachedTokens.toLocaleString('en-GB')} tokens read from Claude’s cache)` : ''}`;
     const shown = parts.map(p => `===== ${p.role.toUpperCase()}${p.cached ? ' (cached)' : ''} =====\n${p.text.length > 120000 ? p.text.slice(0, 120000) + `\n…and ${(p.text.length - 120000).toLocaleString('en-GB')} more characters` : p.text}`).join('\n\n');
     const v = await US.ui.modal({ title: `Send this to ${name}?`, wide: true,
-      body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. ${imagesOf(req.user).length ? `This text and ${imagesOf(req.user).length === 1 ? 'one small still' : imagesOf(req.user).length + ' small stills'} are sent (each still is listed below, not shown); no video or audio.` : 'Only this text is sent; no footage, frames or audio.'}`),
+      body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. ${mediaOf(req.user).length ? `This text, ${imagesOf(req.user).length} small still(s) and ${mediaOf(req.user).length} piece(s) of sound (${fmtBytes(mediaOf(req.user).reduce((n, b) => n + mediaBytes(b.media), 0))}) are sent – you chose “Cloud” for this project in Settings › Vision & listening models. Each is listed below, not shown.` : imagesOf(req.user).length ? `This text and ${imagesOf(req.user).length === 1 ? 'one small still' : imagesOf(req.user).length + ' small stills'} are sent (each still is listed below, not shown); no video or audio.` : 'Only this text is sent; no footage, frames or audio.'}`),
         h('textarea.input.mono.ai-preview', { readOnly: true, rows: 14 }, shown)),
       buttons: [{ label: 'Cancel', value: 'no', kind: 'ghost' }].concat(job ? [{ label: 'Send the rest of this job too', value: 'all' }] : []).concat([{ label: 'Send', value: 'one', kind: 'primary' }]) });
     if (v !== 'one' && v !== 'all') throw new US.UserError('CANCELLED', { title: 'AI request cancelled.', action: 'Nothing was sent.' });
@@ -460,8 +475,8 @@
   const localUrl = () => String(US.settings.get('ai.localUrl', LOCAL_URL) || LOCAL_URL).replace(/\/+$/, '');
   const localModel = () => String(US.settings.get('ai.localModel', '') || '').trim();
   /** Only this computer: a local model's address must be localhost. */
-  function localTarget() {
-    let u; try { u = new URL(localUrl()); } catch (e) { throw new US.UserError('AI_FAILED', { title: 'The local AI’s address isn’t right.', action: 'Use something like http://localhost:11434 (Ollama) or http://localhost:1234 (LM Studio) in Settings.' }); }
+  function localTarget(base) {
+    let u; try { u = new URL(base || localUrl()); } catch (e) { throw new US.UserError('AI_FAILED', { title: 'The local AI’s address isn’t right.', action: 'Use something like http://localhost:11434 (Ollama) or http://localhost:1234 (LM Studio) in Settings.' }); }
     if (!/^(localhost|127\.0\.0\.1|\[::1\]|::1)$/i.test(u.hostname)) throw new US.UserError('AI_FAILED', { title: 'The local AI must run on this computer.', action: 'Its address has to start with http://localhost – a model elsewhere would mean text leaving this computer.' });
     return u;
   }
@@ -475,8 +490,8 @@
     const list = (fam === 6 ? [] : [{ address: '127.0.0.1', family: 4 }]).concat(fam === 4 ? [] : [{ address: '::1', family: 6 }]);
     return opts && opts.all ? cb(null, list) : cb(null, list[0].address, list[0].family);
   }
-  function httpLocal(method, pathname, body, timeoutMs = 600000) {
-    const u = localTarget(), mod = u.protocol === 'https:' ? https : require('http');
+  function httpLocal(method, pathname, body, timeoutMs = 600000, base) {
+    const u = localTarget(base), mod = u.protocol === 'https:' ? https : require('http');
     return new Promise((resolve, reject) => {
       const data = body ? Buffer.from(JSON.stringify(body)) : null;
       const req = mod.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), lookup: localLookup, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: (u.pathname.replace(/\/$/, '') || '') + pathname, method, headers: data ? { 'content-type': 'application/json', 'content-length': data.length } : {}, timeout: timeoutMs }, res => {
@@ -537,21 +552,22 @@
     if (r.status !== 200) throw new US.UserError('AI_FAILED', { title: 'The model couldn’t be removed.', action: 'Remove it in Ollama itself (ollama rm …).', detail: `${r.status}: ${String(r.text || '').slice(0, 200)}` });
     return true;
   }
-  async function local({ system, user, turns, schema, maxTokens = 16000, feature, as, onUsage, model: wanted }) {
+  async function local({ system, user, turns, schema, maxTokens = 16000, feature, as, onUsage, model: wanted, url, temperature = 0.2 }) {
+    // url: another address on this computer (Ultra Studio's own helper for seeing and hearing) – still localhost only
     const model = wanted || localModel();
     if (!model) throw new US.UserError('AI_KEY', { title: 'Choose a local model first.', action: 'Settings › AI › On this computer: pick the model (Ollama or LM Studio must be running).' });
-    localTarget();   // this computer only – checked before anything is logged or sent
+    localTarget(url);   // this computer only – checked before anything is logged or sent
     const sys = blocksText(system) + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '');
-    const stills = imagesOf(user);
-    const content = stills.length ? user.map(b => (isImage(b) ? { type: 'image_url', image_url: { url: `data:${b.image.mime || 'image/jpeg'};base64,${b.image.data}` } } : { type: 'text', text: typeof b === 'string' ? b : b.text || '' })).filter(x => x.image_url || x.text) : blocksText(user);
+    const stills = imagesOf(user).concat(mediaOf(user));
+    const content = stills.length ? user.map(b => (isImage(b) ? { type: 'image_url', image_url: { url: `data:${b.image.mime || 'image/jpeg'};base64,${b.image.data}` } } : isMedia(b) ? { type: 'input_audio', input_audio: { data: b.media.data, format: /mp3|mpeg/.test(b.media.mime || '') ? 'mp3' : 'wav' } } : { type: 'text', text: typeof b === 'string' ? b : b.text || '' })).filter(x => x.image_url || x.input_audio || x.text) : blocksText(user);
     const messages = [{ role: 'system', content: sys }, { role: 'user', content }].concat((turns || []).flatMap(t => [{ role: 'assistant', content: String(t.assistant) }, { role: 'user', content: String(t.user) }]));
-    const body = Object.assign({ model, messages, max_tokens: Math.min(maxTokens, 16000), temperature: 0.2, stream: false }, schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: false } } } : {});
+    const body = Object.assign({ model, messages, max_tokens: Math.min(maxTokens, 16000), temperature, stream: false }, schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: false } } } : {});
     const logged = sentLog.begin({ provider: 'local', model, feature, req: { system, user, turns, schema }, est: { usd: 0, inputTokens: Math.ceil(sys.length / 3.6) }, as });
     let r;
-    try { r = await httpLocal('POST', '/v1/chat/completions', body); }
+    try { r = await httpLocal('POST', '/v1/chat/completions', body, 600000, url); }
     catch (e) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw new US.UserError('AI_FAILED', { title: 'The local AI didn’t answer.', action: 'Start Ollama or LM Studio (with the model loaded), then try again.', detail: String(e && e.message || e) }); }
     // older Ollama: no json_schema – ask again with its own JSON mode
-    if (r.status === 400 && schema) { delete body.response_format; body.format = 'json'; try { r = await httpLocal('POST', '/v1/chat/completions', body); } catch (e) { /* reported below */ } }
+    if (r.status === 400 && schema) { delete body.response_format; body.format = 'json'; try { r = await httpLocal('POST', '/v1/chat/completions', body, 600000, url); } catch (e) { /* reported below */ } }
     if (r.status !== 200 || !r.json) { sentLog.end(logged, { ok: false, error: 'HTTP ' + r.status }); throw new US.UserError('AI_FAILED', { title: 'The local AI said no.', action: 'Check the model name in Settings, and that it’s loaded.', detail: `${r.status}: ${String(r.text || '').slice(0, 400)}` }); }
     const ch = (r.json.choices || [])[0] || {}, text = String((ch.message && ch.message.content) || '').replace(/^<think>[\s\S]*?<\/think>\s*/, '');
     const u = r.json.usage || {};
@@ -586,7 +602,93 @@
     }
   }
 
+  /* ---------- cloud seeing and hearing: prices for the estimates, and the one function that sends sound ---------- */
+  // US dollars per million tokens at Google's standard paid rate, read on MEDIA_PRICES.date (ai.google.dev/gemini-api/docs/pricing).
+  // Google's pages give two token rates for sound and stills – the estimates use both as a range. A key on Google's free
+  // allowance pays nothing, but Google may then use what is sent to improve its products (paid: it doesn't).
+  const MEDIA_PRICES = {
+    date: '19 Nov 2026', source: 'ai.google.dev/gemini-api/docs/pricing',
+    gemini: {
+      'gemini-3.5-flash-lite': { name: 'Gemini 3.5 Flash-Lite', in: 0.30, out: 2.50 },
+      'gemini-3.8-flash': { name: 'Gemini 3.8 Flash', in: 0.75, out: 3.75 },
+      'gemini-4-hydrogen': { name: 'Gemini 4 Hydrogen', in: 1.50, out: 7.50 }
+    },
+    // tokens: sound per second (25–32), a small still (258–280 at low media resolution), words back per minute of footage
+    tokens: { audioPerSec: [25, 32], still: [258, 280], outPerMin: [120, 260] }
+  };
+  /** The price row for a Gemini model name (a “-latest” name is priced as the model it follows). */
+  function mediaPrice(model) {
+    let id = String(model || '');
+    if (/-latest$/.test(id)) id = (US.settings.get('geminiSeen', {}) || {})[id] || (/lite/.test(id) ? 'gemini-3.5-flash-lite' : 'gemini-3.8-flash');
+    const G = MEDIA_PRICES.gemini;
+    return G[id] || G[Object.keys(G).find(k => id.indexOf(k) === 0)] || (/lite/.test(id) ? G['gemini-3.5-flash-lite'] : /flash/.test(id) ? G['gemini-3.8-flash'] : G['gemini-4-hydrogen']);
+  }
+  const MEDIA_MAX = 18 * 1024 * 1024;   // one request's stills and sound together (Gemini's inline limit, with room to spare)
+  /** Which cloud model sees and hears: {provider, model, label, hears} – Gemini hears; Claude sees stills only. */
+  function mediaModel(use) {
+    const want = use || US.settings.get('understand.cloudModel', '');
+    const hasG = !!US.secrets.get('geminiKey'), hasC = !!US.secrets.get('anthropicKey');
+    const m = /^(gemini|claude):(.+)$/.exec(String(want || ''));
+    if (m && m[1] === 'claude' && hasC && MODELS[m[2]]) return { provider: 'claude', model: m[2], label: MODELS[m[2]].name, hears: false };
+    if (m && m[1] === 'gemini' && hasG) return { provider: 'gemini', model: m[2], label: geminiName(m[2]), hears: true };
+    if (hasG) { const g = US.settings.get('geminiFastModel', GEMINI_FAST_DEFAULT); return { provider: 'gemini', model: g, label: geminiName(g), hears: true }; }
+    if (hasC) return { provider: 'claude', model: 'claude-haiku-5-5', label: MODELS['claude-haiku-5-5'].name, hears: false };
+    return { provider: 'none', model: '', label: 'No cloud AI', hears: false };
+  }
+  /**
+   * Stills and sound of the footage to a cloud model, answered as JSON. The only way sound leaves this computer:
+   * refused for a project kept on this computer, refused until “Cloud” is chosen for the project, and written to
+   * What was sent to AI with each piece's size. Gemini takes stills and sound; Claude takes stills only.
+   */
+  async function media({ system, user, schema, maxTokens = 2000, feature = 'Seeing and hearing', as, use, onUsage }) {
+    if (projectOffline()) throw new US.UserError('AI_FAILED', { title: 'This project is set to “nothing leaves this computer”.', action: 'Its footage is only looked at and listened to on this computer (Settings › Vision & listening models).' });
+    if (!mediaOn()) throw new US.UserError('AI_FAILED', { title: 'Seeing and hearing in the cloud isn’t switched on for this project.', action: 'Settings › Vision & listening models: choose “Cloud” for this project (you’re shown the cost first) – or stay on this computer.' });
+    const M = mediaModel(use), sounds = mediaOf(user);
+    if (M.provider === 'none') throw new US.UserError('AI_KEY', { title: 'There’s no Gemini or Claude key for cloud seeing and hearing.', action: 'Add a key in Settings › AI, or use the models on this computer.' });
+    if (M.provider === 'claude') {
+      if (sounds.length) throw new US.UserError('AI_FAILED', { title: 'Claude can look at stills but can’t listen.', action: 'Choose a Gemini model for cloud listening, or listen on this computer.' });
+      const r = await claude({ system, user, schema, maxTokens, effort: 'low', feature, as, model: M.model, onUsage });
+      return parseJSON(r.text);
+    }
+    const key = US.secrets.get('geminiKey'), asked = { system, user, schema };
+    const bytes = sounds.reduce((n, b) => n + mediaBytes(b.media), 0) + imagesOf(user).reduce((n, b) => n + Math.floor(String(b.image.data).length * 3 / 4), 0);
+    if (bytes > MEDIA_MAX) throw new US.UserError('AI_FAILED', { title: 'That is too much sound for one request.', action: 'Ultra Studio sends long clips in pieces; try again.', detail: `${fmtBytes(bytes)} in one request (limit ${fmtBytes(MEDIA_MAX)})` });
+    const parts = (Array.isArray(user) ? user : [user]).map(b => (isImage(b) ? { inlineData: { mimeType: b.image.mime || 'image/jpeg', data: b.image.data } } : isMedia(b) ? { inlineData: { mimeType: b.media.mime || 'audio/wav', data: b.media.data } } : { text: typeof b === 'string' ? b : (b && b.text) || '' })).filter(x => x.inlineData || x.text);
+    const body = {
+      systemInstruction: { parts: [{ text: blocksText(system) + (schema ? '\n\nReply with JSON only, matching this JSON Schema:\n' + JSON.stringify(schema) : '') }] },
+      contents: [{ role: 'user', parts }],
+      generationConfig: Object.assign({ maxOutputTokens: Math.max(maxTokens, 1024), mediaResolution: 'MEDIA_RESOLUTION_LOW' }, schema ? { responseMimeType: 'application/json' } : {})
+    };
+    const price = mediaPrice(M.model), secs = sounds.reduce((n, b) => n + (+b.media.seconds || 0), 0);
+    const estIn = Math.ceil(blocksText(system).length / 3.6 + blocksText(user).length / 3.6) + imagesOf(user).length * MEDIA_PRICES.tokens.still[1] + Math.ceil(secs * MEDIA_PRICES.tokens.audioPerSec[1]);
+    const est = { usd: 0, inputTokens: estIn, paidUsd: estIn * price.in / 1e6 };
+    await preview({ provider: 'gemini', name: M.label, feature, req: asked, est, as });
+    const logged = sentLog.begin({ provider: 'gemini', model: M.model, feature, req: asked, est, as });
+    let r;
+    try { r = await postJSON('generativelanguage.googleapis.com', `/v1beta/models/${encodeURIComponent(M.model)}:generateContent`, { 'x-goog-api-key': key }, body, 300000); }
+    catch (e) { sentLog.end(logged, { ok: false, error: String(e && e.message || e) }); throw networkError('Gemini', e); }
+    if (r.status !== 200 || !r.json) { sentLog.end(logged, { ok: false, error: 'HTTP ' + r.status }); throw httpError('Gemini', r); }
+    const um = r.json.usageMetadata || {}, used = r.json.modelVersion || M.model, up = mediaPrice(used);
+    const paidUsd = ((um.promptTokenCount || 0) * up.in + ((um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0)) * up.out) / 1e6;
+    sentLog.end(logged, { ok: true, model: used, usd: 0, paidRateUsd: paidUsd, mediaBytes: bytes, mediaSeconds: secs, tokensIn: um.promptTokenCount || 0, tokensOut: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) });
+    if (r.json.modelVersion) noteGemini(M.model, r.json.modelVersion);
+    if (r.json.usageMetadata) record(used, r.json.usageMetadata, feature, 0, key);   // as every Gemini request: nothing is billed within Google's free allowance
+    if (onUsage) { try { onUsage({ provider: 'gemini', model: used, name: geminiName(used), usd: 0, paidUsd, bytes }); } catch (e) { /* the caller's sums */ } }
+    const cand = (r.json.candidates || [])[0];
+    if (!cand) throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(r.json.promptFeedback || r.json).slice(0, 500) });
+    const text = ((cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
+    if (!text) throw new US.UserError('AI_FAILED', { title: 'The AI sent back an empty answer.', action: 'Try again.', detail: `${used}: finishReason ${cand.finishReason}` });
+    return parseJSON(text);
+  }
+  /** A model on this computer at its own address (Ultra Studio's helper): stills and sound, JSON back. Nothing leaves. */
+  async function localAt({ url, model, system, user, schema, maxTokens = 1500, feature, as, onUsage, temperature }) {
+    const r = await local({ system, user, schema, maxTokens, feature, as, onUsage, model: model || 'local', url, temperature });
+    return parseJSON(r.text);
+  }
+
   US.ai = {
+    /** Seeing and hearing (Settings › Vision & listening models). */
+    media, mediaOn, setMedia, mediaModel, mediaPrice, MEDIA_PRICES, localAt, _media: { isMedia, mediaOf, mediaNote, mediaBytes, fmtBytes },
     CLAUDE_MODEL, MODELS, claudeModel, estimate, costOf, fmtUSD, warmUntil,
     /** The local record of what was sent (Settings › What was sent to AI). */
     sent: sentLog, setRedactions,

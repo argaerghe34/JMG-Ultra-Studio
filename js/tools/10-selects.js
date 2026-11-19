@@ -52,6 +52,44 @@
     state.result = V().score(state.clips, Object.assign(effective(), { forced: state.forced }));
   }
 
+  /* ---------- what's in a select and how it sounds (US.understand, when a clip has been looked at / listened to) ---------- */
+  const pathOfClip = clipId => { const c = state.clips.find(x => (x.item.srcId || x.item.id) === clipId); return c && c.item ? c.item.path : ''; };
+  const SIZE_OF = { wide: 'wide', aerial: 'wide', medium: 'mid', interview: 'mid', 'close-up': 'close', detail: 'close' };
+  const SOUND_BAD = ['wind', 'noise', 'traffic'];
+  /**
+   * A select (or a left-out moment) seen through the footage understanding: {text, shot (close|mid|wide|'' – for shots
+   * with no face to measure), shotName, tags, sounds, bad (sounds that hurt: wind, noise), quality} or null when the
+   * clip hasn't been looked at or listened to – Selects then works from the picture analysis alone, as before.
+   */
+  function known(s, rec) {
+    const U = US.understand;
+    if (!U || !U.describeRange) return null;
+    if (rec === undefined) { const p = pathOfClip(s.clipId); try { rec = p ? U.peek(p) : null; } catch (e) { rec = null; } }
+    if (!rec) return null;
+    const d = U.describeRange(rec, s.start, s.end);
+    const q = rec.sound && rec.sound.label && rec.sound.label !== 'no speech' ? rec.sound.label : '';
+    if (!d && !q) return null;
+    const sounds = d ? d.sounds : [];
+    return { text: d ? d.text : '', shot: d ? SIZE_OF[d.shot] || '' : '', shotName: d ? d.shot : '', tags: d ? d.tags : [], sounds, bad: sounds.filter(x => SOUND_BAD.includes(x)), quality: q, path: rec.path };
+  }
+  /** The shot size of a select: measured from a face when there is one, else what the vision model saw. */
+  const sizeOf = (s, k = known(s)) => (s.shot && s.shot !== 'unknown' ? s.shot : (k && k.shot) || 'unknown');
+  /** Selects matching a search of what's seen and heard (“the market”, “people laughing”), best match first. */
+  function searchSelects(selects, query, recs) {
+    const U = US.understand;
+    if (!U || !String(query || '').trim()) return selects;
+    const list = recs || Array.from(new Set(selects.map(x => pathOfClip(x.clipId)).filter(Boolean))).map(p => U.peek(p)).filter(Boolean);
+    const hits = U.searchRecords(list, query, { limit: 400 });
+    const pathFor = recs ? (x => x.path) : (x => pathOfClip(x.clipId));
+    const scored = [];
+    for (const x of selects) {
+      const p = pathFor(x); let best = 0;
+      for (const hit of hits) if (hit.path === p && Math.min(hit.end, x.end) - Math.max(hit.start, x.start) > 0 && hit.score > best) best = hit.score;
+      if (best) scored.push([best, x]);
+    }
+    return scored.sort((a, b) => b[0] - a[0]).map(x => x[1]);
+  }
+
   /* ---------- what to analyse ---------- */
   async function itemsForBinName(name) {
     const bins = await US.host.call('listBins');
@@ -441,6 +479,7 @@
           h('li', 'Problems: flashes and strobes, auto-exposure “pumping”, colour (white balance) shifts, someone walking through a still shot, long stretches where nothing happens')),
         h('p', h('b', 'How the score works. '), 'Every frame gets a score from 0 to 100. Each check is a multiplier, so one bad thing (say, blur) is enough to pull a moment down. The footage type decides which checks matter: strobes are fine at a concert but not in an interview; travel B-roll wants movement, an interview wants a steady face. Stretches that stay above the “OK” line become selects (split if longer than “Longest select”); a select’s score is mostly its average, pulled down a little by its weakest moments.'),
         h('p', h('b', 'Grades. '), 'BEST, GOOD and OK come from the score lines in Fine-tune. Reveal shots (pull-backs, crane moves, lights coming up) are graded at least GOOD even though they start dark. The top few selects are your “best”: with “Mark the best” they get their own colour (magenta), a ★, and go first.'),
+        h('p', h('b', 'What’s in the shot, and how it sounds. '), 'When the footage has been looked at and listened to (Settings › Vision & listening models – on this computer, or the cloud if you chose it for the project), each select also says what it shows and what can be heard, shots without faces get a shot size from what the vision model saw, wind and noise on the sound are flagged, and you can search the selects in plain words (“the market”, “people laughing”). Without it, Selects works from the picture alone, as it always has.'),
         h('p', h('b', 'What’s remembered. '), 'The measurements for each clip are saved on this computer, so analysing the same clips again is instant, and changing the footage type, “How picky” or any slider re-grades in a fraction of a second without looking at the video again.'),
         h('p', h('b', 'Clips the panel can’t read. '), 'The panel can read H.264 MP4 files. It uses a clip’s proxy if it has one. For formats it can’t read (10-bit 4:2:2 from Lumix and other cameras, iPhone HEVC, ProRes, RAW) it asks Media Encoder for a small 1280×720 “analysis copy”, kept in JMG Ultra Studio’s own folder. These copies are only for looking at, and are not added to your project unless you tick “attach as proxies”. Times always match the original clip.'),
         h('p', h('b', 'What changes in your project. '), 'Nothing, until you press “Make it”. Then everything new goes in a JMG Ultra Studio › Selects bin; your clips and sequences stay as they are (markers and colour labels only if you tick them, and “Remove Selects markers” takes the markers off again).'));
@@ -517,14 +556,16 @@
       /* results */
       const results = h('div.sel-results');
       v.body.append(results);
-      let sortBy = 'score', filter = 'all', limit = 120;
+      let sortBy = 'score', filter = 'all', limit = 120, query = '';
       const outOpts = Object.assign({ sequence: true, order: 'score', perTier: false, subclips: false, markers: false, seqMarkers: false, labels: false, tiers: 'all', markBest: true, byTypeOn: false, groups: ['grade', 'shot', 'move', 'special'], catSequences: false, stills: false }, US.settings.get('selects.output', {}));
       const saveOut = () => US.settings.set('selects.output', outOpts);
       const FILTERS = [
         ['all', 'All selects', () => true], ['cinematic', 'Smooth camera moves', s => !!s.flags.cinematic], ['BEST', 'BEST', s => s.tier === 'BEST'], ['GOOD', 'GOOD', s => s.tier === 'GOOD'], ['OK', 'OK', s => s.tier === 'OK'],
         ['hero', 'The best (★)', s => s.flags.hero], ['reveal', 'Reveals', s => !!s.flags.reveal], ['vertical', 'Good for 9:16', s => s.flags.vertical], ['slowmo', 'Slow-mo candidates', s => s.flags.slowmo],
         ['faces', 'With faces', s => s.faces], ['action', 'Action', s => s.flags.action],
-        ['close', 'Close-ups', s => s.shot === 'close'], ['mid', 'Mid shots', s => s.shot === 'mid'], ['wide', 'Wide shots', s => s.shot === 'wide'],
+        ['close', 'Close-ups', s => sizeOf(s) === 'close'], ['mid', 'Mid shots', s => sizeOf(s) === 'mid'], ['wide', 'Wide shots', s => sizeOf(s) === 'wide'],
+        ['laughter', 'With laughter', s => { const k = known(s); return !!k && k.sounds.includes('laughter'); }], ['applause', 'With applause or cheering', s => { const k = known(s); return !!k && (k.sounds.includes('applause') || k.sounds.includes('cheering')); }], ['music', 'With music', s => { const k = known(s); return !!k && (k.sounds.includes('music') || k.sounds.includes('singing')); }],
+        ['cleansound', 'Clean sound', s => { const k = known(s); return !!k && k.quality === 'clean' && !k.bad.length; }], ['badsound', 'Wind or noise on the sound', s => { const k = known(s); return !!k && (k.bad.length > 0 || k.quality === 'noisy'); }],
         ['static', 'Static', s => s.move === 'static'], ['pan', 'Pans', s => s.move === 'pan'], ['tilt', 'Tilts', s => s.move === 'tilt'], ['push-in', 'Push-ins', s => s.move === 'push-in'], ['pull-out', 'Pull-outs', s => s.move === 'pull-out'], ['handheld', 'Handheld', s => s.move === 'handheld'],
         ['issues', 'With warnings', s => s.issues.length > 0]
       ];
@@ -566,6 +607,14 @@
           if (s.flags.forced) pills.push(ui.pill('Kept by you'));
           for (const iss of s.issues || []) pills.push(ui.pill(iss, '#f2b84b'));
         }
+        // what the footage understanding knows about this moment (nothing when the clip hasn't been looked at)
+        const k = known(s);
+        if (k) {
+          if ((!s.shot || s.shot === 'unknown') && k.shotName && k.shotName !== 'other') pills.push(ui.pill(k.shotName === 'close-up' ? 'Close-up' : k.shotName[0].toUpperCase() + k.shotName.slice(1) + (SIZE_OF[k.shotName] ? ' shot' : ''), 'var(--text-2)'));
+          for (const x of k.sounds.filter(x => !k.bad.includes(x) && x !== 'emphasis').slice(0, 3)) pills.push(ui.pill(US.understand.SOUND_WORDS[x] || x, '#3ecf8e'));
+          for (const x of k.bad) pills.push(ui.pill(US.understand.SOUND_WORDS[x] || x, '#f2b84b'));
+          if (k.quality === 'noisy' && !k.bad.length) pills.push(ui.pill('noisy sound', '#f2b84b'));
+        }
         const toggleBtn = isRej
           ? ui.button('Keep', { small: true, kind: 'ghost', title: 'Keep this moment anyway', onClick: e => { e.stopPropagation(); state.forced = state.forced.filter(f => !(f.clipId === s.clipId && f.mode === 'out' && f.t >= s.start && f.t <= s.end)); state.forced.push({ clipId: s.clipId, mode: 'in', start: s.start, end: s.end }); rescore(); changed(); } })
           : ui.button('', { small: true, kind: 'ghost', icon: 'close', title: 'Leave this one out', onClick: e => { e.stopPropagation(); state.forced = state.forced.filter(f => !(f.clipId === s.clipId && f.mode === 'in' && Math.abs(f.start - s.start) < 0.3)); state.forced.push({ clipId: s.clipId, mode: 'out', t: (s.start + s.end) / 2 }); rescore(); changed(); } });
@@ -576,7 +625,8 @@
           h('div.list-main',
             h('div.list-title', `${s.clipName} · ${US.fmtDur(s.start, true)}–${US.fmtDur(s.end, true)}`),
             pills.length ? h('div.sel-pills', pills) : null,
-            h('div.list-sub', { title: (isRej ? s.why : s.reasons.join(' · ')) + where }, (isRej ? s.why : s.reasons.join(' · ')) + where)),
+            h('div.list-sub', { title: (isRej ? s.why : s.reasons.join(' · ')) + where }, (isRej ? s.why : s.reasons.join(' · ')) + (k && k.bad.length ? ` · sound: ${k.bad.map(x => US.understand.SOUND_WORDS[x] || x).join(', ')}` : '') + where),
+            k && k.text ? h('div.list-sub.sel-seen', { title: k.text }, US.keep(k.text)) : null),
           h('div.sel-right', !isRej && h('span.sel-score', String(s.score)), toggleBtn));
       }
 
@@ -606,12 +656,21 @@
           value: filter, onChange: x => { filter = x; limit = 120; render(); }
         });
         card.appendChild(h('div.grid2', ui.field('Sort', sortSel), ui.field('Show', filt)));
+        // search by what's in the shots and how they sound – only once something has been looked at or listened to
+        const U = US.understand, anyKnown = !!U && r.selects.concat(r.rejected).some(x => known(x));
+        if (U) {
+          const box = ui.input({ value: query, placeholder: anyKnown ? 'Search what’s in the shots – “the market”, “people laughing”' : 'Search by what’s in the shots – once the footage has been looked at', onEnter: x => { query = String(x || '').trim(); limit = 120; render(); } });
+          card.appendChild(h('div.sel-search', h('div.row', h('div.grow', box), query ? ui.button('Clear', { small: true, kind: 'ghost', onClick: () => { query = ''; render(); } }) : ui.button('Search', { small: true, onClick: () => { query = String((box.querySelector('input') || box).value || '').trim(); limit = 120; render(); } })),
+            US.understandUI && US.understandUI.chip ? US.understandUI.chip({ compact: true }) : null,
+            anyKnown ? null : h('div.field-hint', 'Selects is grading from the picture alone (focus, exposure, steadiness, faces, moves). When the clips have been looked at and listened to – Settings › Vision & listening models – each select also says what’s in it and how it sounds, shots without faces get a shot size, and this search works.')));
+        }
         let rows;
         if (filter === 'rejected') rows = r.rejected.slice().sort((a, b) => a.clipName.localeCompare(b.clipName, undefined, { numeric: true }) || a.start - b.start);
         else { const f = (FILTERS.find(x => x[0] === filter) || FILTERS[0])[2]; rows = V().order(r.selects.filter(f), sortBy); }
+        if (query) rows = searchSelects(rows, query);
         const list = h('div.list');
         rows.slice(0, limit).forEach(s => list.appendChild(row(s, filter === 'rejected')));
-        card.appendChild(rows.length ? list : ui.empty({ icon: 'info', title: 'Nothing here', text: filter === 'rejected' ? 'Every moment made the cut.' : 'Try looser settings or another filter.' }));
+        card.appendChild(rows.length ? list : ui.empty({ icon: 'info', title: 'Nothing here', text: query ? `Nothing seen or heard matches “${query}” here. Clips that haven’t been looked at yet can’t be found this way.` : filter === 'rejected' ? 'Every moment made the cut.' : 'Try looser settings or another filter.' }));
         if (rows.length > limit) card.appendChild(ui.button(`Show ${Math.min(200, rows.length - limit)} more`, { small: true, kind: 'ghost', onClick: () => { limit += 200; render(); } }));
         results.appendChild(card);
         results.appendChild(outputCard(r));
@@ -667,12 +726,15 @@
       }
 
       listeners.add(render);
+      // a clip that has just been looked at or listened to shows up in the list without pressing anything
+      let lastDone = -1;
+      US.bus.on('understand', st => { if (st && st.done !== lastDone && state.result && v.el.isConnected !== false) { lastDone = st.done; render(); } });
       render(); countPicky();
       return { el: v.el, onShow() { render(); countPicky(); } };
     }
   });
 
-  US.selects = { applyType, state, rescore, effective, makeOutputs, bestFrame, runPlan, planForItems, planForSequence, copyFailed, removeMarkers, saveSettings,
+  US.selects = { known, sizeOf, searchSelects, applyType, state, rescore, effective, makeOutputs, bestFrame, runPlan, planForItems, planForSequence, copyFailed, removeMarkers, saveSettings,
     /** Older callers (and tests): analyse items with the current settings. */
     analyse: (items, label, job) => runPlan(planForItems(items, label), job) };
 })();
