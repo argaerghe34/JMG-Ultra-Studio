@@ -190,8 +190,9 @@
     ], { duration: 4 }),
 
     // ----- overlays: drawn by the painter (procedural), no text -----
-    { id: 'grain', group: 'overlays', kind: 'overlay', label: 'Film grain', sub: 'fine moving grain', paint: 'grain', duration: 5, blend: 'overlay', alpha: 0.35 },
-    { id: 'dust', group: 'overlays', kind: 'overlay', label: 'Dust & scratches', sub: 'specks and hairs', paint: 'dust', duration: 5, blend: 'screen', alpha: 0.7 },
+    // film: true – a moving overlay: drawn frame by frame (FILM below) and placed as one clip, like the animated titles
+    { id: 'grain', group: 'overlays', kind: 'overlay', label: 'Film grain', sub: 'fine moving grain, new on every frame', paint: 'grain', film: true, duration: 5, blend: 'overlay', alpha: 0.35 },
+    { id: 'dust', group: 'overlays', kind: 'overlay', label: 'Dust & scratches', sub: 'specks, hairs and scratches that come and go', paint: 'dust', film: true, duration: 5, blend: 'screen', alpha: 0.7 },
     { id: 'vignette', group: 'overlays', kind: 'overlay', label: 'Vignette', sub: 'darker edges', paint: 'vignette', duration: 5, blend: 'normal', alpha: 0.8 },
     { id: 'leakwarm', group: 'overlays', kind: 'overlay', label: 'Warm light leak', sub: 'an orange wash from the side', paint: 'leak', warm: true, duration: 3, blend: 'screen', alpha: 0.8, anim: 'drift' },
     { id: 'leakcool', group: 'overlays', kind: 'overlay', label: 'Cool light leak', sub: 'a blue wash from the top', paint: 'leak', warm: false, duration: 3, blend: 'screen', alpha: 0.7, anim: 'drift' },
@@ -232,7 +233,7 @@
     { id: 'trleak', group: 'transitions', kind: 'transition', label: 'Light leak', sub: 'a warm wash over the cut', overlay: 'leakwarm', seconds: 1, transition: 'Cross Dissolve' },
     { id: 'trflash', group: 'transitions', kind: 'transition', label: 'Flash', sub: 'a white flash on the cut', overlay: 'flash', seconds: 0.4, transition: 'Dip to White' },
     { id: 'trburn', group: 'transitions', kind: 'transition', label: 'Film burn', sub: 'the frame burns through', overlay: 'burn', seconds: 1, transition: 'Cross Dissolve' },
-    { id: 'trgrain', group: 'transitions', kind: 'transition', label: 'Grain dip', sub: 'grain swells over the cut', overlay: 'grain', seconds: 1, transition: 'Cross Dissolve' },
+    { id: 'trgrain', group: 'transitions', kind: 'transition', label: 'Grain dip', sub: 'moving grain swells over the cut', overlay: 'grain', seconds: 1, transition: 'Cross Dissolve' },
     { id: 'trdissolve', group: 'transitions', kind: 'transition', label: 'Cross dissolve', sub: 'the classic mix', seconds: 1, transition: 'Cross Dissolve' },
     { id: 'trblack', group: 'transitions', kind: 'transition', label: 'Dip to black', sub: 'out and back in', seconds: 1, transition: 'Dip to Black' },
 
@@ -334,9 +335,12 @@
     ctx.save();
     if (kind === 'grain') {
       const cell = Math.max(1, Math.round(W / 480)), id = ctx.createImageData(Math.ceil(W / cell), Math.ceil(H / cell)), d = id.data;
-      for (let i = 0; i < d.length; i += 4) { const g = 128 + (rand() - 0.5) * 140; d[i] = d[i + 1] = d[i + 2] = g; d[i + 3] = Math.round(255 * a); }
+      const breathe = opts.loop ? 0.9 + 0.1 * rand() : 1;   // moving film: the grain's strength wavers a little from frame to frame
+      for (let i = 0; i < d.length; i += 4) { const g = 128 + (rand() - 0.5) * 140; d[i] = d[i + 1] = d[i + 2] = g; d[i + 3] = Math.round(255 * a * breathe); }
       const c = document.createElement('canvas'); c.width = id.width; c.height = id.height; c.getContext('2d').putImageData(id, 0, 0);
       ctx.imageSmoothingEnabled = false; ctx.drawImage(c, 0, 0, W, H);
+    } else if (kind === 'dust' && opts.loop) {
+      paintDustFilm(ctx, W, H, a, Math.round(opts.frame || 0), Math.round(opts.loop));
     } else if (kind === 'dust') {
       ctx.globalAlpha = a;
       for (let i = 0; i < 90; i++) { ctx.fillStyle = `rgba(255,250,240,${0.3 + rand() * 0.7})`; ctx.beginPath(); ctx.arc(rand() * W, rand() * H, rand() * rand() * W * 0.0025 + 0.6, 0, 7); ctx.fill(); }
@@ -397,6 +401,48 @@
     ctx.restore();
   }
 
+  /* ---------- film that moves: grain re-seeded on every frame; dust and scratches that come and go ---------- */
+  // How long each moving overlay runs before it repeats (seconds of frames that are all different). Grain repeating
+  // after a second can't be seen; dust needs longer, or the same hair is noticed coming round again.
+  const FILM = { grain: { loopSec: 1 }, dust: { loopSec: 4 } };
+  /**
+   * The frames a moving overlay needs for `seconds` at `fps`: `loop` different frames, then the same ones again.
+   * -> {loop, total, of: i => which loop frame the clip's i-th frame shows}
+   */
+  function filmPlan(preset, seconds, fps) {
+    const f = Number(fps) || 25, spec = FILM[preset.paint] || { loopSec: 2 }, total = Math.max(2, Math.round(Number(seconds) * f)), loop = Math.max(2, Math.min(total, Math.round(spec.loopSec * f)));
+    return { loop, total, of: i => i % loop };
+  }
+  /**
+   * Dust and scratches as on real film, frame n of a loop of L: every speck, hair and scratch is born on one frame and
+   * lives a frame or two (specks, hairs) or a short while (a scratch, wandering sideways as the film runs); the whole
+   * layer weaves a pixel or so, like film in the gate. Everything is decided by the frame it was born on, so the loop
+   * joins up and the same frame always looks the same.
+   */
+  function paintDustFilm(ctx, W, H, a, n, L) {
+    const age = b => ((n - b) % L + L) % L;   // frames since something born on frame b appeared (round the loop)
+    const wv = rng(n * 131 + 5), wx = (wv() - 0.5) * W * 0.0016, wy = (wv() - 0.5) * H * 0.0026;
+    ctx.globalAlpha = a; ctx.translate(wx, wy); ctx.lineCap = 'round';
+    for (let b = 0; b < L; b++) {
+      const r = rng(b * 7919 + 101), g = age(b);
+      const specks = 2 + Math.floor(r() * 7);
+      for (let i = 0; i < specks; i++) {
+        const life = r() < 0.75 ? 1 : 2, x = r() * W, y = r() * H, rad = r() * r() * W * 0.003 + 0.6, al = 0.3 + r() * 0.7;
+        if (g < life) { ctx.fillStyle = `rgba(255,250,240,${al})`; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill(); }
+      }
+      const blotch = r() < 0.05, bx = r() * W, by = r() * H, br = (0.004 + r() * 0.006) * W, bal = 0.25 + r() * 0.4, brot = r() * 3;
+      if (blotch && g < 1) { ctx.fillStyle = `rgba(255,248,235,${bal})`; ctx.beginPath(); if (ctx.ellipse) ctx.ellipse(bx, by, br, br * 0.6, brot, 0, 7); else ctx.arc(bx, by, br, 0, 7); ctx.fill(); }
+      const hair = r() < 0.14, hl = 2 + Math.floor(r() * 2), hx = r() * W, hy = r() * H, hlen = (0.05 + r() * 0.25) * H, c1 = (r() - 0.5) * W * 0.05, c2 = (r() - 0.5) * W * 0.05, c3 = (r() - 0.5) * W * 0.025, hal = 0.25 + r() * 0.5, hw = 1 + r() * 1.5;
+      if (hair && g < hl) { ctx.strokeStyle = `rgba(255,255,255,${hal})`; ctx.lineWidth = hw * Math.max(1, W / 1920); ctx.beginPath(); ctx.moveTo(hx, hy); ctx.bezierCurveTo(hx + c1, hy + hlen / 3, hx + c2, hy + 2 * hlen / 3, hx + c3, hy + hlen); ctx.stroke(); }
+      const scratch = r() < 0.035, sl = 5 + Math.floor(r() * 22), sx = r() * W, drift = (r() - 0.5) * W * 0.0006, y1 = r() < 0.5 ? 0 : r() * H * 0.5, y2 = r() < 0.5 ? H : H * (0.5 + r() * 0.5), sal = 0.18 + r() * 0.3;
+      if (scratch && g < sl) {
+        const j = rng(b * 31 + g * 17 + 3), x = sx + drift * g + (j() - 0.5) * W * 0.0015;
+        ctx.strokeStyle = `rgba(255,255,255,${sal * (0.6 + 0.4 * j())})`; ctx.lineWidth = Math.max(1, W / 1920);
+        ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x + (j() - 0.5) * W * 0.002, y2); ctx.stroke();
+      }
+    }
+  }
+
   /* ---------- the plan: what each editor is asked to do ---------- */
   /** Where a text layer sits in pixels. measure(font css, text) -> width px (a canvas in the panel; a guess in tests). */
   function textPlacement(L, values, W, H, measure) {
@@ -444,5 +490,5 @@
   /** A short file-safe tag of the values, so the same picture is painted once. */
   function hashOf(obj) { let h = 2166136261; for (const ch of JSON.stringify(obj)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h.toString(36); }
 
-  US.mvfxPack = { PRESETS, GROUPS, FAMILIES, ROLES, PREFER, DOC, byId, defaults, wordsOf, available, psName, paint, paintArt, premiereLayers, textPlacement, moveKeys, readiness, hashOf, rng, ease, wrap, cssFont, hexToRgb, fontFor };
+  US.mvfxPack = { PRESETS, GROUPS, FAMILIES, ROLES, PREFER, DOC, FILM, byId, defaults, wordsOf, available, psName, paint, paintArt, paintDustFilm, filmPlan, premiereLayers, textPlacement, moveKeys, readiness, hashOf, rng, ease, wrap, cssFont, hexToRgb, fontFor };
 })();

@@ -159,3 +159,26 @@ test('a short tag of the values, stable and file-safe', () => {
   const a = P.hashOf({ id: 'x', v: 1 }), b = P.hashOf({ id: 'x', v: 1 }), c = P.hashOf({ id: 'x', v: 2 });
   assert.strictEqual(a, b); assert.notStrictEqual(a, c); assert.ok(/^[0-9a-z]+$/.test(a));
 });
+
+test('film that moves: a loop of different frames, then the same again; dust is born on a frame and lives a frame or two; the same frame always looks the same', () => {
+  const grain = P.byId('grain'), dust = P.byId('dust');
+  assert.ok(grain.film && dust.film && !P.byId('vignette').film);
+  const g = P.filmPlan(grain, 5, 25), d = P.filmPlan(dust, 5, 25);
+  assert.deepStrictEqual([g.loop, g.total, g.of(0), g.of(25), g.of(26)], [25, 125, 0, 0, 1]);
+  assert.deepStrictEqual([d.loop, d.total], [100, 125]);
+  assert.strictEqual(P.filmPlan(dust, 1, 25).loop, 25, 'never more frames than the clip has');
+  const film = () => { const c = ctx(); c.translate = () => {}; c.ellipse = () => {}; c.specks = []; c.arc = (x, y) => c.specks.push(Math.round(x) + ',' + Math.round(y)); c.moveTo = (x, y) => c.calls.push(['from', Math.round(x), Math.round(y)]); return c; };
+  const shot = n => { const c = film(); P.paint(c, 1920, 1080, dust, { alpha: 1 }, { text: false, frame: n, loop: 100 }); return c; };
+  assert.strictEqual(shot(7).specks.join(' '), shot(7).specks.join(' '), 'the same frame twice is the same picture');
+  const frames = Array.from({ length: 100 }, (_, n) => shot(n).specks.join(' '));
+  assert.ok(new Set(frames).size >= 99, 'every frame of the loop is different: ' + new Set(frames).size);
+  const a = shot(10).specks, later = shot(13).specks;
+  assert.ok(a.length >= 2 && a.length < 40, 'a few specks a frame, not ninety at once: ' + a.length);
+  assert.ok(!a.some(x => later.includes(x)), 'none of frame 10’s specks is still there on frame 13');
+  assert.ok(Array.from({ length: 100 }, (_, n) => shot(n).calls.filter(x => x[0] === 'stroke').length).some(n => n > 0), 'hairs and scratches come by');
+  // the still picture (no loop asked for) is what it always was
+  const still = ctx(); P.paint(still, 640, 360, dust, null, { frame: 1 }); assert.ok(still.calls.filter(x => x[0] === 'fill').length === 90);
+  // grain: a new pattern on every frame
+  const pattern = n => { const c = ctx(), made = []; c.createImageData = (w, h) => { const o = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; made.push(o); return o; }; P.paint(c, 480, 270, grain, { alpha: 1 }, { text: false, frame: n, loop: 25 }); return Array.from(made[0].data.slice(0, 64)).join(','); };
+  assert.notStrictEqual(pattern(0), pattern(1)); assert.strictEqual(pattern(3), pattern(3));
+});

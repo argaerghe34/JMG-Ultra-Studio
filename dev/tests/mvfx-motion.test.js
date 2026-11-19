@@ -120,3 +120,24 @@ test('the frames of a clip: every frame of the entrance and exit drawn, the stil
   const d = P.defaults(P.byId('mk-note'));
   assert.strictEqual(d.opt.side, 'right'); assert.strictEqual(d.shadow, 0.4); assert.strictEqual(d.fonts.hand, 'Comic Sans MS');
 });
+
+test('the words as the editor’s own text layers: each piece of text with its place inside the frame, face, size and colour; the drawing can leave the words out', () => {
+  const p = P.byId('nm-rule'), v = values(p, { name: 'Mira Haddad', role: 'Nurse' }), c = ctx(), s = M.prepare(c, 1920, 1080, p, v, 5);
+  const texts = M.nativeText(s);
+  assert.strictEqual(texts.length, 2, JSON.stringify(texts.map(t => t.text)));
+  assert.deepStrictEqual(texts.map(t => t.text).sort(), ['MIRA HADDAD', 'NURSE'], 'small capitals arrive as capitals');
+  for (const t of texts) {
+    assert.ok(t.cx > 0 && t.cx < 1920 && t.cy > 1080 * 0.6 && t.cy < 1080, `in the lower third: ${t.cx}, ${t.cy}`);
+    assert.ok(t.px >= 12 && t.width > 20 && t.family && /^#|rgb/.test(t.colour), JSON.stringify(t));
+    assert.ok(/^(fade|rise)$/.test(t.anim.type) && t.anim.inSec >= 0.3 && t.anim.delay >= 0);
+  }
+  assert.ok(M.hasArt(s), 'Ruled has its rule');
+  // art only: the same scene without its letters
+  const art = M.prepare(c, 1920, 1080, p, v, 5, { text: false }); c.calls.length = 0; M.draw(c, art, M.holdTime(art));
+  assert.strictEqual(c.calls.filter(x => x[0] === 'text').length, 0, 'no letters drawn');
+  assert.ok(c.calls.some(x => x[0] === 'stroke'), 'the rule still is');
+  // every preset gives a plan without throwing; a wrapped paragraph stays one layer
+  let para = 0;
+  for (const q of M.PRESETS) { const sq = M.prepare(ctx(), 1920, 1080, q, values(q), q.duration); for (const t of M.nativeText(sq)) { assert.ok(t.text.trim() && isFinite(t.cx) && isFinite(t.cy) && t.px > 0, q.id + ': ' + JSON.stringify(t)); if (/\n/.test(t.text)) para++; } }
+  assert.ok(para >= 1, 'a quote or statement keeps its lines in one layer');
+});

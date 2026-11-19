@@ -611,8 +611,39 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       await new Promise(r => setTimeout(r, 60));
       const mv = calls.filter(c => c[0] === 'mvfxMove');
       if (mv.length !== 1 || mv[0][1].keys.length !== 2 || mv[0][1].keys[1].scale !== 112 || mv[0][1].targets[0].start !== 4) errors.push('mvfx: push in keys ' + JSON.stringify(mv.map(c => c[1])));
+      // nothing selected: the move goes on the clip under the playhead, and says so
+      calls.length = 0;
+      US.host.call = async (fn, a) => { calls.push([fn, a]); if (fn === 'sequenceInfo') return { id: 's1', name: 'Cut', fps: 25, width: 1920, height: 1080, duration: 30 }; if (fn === 'editRead') return { fps: 25, video: [{ index: 0, name: 'Video 1', clips: [{ start: 0, end: 4 }, { start: 4, end: 9 }] }, { index: 1, name: 'mVFX 1', clips: [{ start: 0, end: 9 }] }], audio: [] }; if (fn === 'editSelection') return []; if (fn === 'mvfxMove') return { done: 1, skipped: [] }; return wasCall(fn, a); };
+      mt.el.querySelector('.mvfx-bar .btn.primary').click();
+      await new Promise(r => setTimeout(r, 60));
+      const under = calls.filter(c => c[0] === 'mvfxMove');
+      if (under.length !== 1 || under[0][1].targets[0].track !== 0 || under[0][1].targets[0].start !== 0 || !/under the playhead/.test(mt.el.querySelector('.pad-status').textContent)) errors.push('mvfx: clip under the playhead ' + JSON.stringify(under.map(c => c[1].targets)) + ' ' + mt.el.querySelector('.pad-status').textContent);
+      // a double-click on a tile adds it, and so does its +; the bar with the chosen preset and the button is always there
+      calls.length = 0;
+      const tileOf = re => Array.from(mt.el.querySelectorAll('.mvfx-tile')).find(t => re.test(t.textContent));
+      tileOf(/Pull out/).dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 60));
+      if (calls.filter(c => c[0] === 'mvfxMove').length !== 1 || calls.find(c => c[0] === 'mvfxMove')[1].keys[0].scale !== 112) errors.push('mvfx: a double-click didn’t apply Pull out ' + JSON.stringify(calls.map(c => c[0])));
+      if (!/Pull out/.test(mt.el.querySelector('.mvfx-bar-name').textContent) || !tileOf(/Pull out/).classList.contains('on')) errors.push('mvfx: the bar doesn’t show the chosen preset: ' + mt.el.querySelector('.mvfx-bar').textContent);
+      calls.length = 0;
+      tileOf(/Pan left/).querySelector('.mvfx-tile-add').click();
+      await new Promise(r => setTimeout(r, 60));
+      if (calls.filter(c => c[0] === 'mvfxMove').length !== 1) errors.push('mvfx: a tile’s + didn’t apply ' + JSON.stringify(calls.map(c => c[0])));
+      if (mt.el.querySelector('.mvfx-bar') !== mt.el.querySelector('.tool-body').lastElementChild) errors.push('mvfx: the bar isn’t the last thing in the view');
+      // every preset of every group: its settings show without a stray “null” or “undefined”, tiles can be dragged
+      US.host.call = wasCall;
+      for (const g of Array.from(groups)) {
+        g.click(); await new Promise(r => setTimeout(r, 5));
+        for (const t of Array.from(mt.el.querySelectorAll('.mvfx-tile'))) {
+          t.click();
+          const bad = /\bnull\b|\bundefined\b|NaN|\[object /.exec(mt.el.textContent);
+          if (bad) errors.push(`mvfx: “${bad[0]}” on screen for ${t.dataset.preset}: …${mt.el.textContent.slice(Math.max(0, bad.index - 40), bad.index + 30)}…`);
+          if (!t.querySelector('.mvfx-tile-add') || (t.getAttribute('draggable') !== 'true' && !t.classList.contains('off'))) errors.push('mvfx: tile without + or drag: ' + t.dataset.preset);
+        }
+      }
+      if (!Array.from(mt.el.querySelectorAll('.mvfx-badge')).length) errors.push('mvfx: Plain text tiles don’t say their text is editable');
     } finally { US.host.call = wasCall; for (const k of Object.keys(US.settings.all()).filter(k => k.startsWith('mvfx.'))) US.settings.set(k, undefined); }
-    checks.push(`mvfx: ${tiles.length} animated names, ${groups.length} groups, Ruled → 125 frames as one clip, Tag → 2 text layers, Push in → keyframes`);
+    checks.push(`mvfx: ${tiles.length} animated names, ${groups.length} groups, Ruled → 125 frames as one clip, Tag → 2 text layers, Push in → keyframes, double-click and + apply, no “null” in any of 95 presets`);
   }
   if (errors.length) { console.log('✗ UI smoke test\n  ' + errors.join('\n  ')); process.exit(1); }
   console.log('✓ UI smoke test · ' + checks.join(' · '));

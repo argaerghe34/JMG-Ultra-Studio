@@ -291,7 +291,7 @@
    * ctx only measures here. v: the values (text, colours, fonts, scale, dx, dy, shadow, rot, stretch, opt).
    * -> {W, H, unit, total, outSec, inEnd, outStart, busy:[[from, to]], items:[…], shadow}
    */
-  function prepare(ctx, W, H, preset, v, total) {
+  function prepare(ctx, W, H, preset, v, total, opts) {
     total = Math.max(0.6, Number(total || v.duration || preset.duration || 5));
     const outSec = Math.min(preset.outSec || 0.7, total * 0.4), outStart = total - outSec;
     const unit = Math.min(H, W * 9 / 16), sc = Number(v.scale) || 1, ax = preset.anchor[0], ay = preset.anchor[1];
@@ -305,7 +305,8 @@
     const fonts = Object.assign({ serif: 'Georgia', sans: 'Arial', mono: 'Courier New', hand: 'cursive' }, v.fonts || {});
     const colour = role => (v.colours && v.colours[role]) || { text: '#f4f1ea', muted: '#b9b4a8', accent: '#c9a96a' }[role] || role || '#f4f1ea';
     const src = preset.build ? preset.build(v, total) : preset.items;
-    const scene = { W, H, unit, total, outSec, outStart, inEnd: 0, busy: [], items: [], shadow: v.shadow != null ? Number(v.shadow) : (preset.shadow || 0) };
+    // opts.text === false: the words are left out of the drawing (they go on as the editor's own text layers instead)
+    const scene = { W, H, unit, total, outSec, outStart, inEnd: 0, busy: [], items: [], shadow: v.shadow != null ? Number(v.shadow) : (preset.shadow || 0), noText: !!(opts && opts.text === false) };
     const wCache = {};
     const width = (font, s) => { const k = font + '|' + s; if (wCache[k] == null) { ctx.font = font; wCache[k] = ctx.measureText(s).width; } return wCache[k]; };
     const seen = t => { if (t > scene.inEnd) scene.inEnd = t; };
@@ -313,12 +314,12 @@
     src.forEach((it, index) => {
       const at = Number(it.at) || 0;
       if (it.t === 'text') {
-        const spans = (it.spans || [it]).map(sp => ({ sp, s: textOf(sp, v) }));
+        const spans = (it.spans || [it]).map((sp, si) => ({ sp, s: textOf(sp, v), si }));
         if (!spans.some(x => x.s.trim())) return;
         // letters with their own size and face
         const glyphLine = (parts) => {   // parts: [{sp, s}] -> {glyphs, w}
           const gs = []; let x = 0;
-          for (const { sp, s } of parts) {
+          for (const { sp, s, si } of parts) {
             const base = Math.max(4, Math.round((sp.size || it.size) * unit * sc)), family = fonts[sp.role || it.role || 'serif'] || fonts.serif;
             const tr = (sp.track != null ? sp.track : it.track || 0) * base, caps = sp.caps || it.caps, o = { bold: sp.bold || it.bold, italic: sp.italic || it.italic };
             const kern = caps !== 'small';   // one face and size: measure the run so far, so pairs keep their fit
@@ -330,7 +331,7 @@
               let gx, adv;
               if (kern) { gx = x0 + width(fontFull, run) + tr * Array.from(run).length; run += ch; adv = x0 + width(fontFull, run) + tr * Array.from(run).length - gx; x = gx + adv; }
               else { gx = x; adv = width(font, ch) + tr; x += adv; }
-              gs.push({ ch, x: gx, adv, font, px: lower ? Math.round(base * 0.8) : base, base, colour: colour(sp.colour || it.colour || 'text'), space: !ch.trim(), n });
+              gs.push({ ch, x: gx, adv, font, px: lower ? Math.round(base * 0.8) : base, base, colour: colour(sp.colour || it.colour || 'text'), space: !ch.trim(), n, si: si || 0, family, bold: !!o.bold, italic: !!o.italic, track: sp.track != null ? sp.track : it.track || 0, fontFull });
             }
             if (gs.length) x -= tr;   // no spacing after a run's last letter
             x += tr;
@@ -378,7 +379,27 @@
         });
         seen(at + spread + dur + (reveal === 'roll' ? n * 0.07 : 0));
         if (it.until != null) scene.busy.push([until - 0.05, until + fade + 0.05]);
-        scene.items.push({ t: 'text', reveal, glyphs: ink, blur: reveal === 'letters' ? 0.14 : reveal === 'fade' ? 0.06 : 0, rise: reveal === 'rise' ? basePx * 0.35 : 0, box: { x: Math.min(...glyphs.map(g => g.x)), y: top - basePx * 0.6, w: blockW, h: rows.length * lh }, lh: basePx * 1.15 });
+        // the same words as the editor's own text layers (one per style on a line; a paragraph stays one layer):
+        // where each sits (its middle, in pixels), its face, size and colour, and a simple way in
+        const native = [], groups = new Map();
+        for (const g of glyphs) { const key = it.spans ? g.line + ':' + g.si : 'all'; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(g); }
+        for (const gs of groups.values()) {
+          const inkG = gs.filter(g => !g.space);
+          if (!inkG.length) continue;
+          let text = '', line = gs[0].line;
+          for (const g of gs) { if (g.line !== line) { text = text.replace(/\s+$/, '') + '\n'; line = g.line; } text += g.ch; }
+          text = text.replace(/^\s+|\s+$/g, '');
+          const x0 = Math.min(...inkG.map(g => g.x)), x1 = Math.max(...inkG.map(g => g.x + width(g.font, g.ch))), y0 = Math.min(...inkG.map(g => g.y)), y1 = Math.max(...inkG.map(g => g.y));
+          const first = inkG[0], base = Math.max(...inkG.map(g => g.base));
+          let size = base;
+          if (inkG.some(g => g.px < g.base)) {   // small capitals: one size that makes the line as wide as drawn
+            const natural = width(first.fontFull, text.replace(/\n/g, ' ')) + first.track * base * Math.max(0, Array.from(text).length - 1);
+            size = Math.round(base * Math.min(1, Math.max(0.7, natural > 0 && y1 === y0 ? (x1 - x0) / natural : 0.85)));
+          }
+          native.push({ text, family: first.family, bold: first.bold, italic: first.italic, px: size, colour: first.colour, cx: Math.round((x0 + x1) / 2), cy: Math.round((y0 + y1) / 2 - size * 0.34), width: Math.round(x1 - x0), tracking: first.track,
+            anim: { type: reveal === 'rise' ? 'rise' : 'fade', delay: Math.round(at * 100) / 100, inSec: Math.round(Math.max(0.3, Math.min(1.5, spread + dur)) * 100) / 100, outSec, dx: 0, dy: reveal === 'rise' ? Math.round(basePx * 0.35) : 0 } });
+        }
+        scene.items.push({ t: 'text', reveal, native, glyphs: ink, blur: reveal === 'letters' ? 0.14 : reveal === 'fade' ? 0.06 : 0, rise: reveal === 'rise' ? basePx * 0.35 : 0, box: { x: Math.min(...glyphs.map(g => g.x)), y: top - basePx * 0.6, w: blockW, h: rows.length * lh }, lh: basePx * 1.15 });
         return;
       }
       const dur = it.dur != null ? it.dur : 0.8, lw = Math.max(1, (it.w || 0.002) * unit * Math.sqrt(sc));
@@ -420,6 +441,7 @@
     shadow(true);
     for (const it of scene.items) {
       if (it.t === 'text') {
+        if (scene.noText) continue;
         for (const g of it.glyphs) {
           const p = easeOut((t - g.start) / g.dur), out = 1 - easeIn((t - g.outStart) / g.outDur);
           if (g.digit != null) { rollDigit(ctx, it, g, t, out); continue; }
@@ -536,5 +558,10 @@
     return { roles: Array.from(roles), colours: Array.from(colours).filter(c => /^(text|muted|accent)$/.test(c)) };
   }
 
-  US.mvfxMotion = { PRESETS, GROUPS, TILE, uses, prepare, draw, frames, holdTime, parseDate, weekday, ring, wobble, smooth, rng, easeOut, easeIn, easeInOut, cssFont, rgba };
+  /** The words of a scene as text layers for the editor: [{text, family, bold, italic, px, colour, cx, cy, width, tracking, anim}]. */
+  const nativeText = scene => scene.items.filter(it => it.t === 'text').reduce((out, it) => out.concat(it.native || []), []);
+  /** Is there anything but words in a scene (rules, strokes, bars) – what's still drawn when the words go on as text layers. */
+  const hasArt = scene => scene.items.some(it => it.t !== 'text');
+
+  US.mvfxMotion = { PRESETS, GROUPS, TILE, uses, prepare, draw, frames, holdTime, nativeText, hasArt, parseDate, weekday, ring, wobble, smooth, rng, easeOut, easeIn, easeInOut, cssFont, rgba };
 })();
