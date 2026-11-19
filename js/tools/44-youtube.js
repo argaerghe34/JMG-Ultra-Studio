@@ -97,7 +97,10 @@
     if (o.signedIn) a.push(...signInArgs(o));
     if (q === 'audio') a.push('-f', 'ba[ext=m4a]/ba', '-x', '--audio-format', 'm4a');
     else if (q === 'best') a.push('-f', 'bv*+ba/b', '-S', 'res,fps', '--merge-output-format', 'mkv', '--recode-video', 'mp4', '--postprocessor-args', 'VideoConvertor:-c:v libx264 -crf 18 -preset fast -pix_fmt yuv420p -c:a aac -b:a 192k');
-    else a.push('-f', 'bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*[vcodec^=avc1]+ba/bv*+ba/b', '-S', 'res:1080,vcodec:h264,fps', '--merge-output-format', 'mp4');
+    else {
+      const mh = [720, 1080].includes(+o.maxHeight) ? +o.maxHeight : 1080;   // B-roll finder's “Up to 720p” (js/tools/47-brollfinder.js); 1080 otherwise, as before
+      a.push('-f', `bv*[vcodec^=avc1][height<=${mh}]+ba[ext=m4a]/b[ext=mp4]/bv*[vcodec^=avc1]+ba/bv*+ba/b`, '-S', `res:${mh},vcodec:h264,fps`, '--merge-output-format', 'mp4');
+    }
     a.push('--', url);
     return a;
   }

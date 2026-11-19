@@ -13,8 +13,8 @@
   US.PAUSED_TOOLS = window.US_SHOW_PAUSED || (US.settings && US.settings.get('showHidden', false)) ? [] : ['colour', 'cameras', 'broll', 'sound', 'memorybox', 'songs'];   // Settings › a code shows them
   /** Tools that live in the Advanced tab instead of the rail (the user asked, 9 Nov 2026): niche ones, opened from there.
       The paused tools above are there too, under "In development", unless the Settings code puts them back on the rail.
-      'youtube' is Download (19 Nov 2026: off the rail – star it to put it back). */
-  US.ADVANCED_TOOLS = ['selects', 'subclips', 'mcselects', 'takes', 'podcast', 'mvfx', 'youtube'];
+      'youtube' is Download (19 Nov 2026: off the rail – star it to put it back). brollfinder: B-roll finder (js/tools/47-brollfinder.js). */
+  US.ADVANCED_TOOLS = ['selects', 'subclips', 'mcselects', 'takes', 'podcast', 'mvfx', 'brollfinder', 'youtube'];
   /** Is it a tab of its own on the rail and on Home (not hidden, not in Advanced, not in development)? */
   US.onRail = d => !!d && !d.hidden && !US.PAUSED_TOOLS.includes(d.id) && !US.ADVANCED_TOOLS.includes(d.id);
   /** The tab a tool is reached from: Advanced for the tools kept there. */
