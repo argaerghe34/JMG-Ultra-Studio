@@ -45,7 +45,7 @@ Use a tab a lot? Press the **☆** beside its title to give it its own button on
 
 - **Updates** is at the top: one button, **Check for updates and install**.
 - **AI (optional)** – add a Claude or Gemini key if you want AI. Everything works without one, and you can use a model on this computer instead.
-- **Vision & listening models** – choose who may look at and listen to your footage, project by project.
+- **Vision & listening models** – choose who may look at and listen to your footage, project by project. Its **Models on this computer** part lists every model on your computer once and has one picker for each of three jobs: reading and writing, looking at footage, listening. Ultra Studio downloads its own looking and listening models when you press Download; models you have in Ollama or LM Studio show there too.
 - **Take the tour** – a one-minute tour, and the **Full guide**, which walks through every tab step by step.
 - **Quick start** opens this page again.
 
@@ -56,7 +56,7 @@ Search everything with **⌘K** (Ctrl+K on Windows).
 Your footage stays on your computer unless you choose otherwise, project by project:
 
 - AI gets text – your request and transcript lines – sent straight to the AI you choose.
-- Stills – a few small ones – only if you switch them on for a project in **Settings › AI (optional) › Footage – what the AI may see**.
+- Stills – a few small ones – only if you switch them on for a project in **Settings › AI (optional) › Footage – what the AI may see** (that part is only the permission; the model that looks is chosen in **Models on this computer**).
 - Sound or video goes to a cloud model only if you pick **Cloud** for that project in **Settings › Vision & listening models**. It's off until you pick it, and you see the cost first.
 - A project set to **nothing leaves this computer** sends nothing off this computer – not even text. Models on your own computer may always look and listen.
 - **Settings › What was sent to AI** shows the exact text of every request, and any stills or sound that went (with their size).

@@ -510,6 +510,10 @@
     try { const r = await httpLocal('GET', '/api/tags', null, 8000); if (r.json && Array.isArray(r.json.models)) return r.json.models.map(m => m.name).filter(Boolean); } catch (e) { /* not running */ }
     return [];
   }
+  /** What a model in Ollama can take (['completion', 'vision', …]), or null when the app doesn't say (LM Studio, older Ollama). */
+  async function localCaps(model) {
+    try { const r = await httpLocal('POST', '/api/show', { model }, 6000); return r.status === 200 && r.json && Array.isArray(r.json.capabilities) ? r.json.capabilities.map(String) : null; } catch (e) { return null; }
+  }
   /** Is the local AI app answering (Ollama or LM Studio)? -> {ok, kind: 'ollama'|'other'|''} */
   async function localStatus() {
     try { const r = await httpLocal('GET', '/api/tags', null, 4000); if (r.status === 200 && r.json && Array.isArray(r.json.models)) return { ok: true, kind: 'ollama' }; } catch (e) { /* not Ollama, or not running */ }
@@ -762,7 +766,7 @@
     provider,
     available: () => provider() !== 'none',
     label: () => ({ claude: MODELS[claudeModel()].name, gemini: geminiName(US.settings.get('geminiModel', GEMINI_DEFAULT)), local: `${localModel()} (on this computer)`, none: 'No AI' }[provider()]),
-    localModels, localStatus, pullLocal, removeLocal, LOCAL_URL, projectOffline, setProjectOffline,
+    localModels, localStatus, localCaps, pullLocal, removeLocal, LOCAL_URL, projectOffline, setProjectOffline,
     stillsOn, setStills, imageTokens, _stills: { isImage, imagesOf, imageNote, toContent, partsOf },
     geminiName, geminiModels, GEMINI_DEFAULT, GEMINI_FAST_DEFAULT,
     /** Plain text answer. */

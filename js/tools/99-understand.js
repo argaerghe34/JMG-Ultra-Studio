@@ -125,31 +125,60 @@
         ui.toggle({ label: 'Let big jobs run in the background too', hint: 'Off: looking at more than about 20 minutes’ worth of work is scheduled (Overnight prep, or Run now) instead of started while you edit. On: it works through it in quiet moments.', value: US.settings.get('understand.heavyInBackground', false) === true, onChange: x => set('heavyInBackground', x) }));
     }
 
+    // what is on this computer (Ultra Studio's own models, and Ollama's or LM Studio's): asked for when the section is
+    // drawn, when a model comes or goes, and with “Look again”
+    let inv = M() ? M().inventoryFrom({ chosen: M().jobs() }) : { server: { running: false, app: '' }, models: [] }, asked = false;
+    async function lookAgain() { try { inv = await M().inventory(); } catch (e) { /* as it was */ } asked = true; draw(); }
+
     function modelsCard() {
-      const Mo = M(), rt = Mo.runtime, vNow = US.settings.get('understand.visionModel', ''), lNow = US.settings.get('understand.listenModel', 'builtin') || 'builtin';
-      const own = US.footage && US.footage.visionModel && US.footage.visionModel();
-      const have = Mo.list().filter(m => Mo.installed(m.id));
-      const visionSel = ui.select({ options: [{ value: '', label: have.some(m => m.use.includes('vision')) || own ? 'Choose…' : 'None yet – download one below' }].concat(have.filter(m => m.use.includes('vision')).map(m => ({ value: m.id, label: m.name }))).concat(own ? [{ value: 'own', label: `${own} – your own model (Ollama / LM Studio)` }] : []), value: vNow, onChange: x => set('visionModel', x) });
-      const listenSel = ui.select({ options: [{ value: 'builtin', label: 'Built-in listening (no download)' }].concat(have.filter(m => m.use.includes('listening')).map(m => ({ value: m.id, label: `Built-in + ${m.name} (experimental)` }))), value: lNow, onChange: x => set('listenModel', x) });
-      const rows = Mo.list().map(m => {
-        const here = Mo.installed(m.id), size = Mo.fmtSize(Mo.totalBytes(m)), extra = !rt.installed() && rt.supported() ? ` + ${Mo.fmtSize(rt.bytes())} helper, once` : '';
-        return h('div.list-row',
-          h('span.swatch', { style: { background: here ? 'var(--ok)' : 'var(--surface-3)' }, title: here ? 'On this computer' : 'Not downloaded' }),
+      const Mo = M(), rt = Mo.runtime, now = Mo.jobs(), P = Mo.pickers(inv, now);
+      const pick = (job, hint) => ui.select({ options: P[job].options, value: P[job].value, onChange: x => { Mo.setJob(job, x); draw(); } });
+      const using = m => [now.text && Mo.sameId(now.text) === Mo.sameId(m.id) && m.from !== 'Ultra Studio' ? 'reading and writing' : '', now.look === m.key || (m.from !== 'Ultra Studio' && /^own:/.test(now.look) && Mo.sameId(now.look.slice(4)) === Mo.sameId(m.id)) ? 'looking' : '', now.listen === m.id && m.from === 'Ultra Studio' ? 'listening' : ''].filter(Boolean);
+      const can = m => [m.can.text ? 'reads and writes' : '', m.can.look ? 'looks' : m.can.look === null ? 'looks, if it is a vision model' : '', m.can.listen ? 'listens' : ''].filter(Boolean).join(' · ');
+      // every model that is here, once
+      const here = inv.models.filter(m => m.here).map(m => {
+        const u = using(m), cat = m.from === 'Ultra Studio' ? Mo.get(m.id) : null;
+        return h('div.list-row', { dataset: { model: m.key } },
+          h('span.swatch', { style: { background: u.length ? 'var(--ok)' : 'var(--text-3)' }, title: u.length ? 'In use' : 'On this computer, not in use' }),
           h('div.list-main',
-            h('div.list-title', m.name, m.best ? ui.pill('recommended') : null, here && (vNow === m.id || lNow === m.id) ? ui.pill('in use', 'var(--ok)') : null),
-            h('div.list-sub', `${m.use.includes('listening') ? 'Sees and listens' : 'Sees'} · ${size} · needs ${m.memory} · ${m.licence}`),
+            h('div.list-title', US.keep(m.name), ui.pill('from ' + m.from, m.from === 'Ultra Studio' ? 'var(--accent)' : 'var(--text-2)'), u.length ? ui.pill('in use for ' + u.join(' and '), 'var(--ok)') : null),
+            h('div.list-sub', `Can do: ${can(m)}${m.size ? ' · ' + m.size : ''}${cat ? ` · needs ${cat.memory}` : ''}${m.tag && m.tag !== m.name ? ` · ${m.tag}` : ''}`),
+            m.can.look === false ? h('div.list-sub', 'A text-only model: it can’t look at pictures.') : null),
+          h('div.sel-right',
+            m.removable === 'us' ? ui.button('Delete', { small: true, kind: 'ghost', title: `Frees ${m.size} on this computer`, onClick: async () => { if (await ui.confirm({ title: `Delete ${m.name} from this computer?`, text: `It frees ${m.size}. You can download it again later.`, ok: 'Delete', danger: true })) { Mo.remove(m.id); lookAgain(); } } })
+              : m.removable === 'ollama' ? ui.button('Remove', { small: true, kind: 'ghost', title: 'Removes it from Ollama on this computer', onClick: async () => { if (!(await ui.confirm({ title: `Remove ${m.name} from Ollama?`, text: `${m.size ? 'It frees ' + m.size + '. ' : ''}It goes from Ollama itself, for every app that uses it. You can get it again in Ollama.`, ok: 'Remove', danger: true }))) return; try { await US.ai.removeLocal(m.tag); if (Mo.sameId(now.text) === Mo.sameId(m.tag)) Mo.setJob('text', ''); if (Mo.sameId(now.lookOwn) === Mo.sameId(m.tag)) US.settings.set('footage.localModel', ''); } catch (e) { ui.showError(e); } lookAgain(); } })
+                : null));
+      });
+      // Ultra Studio's own, not downloaded yet
+      const more = Mo.list().filter(m => !Mo.installed(m.id)).map(m => {
+        const size = Mo.fmtSize(Mo.totalBytes(m)), extra = !rt.installed() && rt.supported() ? ` + ${Mo.fmtSize(rt.bytes())} helper, once` : '';
+        return h('div.list-row',
+          h('span.swatch', { style: { background: 'var(--surface-3)' }, title: 'Not downloaded' }),
+          h('div.list-main',
+            h('div.list-title', m.name, m.best ? ui.pill('recommended') : null),
+            h('div.list-sub', `${m.use.includes('listening') ? 'Looks and listens' : 'Looks'} · ${size} · needs ${m.memory} · ${m.licence}`),
             h('div.list-sub', m.what),
             h('div.list-sub', h('a', { href: '#', onclick: e => { e.preventDefault(); US.app.openUrl ? US.app.openUrl(m.source) : US.host.openUrl(m.source); } }, 'Where it comes from'))),
-          h('div.sel-right',
-            here ? ui.button('Delete', { small: true, kind: 'ghost', title: `Frees ${size} on this computer`, onClick: async () => { if (await ui.confirm({ title: `Delete ${m.name} from this computer?`, text: `It frees ${size}. You can download it again later.`, ok: 'Delete', danger: true })) { Mo.remove(m.id); draw(); } } })
-              : ui.button(`Download (${size}${extra})`, { small: true, kind: 'primary', disabled: !rt.supported(), title: rt.supported() ? `From ${new URL(m.files[0].url).hostname}, checked before it’s used` : 'The helper that runs models isn’t available for this kind of computer', onClick: () => US.jobs.run({ title: `Downloading ${m.name}`, tool: 'settings' }, job => Mo.download(m.id, job)).then(draw) })));
+          h('div.sel-right', ui.button(`Download (${size}${extra})`, { small: true, kind: 'primary', disabled: !rt.supported(), title: rt.supported() ? `From ${new URL(m.files[0].url).hostname}, checked before it’s used` : 'The helper that runs models isn’t available for this kind of computer', onClick: () => US.jobs.run({ title: `Downloading ${m.name}`, tool: 'settings' }, job => Mo.download(m.id, job)).then(lookAgain) })));
       });
+      const appLine = inv.server.running ? `${inv.server.app} is running on this computer – its models are listed here too.` : asked ? 'Ollama or LM Studio isn’t running, so only Ultra Studio’s own models are listed. Start it and press Look again to see yours.' : 'Looking for Ollama or LM Studio…';
       const p = Mo.pendingUpdates(), chk = US.settings.get('understand.updateCheck', null);
       return h('div.und-block', h('div.und-head', 'Models on this computer'),
-        h('div.field-hint', 'Nothing here is downloaded until you press Download – the size is on the button. Each comes straight from its makers’ page over HTTPS and is only used once its checksum matches. They run in a small helper program (llama.cpp, open source) that Ultra Studio starts hidden on this computer only and stops when it’s idle.'),
-        h('div.grid2', ui.field('Vision model – looks at the shots', visionSel), ui.field('Listening', listenSel, 'Built in: music, applause, silence, wind, noise and a raised voice, measured here. A listening model adds laughter and tone of voice, 30 seconds at a time.')),
-        h('div.list', rows),
-        rt.supported() ? null : ui.note('The helper isn’t published for this kind of computer, so models can’t be run by Ultra Studio here. A vision model you have in Ollama or LM Studio (Settings › AI › Footage) still works, and so does the cloud.', 'warn'),
+        h('div.und-explain',
+          h('p', h('b', 'What this is. '), 'A model on this computer is an AI that runs here, so nothing it reads, sees or hears leaves. Ultra Studio has three jobs for one, and each job has its own picker below – that is why you may have more than one model: a model that is good at story work can’t necessarily look at pictures, and listening is different again. Small ones are quick and plain; larger ones are better and slower.'),
+          h('p', h('b', 'Two ways to get one. '), h('i', 'Downloaded by Ultra Studio'), ' – press Download below and that’s all; there is nothing else to install (they run in a small helper Ultra Studio starts hidden and stops when idle). ', h('i', 'Your own, from Ollama or LM Studio'), ' – free apps that run models; anything you have in them is listed here as well. Story work (reading and writing) needs one of those, because Ultra Studio’s own models are for looking and listening.'),
+          h('p', h('b', 'If two could do the same job. '), 'Only the one chosen in that job’s picker is used. Nothing runs twice, and a model that isn’t chosen for anything just sits on the disk until you delete it. Each model is listed once, with where it came from.')),
+        h('div.und-jobs',
+          h('div.und-job', h('div.und-job-name', 'Reading and writing', h('div.field-hint', 'Story’s themes and narratives, Ask, Producer – when you choose “On this computer” in AI (optional), or for a project set to “nothing leaves this computer”.')), h('div.und-job-pick', { dataset: { job: 'text' } }, pick('text'))),
+          h('div.und-job', h('div.und-job-name', 'Looking at footage', h('div.field-hint', 'What’s in each shot, for Selects, Ask and Story – and the older “Describe the footage”.')), h('div.und-job-pick', { dataset: { job: 'look' } }, pick('look'))),
+          h('div.und-job', h('div.und-job-name', 'Listening', h('div.field-hint', 'Built in: music, applause, silence, wind, noise, a raised voice. A listening model adds laughter and tone of voice, and dictation in Ask.')), h('div.und-job-pick', { dataset: { job: 'listen' } }, pick('listen')))),
+        h('div.row', h('span.field-hint.grow', appLine), ui.button('Look again', { small: true, kind: 'ghost', onClick: lookAgain })),
+        h('div.field-label', 'On this computer now'),
+        here.length ? h('div.list.und-here', here) : h('div.field-hint', 'No models yet. Listening works without one; download one below to look at footage.'),
+        more.length ? h('div.field-label', 'More from Ultra Studio – downloaded only when you press Download') : null,
+        more.length ? h('div.field-hint', 'The size is on the button. Each comes straight from its makers’ page over HTTPS and is only used once its checksum matches.') : null,
+        more.length ? h('div.list.und-more', more) : null,
+        rt.supported() ? null : ui.note('The helper isn’t published for this kind of computer, so models can’t be run by Ultra Studio here. A vision model you have in Ollama or LM Studio still works (it is listed above when the app is running), and so does the cloud.', 'warn'),
         h('div.row', h('span.field-hint.grow', `Kept in: ${US.fsx.pretty(Mo.dir())}${rt.installed() ? ` · helper ${rt.info().version}` : ''}`),
           ui.button(US.fsx.isWin ? 'Open folder' : 'Show in Finder', { small: true, kind: 'ghost', onClick: () => (US.app.reveal ? US.app.reveal(Mo.dir()) : require('child_process').exec((US.fsx.isWin ? 'explorer "' : 'open "') + Mo.dir() + '"')) }),
           ui.button('Move…', { small: true, kind: 'ghost', title: 'Keep the models on another disk', onClick: async () => { const d = await ui.promptText({ title: 'Folder for the models', label: 'A folder on a disk with room (models already downloaded stay where they are – move them by hand or download again)', value: Mo.dir() }); if (d && require('fs').existsSync(d)) set('modelsDir', d); else if (d) ui.toast({ type: 'warn', title: 'That folder doesn’t exist', text: d }); } })),
@@ -166,7 +195,9 @@
       box.append(routeCard(), statusCard(), modelsCard());
     }
     draw();
+    if (M()) lookAgain();
     US.bus.on('context', () => { if (box.isConnected !== false) draw(); });
+    US.bus.on('settings', k => { if (box.isConnected && (k === 'ai.localModel' || k === 'ai.localUrl')) (k === 'ai.localUrl' ? lookAgain : draw)(); });
     // Settings puts it in its own closed dropdown, in a [data-section="understand"] box (US.tools.open('settings', {section: 'understand'}))
     return box;
   }
@@ -182,7 +213,18 @@
   }
   US.bus.on('ready', () => { const t = setInterval(() => autoUpdateTick().catch(() => {}), 30 * 60000); if (t.unref) t.unref(); });
 
-  US.understandUI = { chip, confirmCloud, numbers, estimateText, runNow, addToOvernight, create, autoUpdateTick };
+  /** One job's picker for another screen: fills itself from what is on this computer, and sets the same setting. */
+  function jobPicker(job, { onChange } = {}) {
+    const Mo = M(), first = Mo.pickers(Mo.inventoryFrom({ chosen: Mo.jobs() }))[job];
+    const sel = ui.select({ options: first.options, value: first.value, onChange: x => { Mo.setJob(job, x); if (onChange) onChange(x); } });
+    sel.refresh = async () => { let inv; try { inv = await Mo.inventory(); } catch (e) { return null; } const P = Mo.pickers(inv)[job]; sel.setOptions(P.options, P.value); return inv; };
+    sel.refresh();
+    const off = US.bus.on('models', () => { if (sel.isConnected === false) return; const P = Mo.pickers(Mo.inventoryFrom({ chosen: Mo.jobs() }))[job]; if (P.value !== sel.value) sel.refresh(); });
+    sel.dispose = off;
+    return sel;
+  }
+
+  US.understandUI = { jobPicker, chip, confirmCloud, numbers, estimateText, runNow, addToOvernight, create, autoUpdateTick };
   US.settingsSections.register({ id: 'understand', title: 'Vision & listening models', order: 35, create });
 
   /* Ask, recipes and the offline parser: “look at and listen to my footage” */

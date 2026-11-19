@@ -266,10 +266,11 @@
       if (C.provider !== 'none') { out.vision = { kind: 'cloud', id: 'cloud:' + C.provider + ':' + C.model, label: C.label, cloud: C }; if (C.hears) out.listenModel = { kind: 'cloud', id: 'cloud:' + C.model, label: C.label, chunkSec: 120, max: 30 }; }
       return out;
     }
-    const v = String(set('visionModel') || ''), own = US.footage && US.footage.visionModel && US.footage.visionModel();
-    const pick = M && M.get(v) && M.installed(v) && M.runtime.installed() ? M.get(v) : null;
+    // one choice for looking (US.models.jobs): Ultra Studio's own model ('us:id') or the editor's own ('own:name')
+    const look = M && M.jobs ? M.jobs().look : '', own = /^own:/.test(look) ? look.slice(4) : '';
+    const pick = /^us:/.test(look) && M.runtime.installed() ? M.get(look.slice(3)) : null;
     if (pick) out.vision = { kind: 'helper', id: pick.id + '@' + pick.version, label: pick.name, model: pick };
-    else if ((v === 'own' || !v) && own) out.vision = { kind: 'own', id: 'own:' + own, label: `${own} (your own model)`, own };
+    else if (own) out.vision = { kind: 'own', id: 'own:' + own, label: `${own} (your own model)`, own };
     else out.vision.needsModel = true;
     const l = String(set('listenModel') || 'builtin'), lm = M && l !== 'builtin' && M.get(l) && M.get(l).use.includes('listening') && M.installed(l) && M.runtime.installed() ? M.get(l) : null;
     if (lm) out.listenModel = { kind: 'helper', id: lm.id + '@' + lm.version, label: lm.name, model: lm, chunkSec: lm.chunkSec || 30, max: 20 };

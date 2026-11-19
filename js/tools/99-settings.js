@@ -63,7 +63,7 @@
         async function draw() {
           US.clear(box);
           const L = F.looker(), off = US.ai.projectOffline(), cloud = US.ai.choices().filter(c => c.provider === 'claude' || c.provider === 'gemini');
-          const withSeg = ui.segmented({ options: [{ value: 'cloud', label: 'Claude or Gemini', title: 'Best descriptions. Small stills leave this computer – only for projects you switch it on for.' }, { value: 'local', label: 'A model on this computer', title: 'Nothing leaves this computer. Needs one of the optional models below.' }], value: off ? 'local' : US.settings.get('footage.with', 'cloud'), onChange: x => set('footage.with', x) });
+          const withSeg = ui.segmented({ options: [{ value: 'cloud', label: 'Claude or Gemini', title: 'Best descriptions. Small stills leave this computer – only for projects you switch it on for.' }, { value: 'local', label: 'A model on this computer', title: 'Nothing leaves this computer. Needs a model that can look – Settings › Vision & listening models.' }], value: off ? 'local' : US.settings.get('footage.with', 'cloud'), onChange: x => set('footage.with', x) });
           US.append(box, [
             h('div.field-hint', 'Ultra Studio can look at your footage so Ask can find shots by what’s in them (“the drone shots over water”) and answer questions about a clip. It looks at a few small stills of each clip – 512 pixels wide, one for a short clip, up to four for a long one – and keeps a description in words. Never video, never sound. Each clip is described once.'),
             ui.field('Who looks at the stills', withSeg, off ? `“${proj}” is set to “nothing leaves this computer”, so only a model on this computer can look.` : L.where === 'none' ? L.why : `Now: ${L.label}.`),
@@ -71,25 +71,8 @@
             !off && cloud.length ? ui.field('With', ui.select({ options: [{ value: '', label: 'The cheapest that does it well (automatic)' }].concat(cloud.map(c => ({ value: c.id, label: c.label }))), value: US.settings.get('footage.model', ''), onChange: x => set('footage.model', x) }),
               L.where === 'cloud' && L.provider === 'claude' ? `About ${US.ai.fmtUSD(F.costFor(100, 2, L.model))} for 100 clips with ${L.label} (stills in, a few lines out).` : L.where === 'cloud' ? 'Within Google’s free allowance for most projects.' : '') : null,
             ui.field('Stills from a long clip', ui.select({ options: [1, 2, 3, 4].map(n => ({ value: String(n), label: n === 1 ? 'One' : `Up to ${n}` })), value: String(US.settings.get('footage.stills', 4)), onChange: x => set('footage.stills', +x) }), 'More stills describe a long clip better and cost a little more.'),
-            h('div.field-label', 'Models on this computer (optional)'),
-            h('div.field-hint', 'Only needed if you want footage looked at on this computer instead of by Claude or Gemini. Nothing here is downloaded unless you press Download; each stays until you press Remove. They run in Ollama, a free app (ollama.com).')]);
-          const list = h('div.list'); box.appendChild(list);
-          let st = { running: false, kind: '', installed: [] };
-          try { st = await F.modelStatus(); } catch (e) { /* shown as not running */ }
-          if (!st.running) list.appendChild(h('div.list-row', h('div.list-main', h('div.list-title', 'Ollama isn’t running on this computer'), h('div.list-sub', 'Get it from ollama.com and open it once; then the models below can be downloaded here.')), h('div.songs-actions', ui.button('ollama.com', { small: true, onClick: () => US.host.openUrl && US.host.openUrl('https://ollama.com/download') }), ui.button('Check again', { small: true, kind: 'ghost', onClick: draw }))));
-          const has = id => st.installed.some(x => x.toLowerCase() === id.toLowerCase());
-          for (const m of F.MODELS) {
-            const here = has(m.id), used = F.visionModel().toLowerCase() === m.id.toLowerCase();
-            list.appendChild(h('div.list-row',
-              h('div.list-main', h('div.list-title', m.name, m.best ? ui.pill('recommended', 'var(--info)') : null, here ? ui.pill(used ? 'on this computer · in use' : 'on this computer', 'var(--ok)') : null),
-                h('div.list-sub', `${m.size} · ${m.needs}. ${m.what}`), h('div.list-sub', `Used for: ${m.where}`)),
-              h('div.songs-actions',
-                here ? (used ? null : ui.button('Use this one', { small: true, onClick: () => { US.settings.set('footage.localModel', m.id); draw(); } })) : ui.button(`Download (${m.size})`, { small: true, kind: 'primary', disabled: !st.running, title: st.running ? `Downloads ${m.name} to this computer` : 'Start Ollama first', onClick: async () => { await US.jobs.run({ title: `Downloading ${m.name}`, tool: 'settings', who: 'Your computer' }, job => F.download(m.id, job)); draw(); } }),
-                here ? ui.button('Remove', { small: true, kind: 'ghost', title: `Frees ${m.size} on this computer`, onClick: async () => { if (!(await ui.confirm({ title: `Remove ${m.name} from this computer?`, text: `It frees ${m.size}. You can download it again later.`, ok: 'Remove', danger: true }))) return; try { await US.ai.removeLocal(m.id); if (used) US.settings.set('footage.localModel', ''); } catch (e) { ui.showError(e); } draw(); } }) : null)));
-          }
-          // a vision model the editor got themselves (LM Studio, or another from Ollama)
-          const others = st.installed.filter(x => !F.MODELS.some(m => m.id.toLowerCase() === x.toLowerCase()));
-          if (others.length || F.visionModel()) box.appendChild(ui.field('Or another model you already have', ui.select({ options: [{ value: '', label: 'None chosen' }].concat(Array.from(new Set(others.concat(F.visionModel() ? [F.visionModel()] : []))).map(x => ({ value: x, label: x }))), value: F.visionModel(), onChange: x => set('footage.localModel', x) }), 'It must be a model that can take pictures (a “vision” model).'));
+            h('div.row', h('span.field-hint.grow', 'The model that looks on this computer – Ultra Studio’s own, or yours from Ollama or LM Studio – is chosen in one place, with every other model on this computer.'),
+              ui.button('Choose the model that looks: Models on this computer', { small: true, onClick: () => US.tools.open('settings', { section: 'understand' }) }))]);
         }
         draw();
         const wrap = h('div', ui.section('Footage – what the AI may see', [box], { open: false }));
@@ -98,15 +81,24 @@
       }
       function localField() {
         const url = ui.input({ value: US.settings.get('ai.localUrl', US.ai.LOCAL_URL), placeholder: US.ai.LOCAL_URL, onInput: x => US.settings.set('ai.localUrl', x.trim()) });
-        const modelSel = ui.select({ options: [{ value: US.settings.get('ai.localModel', ''), label: US.settings.get('ai.localModel', '') || 'Press Find models…' }], value: US.settings.get('ai.localModel', ''), onChange: x => { US.settings.set('ai.localModel', x); status(); } });
-        const find = ui.button('Find models', { small: true, kind: 'ghost', onClick: async () => { const ms = await US.ai.localModels(); if (!ms.length) { ui.toast({ type: 'warn', title: 'No local AI found', text: 'Start Ollama (ollama.com) or LM Studio with a model, then try again.', timeout: 6000 }); return; } modelSel.setOptions(ms.map(m => ({ value: m, label: m })), ms.includes(US.settings.get('ai.localModel', '')) ? US.settings.get('ai.localModel', '') : ms[0]); US.settings.set('ai.localModel', modelSel.get()); status(); } });
+        // the same picker as “Reading and writing” in Vision & listening models (one setting, each model listed once);
+        // without that part of the app, the plain list as before
+        const UI = US.understandUI && US.understandUI.jobPicker && US.models ? US.understandUI : null;
+        const modelSel = UI ? UI.jobPicker('text', { onChange: () => status() }) : ui.select({ options: [{ value: US.settings.get('ai.localModel', ''), label: US.settings.get('ai.localModel', '') || 'Press Find models…' }], value: US.settings.get('ai.localModel', ''), onChange: x => { US.settings.set('ai.localModel', x); status(); } });
+        const find = ui.button('Find models', { small: true, kind: 'ghost', onClick: async () => {
+          const ms = Array.from(new Map((await US.ai.localModels()).map(m => [String(m).toLowerCase().replace(/:latest$/, ''), m])).values());   // each model once
+          if (!ms.length) { ui.toast({ type: 'warn', title: 'No local AI found', text: 'Start Ollama (ollama.com) or LM Studio with a model, then try again.', timeout: 6000 }); return; }
+          if (UI) { await modelSel.refresh(); if (!US.settings.get('ai.localModel', '')) { US.models.setJob('text', ms[0]); await modelSel.refresh(); } }
+          else { modelSel.setOptions(ms.map(m => ({ value: m, label: m })), ms.includes(US.settings.get('ai.localModel', '')) ? US.settings.get('ai.localModel', '') : ms[0]); US.settings.set('ai.localModel', modelSel.get()); }
+          status();
+        } });
         const test = ui.button('Test', { small: true, onClick: () => US.jobs.run({ title: 'Testing the local AI', tool: 'settings', who: 'AI' }, async () => { await US.ai.test('local'); ui.toast({ type: 'ok', title: 'The local AI answers' }); return { summary: 'works' }; }) });
         const proj = US.ctx && US.ctx.project ? US.ctx.project.name : '';
         const offline = proj ? ui.toggle({ label: `“${proj}”: nothing leaves this computer`, hint: 'For NDA or broadcast work: this project uses only the model on this computer (or no AI) – never Claude or Gemini, whatever is chosen above.', value: US.ai.projectOffline(), onChange: x => { US.ai.setProjectOffline(x); status(); } }) : null;
         return ui.section('On this computer (offline)', [
           h('div.field-hint', 'A model running on this computer – Ollama (ollama.com) or LM Studio – so not even text leaves. Small models are fast but clearly weaker at story work: themes, narratives and edits come out simpler. Try an 8B model or larger.'),
           ui.field('Address', url, 'Ollama: http://localhost:11434 · LM Studio: http://localhost:1234 – it must be this computer.'),
-          ui.field('Model', h('div.row', h('div.grow', modelSel), find, test)),
+          ui.field('Model for reading and writing', h('div.row', h('div.grow', modelSel), find, test), 'This is the model for story work and Ask. The models that look at footage and listen are chosen in Settings › Vision & listening models › Models on this computer – every model on this computer is listed there once, with what it’s used for.'),
           offline
         ], { open: US.settings.get('aiProvider', 'auto') === 'local' || US.ai.projectOffline() });
       }

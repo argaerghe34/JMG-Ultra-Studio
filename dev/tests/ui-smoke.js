@@ -302,7 +302,7 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     if (set.el.querySelector('[data-section="without-ai"] .section.closed')) errors.push('Settings: Without AI didn’t open when asked');
     if (!set.el.querySelector('.settings-code input')) errors.push('Settings: no code box');
     { const ft = set.el.querySelector('[data-section="footage"]');
-      if (!ft || !/Footage – what the AI may see/.test(ft.textContent) || !/small stills may be sent to Claude or Gemini/.test(ft.textContent) || !/Models on this computer \(optional\)/.test(ft.textContent) || !/Nothing here is downloaded unless you press Download/.test(ft.textContent)) errors.push('Settings: no Footage section – ' + (ft ? ft.textContent.slice(0, 200) : 'missing'));
+      if (!ft || !/Footage – what the AI may see/.test(ft.textContent) || !/small stills may be sent to Claude or Gemini/.test(ft.textContent) || !/Choose the model that looks: Models on this computer/.test(ft.textContent) || /Download \(/.test(ft.textContent)) errors.push('Settings: no Footage section – ' + (ft ? ft.textContent.slice(0, 200) : 'missing'));
       else if (ft.querySelector('.section:not(.closed)')) errors.push('Settings: Footage should start closed'); }
     if (!set.el.querySelector('[data-section="sent"]') || !/What was sent to AI/.test(set.el.textContent)) errors.push('Settings: no “What was sent to AI”');
     set.el.remove();

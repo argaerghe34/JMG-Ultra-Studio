@@ -24,18 +24,18 @@ function fakeRoutes({ sound = null, vision = null, listen = null, grab = null } 
   return { calls, restore() { Object.assign(U.routes, keep); } };
 }
 // a tiny catalogue that checks out, with a model whose files are a few bytes – as if downloaded
-function tinyCatalogue() {
+function tinyCatalogue(id = 'tiny', name = 'Tiny') {
   const f = (name, body) => ({ role: /mmproj/.test(name) ? 'mmproj' : 'model', name, url: 'https://huggingface.co/x/y/resolve/main/' + name, bytes: Buffer.byteLength(body), sha256: crypto.createHash('sha256').update(body).digest('hex'), body });
   const files = [f('tiny.gguf', 'model-bytes'), f('mmproj-tiny.gguf', 'proj')];
   const man = { version: 5, runtime: { id: 'llama-server', version: 't1', builds: { [M.platformKey()]: { name: 'h.tar.gz', url: 'https://github.com/x/h.tar.gz', bytes: 3, sha256: 'a'.repeat(64), exe: 'bin/llama-server' } } },
-    models: [{ id: 'tiny', name: 'Tiny', use: ['vision', 'listening'], version: '1', licence: 'MIT', source: 'https://huggingface.co/x/y', memory: 'little', stillsPerAsk: 2, chunkSec: 30, assume: [1, 2], what: 'test', files: files.map(x => ({ role: x.role, name: x.name, url: x.url, bytes: x.bytes, sha256: x.sha256 })) }] };
+    models: [{ id, name, use: ['vision', 'listening'], version: '1', licence: 'MIT', source: 'https://huggingface.co/x/y', memory: 'little', stillsPerAsk: 2, chunkSec: 30, assume: [1, 2], what: 'test', files: files.map(x => ({ role: x.role, name: x.name, url: x.url, bytes: x.bytes, sha256: x.sha256 })) }] };
   US.settings.set('understand.modelsDir', fs.mkdtempSync(path.join(os.tmpdir(), 'us-models-')));
   US.settings.set('understand.manifest', man);
-  const m = M.get('tiny');
+  const m = M.get(id);
   fs.mkdirSync(M.modelDir(m), { recursive: true });
   for (const x of files) fs.writeFileSync(path.join(M.modelDir(m), x.name), x.body);
   const exe = path.join(M.runtime.info().dir, 'bin', 'llama-server'); fs.mkdirSync(path.dirname(exe), { recursive: true }); fs.writeFileSync(exe, '#!');
-  US.settings.set('understand.visionModel', 'tiny');
+  US.settings.set('understand.visionModel', id);
   return { man, files, undo() { M.stop(); US.settings.set('understand.manifest', null); US.settings.set('understand.modelsDir', ''); US.settings.set('understand.visionModel', ''); US.settings.set('understand.listenModel', 'builtin'); } };
 }
 
@@ -471,4 +471,89 @@ test('a model that thinks first (Gemma 4): thinking is switched off for the help
     } finally { T.undo(); }
     assert.ok(P.visionRequest({ name: 'c', duration: 30 }, [STILL(1), STILL(2), STILL(3), STILL(4)]).maxTokens >= 1500);
   } finally { s.close(); }
+});
+
+// a stand-in Ollama: both of its lists name the same models (one with “:latest”, one in capitals), and it says what each can take
+function fakeOllama(models) {
+  return new Promise(res => { const x = http.createServer((req, rs) => { let b = ''; req.on('data', c => { b += c; }); req.on('end', () => {
+    rs.setHeader('content-type', 'application/json');
+    if (req.url === '/api/tags') return rs.end(JSON.stringify({ models: Object.keys(models).map(name => ({ name })) }));
+    if (req.url === '/v1/models') return rs.end(JSON.stringify({ data: Object.keys(models).map(id => ({ id })) }));
+    if (req.url === '/api/show') { const m = models[JSON.parse(b).model]; return m ? rs.end(JSON.stringify({ capabilities: m })) : (rs.writeHead(404), rs.end('{}')); }
+    rs.writeHead(404); rs.end('{}');
+  }); }); x.listen(0, '127.0.0.1', () => res(x)); });
+}
+
+test('models on this computer: with Qwen 3.5 in Ollama and Gemma 4 E2B from Ultra Studio, every model is listed once – in the list and in each job’s picker', async () => {
+  const T = tinyCatalogue('gemma-4-e2b', 'Gemma 4 E2B');
+  const s = await fakeOllama({ 'qwen3.5:4b': ['completion', 'vision'], 'llama3.2:latest': ['completion'] });
+  const keepUrl = US.settings.get('ai.localUrl'), keepText = US.settings.get('ai.localModel'), keepLook = US.settings.get('footage.localModel'), keepWith = US.settings.get('footage.with');
+  US.settings.set('ai.localUrl', `http://127.0.0.1:${s.address().port}`);
+  try {
+    // the editor had chosen Qwen for both jobs before – written a little differently each time
+    US.settings.set('ai.localModel', 'Qwen3.5:4b'); US.settings.set('footage.localModel', 'qwen3.5:4b'); US.settings.set('understand.visionModel', 'own');
+    assert.strictEqual(M.sameId('Llama3.2:latest'), M.sameId('llama3.2'), 'the same model under two spellings is one model');
+    const inv = await M.inventory();
+    assert.deepStrictEqual(inv.server, { running: true, app: 'Ollama' });
+    assert.deepStrictEqual(inv.models.map(m => [m.name, m.from, m.can.text, m.can.look, m.can.listen]),
+      [['Gemma 4 E2B', 'Ultra Studio', false, true, true], ['Qwen 3.5 (4B)', 'Ollama', true, true, false], ['llama3.2:latest', 'Ollama', true, false, false]], 'three models, each once, with what each can do');
+    // the lists doubled (both of the app's lists, different case, the chosen one again): still once each
+    const doubled = M.inventoryFrom({ status: { ok: true, kind: 'ollama' }, names: ['qwen3.5:4b', 'QWEN3.5:4B', 'llama3.2:latest', 'llama3.2'], caps: {}, chosen: M.jobs() });
+    assert.deepStrictEqual(doubled.models.map(m => m.name), ['Gemma 4 E2B', 'Qwen 3.5 (4B)', 'llama3.2:latest']);
+    const P = M.pickers(inv);
+    const count = (job, re) => P[job].options.filter(o => re.test(o.label)).length;
+    for (const job of ['text', 'look']) { assert.strictEqual(count(job, /Qwen/i), 1, job + ': Qwen once'); assert.strictEqual(count(job, /Gemma/), 1, job + ': Gemma once'); assert.strictEqual(count(job, /llama3/), 1, job + ': llama once'); }
+    assert.deepStrictEqual(P.text.options.map(o => [o.label, !!o.disabled]), [['None chosen', false], ['Qwen 3.5 (4B) – from Ollama', false], ['llama3.2:latest – from Ollama', false], ['Gemma 4 E2B – from Ultra Studio (looks and listens only)', true]]);
+    assert.deepStrictEqual(P.look.options.map(o => [o.label, !!o.disabled]), [['None chosen', false], ['Gemma 4 E2B – from Ultra Studio', false], ['Qwen 3.5 (4B) – from Ollama', false], ['llama3.2:latest – from Ollama (text only – can’t look)', true]]);
+    assert.deepStrictEqual(P.listen.options.map(o => o.label), ['Built-in listening – part of Ultra Studio, no model', 'Built-in + Gemma 4 E2B – from Ultra Studio (experimental)']);
+    assert.deepStrictEqual([P.text.value, P.look.value, P.listen.value], ['qwen3.5:4b', 'own:qwen3.5:4b', 'builtin'], 'what is chosen now is shown as chosen, however the setting spelt it');
+    // one setting per job: the picker's choice is what every tool uses – the looking plan and the older stills describer alike
+    assert.deepStrictEqual([U.plan().vision.kind, U.plan().vision.own], ['own', 'qwen3.5:4b']);
+    US.settings.set('footage.with', 'local');
+    assert.deepStrictEqual([US.footage.looker().where, US.footage.looker().label, US.footage.looker().helper], ['local', 'qwen3.5:4b (on this computer)', undefined]);
+    M.setJob('look', 'us:gemma-4-e2b');
+    assert.deepStrictEqual([U.plan().vision.kind, U.plan().vision.label, US.footage.looker().helper, US.footage.looker().label], ['helper', 'Gemma 4 E2B', 'gemma-4-e2b', 'Gemma 4 E2B (on this computer)'], 'Ultra Studio’s own model looks for both – no Ollama needed');
+    assert.strictEqual(M.pickers(await M.inventory()).look.value, 'us:gemma-4-e2b');
+    M.setJob('text', 'llama3.2:latest'); assert.strictEqual(US.settings.get('ai.localModel'), 'llama3.2:latest');
+    M.setJob('listen', 'gemma-4-e2b'); assert.strictEqual(M.jobs().listen, 'gemma-4-e2b');
+    M.setJob('look', ''); assert.deepStrictEqual([M.jobs().look, U.plan().vision.kind], ['', 'none']);
+    // the app not running: the model chosen for a job is still listed, once, and said to be missing just now
+    const gone = M.inventoryFrom({ status: { ok: false, kind: '' }, names: [], chosen: { text: 'llama3.2:latest', look: 'own:llama3.2' } });
+    assert.deepStrictEqual(gone.models.filter(m => m.from !== 'Ultra Studio').map(m => [m.name, m.here, m.from]), [['llama3.2:latest', false, 'Ollama or LM Studio']]);
+    assert.ok(/not found just now/.test(M.pickers(gone).text.options[1].label));
+  } finally { s.close(); T.undo(); US.settings.set('ai.localUrl', keepUrl); US.settings.set('ai.localModel', keepText || ''); US.settings.set('footage.localModel', keepLook || ''); US.settings.set('footage.with', keepWith); US.settings.set('understand.listenModel', 'builtin'); }
+});
+
+test('the older stills describer looks with Ultra Studio’s own model through the helper when that is the one chosen (no Ollama)', async () => {
+  const T = tinyCatalogue('gemma-4-e2b', 'Gemma 4 E2B'), asked = [];
+  const keepWith = US.settings.get('footage.with'), keepStart = M.start, keepAt = US.ai.localAt, keepGrab = US.footage.grab;
+  US.settings.set('footage.with', 'local'); US.settings.set('footage.localModel', '');
+  M.start = async id => { asked.push(['start', id]); return 'http://127.0.0.1:1'; };
+  US.ai.localAt = async req => { asked.push(['ask', req.url, req.model, req.user.filter(b => b.image).length]); return { description: 'A river at dusk.', shot: 'wide', setting: 'a river', people: 'no one', action: '', text: '', tags: ['river'] }; };
+  US.footage.grab = async (it, times) => ({ stills: times.map(STILL), how: 'panel' });
+  const item = { id: 'f1', kind: 'video', path: tmp('DJI_9.mp4'), name: 'DJI_9.mp4', duration: 6 };
+  try {
+    const r = await US.footage.describe(job, [item], { ask: false });
+    assert.ok(r.described === 1 && /described by Gemma 4 E2B \(on this computer\)/.test(r.summary), r.summary);
+    assert.deepStrictEqual(asked, [['start', 'gemma-4-e2b'], ['ask', 'http://127.0.0.1:1', 'gemma-4-e2b', 1]]);
+  } finally { M.start = keepStart; US.ai.localAt = keepAt; US.footage.grab = keepGrab; US.settings.set('footage.with', keepWith); T.undo(); }
+});
+
+test('Settings in jsdom with Qwen 3.5 in Ollama and Ultra Studio’s Gemma 4 E2B: each model once per picker and once in the one list; Footage keeps only the permission; the AI card shares the reading-and-writing picker', () => {
+  const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'models-ui.js')], { encoding: 'utf8', timeout: 120000 });
+  const last = (r.stdout || '').trim().split('\n').pop();
+  let o; try { o = JSON.parse(last); } catch (e) { throw new Error('models-ui.js gave no result:\n' + (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-1500)); }
+  assert.deepStrictEqual(o.errors, []);
+  // every picker that names a model names it once
+  assert.deepStrictEqual(o.selects.map(s => [s.section, s.job, s.qwen, s.gemma, s.llama]), [['ai', '', 1, 1, 1], ['understand', 'text', 1, 1, 1], ['understand', 'look', 1, 1, 1], ['understand', 'listen', 0, 1, 0]]);
+  assert.ok(o.selects.slice(0, 3).every(s => s.chosen === 'Qwen 3.5 (4B) – from Ollama'), 'the model in use is shown as chosen, with where it comes from');
+  // one list, in one section: each model a single row (in 1.3.40 Qwen had a row and a dropdown entry in Footage, and another in Vision & listening models)
+  assert.deepStrictEqual(o.rows.map(x => x.section), ['understand', 'understand', 'understand', 'understand']);
+  assert.deepStrictEqual(o.rows.map(x => x.title), ['Gemma 4 E2Bfrom Ultra Studio', 'Qwen 3.5 (4B)from Ollamain use for reading and writing and looking', 'llama3.2:latestfrom Ollama', 'SmolVLM2 500M']);
+  assert.deepStrictEqual(o.jobs, ['Reading and writing', 'Looking at footage', 'Listening']);
+  assert.deepStrictEqual(o.explains, { why: true, ways: true, two: true, app: true }, 'the three questions are answered on screen');
+  assert.deepStrictEqual(o.buttons, { here: ['Delete', 'Remove', 'Remove'], more: ['Download (437 MB)'] }, 'nothing is lost: Ultra Studio’s can be deleted, Ollama’s removed, the rest downloaded');
+  assert.deepStrictEqual(o.footage, { link: true, downloads: 0, permission: true, who: true });
+  assert.deepStrictEqual(o.aiCard, { label: true, points: true, offline: true, address: true, find: true });
+  assert.deepStrictEqual(o.oneSetting, { setting: 'llama3.2:latest', sectionShows: 'llama3.2:latest – from Ollama' }, 'chosen in the AI card, shown in the section: one setting');
 });

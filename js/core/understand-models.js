@@ -329,5 +329,85 @@
   }
   const autoUpdate = () => US.settings.get('understand.autoUpdate', false) === true;
 
-  US.models = { BUILTIN, MANIFEST_URL, manifest, validManifest, list, get, totalBytes, fmtSize, dir, modelDir, fileOf, installed, remove, oldVersions, fetchFile, sha256File, download, runtime, start, stop, helper, touch, checkUpdates, pendingUpdates, applyUpdates, updatesIn, autoUpdate, platformKey };
+  /* ---------- every model on this computer, once – and which job each can do ----------
+     Three jobs: reading and writing (story work, Ask), looking at footage, listening. Two ways a model gets here:
+     downloaded by Ultra Studio (it runs in the helper, nothing else to install), or the editor's own in Ollama or
+     LM Studio. One setting per job; whatever is chosen there is the one used – nothing runs twice. */
+  /** The same model under two spellings is one model: case, and Ollama's “:latest”. */
+  const sameId = n => String(n || '').trim().toLowerCase().replace(/:latest$/, '');
+  const KNOWN = () => (US.footage && US.footage.MODELS) || [];   // names and sizes of well-known Ollama vision models
+  /**
+   * The inventory from what was found. status: US.ai.localStatus(); names: what the app lists (both of its lists may
+   * be given – doubles are dropped); caps: {name: ['vision', …] | null}; chosen: {text, look} (the editor's own model
+   * for each job, kept in the list even when the app isn't running).
+   * -> {server: {running, app}, models: [{key, id, name, from, here, size, can: {text, look, listen}, why: {…}, removable}]}
+   * can.look: true, false (a text-only model) or null (the app doesn't say – LM Studio).
+   */
+  function inventoryFrom({ status = { ok: false, kind: '' }, names = [], caps = {}, chosen = {} } = {}) {
+    const app = status.ok ? (status.kind === 'ollama' ? 'Ollama' : 'LM Studio') : '';
+    const out = [];
+    for (const m of list().filter(x => installed(x.id))) {
+      out.push({ key: 'us:' + m.id, id: m.id, name: m.name, from: 'Ultra Studio', here: true, size: fmtSize(totalBytes(m)), removable: 'us',
+        can: { text: false, look: m.use.includes('vision'), listen: m.use.includes('listening') }, why: { text: 'it is set up for looking and listening, not for story work' } });
+    }
+    const seen = new Set();
+    const add = (name, here) => {
+      const id = sameId(name); if (!id || seen.has(id)) return; seen.add(id);
+      const known = KNOWN().find(k => sameId(k.id) === id), c = Object.keys(caps).find(k => sameId(k) === id), cap = c ? caps[c] : null;
+      const look = cap ? cap.includes('vision') : known ? true : null;
+      out.push({ key: 'own:' + name, id: name, name: known ? known.name : name, tag: name, from: app || 'Ollama or LM Studio', here, size: known ? known.size : '', removable: here && status.kind === 'ollama' ? 'ollama' : '',
+        can: { text: true, look, listen: false }, why: Object.assign({ listen: 'Ultra Studio can only listen with its own models' }, look === false ? { look: 'a text-only model – it can’t look at pictures' } : {}) });
+    };
+    for (const n of names) add(n, true);
+    const ownName = n => (/^us:/.test(n || '') ? '' : String(n || '').replace(/^own:/, ''));   // jobs() names its looking choice 'us:…' or 'own:…'
+    for (const n of [chosen.text, chosen.look].map(ownName)) if (n) add(n, false);   // chosen, but the app isn't running (or the model has gone)
+    return { server: { running: !!status.ok, app }, models: out };
+  }
+  /** Ask the computer: Ultra Studio's own models on disk, and what Ollama or LM Studio has. */
+  async function inventory() {
+    let status = { ok: false, kind: '' }, names = [];
+    const caps = {};
+    try { status = await US.ai.localStatus(); if (status.ok) names = await US.ai.localModels(); } catch (e) { /* not running */ }
+    if (status.kind === 'ollama' && US.ai.localCaps) for (const n of names.slice(0, 40)) caps[n] = await US.ai.localCaps(n);
+    return inventoryFrom({ status, names, caps, chosen: jobs() });
+  }
+  /** The model chosen for each job, as kept: {text (the editor's own model's name or ''), look ('us:id' | 'own:name' | ''), listen ('builtin' | id)} */
+  function jobs() {
+    const v = String(US.settings.get('understand.visionModel', '') || ''), own = String(US.settings.get('footage.localModel', '') || '').trim();
+    const mine = get(v) && installed(v) ? 'us:' + v : '';
+    const l = String(US.settings.get('understand.listenModel', 'builtin') || 'builtin');
+    return { text: String(US.settings.get('ai.localModel', '') || '').trim(), look: mine || ((v === 'own' || !v || !mine) && own ? 'own:' + own : ''), lookOwn: own, listen: get(l) && installed(l) ? l : 'builtin' };
+  }
+  /** Choose the model for a job (a picker's value). One setting per job – what every tool then uses. */
+  function setJob(job, value) {
+    value = String(value || '');
+    if (job === 'text') US.settings.set('ai.localModel', value.replace(/^own:/, ''));
+    else if (job === 'look') {
+      if (/^us:/.test(value)) US.settings.set('understand.visionModel', value.slice(3));
+      else if (/^own:/.test(value)) { US.settings.set('footage.localModel', value.slice(4)); US.settings.set('understand.visionModel', 'own'); }
+      else { US.settings.set('understand.visionModel', ''); US.settings.set('footage.localModel', ''); }
+    } else if (job === 'listen') US.settings.set('understand.listenModel', value || 'builtin');
+    US.bus.emit('models', { job });
+  }
+  /**
+   * The three pickers: for each job every model that could be listed, once, named with where it comes from; one that
+   * can't do the job is greyed with the reason. -> {text|look|listen: {value, options: [{value, label, disabled}]}}
+   */
+  function pickers(inv, now = jobs()) {
+    const label = m => `${m.name} – from ${m.from}${m.here ? '' : ' (not found just now)'}`;
+    const us = inv.models.filter(m => m.from === 'Ultra Studio'), own = inv.models.filter(m => m.from !== 'Ultra Studio');
+    const text = [{ value: '', label: own.length ? 'None chosen' : 'None – this job needs a model from Ollama or LM Studio' }]
+      .concat(own.map(m => ({ value: m.tag, label: label(m) })))
+      .concat(us.map(m => ({ value: m.key, label: `${m.name} – from Ultra Studio (looks and listens only)`, disabled: true })));
+    const look = [{ value: '', label: inv.models.some(m => m.can.look !== false) ? 'None chosen' : 'None yet – download one below' }]
+      .concat(us.filter(m => m.can.look).map(m => ({ value: m.key, label: label(m) })))
+      .concat(own.map(m => (m.can.look === false ? { value: m.key, label: `${m.name} – from ${m.from} (text only – can’t look)`, disabled: true } : { value: m.key, label: label(m) + (m.can.look === null ? ' – must be a model that takes pictures' : '') })));
+    const listen = [{ value: 'builtin', label: 'Built-in listening – part of Ultra Studio, no model' }]
+      .concat(us.filter(m => m.can.listen).map(m => ({ value: m.id, label: `Built-in + ${m.name} – from Ultra Studio (experimental)` })));
+    // what is chosen now, as the list spells it (the setting may say “Qwen3.5:4b” where Ollama says “qwen3.5:4b”)
+    const pickOf = (opts, v, d) => { const o = v ? opts.find(o => !o.disabled && sameId(o.value) === sameId(v)) : null; return o ? o.value : d; };
+    return { text: { value: pickOf(text, now.text, ''), options: text }, look: { value: pickOf(look, now.look, ''), options: look }, listen: { value: pickOf(listen, now.listen, 'builtin'), options: listen } };
+  }
+
+  US.models = { sameId, inventory, inventoryFrom, jobs, setJob, pickers, BUILTIN, MANIFEST_URL, manifest, validManifest, list, get, totalBytes, fmtSize, dir, modelDir, fileOf, installed, remove, oldVersions, fetchFile, sha256File, download, runtime, start, stop, helper, touch, checkUpdates, pendingUpdates, applyUpdates, updatesIn, autoUpdate, platformKey };
 })();

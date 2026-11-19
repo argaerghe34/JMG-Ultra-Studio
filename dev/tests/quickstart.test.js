@@ -90,5 +90,5 @@ test('the quick start names every place on the rail, and every Story and Edit ta
   const story = r.places.find(p => p.id === 'story');
   assert.ok(story.tools.some(d => d.name === 'Pro View'), 'Pro View is no longer a tab in Story – update QUICKSTART.md');
   // the Settings sections it sends people to
-  for (const s of ['Updates', 'AI (optional)', 'Vision & listening models', 'Take the tour', 'Full guide', 'Quick start', 'What was sent to AI']) assert.ok(norm(r.settingsText).includes(norm(s)), 'Settings has no “' + s + '”');
+  for (const s of ['Updates', 'AI (optional)', 'Vision & listening models', 'Models on this computer', 'Footage – what the AI may see', 'Take the tour', 'Full guide', 'Quick start', 'What was sent to AI']) assert.ok(norm(r.settingsText).includes(norm(s)), 'Settings has no “' + s + '”');
 });

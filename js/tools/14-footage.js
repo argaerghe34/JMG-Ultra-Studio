@@ -98,6 +98,11 @@
     const ai = US.ai;
     if (!ai) return { where: 'none', why: 'AI isn’t available.' };
     const want = ai.projectOffline && ai.projectOffline() ? 'local' : US.settings.get('footage.with', 'cloud');
+    // one choice for looking on this computer (Settings › Vision & listening models): Ultra Studio's own model in its
+    // helper, or the editor's own in Ollama / LM Studio
+    const mine = US.models && US.models.jobs ? US.models.jobs().look : '';
+    const own = /^us:/.test(mine) && US.models.runtime.installed() ? US.models.get(mine.slice(3)) : null;
+    if (want === 'local' && own) return { where: 'local', helper: own.id, use: { provider: 'local', model: own.id }, label: `${own.name} (on this computer)` };
     if (want === 'local') {
       const m = visionModel();
       return m ? { where: 'local', use: { provider: 'local', model: m }, label: `${m} (on this computer)` } : { where: 'none', needsModel: true, why: 'No model for looking at footage is chosen on this computer yet.' };
@@ -114,6 +119,13 @@
     if (L.where === 'none') throw new US.UserError('AI_KEY', { title: L.why || 'Nothing is set up to look at footage.', action: 'Settings › AI › Footage: choose Claude or Gemini, or download a model for this computer.' });
     if (L.where === 'cloud' && !US.ai.stillsOn()) throw new US.UserError('AI_FAILED', { title: 'Stills from this project aren’t allowed to leave this computer.', action: 'Settings › AI › Footage: switch on “Small stills may be sent” for this project – or choose a model on this computer, and nothing leaves.' });
     return L;
+  }
+
+  /** Ask whoever looks: Ultra Studio's own model through its helper, else the AI named by L.use (US.ai.json enforces the stills switch). */
+  async function lookAI(L, req, job) {
+    if (!L.helper) return US.ai.json(Object.assign({}, req, { use: L.use }));
+    const url = await US.models.start(L.helper, { job: job && job.busy ? job : null });
+    try { return await US.ai.localAt(Object.assign({}, req, { url, model: L.helper, maxTokens: Math.max(req.maxTokens || 0, 1200) })); } finally { US.models.touch(); }
   }
 
   /* ---------- models on this computer: only ever downloaded when the editor says so ---------- */
@@ -141,7 +153,7 @@
    */
   async function ready(job, { ask = true } = {}) {
     let L = looker();
-    if (L.where === 'cloud') return true;
+    if (L.where === 'cloud' || L.helper) return true;   // Ultra Studio's own model is on disk already, and needs no Ollama
     const st = await modelStatus();
     const id = L.where === 'local' ? L.use.model : (MODELS.find(m => m.best) || MODELS[0]).id;
     if (L.where === 'local' && st.running && st.installed.some(x => sameModel(x, id))) return true;
@@ -289,7 +301,7 @@
         const g = await US.footage.grab(it, timesFor(it.duration, perClip));
         if (!g.stills.length) { skipped.push({ name: it.name, why: g.why }); continue; }
         try {
-          const r = await US.ai.json(Object.assign(request(it, g.stills), { use: L.use, onUsage: u => { out.usd += u.usd || 0; } }));
+          const r = await lookAI(L, Object.assign(request(it, g.stills), { onUsage: u => { out.usd += u.usd || 0; } }), job);
           const d = Object.assign(tidy(r), { by: L.label, at: Date.now(), stills: g.stills.length });
           US.cache.set('look', keyOf(it), d);
           out.described++;
@@ -330,8 +342,8 @@
     }
     if (!n) throw new US.UserError('NOTHING_FOUND', { title: 'None of those clips could be read for stills.', action: skipped.some(s => s.why === 'needs a copy') ? 'They need a small copy first: Overnight prep’s Selects step makes them (or create proxies).' : 'Check the clips are online.' });
     job && job.set && job.set({ who: L.where === 'local' ? 'computer' : 'ai', msg: `${L.label} is looking at ${US.plural(n, 'still')}` });
-    const r = await US.ai.json({ system: 'You look at small stills from a video editor’s clips and answer their question from what the stills show. Be specific and brief; name the clip you mean. Say when a still doesn’t show enough to tell. Never guess names or places that aren’t visible. British English.',
-      user, schema: { type: 'object', additionalProperties: false, required: ['answer'], properties: { answer: { type: 'string' } } }, maxTokens: 1200, effort: 'low', feature: 'Look at footage', use: L.use, onUsage: u => { usd += u.usd || 0; } });
+    const r = await lookAI(L, { system: 'You look at small stills from a video editor’s clips and answer their question from what the stills show. Be specific and brief; name the clip you mean. Say when a still doesn’t show enough to tell. Never guess names or places that aren’t visible. British English.',
+      user, schema: { type: 'object', additionalProperties: false, required: ['answer'], properties: { answer: { type: 'string' } } }, maxTokens: 1200, effort: 'low', feature: 'Look at footage', onUsage: u => { usd += u.usd || 0; } }, job);
     return { answer: String((r && r.answer) || '').trim(), stills: n, skipped, by: L.label, where: L.where, usd };
   }
 
