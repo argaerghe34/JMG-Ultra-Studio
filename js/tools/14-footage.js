@@ -246,7 +246,21 @@
   /* ---------- describing, kept per file ---------- */
   const keyOf = item => US.fsx.mediaKey(item.path || item.id) + '-v' + VERSION;
   /** What's known about a clip (or null): {description, shot, setting, people, action, text, tags, by, at} */
-  function lookOf(item) { try { return item && item.path ? US.cache.get('look', keyOf(item)) : null; } catch (e) { return null; } }
+  function lookOf(item) {
+    let d = null;
+    try { d = item && item.path ? US.cache.get('look', keyOf(item)) : null; } catch (e) { d = null; }
+    return d || fromUnderstanding(item);
+  }
+  /** The same shape from US.understand's record (shots over time, things seen and heard), when that has looked at the clip. */
+  function fromUnderstanding(item) {
+    const U = US.understand; if (!U || !U.peek || !item || !item.path) return null;
+    let r = null; try { r = U.peek(item.path); } catch (e) { r = null; }
+    if (!r || r.fromLook || !((r.shots || []).length || (r.sounds || []).some(s => s.type !== 'silence'))) return null;
+    const heard = Array.from(new Set((r.sounds || []).filter(s => s.type !== 'silence').map(s => U.SOUND_WORDS[s.type] || s.type)));
+    const seen = (r.events || []).slice(0, 5).map(e => e.text);
+    return { description: clip([r.summary, heard.length ? 'Heard: ' + heard.join(', ') + '.' : ''].filter(Boolean).join(' '), 400), shot: SHOTS.includes(r.shot) ? r.shot : 'other', setting: r.setting || '', people: r.people || '', action: clip(seen.join('; '), 120), text: '',
+      tags: Array.from(new Set((r.tags || []).concat(heard))).slice(0, 12), by: (r.vision && r.vision.label) || 'Built-in listening', at: r.at || 0, understood: true };
+  }
   /** The clips worth describing: video and stills that are online – not sequences, sound, or Ultra Studio's own bins. */
   const describable = items => (items || []).filter(it => it && (it.kind === 'video' || it.kind === 'still' || IMAGE.test(it.path || '')) && it.path && !it.offline && !/^JMG Ultra Studio\b/.test(it.bin || ''));
   /** The clips in a bin (or the whole project), as the host lists them. */
@@ -262,7 +276,8 @@
   async function describe(job, items, { force = false, perClip = +US.settings.get('footage.stills', 4), onClip = null, ask: mayAsk = true } = {}) {
     if (looker().where !== 'cloud') await ready(job, { ask: mayAsk });
     const L = mustBeAllowed(), todo = [], already = [];
-    for (const it of describable(items)) (!force && lookOf(it) ? already : todo).push(it);
+    // a clip US.understand has only listened to still wants looking at
+    for (const it of describable(items)) { const d = !force && lookOf(it); (d && !(d.understood && !d.description.replace(/Heard:.*$/, '').trim()) ? already : todo).push(it); }
     const skipped = [], out = { described: 0, failed: 0, usd: 0 };
     let next = 0, firstError = null;
     const worker = async () => {

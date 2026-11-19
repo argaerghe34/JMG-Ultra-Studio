@@ -15,6 +15,7 @@
     { id: 'beats', label: 'Make the beat map', hint: 'Story · every passage scored on what you chose in Build › Beat map' },
     { id: 'clips', label: 'Find clips for social', hint: 'Story · from the interviews, as set in Build › Clips for social' },
     { id: 'look', label: 'Describe the footage', hint: 'A few small stills of each clip are looked at and described in words, so Ask can find shots by what’s in them. Who looks is in Settings › AI › Footage – Claude or Gemini (stills leave this computer; switch it on there for this project) or a model on this computer. Each clip is done once. No Media Encoder: clips the panel can’t read wait for the Selects step’s copies.' },
+    { id: 'understand', label: 'Look at and listen to all the footage', hint: 'What each clip shows over time (shots, reactions, gestures) and what can be heard (music, applause, laughter, wind, a raised voice), so Ask, Story and Selects know what’s in the footage. Who does it is in Settings › Vision & listening models: on this computer (nothing leaves) or, only if you chose it for this project, the cloud – within the AI limit below. Each clip is done once.' },
     { id: 'recipe', label: 'Then run a recipe', hint: 'One of your recipes (Ask › Recipes) – edit steps are left for the morning, as they need checking' },
     { id: 'selects', label: 'Analyse all the footage for Selects', hint: resolve ? 'Resolve makes small copies of clips the panel can’t read; afterwards Selects grades any bin instantly' : 'Makes Media Encoder copies of clips the panel can’t read; afterwards Selects grades any bin instantly' }
   ];
@@ -53,6 +54,10 @@
       const F = US.footage, items = F.describable(await F.listClips(job));
       if (!items.length) throw new US.UserError('NOTHING_FOUND', { title: 'There’s no footage in this project yet.' });
       return F.describe(job, items, { ask: false });
+    },
+    async understand(job) {
+      if (!US.understand) throw new US.UserError('NOTHING_FOUND', { title: 'Seeing and hearing isn’t available.' });
+      return US.understand.runAll(job, { heavy: true });
     },
     async recipe(job, o) {
       const r = US.recipes && US.recipes.list().find(x => x.id === o.recipe);
@@ -94,6 +99,8 @@
     if (!US.ctx.project) throw new US.UserError('NO_PROJECT');
     const steps = STEPS.filter(s => o.steps.includes(s.id));
     if (!steps.length) throw new US.UserError('NOTHING_FOUND', { title: 'No steps ticked.', action: 'Tick at least one thing to prepare.' });
+    // cloud seeing and hearing: agreed now, with the estimate, while someone is there
+    if (o.steps.includes('understand') && US.understand && US.understand.route() === 'cloud' && US.understandUI && !(await US.understandUI.confirmCloud({ overnight: true }))) throw new US.UserError('CANCELLED');
     if (o.useAI && US.ai && US.ai.available() && US.ai.provider() === 'claude') {
       // agreed now, while someone is there; nothing asks later
       const ok = await ui.confirm({ title: `Allow up to $${(+o.limit).toFixed(2)} of Claude tonight?`, text: 'Overnight prep won’t stop to ask. AI steps that would go over this limit are skipped and listed in the morning report. ' + (o.steps.includes('look') && US.footage && US.footage.looker().where === 'cloud' ? 'The text of transcript lines is sent and, for Describe the footage, a few small stills of each clip – no video or sound.' : 'Only the text of transcript lines is sent.'), ok: 'Allow and start' });

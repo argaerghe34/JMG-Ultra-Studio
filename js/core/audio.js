@@ -403,5 +403,25 @@
     return out;
   }
 
-  US.audio = { readWav, wavInfo, isPlainWav, forItem, forSequence, render, envelope, peaks, retry, ffmpeg, readers, layoutFor, mix, fromFiles, writeFloatWav, SR };
+  /* ---------- seeing and hearing: a file's sound without asking the editor for anything ---------- */
+  /**
+   * One media file's sound as 16 kHz mono, read here: a plain WAV directly, else ffmpeg when it's installed, else the
+   * panel's own decoder. Never a render and never Media Encoder – it throws NOT_FROM_FILES when the file can't be read
+   * this way (background listening then waits for Overnight prep). -> {data, sr, duration, how}
+   */
+  async function fileAudio(file, { upTo = Infinity, check, info = {} } = {}) {
+    const r = await readSource(file, upTo, info, check);
+    return { data: r.data, sr: SR, duration: r.data.length / SR, how: r.how };
+  }
+  /** Samples as the bytes of a 16-bit mono WAV file (for a model that listens). */
+  function wavBytes(data, rate = SR) {
+    const b = Buffer.alloc(44 + data.length * 2);
+    b.write('RIFF', 0, 'ascii'); b.writeUInt32LE(36 + data.length * 2, 4); b.write('WAVEfmt ', 8, 'ascii');
+    b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+    b.write('data', 36, 'ascii'); b.writeUInt32LE(data.length * 2, 40);
+    for (let i = 0, o = 44; i < data.length; i++, o += 2) { const v = data[i] < -1 ? -1 : data[i] > 1 ? 1 : data[i]; b.writeInt16LE(Math.round(v * 32767), o); }
+    return b;
+  }
+
+  US.audio = { readWav, wavInfo, isPlainWav, forItem, forSequence, render, envelope, peaks, retry, ffmpeg, readers, layoutFor, mix, fromFiles, writeFloatWav, fileAudio, wavBytes, SR };
 })();

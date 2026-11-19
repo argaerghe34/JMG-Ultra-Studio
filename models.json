@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "date": "2026-11-19",
+  "runtime": {
+    "id": "llama-server",
+    "name": "The helper that runs models (llama.cpp)",
+    "version": "b12359",
+    "licence": "MIT",
+    "source": "https://github.com/ggml-org/llama.cpp",
+    "builds": {
+      "darwin-arm64": {
+        "name": "llama-b12359-bin-macos-arm64.tar.gz",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12359/llama-b12359-bin-macos-arm64.tar.gz",
+        "bytes": 16907811,
+        "sha256": "82b00abc740160e1b9980e6cc79c117345fa34af058c80e6c0a69aa8ddccde75",
+        "exe": "llama-b12359/llama-server"
+      },
+      "darwin-x64": {
+        "name": "llama-b12359-bin-macos-x64.tar.gz",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12359/llama-b12359-bin-macos-x64.tar.gz",
+        "bytes": 12661621,
+        "sha256": "25320d529077ef5a3d16e7b5da26438f221d88c8c0930a32b0c79457f5eede56",
+        "exe": "llama-b12359/llama-server"
+      },
+      "win32-x64": {
+        "name": "llama-b12359-bin-win-cpu-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12359/llama-b12359-bin-win-cpu-x64.zip",
+        "bytes": 25097509,
+        "sha256": "837c1655e87df3b66989f4be33a792a1399c785bf259038dc75c900096683e69",
+        "exe": "llama-server.exe"
+      }
+    }
+  },
+  "models": [
+    {
+      "id": "smolvlm2-500m",
+      "name": "SmolVLM2 500M",
+      "use": [
+        "vision"
+      ],
+      "version": "1",
+      "licence": "Apache-2.0",
+      "source": "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF",
+      "memory": "about 1 GB",
+      "stillsPerAsk": 1,
+      "assume": [
+        1,
+        6
+      ],
+      "what": "The smallest. Quick, plain descriptions – for a computer with little memory, or to try it out.",
+      "files": [
+        {
+          "role": "model",
+          "name": "SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/main/SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
+          "bytes": 436808704,
+          "sha256": "6f67b8036b2469fcd71728702720c6b51aebd759b78137a8120733b4d66438bc"
+        },
+        {
+          "role": "mmproj",
+          "name": "mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
+          "bytes": 108785184,
+          "sha256": "921dc7e259f308e5b027111fa185efcbf33db13f6e35749ddf7f5cdb60ef520b"
+        }
+      ]
+    },
+    {
+      "id": "smolvlm2-2.2b",
+      "name": "SmolVLM2 2.2B",
+      "use": [
+        "vision"
+      ],
+      "version": "1",
+      "licence": "Apache-2.0",
+      "source": "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF",
+      "memory": "about 3 GB",
+      "stillsPerAsk": 1,
+      "assume": [
+        2,
+        10
+      ],
+      "what": "A light all-rounder: better descriptions than the smallest, still modest in size.",
+      "files": [
+        {
+          "role": "model",
+          "name": "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/SmolVLM2-2.2B-Instruct-Q4_K_M.gguf",
+          "bytes": 1112602656,
+          "sha256": "0cf76814555b8665149075b74ab6b5c1d428ea1d3d01c1918c12012e8d7c9f58"
+        },
+        {
+          "role": "mmproj",
+          "name": "mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf",
+          "bytes": 592523200,
+          "sha256": "ae07ea1facd07dd3230c4483b63e8cda96c6944ad2481f33d531f79e892dd024"
+        }
+      ]
+    },
+    {
+      "id": "gemma-4-e2b",
+      "name": "Gemma 4 E2B",
+      "use": [
+        "vision",
+        "listening"
+      ],
+      "version": "1",
+      "licence": "Apache-2.0",
+      "source": "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF",
+      "memory": "about 4.5 GB",
+      "stillsPerAsk": 4,
+      "chunkSec": 30,
+      "assume": [
+        3,
+        15
+      ],
+      "best": true,
+      "what": "The recommended one: sees shots well (reads writing in the picture too) and can also listen, 30 seconds at a time. Listening with it is experimental – Google describes it for speech; how well it names laughter, applause or music is not proven.",
+      "files": [
+        {
+          "role": "model",
+          "name": "gemma-4-E2B-it-Q4_0.gguf",
+          "url": "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf",
+          "bytes": 2841481184,
+          "sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52"
+        },
+        {
+          "role": "mmproj",
+          "name": "mmproj-gemma-4-E2B-it-Q8_0.gguf",
+          "url": "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main/mmproj-gemma-4-E2B-it-Q8_0.gguf",
+          "bytes": 557368096,
+          "sha256": "042cc2561806cd3b5cb5efb25cab76911e3100c43cc09d854904f921924b1429"
+        }
+      ]
+    },
+    {
+      "id": "gemma-4-e4b",
+      "name": "Gemma 4 E4B",
+      "use": [
+        "vision",
+        "listening"
+      ],
+      "version": "1",
+      "licence": "Apache-2.0",
+      "source": "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF",
+      "memory": "about 6.5 GB (a computer with 16 GB or more)",
+      "stillsPerAsk": 4,
+      "chunkSec": 30,
+      "assume": [
+        5,
+        25
+      ],
+      "what": "The strongest here: more careful descriptions, slower. Listening is experimental, as with E2B.",
+      "files": [
+        {
+          "role": "model",
+          "name": "gemma-4-E4B-it-Q4_0.gguf",
+          "url": "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
+          "bytes": 4590807392,
+          "sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"
+        },
+        {
+          "role": "mmproj",
+          "name": "mmproj-gemma-4-E4B-it-Q8_0.gguf",
+          "url": "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/mmproj-gemma-4-E4B-it-Q8_0.gguf",
+          "bytes": 559874848,
+          "sha256": "9257f21a0f5358204b4a612cff83fad2e56412f4f607f0049331ce60c0cf9d34"
+        }
+      ]
+    }
+  ]
+}
