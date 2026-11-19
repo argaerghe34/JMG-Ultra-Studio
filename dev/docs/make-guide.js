@@ -8,8 +8,10 @@ for (const f of ['tools-cut.md', 'tools-find.md', 'tools-finish.md', 'tools-stor
   const text = fs.readFileSync(path.join(dir, f), 'utf8');
   for (const part of text.split(/^(?=### )/m)) { const m = /^### ([^–\n]+?) –/.exec(part); if (m) sections[m[1].trim()] = part.trim(); }
 }
-const ORDER = [[null, ['Story']], ['Selects & clips', ['Selects', 'Subclip Maker', 'Take Sets', 'MC Selects']], ['Find the good bits', ['Story wiki', 'Word cloud', 'Producer', 'Song Splitter']], ['Cut faster', ['Podcast', 'Silence Cut', 'Beat Cut', 'B-roll', 'Camera Switch']],
-  ['Finish & deliver', ['Colour', 'Quick effects', 'mVFX', 'Markers', 'Safe Zones', 'Sound Check', 'Final Check', 'Deliver']], ['Ask', ['Assistant']], ['Memory Box', ['Memory Box']]];
+// the rail's order (js/core/app.js US.PLACES, 19 Nov 2026): Story, Edit, Deliver, Advanced, Ask – then the tools in development
+const ORDER = [[null, ['Story']], ['Story', ['Story wiki', 'Word cloud']], ['Edit', ['Quick effects', 'Markers', 'Safe Zones', 'Silence Cut', 'Beat Cut', 'Producer']],
+  ['Deliver', ['Final Check', 'Deliver']], ['Advanced', ['Selects', 'Subclip Maker', 'MC Selects', 'Take Sets', 'Podcast', 'mVFX']], ['Ask', ['Assistant']],
+  ['Advanced › In development', ['Colour', 'Camera Switch', 'B-roll', 'Sound Check', 'Song Splitter', 'Memory Box']]];
 const tools = ORDER.map(([group, names]) => (group ? `**${group}**\n\n` : '') + names.map(n => { if (!sections[n]) throw new Error('No guide section for ' + n); return sections[n]; }).join('\n\n')).join('\n\n');
 md = md.replace('{{TOOLS}}', tools);
 const aiCosts = fs.existsSync(path.join(dir, 'ai-costs.md')) ? fs.readFileSync(path.join(dir, 'ai-costs.md'), 'utf8') : '';

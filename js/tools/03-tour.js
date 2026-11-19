@@ -16,12 +16,33 @@
 
   /** The tour for an id: the tool's own `tour`, else US.TOURS[id]. -> {title, steps} or null */
   function get(id) {
+    if (id === 'full') return fullGuide();
     const d = US.tools.get(id), data = (US.TOURS || {})[id];
     const steps = (d && d.tour) || (data && (data.steps || data)) || null;
     if (!steps || !steps.length) return null;
     return { id, title: (data && data.title) || (id === 'overview' ? 'Ultra Studio in a minute' : 'A tour of ' + (d ? d.name : id)), steps };
   }
   const has = id => !!get(id);
+  /**
+   * The full guide (the user's notes, 19 Nov 2026): everything, in the rail's order – each place, then every tab in it
+   * step by step (Advanced's tools too), then the top bar and Settings. Made from the overview's steps and each tool's
+   * own, so it is never out of date: change a tool's steps and the guide changes with them.
+   */
+  function fullGuide() {
+    const ov = get('overview'); if (!ov) return null;
+    const steps = [], of = id => { const t = get(id); return t ? t.steps.map(s => Object.assign({ tool: id }, s)) : []; };
+    for (const p of US.PLACES || []) {
+      const ids = p.id === 'advanced' ? (US.tools.get('advanced') ? ['advanced'].concat(US.ADVANCED_TOOLS.filter(id => US.tools.get(id))) : []) : US.placeTools(p.id).map(d => d.id);
+      if (!ids.length) continue;
+      const rail = ov.steps.find(s => s.target === '@rail:' + p.id);
+      if (rail) steps.push(Object.assign({}, rail, { place: p.id, tool: null }));
+      for (const id of ids) steps.push(...of(id));
+    }
+    // tools with a rail button of their own (no place claims them)
+    for (const d of US.tools.list().filter(d => US.onRail(d) && !US.placeOf(d.id))) steps.push(...of(d.id));
+    steps.push(...ov.steps.filter(s => !/^@rail:/.test(s.target)), ...of('settings'));
+    return { id: 'full', title: 'The full guide', steps };
+  }
 
   /** The open tab's root element. */
   const current = () => document.querySelector('.view > .tool:not(.hidden)') || document.querySelector('.view > :not(.hidden)');
@@ -143,7 +164,8 @@
 
   // Search (⌘K): "Take the tour" and a tour for each tab
   if (US.search) US.search.add(q => {
-    const out = [{ kind: 'help', id: 'tour:overview', title: 'Take the tour', detail: 'A one-minute tour of Ultra Studio', icon: 'info', words: 'help tour guide tutorial learn how', boost: 50, run: () => start('overview') }];
+    const out = [{ kind: 'help', id: 'tour:overview', title: 'Take the tour', detail: 'A one-minute tour of Ultra Studio', icon: 'info', words: 'help tour guide tutorial learn how', boost: 50, run: () => start('overview') },
+      { kind: 'help', id: 'tour:full', title: 'Full guide', detail: 'A walk through every tab and tool, step by step', icon: 'info', words: 'help tour guide tutorial learn how complete walkthrough everything', boost: 40, run: () => start('full') }];
     if (q) for (const t of list().filter(t => t.id !== 'overview')) out.push({ kind: 'help', id: 'tour:' + t.id, title: 'Tour: ' + t.name, detail: 'What this tab does, step by step', icon: 'info', words: 'help tour guide tutorial', run: () => start(t.id) });
     return out;
   });

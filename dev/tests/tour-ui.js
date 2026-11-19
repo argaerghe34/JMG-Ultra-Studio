@@ -33,6 +33,12 @@ async function runTour(id) {
     out.badSteps.push(...(await runTour('overview')).map(x => `[${mode}] ` + x));
   }
   US.settings.set('ui.classicRail', false); US.rebuildRail();
+  // the full guide: every step on screen, and it visits every tab a person can open that isn't in development
+  out.badSteps.push(...await runTour('full'));
+  const visited = new Set(US.tour.get('full').steps.map(s => s.tool).filter(Boolean));
+  out.fullMissing = tools.filter(d => !US.PAUSED_TOOLS.includes(d.id) && !visited.has(d.id)).map(d => d.id);
+  out.fullPlaces = US.PLACES.filter(p => !US.tour.get('full').steps.some(s => s.target === '@rail:' + p.id)).map(p => p.id);
+  out.fullSteps = US.tour.get('full').steps.length;
   // every place on the rail has a step in the overview
   const ov = US.tour.get('overview').steps.map(s => s.target);
   out.overviewMissingPlaces = US.PLACES.filter(p => (p.id === 'advanced' ? US.tools.get('advanced') : US.placeTools(p.id).length) && !ov.includes('@rail:' + p.id)).map(p => p.id);
@@ -47,6 +53,10 @@ async function runTour(id) {
   const btn = $$('.view > :not(.hidden) button').find(b => b.textContent.trim() === 'Take the tour');
   if (btn) { btn.click(); await tick(); out.settingsButton = !!US.tour.running && US.tour.running.id === 'overview'; US.tour.stop(); }
   out.inSearch = US.search.results('tour').some(e => e.id === 'tour:overview');
+  out.fullInSearch = US.search.results('full guide').some(e => e.id === 'tour:full');
+  US.tools.open('settings'); await tick();   // the overview's first step went to Home
+  const fb = $$('.view > :not(.hidden) button').find(b => b.textContent.trim() === 'Full guide');
+  if (fb) { fb.click(); await tick(); out.fullButton = !!US.tour.running && US.tour.running.id === 'full'; US.tour.stop(); }
   console.log(JSON.stringify(out));
   process.exit(0);
 })().catch(e => { console.log(JSON.stringify({ crash: e.stack })); process.exit(1); });

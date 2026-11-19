@@ -63,7 +63,11 @@ With an AI key you can let it use the AI for themes, moments and the interview s
 
 ## Tools
 
-**Advanced** (in the rail, near the bottom) keeps the tools for particular jobs out of the way: **Selects**, **Subclip Maker**, **MC Selects** (Premiere), **Take Sets**, **Song Splitter** and **Podcast**. Open one from there; its screen has a **‹ Advanced** link back. Its **In development** folder holds the tools still being made – **Colour**, **Camera Switch**, **B-roll**, **Sound Check** and **mVFX** – which you can try, though parts may not work yet and the Assistant doesn't use them.
+The sidebar has a few places in the order of the work: **Home**, **Story**, **Edit** (Quick effects, Markers, Safe Zones, Silence Cut, Beat Cut and Producer, as tabs along the top), **Deliver** (Final Check first, then Deliver) and **Advanced**, with **Ask** – the AI – at the very bottom. Press the **☆** beside any tab's title to give it a button of its own on the sidebar, and drag the sidebar's buttons into the order you like (or right-click one; **Settings › Sidebar** has the same as a list with Up and Down). Your stars and your order are kept on this computer, through updates.
+
+**Advanced** keeps the tools for particular jobs out of the way: **Selects**, **Subclip Maker**, **MC Selects** (Premiere), **Take Sets**, **Podcast**, **mVFX** and **Download** (videos from online links, straight into a bin). Open one from there; its screen has a **‹ Advanced** link back. Its **In development** folder holds the tools still being made – **Colour**, **Camera Switch**, **B-roll**, **Sound Check**, **Song Splitter** and **Memory Box** – which you can try, though parts may not work yet and the Assistant doesn't use them.
+
+New here? **Settings › Take the tour** has a one-minute tour and a **Full guide** that walks through every tab.
 
 {{TOOLS}}
 

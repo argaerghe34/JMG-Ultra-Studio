@@ -76,14 +76,14 @@
     US.settings.set('home.recent', list.slice(0, 6));
   });
   const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 60 * 24 ? `${Math.round(m / 60)} h ago` : new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
-  const STAGES = [['bring', 'Bring in'], ['story', 'Story'], ['cut', 'Cut'], ['finish', 'Finish'], ['deliver', 'Deliver']];
+  // the rail's working places (js/core/app.js US.PLACES): "Bring in" and "Finish" went on 19 Nov 2026
+  const STAGES = [['story', 'Story'], ['cut', 'Edit'], ['deliver', 'Deliver']];
   /** Where the project is: each stage done / now / to do, from Story's counts and the tools that finished. */
   function stagesOf(c) {
-    const ran = new Set(recent().filter(x => x.ok).map(x => US.placeOf ? US.placeOf(x.tool) : null));
+    const ok = recent().filter(x => x.ok), ran = new Set(ok.map(x => US.placeOf ? US.placeOf(x.tool) : null));
     const done = {
-      bring: !!(c && c.interviews) || ran.has('bring'),
       story: !!(c && c.narratives) || ran.has('story') && !!(c && c.themes),
-      cut: ran.has('cut'), finish: ran.has('finish'), deliver: ran.has('deliver')
+      cut: ran.has('cut'), deliver: ok.some(x => x.tool === 'deliver')   // Final Check alone isn't delivering
     };
     const now = (STAGES.find(([id]) => !done[id]) || ['deliver'])[0];
     return STAGES.map(([id, name]) => ({ id, name, state: done[id] ? 'done' : id === now ? 'now' : 'todo' }));

@@ -10,9 +10,9 @@
 
   US.tools.register({
     id: 'advanced', name: 'Advanced', icon: 'folder', order: 38,
-    blurb: 'More tools for particular jobs – Selects, subclips, takes, songs, podcasts – and the ones still in development.',
+    blurb: 'More tools for particular jobs – Selects, subclips, takes, podcasts, mVFX titles, Download – and the ones still in development.',
     create() {
-      const v = ui.toolView({ icon: 'folder', title: 'Advanced', blurb: 'More tools for particular jobs. Open one here; its screen has a link back.' });
+      const v = ui.toolView({ icon: 'folder', title: 'Advanced', blurb: 'More tools for particular jobs. Open one here; its screen has a link back, and a ☆ beside its title that puts it on the sidebar.' });
       const body = h('div');
       v.body.appendChild(body);
       function draw() {

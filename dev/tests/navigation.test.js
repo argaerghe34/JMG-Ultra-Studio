@@ -47,18 +47,18 @@ test('Story › Build shows one card at a time, and every card can still be show
 
 test('the rail as places is short; Classic rail keeps one button per tool', () => {
   const r = nav();
-  assert.ok(r.modes.places.railButtons <= 9, 'places rail has ' + r.modes.places.railButtons + ' buttons');
+  assert.ok(r.modes.places.railButtons <= 6, 'places rail has ' + r.modes.places.railButtons + ' buttons (Home, Story, Edit, Deliver, Advanced, Ask)');
   assert.ok(r.modes.classic.railButtons > r.modes.places.railButtons, 'classic rail should have more buttons');
 });
 
-test('Advanced keeps every tool it held: Selects, Subclip Maker, MC Selects, Take Sets, Song Splitter, Podcast, and In development', () => {
+test('Advanced keeps every tool it held – Selects, Subclip Maker, MC Selects, Take Sets, Podcast – plus mVFX and Download; Song Splitter is In development', () => {
   const r = nav();
-  for (const id of ['selects', 'subclips', 'mcselects', 'takes', 'songs', 'podcast']) {
+  for (const id of ['selects', 'subclips', 'mcselects', 'takes', 'podcast', 'mvfx', 'youtube', 'songs']) {
     if (!r.tools.includes(id)) continue;   // a tool only one editor has (MC Selects is Premiere's)
     assert.ok(r.advanced.includes(id), id + ' is no longer in Advanced');
     assert.ok(/^Advanced › /.test(r.modes.places.how[id]), id + ' is not opened from Advanced: ' + r.modes.places.how[id]);
   }
-  for (const id of ['colour', 'cameras', 'broll', 'sound', 'mvfx', 'memorybox']) if (r.tools.includes(id) && r.advanced.includes(id)) assert.ok(/^Advanced › /.test(r.modes.places.how[id]), id + ' (In development) is not opened from Advanced');
+  for (const id of ['colour', 'cameras', 'broll', 'sound', 'songs', 'memorybox']) if (r.tools.includes(id) && r.advanced.includes(id)) assert.ok(/^Advanced › /.test(r.modes.places.how[id]), id + ' (In development) is not opened from Advanced');
 });
 
 test('folders are shown as people say them: Documents › …, Home › …, else the path', () => {

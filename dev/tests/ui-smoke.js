@@ -311,6 +311,8 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     await US.jobs.run({ title: 'Agent', tool: 'agent', about: 'Asking about Ruth’s interview · “a film”' }, async () => { for (const f of ['Agent', 'Agent']) US.ai.sent.begin({ provider: 'claude', model: 'm', feature: f, req: { system: 's', user: 'u' }, est: { inputTokens: 1, usd: 0.01 } }); return { summary: 'ok' }; });
     const set2 = US.tools.get('settings').create(); w.document.body.appendChild(set2.el);
     await new Promise(r => setTimeout(r, 30));
+    // “null” above Refresh (the user's note 11): Element.append(null) writes the word – Settings uses US.append now
+    { const tw = w.document.createTreeWalker(set2.el, 4); for (let n = tw.nextNode(); n; n = tw.nextNode()) if (/^\s*(null|undefined)\s*$/.test(n.nodeValue)) { errors.push('Settings: the word “' + n.nodeValue.trim() + '” shows in ' + (n.parentNode.className || n.parentNode.tagName)); break; } }
     const head = set2.el.querySelector('.sent-head');
     if (!head || !/Asking about Ruth’s interview/.test(head.textContent) || !/2 requests/.test(head.textContent)) errors.push('Settings: requests not grouped by job – ' + (head ? head.textContent : 'no group'));
     else { head.click(); if (set2.el.querySelectorAll('.sent-kids:not(.hidden) .sent-req').length !== 2) errors.push('Settings: the group didn’t open to its requests'); }

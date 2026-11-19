@@ -3,7 +3,7 @@
   'use strict';
   const US = window.US, h = US.h, ui = US.ui, path = require('path');
 
-  const HIDDEN_NAMES = 'Colour, Cameras, B-roll, Sound Check and mVFX';
+  const HIDDEN_NAMES = 'Colour, Cameras, B-roll, Sound Check, Memory Box and Song Splitter';
   // a click on About: one of these (written for Ultra Studio, never fetched from anywhere)
   const JOKES = [
     'Why did the editor break up with the timeline? It had too many unresolved gaps.',
@@ -24,10 +24,13 @@
     'A director, a producer and an editor walk into a bar. Only the editor knows which take to use.'
   ];
 
+  // Search (⌘K): the sidebar's settings
+  if (US.search) US.search.add(() => [{ kind: 'setting', id: 'setting:sidebar', title: 'Sidebar: your order and starred tabs', detail: 'Settings › Sidebar', icon: 'gear', words: 'rail sidebar order reorder favourite favorite star pin tabs', run: () => US.tools.open('settings', { section: 'sidebar' }) }]);
+
   US.tools.register({
     id: 'settings', name: 'Settings', icon: 'gear', hidden: true, order: 999,
     create() {
-      const v = ui.toolView({ icon: 'gear', title: 'Settings', blurb: 'Optional AI, notifications and where files are kept.' });
+      const v = ui.toolView({ icon: 'gear', title: 'Settings', blurb: 'Updates, optional AI, the sidebar, notifications and where files are kept.' });
 
       /* AI */
       const provider = ui.segmented({
@@ -61,7 +64,7 @@
           US.clear(box);
           const L = F.looker(), off = US.ai.projectOffline(), cloud = US.ai.choices().filter(c => c.provider === 'claude' || c.provider === 'gemini');
           const withSeg = ui.segmented({ options: [{ value: 'cloud', label: 'Claude or Gemini', title: 'Best descriptions. Small stills leave this computer – only for projects you switch it on for.' }, { value: 'local', label: 'A model on this computer', title: 'Nothing leaves this computer. Needs one of the optional models below.' }], value: off ? 'local' : US.settings.get('footage.with', 'cloud'), onChange: x => set('footage.with', x) });
-          box.append(
+          US.append(box, [
             h('div.field-hint', 'Ultra Studio can look at your footage so Ask can find shots by what’s in them (“the drone shots over water”) and answer questions about a clip. It looks at a few small stills of each clip – 512 pixels wide, one for a short clip, up to four for a long one – and keeps a description in words. Never video, never sound. Each clip is described once.'),
             ui.field('Who looks at the stills', withSeg, off ? `“${proj}” is set to “nothing leaves this computer”, so only a model on this computer can look.` : L.where === 'none' ? L.why : `Now: ${L.label}.`),
             !off && proj ? ui.toggle({ label: `“${proj}”: small stills may be sent to Claude or Gemini`, hint: 'Off until you switch it on, project by project. Ask still shows a card before it sends stills for a question. What was sent to AI lists every still that went (which clip and time) – the pictures themselves aren’t kept there.', value: US.ai.stillsOn(), onChange: x => { US.ai.setStills(x); draw(); } }) : null,
@@ -69,7 +72,7 @@
               L.where === 'cloud' && L.provider === 'claude' ? `About ${US.ai.fmtUSD(F.costFor(100, 2, L.model))} for 100 clips with ${L.label} (stills in, a few lines out).` : L.where === 'cloud' ? 'Within Google’s free allowance for most projects.' : '') : null,
             ui.field('Stills from a long clip', ui.select({ options: [1, 2, 3, 4].map(n => ({ value: String(n), label: n === 1 ? 'One' : `Up to ${n}` })), value: String(US.settings.get('footage.stills', 4)), onChange: x => set('footage.stills', +x) }), 'More stills describe a long clip better and cost a little more.'),
             h('div.field-label', 'Models on this computer (optional)'),
-            h('div.field-hint', 'Only needed if you want footage looked at on this computer instead of by Claude or Gemini. Nothing here is downloaded unless you press Download; each stays until you press Remove. They run in Ollama, a free app (ollama.com).'));
+            h('div.field-hint', 'Only needed if you want footage looked at on this computer instead of by Claude or Gemini. Nothing here is downloaded unless you press Download; each stays until you press Remove. They run in Ollama, a free app (ollama.com).')]);
           const list = h('div.list'); box.appendChild(list);
           let st = { running: false, kind: '', installed: [] };
           try { st = await F.modelStatus(); } catch (e) { /* shown as not running */ }
@@ -158,10 +161,10 @@
         const b = u.before, old = [];
         if (b.claude.calls) old.push(`Claude ${US.plural(b.claude.calls, 'request')} · $${b.claude.cost.toFixed(2)}`);
         if (b.gemini.calls) old.push(`Gemini ${US.plural(b.gemini.calls, 'request')} · no charge`);
-        keysBox.append(h('div.field-label', 'By API key'),
+        US.append(keysBox, [h('div.field-label', 'By API key'),
           rows.length ? h('div.list', rows) : h('div.field-hint', 'No keys yet.'),
           old.length ? h('div.field-hint', `Before keys were tracked separately${b.since ? ` (until ${when(b.since)})` : ''}: ${old.join(' · ')} – which key isn’t known.`) : null,
-          h('div.field-hint', 'Keys are told apart by a fingerprint and their last 4 characters – the keys themselves stay in this computer’s key store. Claude and Google don’t share a key’s name with apps, so give it one here.'));
+          h('div.field-hint', 'Keys are told apart by a fingerprint and their last 4 characters – the keys themselves stay in this computer’s key store. Claude and Google don’t share a key’s name with apps, so give it one here.')]);
       }
       US.bus.on('ai-usage', renderSpend);
       status();
@@ -170,24 +173,49 @@
       const sound = ui.toggle({ label: 'Play a sound with it', value: US.settings.get('notifySound', true), onChange: x => US.settings.set('notifySound', x) });
 
       const openFolder = p => require('child_process').exec((US.fsx.isWin ? 'explorer "' : 'open "') + p + '"');
-      v.body.append(
-        ui.card(h('div.card-title', 'AI (optional)'),
-          h('div.muted', 'Only the Assistant’s free-form requests and Story’s automatic themes use AI. Your footage never leaves this computer – only text (your request, or transcript lines) is sent, straight to the provider you choose.'),
-          provider, aiStatus,
+      // AI: the choice and what's in use stay in view; keys, models, this computer, footage, cost and “without AI”
+      // each open from their own line (the user's notes, 19 Nov 2026: far less scrolling, nothing removed)
+      const hasKey = !!(US.secrets.get('anthropicKey') || US.secrets.get('geminiKey'));
+      const sec = (id, title, kids, opts) => h('div', { dataset: { section: id } }, ui.section(title, kids, Object.assign({ open: false }, opts)));
+      const aiCard = ui.card(h('div.card-title', 'AI (optional)'),
+        h('div.muted', 'Only the Assistant’s free-form requests and Story’s automatic themes use AI. Your footage never leaves this computer – only text (your request, or transcript lines) is sent, straight to the provider you choose.'),
+        provider, aiStatus,
+        sec('ai-keys', 'API keys', [
           keyField('anthropicKey', 'Claude API key', 'From console.anthropic.com › API keys. Pay-as-you-go; typical requests cost a fraction of a penny.', 'claude'),
-          keyField('geminiKey', 'Google Gemini API key', 'From aistudio.google.com › Get API key. Has a free daily allowance.', 'gemini'),
-          ui.field('Gemini model', h('div.row', h('div.grow', gemSel), gemCheck), h('span', gemHint, ' Free tier: Google may use what you send to improve its products, and people there may read it – so not for interviews you’ve promised to keep private. Its daily limits are low (check aistudio.google.com › Rate limits). With billing switched on in Google AI Studio, Google doesn’t use it, and 3.8 Flash costs $0.75 / $3.75 per million tokens in / out until 31 Dec 2026, then $1.50 / $7.50.')),
-          ui.toggle({ label: 'Read the interviews once and share them (Claude)', hint: 'Every Story AI feature and Ask start from the same copy of your transcripts, which Claude keeps for an hour – after the first request each reads them at a twentieth of the price. Off: each feature sends its own selection of lines (the “How much the AI reads” sliders).', value: US.settings.get('ai.shareTranscripts', true) !== false, onChange: x => US.settings.set('ai.shareTranscripts', x) }),
-          localField(),
-          footageField(),
+          keyField('geminiKey', 'Google Gemini API key', 'From aistudio.google.com › Get API key. Has a free daily allowance.', 'gemini')
+        ], { open: !hasKey, hint: hasKey ? 'saved on this computer' : 'none yet' }),
+        sec('ai-models', 'Models', [
           ui.field('Claude model', modelSel, 'Opus gives the best story judgement. Sonnet costs about half; Haiku a fortieth but is noticeably weaker at story work.'),
-          ui.section('Cost', [
-            spendBox, keysBox,
-            h('div.grid2', ui.field('Ask before a request costing', askSel), ui.field('Monthly limit (US$)', capInput, 'Ultra Studio stops before going over it. Also set a limit at console.anthropic.com.')),
-            h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
-          ], { open: true })),
+          ui.field('Gemini model', h('div.row', h('div.grow', gemSel), gemCheck), h('span', gemHint, ' Free tier: Google may use what you send to improve its products, and people there may read it – so not for interviews you’ve promised to keep private. Its daily limits are low (check aistudio.google.com › Rate limits). With billing switched on in Google AI Studio, Google doesn’t use it, and 3.8 Flash costs $0.75 / $3.75 per million tokens in / out until 31 Dec 2026, then $1.50 / $7.50.')),
+          ui.toggle({ label: 'Read the interviews once and share them (Claude)', hint: 'Every Story AI feature and Ask start from the same copy of your transcripts, which Claude keeps for an hour – after the first request each reads them at a twentieth of the price. Off: each feature sends its own selection of lines (the “How much the AI reads” sliders).', value: US.settings.get('ai.shareTranscripts', true) !== false, onChange: x => US.settings.set('ai.shareTranscripts', x) })
+        ], { hint: 'Claude, Gemini, shared transcripts' }),
+        localField(),
+        footageField(),
+        sec('ai-cost', 'Cost', [
+          spendBox, keysBox,
+          h('div.grid2', ui.field('Ask before a request costing', askSel), ui.field('Monthly limit (US$)', capInput, 'Ultra Studio stops before going over it. Also set a limit at console.anthropic.com.')),
+          h('div.field-hint', 'Measured on a 54-interview project with Opus: Find themes ≈ 32¢, Find more ≈ 14¢, a narrative cut ≈ 28¢, Moments ≈ 31¢, an Assistant request 2–5¢ – about $5 for a whole documentary. Asking again soon after costs less. Gemini is free within its daily allowance.')
+        ], { hint: 'spending, keys, limits' }));
+      aiCard.dataset.section = 'ai';
+      // sections other files add (US.settingsSections.register, js/core/app.js): each a closed dropdown under AI
+      const extraBox = h('div.settings-extra');
+      function drawExtra() {
+        US.clear(extraBox);
+        for (const x of US.settingsSections.list()) {
+          let el;
+          try { el = x.create(); } catch (e) { US.log('error', `Settings › ${x.title} couldn’t be shown`, e.stack, 'settings'); el = ui.note('This part of Settings couldn’t be shown. The activity log (☰) has the details.', 'warn'); }
+          extraBox.appendChild(h('div', { dataset: { section: x.id } }, ui.card(ui.section(x.title, [el], { open: false }))));
+        }
+      }
+      drawExtra();
+      US.bus.on('settings-sections', US.debounce(drawExtra, 50));
+      US.append(v.body, [
+        updatesCard(),
+        aiCard,
+        extraBox,
         sentCard(),
         tourCard(),
+        sidebarCard(),
         layoutCard(),
         ui.card(h('div.card-title', 'Notifications'), notify, sound),
         US.app.is('resolve') ? ui.card(h('div.card-title', 'Listening to sound'),
@@ -204,10 +232,9 @@
           h('div.row', ui.button('Open data folder', { small: true, icon: 'folder', onClick: () => openFolder(US.fsx.dataDir) }),
             ui.button('Clear analysis cache', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: 'Clear the analysis cache?', text: 'Clips will be analysed again next time. Nothing in your Premiere project changes.', ok: 'Clear it' })) { require('fs').rmSync(require('path').join(US.fsx.dataDir, 'cache'), { recursive: true, force: true }); ui.toast({ type: 'ok', title: 'Cache cleared' }); } } }))),
         // the editor's full name (US.app.full): "Premiere Pro 26.5" or "DaVinci Resolve Studio 20.3.1"
-        updatesCard(),
         about(),
         codeCard()
-      );
+      ]);
       /* The tour: the whole app, or one tab (js/tools/03-tour.js) */
       function tourCard() {
         if (!US.tour) return null;
@@ -215,16 +242,46 @@
         const pick = ui.select({ options: tours.map(t => ({ value: t.id, label: t.name })), value: tours[0] && tours[0].id });
         return h('div', { dataset: { section: 'tour' } }, ui.card(h('div.card-title', 'Take the tour'),
           h('div.muted', 'Pop-ups that point at the real screen: what each part does, with tips. Esc stops it at any time.'),
-          h('div.row', ui.button('Take the tour', { kind: 'primary', icon: 'info', onClick: () => US.tour.start('overview') })),
+          h('div.row', ui.button('Take the tour', { kind: 'primary', icon: 'info', title: 'One minute: the sidebar and the top bar', onClick: () => US.tour.start('overview') }),
+            ui.button('Full guide', { icon: 'info', title: 'Everything: every place and tab on the sidebar, Ask, Deliver, Advanced and Settings, step by step', onClick: () => US.tour.start('full') })),
+          h('div.field-hint', `Take the tour: one minute, the sidebar and the top bar. Full guide: every tab and tool, step by step${US.tour.get('full') ? ` (${US.tour.get('full').steps.length} steps – stop whenever you like)` : ''}.`),
           ui.field('Or a short tour of one tab', h('div.row', h('div.grow', pick.el || pick), ui.button('Show me', { small: true, onClick: () => US.tour.start((pick.value != null ? pick.value : (pick.el || pick).value) || tours[0].id) })))));
       }
       /* Layout: the rail as places (default) or one button per tool as before (UI review, 18 Nov 2026) */
       function layoutCard() {
         return h('div', { dataset: { section: 'layout' } }, ui.card(h('div.card-title', 'Layout'),
-          ui.toggle({ label: 'Classic rail – one button per tool', value: US.classicRail(), hint: 'Off: the rail has eight places in the order of the work (Home, Bring in, Story, Cut, Finish, Deliver, Ask, Advanced), each place shows its tools as tabs, and Home starts with where the project is and the next step. On: the rail and Home as they were before, one rail button for each tool.',
+          ui.toggle({ label: 'Classic rail – one button per tool', value: US.classicRail(), hint: 'Off: the sidebar has a few places in the order of the work (Home, Story, Edit, Deliver, Advanced) with Ask at the bottom, each place shows its tools as tabs, and Home starts with where the project is and the next step. On: the rail and Home as they were before, one rail button for each tool.',
             onChange: x => { US.settings.set('ui.classicRail', !!x); US.rebuildRail && US.rebuildRail(); } }),
           ui.toggle({ label: 'Story › Build: one at a time', value: US.settings.get('story.buildChooser', true) !== false, hint: 'On: Build asks “What do you want to make?” and shows that card (Show all shows every card). Off: every Build card, one under the other, as before.',
             onChange: x => US.settings.set('story.buildChooser', !!x) })));
+      }
+      /* Sidebar: its order (Up / Down here, or drag the buttons themselves) and the starred tabs. Kept in this computer's
+         settings – not with the project, and not in the folder an update replaces. */
+      function sidebarCard() {
+        const box = h('div.list.sidebar-list'), addRow = h('div');
+        function draw() {
+          US.clear(box); US.clear(addRow);
+          const items = US.railOrder.items();
+          items.forEach((it, i) => box.appendChild(h('div.list-row', { dataset: { key: it.key } },
+            h('div.list-main', h('div.list-title', US.icon(it.icon, 15), it.place ? it.name : US.tools.get(it.tool).name, it.fav ? ui.pill('starred', 'var(--warn)') : null)),
+            h('div.sidebar-moves',
+              ui.button('Up', { small: true, kind: 'ghost', disabled: i === 0, title: `Move ${it.name} up`, onClick: () => US.railOrder.move(it.key, -1) }),
+              ui.button('Down', { small: true, kind: 'ghost', disabled: i === items.length - 1, title: `Move ${it.name} down`, onClick: () => US.railOrder.move(it.key, 1) }),
+              it.fav ? ui.button('Remove', { small: true, kind: 'ghost', title: `Take ${it.name} off the sidebar (it stays where it was)`, onClick: () => US.favs.toggle(it.tool, false) }) : null))));
+          box.appendChild(h('div.list-row', h('div.list-main', h('div.list-title', US.icon('sparkle', 15), 'Ask'), h('div.list-sub', 'Always at the bottom.'))));
+          const can = US.tools.list().filter(d => US.favs.can(d.id) && !US.favs.has(d.id));
+          if (can.length) {
+            const where = d => { const pid = US.placeOf(d.id), p = pid && US.PLACES.find(x => x.id === pid); return d.id === 'settings' ? '' : pid === 'advanced' ? (US.PAUSED_TOOLS.includes(d.id) ? 'Advanced › In development › ' : 'Advanced › ') : p ? p.name + ' › ' : ''; };
+            const pick = ui.select({ options: can.map(d => ({ value: d.id, label: where(d) + d.name })), value: can[0].id });
+            addRow.appendChild(ui.field('Add a tab to the sidebar', h('div.row', h('div.grow', pick), ui.button('Add', { small: true, icon: 'plus', onClick: () => US.favs.toggle(pick.get(), true) })), 'Or press the ☆ beside any tab’s title.'));
+          }
+        }
+        draw();
+        US.bus.on('rail', draw);
+        return h('div', { dataset: { section: 'sidebar' } }, ui.card(h('div.card-title', 'Sidebar'),
+          h('div.muted', 'Your own order, and any tab you want one click away. Drag the sidebar’s buttons, right-click one, or use Up and Down here. Kept on this computer, through updates.'),
+          box, addRow,
+          h('div.row', ui.button('Back to the usual order', { small: true, kind: 'ghost', onClick: () => US.railOrder.reset() }))));
       }
       /* Updates: one button checks GitHub for a newer version and installs it (js/tools/98-update.js) */
       function updatesCard() {
@@ -291,6 +348,7 @@
         const shown = !!US.settings.get('showHidden', false);
         const reopen = () => { if (US.jobs.current) { ui.toast({ type: 'info', title: 'Close and reopen the panel when the job is done to see the change.' }); return; } setTimeout(() => location.reload(), 1200); };
         const input = ui.input({ type: 'password', placeholder: 'Have a code?', onEnter: x => {
+          if (String(x || '').trim().toLowerCase() === 'game') { input.value = ''; playGame(); return; }
           if (US.fsx.hash(String(x || '').trim().toLowerCase()) !== 'fcddbeaeee0c4414') { ui.toast({ type: 'warn', title: 'That’s not it.', timeout: 2000 }); return; }
           input.value = '';
           if (US.settings.get('showHidden', false)) { ui.toast({ type: 'info', title: 'The hidden tabs are already showing.' }); return; }
@@ -301,10 +359,20 @@
         return h('div.settings-code', input, shown ? ui.button('Hide them again', { small: true, kind: 'ghost', onClick: () => { US.settings.set('showHidden', false); ui.toast({ type: 'ok', title: 'Hidden again – reopening the panel…' }); reopen(); } }) : null);
       }
 
+      /* the hidden game: its file (js/extra/game.js – not in js/tools, so it isn't loaded at start-up) is read only now */
+      function playGame() {
+        if (US.game) { US.game.open(); return; }
+        const sc = document.createElement('script');
+        sc.src = 'js/extra/game.js';
+        sc.onload = () => { if (US.game) US.game.open(); };
+        sc.onerror = () => ui.toast({ type: 'warn', title: 'The game couldn’t be opened.', timeout: 3000 });
+        document.body.appendChild(sc);
+      }
+
       /* what was sent to AI: the exact text of every request, kept on this computer per project */
       function sentCard() {
         const openGroups = new Set();   // jobs opened to show their requests
-        const S = US.ai.sent, list = h('div'), projSel = ui.select({ options: [], onChange: () => draw() });
+        const S = US.ai.sent, list = h('div'), count = h('span.section-hint'), projSel = ui.select({ options: [], onChange: () => draw() });
         const when = t => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
         const kChars = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? Math.round(n / 1000) + 'k' : String(n));
         function fillProjects() {
@@ -327,6 +395,7 @@
         function draw() {
           US.clear(list);
           const items = S.list(projSel.get() || S.project().key);
+          count.textContent = S.on() ? US.plural(items.length, 'request') : 'the log is off';
           if (!items.length) { list.appendChild(h('div.field-hint', S.on() ? 'Nothing sent from this project yet.' : 'The log is off.')); return; }
           const total = items.reduce((n, e) => n + (e.usd || 0), 0), chars = items.reduce((n, e) => n + e.chars, 0);
           const groups = S.groups(items), cost = (usd, est, prov) => (usd ? `$${usd.toFixed(usd < 0.1 ? 3 : 2)}` : prov === 'gemini' ? 'free' : est ? `~$${est.toFixed(3)}` : '');
@@ -346,18 +415,24 @@
               h('span.list-right', cost(g.usd, g.estUsd, g.provider)));
             return h('div.sent-group', head, kids);
           };
-          list.append(h('div.field-hint', `${US.plural(items.length, 'request')} in ${US.plural(groups.length, 'job')} · ${kChars(chars)} characters of text${total ? ` · $${total.toFixed(2)}` : ''}. Click a job to see its requests, and a request to read exactly what was sent.`),
+          // not list.append(…): Element.append() writes a null child as the word “null” (it showed above Refresh)
+          US.append(list, [h('div.field-hint', `${US.plural(items.length, 'request')} in ${US.plural(groups.length, 'job')} · ${kChars(chars)} characters of text${total ? ` · $${total.toFixed(2)}` : ''}. Click a job to see its requests, and a request to read exactly what was sent.`),
             h('div.list.sent-list', groups.slice(0, 40).map(groupRow)),
-            groups.length > 40 ? h('div.field-hint', `…and ${groups.length - 40} older jobs (kept for ${90} days).`) : null);
+            groups.length > 40 ? h('div.field-hint', `…and ${groups.length - 40} older jobs (kept for ${90} days).`) : null]);
         }
         const keepToggle = ui.toggle({ label: 'Keep a copy of everything sent to AI', hint: 'On this computer only, per project, for 90 days. Large parts sent again and again (the shared transcript) are kept once.', value: S.on(), onChange: x => { US.settings.set('ai.sentLog', x); draw(); } });
         const previewSeg = ui.segmented({ options: [{ value: 'cost', label: 'Only when it costs more than the limit above' }, { value: 'always', label: 'Always show me first' }], value: US.settings.get('ai.preview', 'cost'), onChange: x => US.settings.set('ai.preview', x) });
         const clearBtn = ui.button('Clear this project’s log', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: 'Clear the log for this project?', text: 'The record of what was sent is deleted from this computer. Nothing changes at Claude or Google.', ok: 'Clear', danger: true })) { S.clear(projSel.get()); fillProjects(); draw(); } } });
         const card = ui.card(h('div.card-title', 'What was sent to AI'),
           h('div.muted', 'Every AI request carries text only – transcript lines, names, your request – never footage, frames or audio. Here is exactly what went, request by request, so you (or a client) can check.'),
-          keepToggle, ui.field('Show the text and cost before sending', previewSeg, '“Always”: each request opens with the text and its cost first – Send, Send the rest of this job, or Cancel.'),
-          ui.field('Project', projSel), list,
-          h('div.row', ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => { fillProjects(); draw(); } }), clearBtn, ui.button('Open the folder', { small: true, kind: 'ghost', icon: 'folder', onClick: () => openFolder(S.dir()) })));
+          ui.section('Show the requests', [
+            ui.field('Project', projSel), list,
+            h('div.row', ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => { fillProjects(); draw(); } }), clearBtn, ui.button('Open the folder', { small: true, kind: 'ghost', icon: 'folder', onClick: () => openFolder(S.dir()) }))
+          ], { open: false }),
+          ui.section('Keeping and previewing', [
+            keepToggle, ui.field('Show the text and cost before sending', previewSeg, '“Always”: each request opens with the text and its cost first – Send, Send the rest of this job, or Cancel.')
+          ], { open: false, hint: 'the log, and seeing a request before it goes' }));
+        card.querySelector('.section-head').appendChild(count);
         card.dataset.section = 'sent';
         fillProjects(); draw();
         US.bus.on('ai-usage', US.debounce(() => { fillProjects(); draw(); }, 500));
@@ -386,12 +461,12 @@
           h('div.field-hint', 'No internet, a usage limit or a cost you decline: you get a message saying what happened and nothing is half done. Find themes has a “Without AI” button, the other features a switch to turn the AI off; the interview log leaves out the summaries; Find more falls back to its word search.')
         ], { open: false }));
       }
-      v.body.querySelector('.card').appendChild(withoutAI());
+      aiCard.appendChild(withoutAI());
 
       return { el: v.el, onShow(opt) {
         status();
         const want = opt && opt.section;
-        if (want) setTimeout(() => { const t = v.el.querySelector(`[data-section="${want}"]`) || (want === 'ai' ? v.el.querySelector('.card') : null); if (!t) return; const sec = t.querySelector('.section'); if (sec && want !== 'ai') sec.classList.remove('closed'); t.scrollIntoView({ block: 'start' }); }, 30);
+        if (want) setTimeout(() => { const t = v.el.querySelector(`[data-section="${want}"]`); if (!t) return; const sec = t.querySelector('.section'); if (sec && want !== 'ai') sec.classList.remove('closed'); t.scrollIntoView({ block: 'start' }); }, 30);
       } };
     }
   });

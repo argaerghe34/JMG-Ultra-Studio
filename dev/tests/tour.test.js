@@ -24,6 +24,14 @@ test('every tour step points at something on screen', () => {
 test('the overview shows every place on the rail', () => {
   assert.deepStrictEqual(tour().overviewMissingPlaces, [], 'add an overview step with target @rail:<place> for: ' + tour().overviewMissingPlaces.join(', '));
 });
+test('the full guide walks through every place and every tab (not the ones in development), from Settings and Search', () => {
+  const r = tour();
+  assert.deepStrictEqual(r.fullMissing, [], 'the full guide skips: ' + r.fullMissing.join(', '));
+  assert.deepStrictEqual(r.fullPlaces, [], 'the full guide has no rail step for: ' + r.fullPlaces.join(', '));
+  assert.ok(r.fullSteps > 40, 'expected a long guide, got ' + r.fullSteps + ' steps');
+  assert.ok(r.fullButton, 'Settings › Full guide didn’t start it');
+  assert.ok(r.fullInSearch, 'Search doesn’t list “Full guide”');
+});
 test('the tour starts from Settings, from Search and from the ? on each tab', () => {
   const r = tour();
   assert.ok(r.settingsButton, 'Settings › Take the tour didn’t start the overview');
