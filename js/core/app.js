@@ -7,34 +7,125 @@
   const defs = [];
   const mounted = new Map();
   let currentId = null;
-  /** Tools taken out for now (the user asked: Colour and Cameras 28 Oct 2026, B-roll and Sound 29 Oct 2026). Their code
-      stays; delete an id here to bring one back. The unit tests set window.US_SHOW_PAUSED so the paused tools' code is still tested. */
-  US.PAUSED_TOOLS = window.US_SHOW_PAUSED || (US.settings && US.settings.get('showHidden', false)) ? [] : ['colour', 'cameras', 'broll', 'sound', 'mvfx', 'memorybox'];   // Settings › a code shows them
+  /** Tools taken out for now (the user asked: Colour and Cameras 28 Oct 2026, B-roll and Sound 29 Oct 2026, Song Splitter
+      19 Nov 2026 – mVFX came back that day). Their code stays; delete an id here to bring one back. The unit tests set
+      window.US_SHOW_PAUSED so the paused tools' code is still tested. */
+  US.PAUSED_TOOLS = window.US_SHOW_PAUSED || (US.settings && US.settings.get('showHidden', false)) ? [] : ['colour', 'cameras', 'broll', 'sound', 'memorybox', 'songs'];   // Settings › a code shows them
   /** Tools that live in the Advanced tab instead of the rail (the user asked, 9 Nov 2026): niche ones, opened from there.
-      The paused tools above are there too, under "In development", unless the Settings code puts them back on the rail. */
-  US.ADVANCED_TOOLS = ['selects', 'subclips', 'mcselects', 'takes', 'songs', 'podcast'];
+      The paused tools above are there too, under "In development", unless the Settings code puts them back on the rail.
+      'youtube' is Download (19 Nov 2026: off the rail – star it to put it back). */
+  US.ADVANCED_TOOLS = ['selects', 'subclips', 'mcselects', 'takes', 'podcast', 'mvfx', 'youtube'];
   /** Is it a tab of its own on the rail and on Home (not hidden, not in Advanced, not in development)? */
   US.onRail = d => !!d && !d.hidden && !US.PAUSED_TOOLS.includes(d.id) && !US.ADVANCED_TOOLS.includes(d.id);
   /** The tab a tool is reached from: Advanced for the tools kept there. */
   US.homeTabOf = id => (US.tools.get('advanced') && (US.ADVANCED_TOOLS.includes(id) || US.PAUSED_TOOLS.includes(id)) ? 'advanced' : id);
   /**
-   * The rail's places, in the order of the work (UI review, 18 Nov 2026): Home › Bring in › Story › Cut › Finish › Deliver,
-   * then Ask and Advanced. A place with several tools shows them as tabs along the top of the view. A tool joins a place
-   * with `place: 'cut'` in its definition (or is listed here); one with neither goes by its group, and a tool that still
-   * has no place gets a rail button of its own – so nothing on the rail is ever lost. Settings › Classic rail brings back
-   * one button per tool (US.classicRail()).
+   * The rail's places (the user's notes, 19 Nov 2026): Home › Story › Edit › Deliver › Advanced, and Ask at the very
+   * bottom. A place with several tools shows them as tabs along the top of the view. A tool joins a place with
+   * `place: 'cut'` in its definition (or is listed here); one with neither goes by its group, and a tool that still has
+   * no place gets a rail button of its own – so nothing on the rail is ever lost. "Bring in" (Download) moved into
+   * Advanced and "Finish" went: its tools are in Edit, and Final Check is Deliver's first tab. Any tool can be starred
+   * onto the rail (US.favs) and the rail put in the person's own order (US.railOrder). Settings › Classic rail brings
+   * back one button per tool (US.classicRail()).
    */
   US.PLACES = [
     { id: 'home', name: 'Home', icon: 'home', tools: ['home'] },
-    { id: 'bring', name: 'Bring in', icon: 'download', tools: ['youtube'], blurb: 'Get material into the project' },
-    { id: 'story', name: 'Story', icon: 'story', tools: ['story', 'storylines', 'wiki', 'words', 'producer'], blurb: 'From interviews to a cut' },
-    { id: 'cut', name: 'Cut', icon: 'scissors', tools: ['silence', 'beats', 'agent'], blurb: 'Make the edit faster' },
-    { id: 'finish', name: 'Finish', icon: 'wand', tools: ['quickfx', 'markers', 'safezones', 'check'], blurb: 'Polish and check before export' },
-    { id: 'deliver', name: 'Deliver', icon: 'deliver', tools: ['deliver'], blurb: 'Everything out in one go' },
-    { id: 'ask', name: 'Ask', icon: 'ask', tools: ['assistant'], blurb: 'Plain English' },
-    { id: 'advanced', name: 'Advanced', icon: 'folder', tools: ['advanced'], blurb: 'More tools, and the ones in development' }
+    { id: 'story', name: 'Story', icon: 'story', tools: ['story', 'storylines', 'wiki', 'words'], blurb: 'From interviews to a cut' },
+    { id: 'cut', name: 'Edit', icon: 'scissors', tools: ['quickfx', 'markers', 'safezones', 'silence', 'beats', 'producer', 'agent'], blurb: 'Make the edit faster, and polish it' },
+    { id: 'deliver', name: 'Deliver', icon: 'deliver', tools: ['check', 'deliver'], blurb: 'Check it, then everything out in one go' },
+    { id: 'advanced', name: 'Advanced', icon: 'folder', tools: ['advanced'], blurb: 'More tools, and the ones in development' },
+    { id: 'ask', name: 'Ask', icon: 'sparkle', tools: ['assistant'], blurb: 'AI – say it in plain English' }
   ];
-  const GROUP_PLACE = { find: 'story', cut: 'cut', finish: 'finish', selects: 'bring' };
+  // a tool that names no place goes by its group ('finish' tools are part of Edit now; a 'selects' one gets a button of its own)
+  const GROUP_PLACE = { find: 'story', cut: 'cut', finish: 'cut' };
+  US.addIcon('sparkle', 'M9 3l1.6 4.4L15 9l-4.4 1.6L9 15l-1.6-4.4L3 9l4.4-1.6zM15.5 13l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z');
+  US.addIcon('star', 'M10 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L10 13.8 5.8 16l.8-4.7L3.2 8l4.7-.7z');
+
+  /* ---------- favourites and the rail's order: kept in this computer's settings file (the data folder – not the
+     extension folder, so updates leave it alone, and not with the project, so the other computer keeps its own) ---------- */
+  const NO_STAR = ['home', 'advanced', 'assistant'];   // always on the rail already
+  US.favs = {
+    /** Starred tool ids that still exist, in the order they were starred. */
+    list() { return (US.settings.get('ui.favs', []) || []).filter(id => US.tools.get(id) && US.favs.can(id)); },
+    has(id) { return US.favs.list().includes(id); },
+    /** May this tool be starred? Any tab or sub-tab, Settings and the Advanced ones too – not the three that are always there. */
+    can(id) { const d = US.tools.get(id); return !!d && !NO_STAR.includes(id) && (!d.hidden || id === 'settings'); },
+    toggle(id, on) {
+      if (!US.favs.can(id)) return false;
+      const cur = (US.settings.get('ui.favs', []) || []).filter(x => x !== id), want = on == null ? !US.favs.has(id) : !!on;
+      if (want) cur.push(id);
+      US.settings.set('ui.favs', cur);
+      railChanged();
+      return want;
+    }
+  };
+  /** What the rail shows above Ask, in the default order: the places, tools no place claims, then the starred tools – Advanced last. */
+  function defaultRail() {
+    const out = [], adv = [];
+    for (const p of US.PLACES) {
+      if (p.id === 'ask') continue;
+      const tools = p.id === 'advanced' ? [US.tools.get('advanced')].filter(Boolean) : US.placeTools(p.id);
+      if (!tools.length) continue;
+      (p.id === 'advanced' ? adv : out).push({ key: 'place:' + p.id, place: p.id, name: p.name, icon: p.icon, title: p.name + (tools.length > 1 ? ' – ' + tools.map(d => d.name).join(', ') : tools[0].blurb ? ' – ' + tools[0].blurb : '') });
+    }
+    const own = US.tools.list().filter(d => US.onRail(d) && !US.placeOf(d.id));
+    for (const d of own) out.push({ key: 'tool:' + d.id, tool: d.id, name: d.short || d.name, icon: d.icon, title: d.name + (d.blurb ? ' – ' + d.blurb : '') });
+    for (const id of US.favs.list()) {
+      if (own.some(d => d.id === id)) continue;
+      const d = US.tools.get(id);
+      out.push({ key: 'tool:' + id, tool: id, fav: true, name: d.short || d.name, icon: d.icon, title: `${d.name} – starred${d.blurb ? '. ' + d.blurb : ''} (right-click to move or remove)` });
+    }
+    return out.concat(adv);
+  }
+  US.railOrder = {
+    /** The rail's items in the person's order. One that isn't in the saved order yet (a new place, a new star) goes
+        after the item it follows by default. -> [{key, place|tool, fav, name, icon, title}] */
+    items() {
+      const def = defaultRail(), saved = (US.settings.get('ui.railOrder', []) || []).filter(k => def.some(x => x.key === k));
+      const keys = saved.slice();
+      def.forEach((x, i) => {
+        if (keys.includes(x.key)) return;
+        let at = 0;
+        for (let j = i - 1; j >= 0; j--) { const k = keys.indexOf(def[j].key); if (k >= 0) { at = k + 1; break; } }
+        keys.splice(at, 0, x.key);
+      });
+      return keys.map(k => def.find(x => x.key === k));
+    },
+    keys() { return US.railOrder.items().map(x => x.key); },
+    /** Move an item up (-1) or down (+1). */
+    move(key, by) {
+      const keys = US.railOrder.keys(), i = keys.indexOf(key), j = i + by;
+      if (i < 0 || j < 0 || j >= keys.length) return false;
+      keys.splice(j, 0, keys.splice(i, 1)[0]);
+      US.railOrder.set(keys);
+      return true;
+    },
+    /** Put `key` just before `beforeKey` (or last, when that's null). */
+    place(key, beforeKey) {
+      const keys = US.railOrder.keys().filter(k => k !== key), at = beforeKey ? keys.indexOf(beforeKey) : -1;
+      keys.splice(at < 0 ? keys.length : at, 0, key);
+      US.railOrder.set(keys);
+    },
+    set(keys) { US.settings.set('ui.railOrder', keys); railChanged(); },
+    reset() { US.settings.set('ui.railOrder', []); railChanged(); },
+    get changed() { return (US.settings.get('ui.railOrder', []) || []).length > 0; }
+  };
+  function railChanged() { if (US.rebuildRail) US.rebuildRail(); drawStars(); US.bus.emit('rail'); }
+
+  /* ---------- Settings sections other files add (the user's notes, 19 Nov 2026): a file registers a section and
+     Settings shows it as a closed dropdown, so nobody else edits 99-settings.js.
+     US.settingsSections.register({ id, title, order, create(): HTMLElement }) ---------- */
+  const settingsSections = [];
+  US.settingsSections = {
+    register(sec) {
+      if (!sec || !sec.id || typeof sec.create !== 'function') return;
+      const i = settingsSections.findIndex(x => x.id === sec.id);
+      if (i >= 0) settingsSections.splice(i, 1);
+      settingsSections.push(sec);
+      US.bus.emit('settings-sections');
+    },
+    list() { return settingsSections.slice().sort((a, b) => (a.order == null ? 50 : a.order) - (b.order == null ? 50 : b.order)); }
+  };
   US.classicRail = () => !!(US.settings && US.settings.get('ui.classicRail', false));
   /** The place a tool belongs to (null for Settings and other hidden screens). Advanced's own tools belong to Advanced. */
   US.placeOf = id => {
@@ -224,24 +315,88 @@
       els.rail.appendChild(h('div.rail-sep'));
       inGroup.forEach(add);
     }
-    const rest = list.filter(d => d.id !== 'home' && d.id !== US.FEATURED && !US.GROUPS.some(g => g.id === d.group));
+    const rest = list.filter(d => d.id !== 'home' && d.id !== US.FEATURED && d.id !== 'assistant' && !US.GROUPS.some(g => g.id === d.group));
     if (rest.length) { els.rail.appendChild(h('div.rail-sep')); rest.forEach(add); }
+    // starred tools that have no button of their own here (the Advanced ones, Settings)
+    const favs = US.favs.list().map(id => US.tools.get(id)).filter(d => !list.includes(d));
+    if (favs.length) { els.rail.appendChild(h('div.rail-sep')); favs.forEach(d => { add(d); starMark(els.rail.lastChild, d.id); }); }
+    if (list.some(d => d.id === 'assistant')) els.rail.append(h('div.rail-spacer'), askButton({ id: 'assistant' }, () => open('assistant')));
   }
+  /** Ask: at the very bottom of the rail, and plainly the AI – a sparkle in a slowly turning ring (css: .rail-ask). */
+  function askButton(dataset, onclick) {
+    return h('button.rail-btn.rail-ask', { dataset, title: 'Ask – the AI: say what you want in plain English, or ask about your interviews', onclick },
+      h('span.ask-orb', US.icon('sparkle', 17)), h('span', 'Ask'));
+  }
+  /** A starred tool's rail button: a small star, and a right-click menu to move or remove it. */
+  function starMark(b, id) {
+    b.classList.add('rail-fav'); b.dataset.fav = id;
+    b.appendChild(h('span.rail-star', { 'aria-hidden': 'true' }, '★'));
+  }
+  /** Right-click (or the Menu key) on a rail button: move it, or take a starred one off. */
+  function railMenu(e, item) {
+    e.preventDefault();
+    closeRailMenu();
+    const r = e.currentTarget.getBoundingClientRect(), keys = US.railOrder.keys(), i = keys.indexOf(item.key);
+    const row = (label, fn, off) => h('button.rail-menu-item', { disabled: !!off, onclick: () => { closeRailMenu(); fn(); } }, label);
+    const menu = h('div.rail-menu', { role: 'menu', style: { left: (r.right + 4) + 'px', top: Math.max(4, Math.min(r.top, window.innerHeight - 120)) + 'px' } },
+      row('Move up', () => US.railOrder.move(item.key, -1), i <= 0),
+      row('Move down', () => US.railOrder.move(item.key, 1), i >= keys.length - 1),
+      item.fav ? row('Remove from the sidebar', () => US.favs.toggle(item.tool, false)) : null,
+      row('Sidebar settings…', () => open('settings', { section: 'sidebar' })));
+    document.body.appendChild(menu);
+    setTimeout(() => document.addEventListener('mousedown', railMenuOff, true), 0);
+    document.addEventListener('keydown', railMenuOff, true);
+  }
+  function railMenuOff(e) { if (e.type === 'keydown' ? e.key === 'Escape' : !e.target.closest || !e.target.closest('.rail-menu')) closeRailMenu(); }
+  function closeRailMenu() {
+    document.querySelectorAll('.rail-menu').forEach(m => m.remove());
+    document.removeEventListener('mousedown', railMenuOff, true); document.removeEventListener('keydown', railMenuOff, true);
+  }
+  /** Drag a rail button up or down to reorder the rail (Settings › Sidebar has Up and Down buttons for the same). */
+  function dragToReorder(b, item) {
+    b.draggable = true;
+    const clear = () => US.$$('.rail-btn', els.rail).forEach(x => x.classList.remove('drop-before', 'drop-after'));
+    b.addEventListener('dragstart', e => { railDrag = item.key; b.classList.add('dragging'); try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.name); } catch (x) { /* some hosts refuse */ } });
+    b.addEventListener('dragend', () => { railDrag = null; b.classList.remove('dragging'); clear(); });
+    b.addEventListener('dragover', e => {
+      if (!railDrag || railDrag === item.key) return;
+      e.preventDefault(); clear();
+      const r = b.getBoundingClientRect();
+      b.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after');
+    });
+    b.addEventListener('drop', e => {
+      if (!railDrag || railDrag === item.key) return;
+      e.preventDefault();
+      const r = b.getBoundingClientRect(), before = e.clientY < r.top + r.height / 2, keys = US.railOrder.keys().filter(k => k !== railDrag);
+      const key = railDrag; railDrag = null;
+      US.railOrder.place(key, before ? item.key : keys[keys.indexOf(item.key) + 1] || null);
+    });
+  }
+  let railDrag = null;
 
-  /** The rail as places: one labelled button per place that has a tool, then any tool no place claims. */
+  /** The rail as places: the places and starred tools in the person's order, then Ask at the very bottom. */
   function buildPlaces() {
-    for (const p of US.PLACES) {
-      const tools = p.id === 'advanced' ? [US.tools.get('advanced')].filter(Boolean) : US.placeTools(p.id);
-      if (!tools.length) continue;
-      if (p.id === 'story' || p.id === 'ask') els.rail.appendChild(h('div.rail-sep'));
-      const title = p.name + (tools.length > 1 ? ' – ' + tools.map(d => d.name).join(', ') : tools[0].blurb ? ' – ' + tools[0].blurb : '');
-      els.rail.appendChild(h('button.rail-btn', { dataset: { place: p.id }, title, onclick: () => openPlace(p.id) }, US.icon(p.icon, 19), h('span', p.name)));
+    for (const item of US.railOrder.items()) {
+      const b = h('button.rail-btn', { dataset: item.place ? { place: item.place } : { id: item.tool }, title: item.title, onclick: () => (item.place ? openPlace(item.place) : open(item.tool)), oncontextmenu: e => railMenu(e, item) }, US.icon(item.icon, 19), h('span', item.name));
+      b.dataset.key = item.key;
+      if (item.fav) starMark(b, item.tool);
+      dragToReorder(b, item);
+      els.rail.appendChild(b);
     }
-    // a tool on the rail that no place claims keeps a button of its own
-    for (const d of US.tools.list().filter(d => US.onRail(d) && !US.placeOf(d.id))) {
-      els.rail.appendChild(h('button.rail-btn', { dataset: { id: d.id }, title: d.name + (d.blurb ? ' – ' + d.blurb : ''), onclick: () => open(d.id) }, US.icon(d.icon, 19), h('span', d.short || d.name)));
-    }
+    if (US.placeTools('ask').length) els.rail.append(h('div.rail-spacer'), askButton({ place: 'ask' }, () => openPlace('ask')));
     if (currentId) markRail(currentId);
+  }
+  /** The star beside a tab's title: on the rail or not (every open tab's star is kept in step). */
+  function drawStars() {
+    document.querySelectorAll('.fav-btn').forEach(b => {
+      const on = US.favs.has(b.dataset.star);
+      b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.title = on ? 'On the sidebar – click to take it off' : 'Add to the sidebar, for one-click access';
+    });
+  }
+  function starButton(id) {
+    return h('button.icon-btn.fav-btn', { dataset: { star: id }, onclick: () => { const on = US.favs.toggle(id); US.ui.toast({ type: 'ok', title: on ? `${US.tools.get(id).name} is on the sidebar` : `${US.tools.get(id).name} is off the sidebar`, text: on ? 'Drag it to move it, or right-click it. Settings › Sidebar has the whole list.' : '', timeout: 2500 }); } }, '☆');
   }
   /** Open a place: the tool last used there, or its first. */
   function openPlace(pid) {
@@ -256,7 +411,7 @@
     if (!els.rail) return;
     const classic = US.classicRail(), pid = classic ? null : US.placeOf(id);
     const railId = classic ? US.homeTabOf(id) : pid;
-    US.$$('.rail-btn', els.rail).forEach(b => b.classList.toggle('on', classic ? b.dataset.id === railId : (b.dataset.place ? b.dataset.place === railId : b.dataset.id === id)));
+    US.$$('.rail-btn', els.rail).forEach(b => b.classList.toggle('on', classic ? (b.dataset.id === railId || b.dataset.id === id) : (b.dataset.place ? b.dataset.place === railId : b.dataset.id === id)));
     drawPlaceTabs(pid, id);
   }
   function drawPlaceTabs(pid, id) {
@@ -265,7 +420,7 @@
     const tools = pid && pid !== 'advanced' ? US.placeTools(pid) : [];
     els.placeTabs.classList.toggle('hidden', tools.length < 2);
     if (tools.length < 2) return;
-    tools.forEach(d => els.placeTabs.appendChild(h('button.place-tab' + (d.id === id ? '.on' : ''), { dataset: { tool: d.id }, role: 'tab', title: d.blurb || d.name, onclick: () => open(d.id) }, US.icon(d.icon, 14), h('span.pt-long', d.name), h('span.pt-short', d.short || d.name))));
+    tools.forEach(d => els.placeTabs.appendChild(h('button.place-tab' + (d.id === id ? '.on' : ''), { dataset: { tool: d.id }, role: 'tab', title: (d.blurb || d.name) + (US.favs.has(d.id) ? ' (starred: on the sidebar)' : ''), onclick: () => open(d.id) }, US.icon(d.icon, 14), h('span.pt-long', d.name), h('span.pt-short', d.short || d.name), US.favs.has(d.id) ? h('span.pt-star', { 'aria-hidden': 'true' }, '★') : null)));
   }
   US.rebuildRail = () => { if (els.rail) buildRail(); if (currentId) markRail(currentId); };
 
@@ -288,9 +443,15 @@
       // a short tour of this tab (js/tools/03-tour.js), from a ? beside its title
       const head = m.el.querySelector && m.el.querySelector('.tool-head');
       if (head && US.tour && US.tour.has(def.id)) head.appendChild(h('button.icon-btn.tour-btn', { title: 'A short tour of this tab', dataset: { tour: def.id }, onclick: () => US.tour.start(def.id) }, '?'));
+      // a star on every tab and sub-tab: starred, it gets a button of its own on the rail (US.favs)
+      if (US.favs.can(def.id) && m.el.prepend) {
+        const star = starButton(def.id), crumb = m.el.querySelector && m.el.querySelector('.advanced-crumb');
+        if (head) head.appendChild(star); else if (crumb) crumb.appendChild(star); else m.el.prepend(h('div.fav-bar', star));
+      }
       mounted.set(def.id, m); els.view.appendChild(m.el);
     }
     m.el.classList.remove('hidden');
+    drawStars();
     currentId = def.id;
     markRail(def.id);
     els.view.scrollTop = 0;

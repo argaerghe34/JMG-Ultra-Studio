@@ -45,6 +45,12 @@ US.tools.register({
 ```
 Groups: `find` (Find the good bits), `cut` (Cut faster), `finish` (Finish & deliver). Icons: see `US.icon` in util.js (add a path there if needed).
 
+The rail (js/core/app.js): `US.PLACES` – Home, Story, Edit (`cut`), Deliver, Advanced, and Ask at the bottom. A tool joins a place with `place: 'cut'` or by its group (`find` → Story, `cut` and `finish` → Edit); `US.ADVANCED_TOOLS` and `US.PAUSED_TOOLS` (Advanced › In development) are opened from Advanced. Every tab gets a ☆ that puts it on the rail (`US.favs`), and the rail's order is the person's own (`US.railOrder`) – both in this computer's settings.
+
+A Settings section from your own file (no edit to 99-settings.js): `US.settingsSections.register({ id, title, order, create() { return element; } })` – Settings shows it as a closed dropdown under AI, in `order`; `US.tools.open('settings', { section: id })` opens it.
+
+Adding children that may be `null`: use `h(...)` or `US.append(el, [a, cond ? b : null])`. The DOM's own `el.append(null)` writes the word “null” on screen.
+
 ## Actions (for the Assistant)
 Register what the tool can do with `US.actions.register({ id:'silence.cut', tool:'silence', title, describe, params:{…}, examples:[…], match(text){…}, changes:true, run: async (params, job) => ({summary}) })`. The tool's own button should call the same code. `match(text)` is the offline parser: return params if the sentence is clearly for this action, else null.
 
