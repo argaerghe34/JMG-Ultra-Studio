@@ -9,10 +9,10 @@ not seen their code or run their panel.
 ## What could and couldn't be read
 
 - The product page opened and was read in full, including the five FAQ answers (they are in the page).
-- The page's demo is an animated illustration ("Illustrated workflow") and a video file with no description. The
-  "Customise your sequence" walk-through showed only its first step as text ("Choose your colours – Give each camera a
-  colour you can follow", step 01 of 06 under "Tracks"); the other steps of Tracks, Audio and Multicam are animations
-  that did not give up their text. **So Synq's individual settings beyond what is listed below are not known.**
+- The page's "Customise your sequence" walk-through is an animation; only its first step gave up its text.
+- **The demo video (3 min 20 s, `/demos/synq-demo.mp4`) was gone through frame by frame afterwards** (the user asked):
+  its burned-in captions were read and its screens enlarged. What it shows is in "What the demo video shows" below,
+  and it corrects two things the first version of this note got wrong (marked there).
 - A web search found **no independent coverage**: no review, tutorial, forum thread or social post about Synq. The
   store has no documentation or changelog pages. Everything about Synq below is the seller's own description.
 
@@ -39,6 +39,45 @@ Source for this section: https://rhysobasi.store/products/synq
 - History (seller's pages): Synq is the renamed, rebuilt "Spread+" (https://rhysobasi.store/products/spread-plus).
   The free sibling "Spread" puts each clip on its own track, opens Premiere's own Synchronize, then re-stacks
   (https://rhysobasi.store/products/spread).
+
+## What the demo video shows
+
+Source: the video on the product page, captions and screens. Times are in the video.
+
+- **0:00** Synq "replaces the much beloved" Spread+. The panel is a docked tab with one big button (the logo).
+- **0:13** The test: a sequence with "about 3.5 hours" of footage – camera clips on one video track, microphone
+  clips on audio tracks, nothing lined up. One press, a short "Importing" bar, then the report: **27 clips synced,
+  3.2 s, 1 didn't sync** ("Show list").
+- **0:30 The report is also the control panel** ("real time controls over our sequence"):
+  - *Settings for this sequence* – five drop-downs: **Camera audio** (Keep / Mute "keep it, but switched off" /
+    Delete "remove it from the edit" – changed back and forth in the video, the timeline following each time),
+    **Unused audio** (shown: Parked), **Trim audio** (shown: To video), **Link groups** (shown: Standard),
+    **Track layout** (shown: Per device); and a box "Use these settings from now on". What the last four do isn't
+    said or shown.
+  - *Sequences*: **Synced | Original** switch, **Duplicate Sequence**, **Create Multicam**.
+  - *Track order · top first*: one row per camera or recorder (first clip's name and a count), with a **colour** dot
+    (a palette pops up), **Nudge** ‹ › arrows, a **Tracks** drop-down ("V3 + A3", "A4"…) and a link icon. Changing a
+    colour or a track changes the timeline at once.
+  - "More info", "Report a problem", "Done".
+- **1:02 Create Multicam** makes a multi-camera source sequence ("Test – multicam") from the synced one; the button
+  then reads "Open multicam". The presenter says he doesn't edit that way himself.
+- **1:28** The panel's button looks different while a sequence it has already synced is open – press it to get the
+  report back and keep changing things.
+- **1:51 Why it is fast:** "Synq essentially listens to your project audio in the background whilst you have the
+  panel open, so that when it comes time to press the button, most of the heavy lifting has already been done." A thin
+  grey bar at the bottom of the panel shows it working. New footage is imported, the bar runs, and "roughly an hour
+  and a half worth of audio" then syncs in 1.6 s.
+- **2:36 Settings** (Settings | License): the same five drop-downs as defaults, then *Sound*: **Analyze sound
+  automatically** (a switch – "I would recommend leaving this on"), **Saved analysis – 161 MB – Clear**, **Analysis
+  folder – Default – Choose** ("It makes its own folder, Synq Saved Analysis, inside the one you choose").
+- **2:51 Timecode:** pressing the button on timecoded footage brings up "Your footage has timecode. 4 cameras and
+  3 recorders:" with each device's name and its span of the day ("GH 17:05 to 17:17" …) and the question "Line it up
+  by timecode or by audio?" – two buttons. Result: 44 clips, 5.6 s, 0 didn't sync.
+
+**Corrections to the first version of this note:**
+1. Synq does *not* simply rearrange your timeline and leave you without the original: the report has a
+   Synced | Original switch, and the project shows a "Synq Backups" bin. So "works on a copy" is not a difference.
+2. Its settings are now known (above) – more than "track order, colours and audio" suggested.
 
 What people say: only the six testimonials on the seller's page (wedding, event and documentary editors; the theme is
 "hundreds of mic clips and multiple cams without ever leaving Premiere"). **No complaints could be found anywhere** –
@@ -122,7 +161,7 @@ Files: `js/tools/48-autosync.js` (`US.autoSync`), `css/tools/autosync.css`, `jsx
 
 - Works in **Premiere and Resolve** (Synq: Premiere only), and Premiere versions before 2025 are not excluded by
   design.
-- Builds a **new sequence**; Synq rearranges the timeline you dropped the clips on.
+- Both keep the original: we build a new sequence, Synq keeps an "Original" beside its "Synced" one.
 - Can start from **clips in a bin** with no timeline at all.
 - Unrelated takes become **separate synced groups** rather than a pile at the end.
 - **No "Create Multicam" button.** Neither editor's scripting interface that this panel uses offers it as far as we
@@ -130,6 +169,22 @@ Files: `js/tools/48-autosync.js` (`US.autoSync`), `css/tools/autosync.css`, `jsx
   Premiere 2026.
 - Track order can't be rearranged in the panel: cameras by name from V1 up.
 - Drift is measured and reported, not corrected (same as Syncitol; PluralEyes corrected it).
+
+### What Synq has that Auto Sync doesn't (seen in the video; not built – for the user to choose)
+
+1. **Listening ahead.** Synq analyses the project's sound while its panel is open, so the press takes seconds. Auto
+   Sync listens when the button is pressed (each file once – a second run is quick). Listening ahead on its own would
+   go against the house rule that the computer does nothing unasked, so it would have to be a switch that is off to
+   start with, or a job for Overnight prep.
+2. **Changing the result afterwards**: a camera's colour, which track it is on, a nudge left or right, camera sound
+   kept / muted / deleted – each applied at once. Auto Sync's options are chosen before the press; changing one means
+   pressing again.
+3. **Asking "timecode or sound?"** when timecode is found, with each device's span of the day listed. Auto Sync has a
+   three-way choice made beforehand and doesn't say what timecode it found.
+4. **Create Multicam** as a button (ours: the clicks, in words).
+5. **Time taken** in the result; "Duplicate Sequence".
+6. "Unused audio: Parked", "Trim audio: To video", "Link groups", "Track layout" – can't be matched until it is known
+   what they do.
 
 ### Not verified
 
