@@ -49,6 +49,13 @@ module.exports = (R, fns) => {
     return f;
   }
 
+  const MODES = { overlay: 'Overlay', screen: 'Screen', multiply: 'Multiply', add: 'Add' };
+  /** Blend mode and strength of a clip on the timeline (Inspector › Composite). What Resolve refuses goes in the log. */
+  function dress(ti, a, log) {
+    if (a.blend && a.blend !== 'normal' && !tryCall(() => ti.SetProperty('CompositeMode', MODES[a.blend] || 'Normal'), false)) log.push('blend mode not set (' + a.blend + ')');
+    if (a.alpha != null && a.alpha < 1 && !tryCall(() => ti.SetProperty('Opacity', Math.round(Number(a.alpha) * 100)), false)) log.push('strength not set');
+  }
+
   return {
     /**
      * Write the pack's template files where Resolve looks for them. a: {write:[{name, kind: 'titles'|'generators', body}]}
@@ -112,7 +119,8 @@ module.exports = (R, fns) => {
 
     /**
      * An animated title: the PNG frames the panel drew, imported as one image-sequence clip and laid on a free mVFX
-     * track. a: {seqId, first (the first frame's path), frames, fps, start, seconds, name, binPath}
+     * track. a: {seqId, first (the first frame's path), frames, fps, start, seconds, name, binPath, blend?, alpha?,
+     * anim? (Premiere's fade keyframes – Resolve doesn't let add-ons keyframe, so it's left out here)}
      * -> {itemId, track (0-based), trackName, start, end, note, log}
      */
     async mvfxClip(a) {
@@ -136,6 +144,7 @@ module.exports = (R, fns) => {
         if (!placed.length) throw R.err('HOST_SCRIPT', 'AppendToTimeline placed nothing on V' + t, 'Resolve didn’t place the title.', 'Check the track isn’t locked, then try again.');
         const ti = placed[0], start = R.tlSec(tl, ti.GetStart()), stop = R.tlSec(tl, ti.GetEnd());
         try { ti.SetClipColor && ti.SetClipColor('Tan'); } catch (e) { /* a help only */ }
+        dress(ti, a, log);
         return { itemId: R.id(item), track: t - 1, trackName: String(tl.GetTrackName('video', t) || ''), start, end: stop, log, note: Math.abs((stop - start) - Number(a.seconds)) > 0.2 ? `Resolve laid it ${Math.round((stop - start) * 10) / 10} s long` : '' };
       } finally { if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was); }
     },
@@ -155,6 +164,25 @@ module.exports = (R, fns) => {
         const ti = got[0], start = R.tlSec(tl, ti.GetStart()), end = R.tlSec(tl, ti.GetEnd());
         return { itemId: items[0].id, track: t - 1, start, end, path: file, note: Math.abs((end - start) - Number(a.seconds)) > 0.5 ? `Resolve holds stills ${Math.round((end - start) * 10) / 10} s – trim it in the Timeline` : '' };
       } finally { if (was && R.id(was) !== R.id(tl)) await R.restoreTimeline(was); }
+    },
+
+    /**
+     * A picture dragged from the mVFX tab and dropped on the timeline (Resolve placed the file itself): found by its
+     * file, then given its blend mode and strength. Resolve keeps the still's own length (trim it in the Timeline) and
+     * takes no fade keyframes. a: {path, seconds?, blend?, alpha?, anim?, name?, binPath?}
+     * -> {found: false} | {found: true, seqId, track (0-based), trackName, start, end, log}
+     */
+    mvfxDropped(a) {
+      let tl = null; try { tl = R.project().GetCurrentTimeline(); } catch (e) { /* no project */ }
+      if (!tl) return { found: false };
+      const same = (x, y) => String(x || '').replace(/\\/g, '/').toLowerCase() === String(y || '').replace(/\\/g, '/').toLowerCase();
+      const hit = R.trackItems(tl, 'video').find(o => { const mpi = tryCall(() => o.ti.GetMediaPoolItem(), null); return mpi && same(R.prop(mpi, 'File Path'), a.path); });
+      if (!hit) return { found: false };
+      const log = [], start = R.tlSec(tl, hit.ti.GetStart()), end = R.tlSec(tl, hit.ti.GetEnd());
+      dress(hit.ti, a, log);
+      try { hit.ti.SetClipColor && hit.ti.SetClipColor('Tan'); } catch (e) { /* a help only */ }
+      if (a.seconds && Math.abs((end - start) - Number(a.seconds)) > 0.2) log.push('Resolve kept the still’s own length');
+      return { found: true, seqId: R.id(tl), track: hit.track - 1, trackName: String(tl.GetTrackName('video', hit.track) || ''), start, end, log };
     },
 
     /** Resolve doesn't let add-ons keyframe: said plainly (the panel sets a still punch-in through editApply). */
