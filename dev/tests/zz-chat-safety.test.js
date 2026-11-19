@@ -286,6 +286,7 @@ test('a persona is the same engine with another manner and its own tools: Produc
 });
 
 test('watching footage: offered only when that part of the app is there (US.understand), and through the warning when it would leave the computer', async () => {
+  const real = US.understand; delete US.understand;   // understand.test.js (same process) loaded the real one
   assert.ok(!('watch' in C.toolsHere()), 'not there: not offered');
   const calls = [];
   US.understand = { describe: async o => { calls.push(o); return { text: 'Ruth looks away before she answers.', usd: 0.02 }; }, where: () => ({ where: 'cloud', label: 'Gemini' }) };
@@ -299,5 +300,5 @@ test('watching footage: offered only when that part of the app is there (US.unde
     assert.deepStrictEqual([calls.length, calls[0].itemId, calls[0].from, calls[0].to, calls[0].question], [1, 'x1', 3, 9, 'What does she do?']);
     assert.ok(/From watching and listening to “DJI_001\.MP4” \(0:03–0:09\): Ruth looks away/.test(x.ai[1].turns[0].user));
     assert.ok(Math.abs(chat.spent - 0.04) < 1e-9, 'what it cost is counted in the chat');
-  } finally { x.restore(); delete US.understand; }
+  } finally { x.restore(); if (real) US.understand = real; else delete US.understand; }
 });

@@ -768,6 +768,9 @@
       const c = US.ctx || {}, story = US.story ? storySummary() : null;
       chat.context = brief({ editor: RES() ? 'DaVinci Resolve' : 'Premiere Pro', project: c.project && c.project.name, sequence: c.sequence ? { name: c.sequence.name, duration: c.sequence.duration } : null, selection: c.selection, story, mode: o.mode });
       chat.first = `The editor says: “${text}”`;
+      // seeing and hearing (js/core/understand.js): a short digest of what's in the project's footage, when known. Without
+      // `sequence`: that would ask the editor which clips the sequence uses, outside the chat's turn with the editor
+      if (US.understand && typeof US.understand.context === 'function') { try { const seen = await US.understand.context({ maxChars: 6000 }); if (seen) chat.context += '\n\n' + seen; } catch (e) { /* the chat works without it */ } }
     } else {
       chat.turns.push({ assistant: chat.last || '{}', user: `${chat.pendingResult || ''}\n\n${now()}\nThe editor says: “${text}”\nSay what you understand by it and your plan, then carry on.`.trim() });
       chat.pendingResult = '';

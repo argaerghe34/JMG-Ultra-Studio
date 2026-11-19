@@ -147,7 +147,10 @@
   async function withAI(pool, brief, opts = {}) {
     if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
     opts.job && opts.job.set({ who: 'ai', msg: `${US.ai.label()} is shaping a ${brief.seconds}-second story from ${US.plural(pool.length, 'line')}` });
-    const r = await US.ai.json(aiRequest(pool, brief, opts));
+    const req = aiRequest(pool, brief, opts);
+    // seeing and hearing (js/core/understand.js): what the footage shows and sounds like, after the cached listing
+    if (US.understand && typeof US.understand.context === 'function') { try { const seen = await US.understand.context({ maxChars: 6000 }); if (seen) req.user = req.user.concat([seen + '\nUse this only to judge the lines (a reaction, laughter, what is on screen) – never pick anything that isn’t a line above.']); } catch (e) { /* the narrative works without it */ } }
+    const r = await US.ai.json(req);
     return checkAI(r, pool, brief.seconds, { handles: opts.handles == null ? 0.3 : opts.handles, lineOf: opts.lineOf, alternates: opts.alternates });
   }
   /** Validate the AI's plan: known ids only, each once, sane trims; recompute the length and fit it. */

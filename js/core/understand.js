@@ -626,6 +626,54 @@
     return Object.assign(out, { summary: bits.join(' · ') });
   }
 
+  /* =================== watching a moment for Ask =================== */
+  const ASK_SCHEMA = { type: 'object', additionalProperties: false, required: ['answer'], properties: { answer: { type: 'string' } } };
+  async function itemFor(o) {
+    const it = o.item || {};
+    if (it.path) return { id: it.id || o.itemId, path: it.path, name: it.name || US.basename(it.path), duration: it.duration || 0 };
+    const id = o.itemId || it.id;
+    if (!id) return null;
+    try { const [x] = await US.host.call('itemsInfo', { ids: [id] }); return x && x.path ? { id, path: x.path, name: x.name || it.name || US.basename(x.path), duration: x.duration || 0 } : null; } catch (e) { return null; }
+  }
+  /**
+   * Watch and listen to a clip (or a moment of it) now, and answer: what the record says, made first if it's missing,
+   * and – with a question and something that can look – the question asked about stills of that moment.
+   * -> {text, usd, where} (text says plainly what couldn't be done)
+   */
+  async function watch(o) {
+    const job = o.job || null, item = await itemFor(o);
+    if (!item) return { text: 'That clip’s media file couldn’t be found, so it couldn’t be watched.', usd: 0 };
+    const pl = plan(), out = { text: '', usd: 0, paidUsd: 0, where: pl.route === 'cloud' ? 'cloud' : 'local' };
+    if (pl.route === 'off') return Object.assign(out, { text: 'Seeing and hearing is switched off for this project (Settings › Vision & listening models).' });
+    const from = Math.max(0, +o.from || 0), to = +o.to > from ? +o.to : null;
+    // what is still missing for this clip, done now (the sound may need the editor's app to render it: they asked)
+    const r0 = await analyse(item, { job, heavy: true });
+    out.usd += r0.usd; out.paidUsd += r0.paidUsd;
+    const rec = peek(item.path), d = describeRange(rec, from, to);
+    let answer = '';
+    if (o.question && pl.vision.kind !== 'none') {
+      const dur = (rec && rec.duration) || item.duration || 0, a = from, b = to != null ? to : dur || from + 10;
+      const n = Math.max(1, Math.min(4, Math.ceil((b - a) / 3))), times = Array.from({ length: n }, (_, i) => Math.round((a + (b - a) * (i + 0.5) / n) * 100) / 100);
+      job && job.set && job.set({ who: pl.vision.kind === 'cloud' ? 'ai' : 'computer', msg: `Looking at ${item.name} ${fmtT(a)}–${fmtT(b)}` });
+      const g = await routes.grab(item, times);
+      if (g.stills.length) {
+        const req = visionRequest(item, g.stills);
+        req.system = 'You look at small stills of a moment of ONE clip, in time order, and answer a video editor’s question from what they show – a look, a gesture, who is in frame, what happens. Be specific and brief. Say when the stills don’t show enough to tell. Never guess names or places that aren’t visible. British English.';
+        req.user = req.user.concat([`What was heard and seen around then, from earlier listening: ${d ? d.text : 'nothing noted'}`, `The editor asks: “${String(o.question).trim()}”`]);
+        req.schema = ASK_SCHEMA; req.maxTokens = 600; req.feature = 'Watching footage';
+        try { const r = await routes.vision(pl, req, { job, onUsage: u => { out.usd += u.usd || 0; out.paidUsd += u.paidUsd || 0; } }); answer = clip(r && r.answer, 800); }
+        catch (e) { if (e && e.code === 'CANCELLED') throw e; answer = ''; out.note = (US.errors && US.errors.explain(e).title) || String(e && e.message || e); }
+      }
+    }
+    const bits = [];
+    if (answer) bits.push(answer);
+    if (d) bits.push((answer ? 'Also noted: ' : '') + d.text);
+    if (pl.vision.kind === 'none') bits.push('(Only listened to – nothing on this computer can look at footage yet: Settings › Vision & listening models.)');
+    if (out.note) bits.push(`(Looking didn’t work: ${out.note})`);
+    out.text = bits.join(' ') || 'Nothing could be seen or heard there (the clip may not be readable without a copy).';
+    return out;
+  }
+
   /* =================== the public API =================== */
   const known = () => Object.keys(pstore().get('understand.index') || {}).concat(Q.items.map(i => i.path)).filter((p, i, a) => a.indexOf(p) === i);
   async function pathsOfSequence(seq) {
@@ -645,7 +693,10 @@
      * What a stretch of a clip shows and sounds like: {text, shot, tags, sounds, events}, or null when it isn't known
      * yet (the clip then goes to the front of the background queue). Never starts heavy work itself.
      */
-    async describe({ path: p, start = 0, end = null } = {}) {
+    async describe(o = {}) {
+      // Ask's “watch” tool: {item, itemId, from, to, question, job} – it has asked the editor, so the work is done now
+      if (o.job || o.question || o.item || o.itemId) return watch(o);
+      const { path: p, start = 0, end = null } = o;
       const rec = peek(p), d = describeRange(rec, start, end);
       if (!d && p && route() !== 'off') { const i = Q.items.findIndex(x => x.path === p); if (i > 0) Q.items.unshift(Q.items.splice(i, 1)[0]); else if (i < 0 && US.fsx.exists(p)) Q.items.unshift({ path: p, name: US.basename(p), duration: (rec && rec.duration) || 0 }); kick(); }
       return d;
@@ -657,11 +708,14 @@
     /** Find moments by what is seen or heard: [{path, name, start, end, text, kind, score}], best first. */
     async search(query, { limit = 20, paths = null } = {}) { return searchRecords((paths || known()).map(peek).filter(Boolean), query, { limit }); },
     status,
+    /** Where looking and listening happen for the open project: {where: 'cloud'|'local'|'off', label} (Ask's footage warning). */
+    where() { const pl = plan(); return { where: pl.route === 'cloud' ? 'cloud' : pl.route === 'off' ? 'off' : 'local', label: pl.vision.label || (pl.listenModel && pl.listenModel.label) || pl.listening.label || '' }; },
     /**
      * A short text of what's in the footage, for the prompt of an AI that only reads text (Ask, Producer, Story):
      * paths: these clips; sequence: true (the open one) or its id; neither: everything known in the project. '' when nothing is known.
      */
     async context({ paths = null, sequence = null, maxChars = 6000 } = {}) {
+      if (!paths && !known().length) return '';   // nothing known: nothing to say, and the editor isn't asked anything
       let list = paths || (sequence ? await pathsOfSequence(sequence) : null) || known();
       return digest(list.map(peek).filter(Boolean), maxChars);
     },
@@ -674,6 +728,33 @@
     reset() { mem.clear(); shared = null; sharedFor = ''; Q.items = []; Q.listed = false; Q.project = ''; Q.failed = 0; },
     _pure: { visionTimes, listenChunks, visionRequest, tidyVision, mergeShots, listenRequest, tidyListen, builtinSounds, mergeSounds, summarise, rowsOf, digestOf, VSCHEMA, ASCHEMA, keyOf, sharedFile, travelKey, HEAVY_SECS }
   };
+
+  /* =================== US.listen: speech to words on this computer (Ask's dictation) =================== */
+  // The listening model (Gemma 4 via the helper) hears speech; nothing is sent anywhere. No model: a plain message –
+  // except in Resolve, where `transcribe` is left out so dictation uses Resolve's own transcription instead.
+  const listenModelHere = () => { const M = US.models; if (!M) return null; const want = String(set('listenModel') || ''); const ok = m => m && m.use.includes('listening') && M.installed(m.id) && M.runtime.installed(); return ok(M.get(want)) ? M.get(want) : M.list().find(ok) || null; };
+  const TSCHEMA = { type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string' } } };
+  async function transcribe({ path: file = '', samples = null, sampleRate = 16000, job = null } = {}) {
+    const m = listenModelHere();
+    if (!m) throw new US.UserError('NOTHING_FOUND', { title: 'Dictation needs a listening model on this computer.', action: 'Settings › Vision & listening models: download Gemma 4 E2B (it listens as well as looks). Your speech is never sent anywhere.' });
+    let data = samples, sr = sampleRate;
+    if (!data && file) { const a = await US.audio.readWav(file, { targetRate: 16000 }); data = a.data; sr = a.sr || 16000; }
+    if (!data || !data.length) throw new US.UserError('NOTHING_FOUND', { title: 'Nothing was heard.' });
+    const url = await US.models.start(m.id, { job }), parts = [];
+    try {
+      for (let s = 0; s < data.length; s += sr * 30) {   // the model listens 30 seconds at a time
+        job && job.check && job.check();
+        const wav = US.audio.wavBytes(data.subarray(s, Math.min(data.length, s + sr * 30)), sr);
+        const r = await US.ai.localAt({ url, model: m.id, temperature: 0, schema: TSCHEMA, maxTokens: 800, feature: 'Dictation',
+          system: 'Write down exactly what is said in the recording, in the language spoken, with normal punctuation. Only the words – no comments. If nothing is said, answer with empty text.',
+          user: ['The recording:', { media: { kind: 'audio', data: wav.toString('base64'), mime: 'audio/wav', bytes: wav.length, seconds: wav.length / 2 / sr, note: 'dictation' } }] });
+        if (r && r.text) parts.push(String(r.text).trim());
+      }
+    } finally { US.models.touch(); }
+    return { text: parts.join(' ').replace(/\s+/g, ' ').trim(), by: m.name };
+  }
+  US.listen = { label: () => { const m = listenModelHere(); return m ? `${m.name} on this computer` : 'a listening model on this computer'; }, available: () => !!listenModelHere() };
+  Object.defineProperty(US.listen, 'transcribe', { enumerable: true, get: () => (US.app && US.app.is && US.app.is('resolve') && !listenModelHere() ? undefined : transcribe) });
 
   // the background queue starts by itself, quietly, and follows the open project
   US.bus.on('context', () => { if (Q.project && Q.project !== curProject()) { Q.items = []; Q.listed = false; } kick(); });
