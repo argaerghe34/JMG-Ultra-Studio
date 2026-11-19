@@ -383,10 +383,36 @@ test('Settings › Vision & listening models in jsdom: both routes with pros, co
   let o; try { o = JSON.parse(last); } catch (e) { throw new Error('understand-ui.js gave no result:\n' + (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-1500)); }
   assert.deepStrictEqual(o.errors, []);
   assert.deepStrictEqual([o.title, o.section, o.routes], ['Vision & listening models', 'understand', ['On this computer', 'Cloud', 'Off']]);
+  assert.ok(o.inSettings && /Vision & listening models/.test(o.inSettings.title) && o.inSettings.closed, 'in Settings as a closed dropdown: ' + JSON.stringify(o.inSettings));
+  assert.deepStrictEqual([o.inSettings.ownCards, o.inSettings.cardTitles], [0, []], 'no cards inside Settings’ card (they would break Settings’ order)');
   assert.ok(o.prosCons.pros >= 6 && o.prosCons.cons >= 6, 'pros and cons for both');
   assert.deepStrictEqual(o.estimate, { footage: true, local: true, cloud: true, assumed: true }, 'the estimate is for this project, and says what is assumed');
   assert.ok(o.downloads.length === 4 && o.downloads.every(t => /\d (MB|GB)/.test(t)) && o.deleteButtons === 0, 'nothing downloaded; each size is on its button: ' + o.downloads);
   assert.ok(o.kept && o.autoUpdate && o.status && o.statusText);
   assert.ok(o.confirm && /see and hear/.test(o.confirm.title) && o.confirm.says && /Keep it on this computer/.test(o.confirm.buttons[0]) && /Yes – up to about/.test(o.confirm.buttons[1]), JSON.stringify(o.confirm));
   assert.deepStrictEqual(o.afterNo, { route: 'local', mediaOn: false }, 'cloud stays off on “no”');
+});
+
+test('Ask’s calls: where() for the footage warning, describe({item, from, to, question, job}) watches now, US.listen needs a model', async () => {
+  project('Ask film');
+  const T = tinyCatalogue(), asked = [];
+  const R = fakeRoutes({ vision: (req) => { asked.push(req); return req.schema && req.schema.required[0] === 'answer' ? { answer: 'She looks away before answering.' } : { shots: [{ from: 0, to: 20, description: 'A woman sits by a window.', shot: 'interview', setting: 'a kitchen', people: 'one woman', tags: ['window'] }], events: [] }; } });
+  const item = { id: 'x1', path: tmp('R001.mp4'), name: 'R001.mp4', duration: 20 };
+  try {
+    assert.deepStrictEqual(U.where(), { where: 'local', label: 'Tiny' });
+    const r = await U.describe({ item, itemId: 'x1', from: 3, to: 9, question: 'What does she do?', job });
+    assert.ok(/^She looks away before answering\. Also noted: A woman sits by a window\./.test(r.text) && r.usd === 0 && r.where === 'local', JSON.stringify(r));
+    const q = asked.find(x => x.schema.required[0] === 'answer');
+    assert.ok(q.user.filter(b => b.image).length === 2 && /What does she do\?/.test(q.user[q.user.length - 1]), 'stills of that moment, and the question');
+    assert.ok(U.peek(item.path).vision.done && U.peek(item.path).listening.done, 'the clip’s record was made on the way');
+    // the old way still answers from what's kept, without doing anything
+    assert.ok(/window/.test((await U.describe({ path: item.path, start: 0, end: 5 })).text));
+    // dictation: the listening model on this computer; without one, a plain message
+    US.settings.set('understand.listenModel', 'builtin');
+    assert.strictEqual(typeof US.listen.transcribe, 'function');
+    M.remove('tiny');
+    await assert.rejects(() => US.listen.transcribe({ samples: new Float32Array(16000), sampleRate: 16000 }), e => /needs a listening model/.test(e.title) && /Vision & listening models/.test(e.action));
+    U.setRoute('off');
+    assert.deepStrictEqual(U.where().where, 'off');
+  } finally { R.restore(); T.undo(); U.setRoute('local'); US.ctx = CTX0; }
 });

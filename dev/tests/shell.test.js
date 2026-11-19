@@ -104,9 +104,10 @@ test('Settings › What was sent to AI: no “null” above Refresh (Element.app
 
 test('US.settingsSections.register: another file’s section shows in Settings as a closed dropdown, in order', () => {
   const s = shell().settings;
-  assert.deepStrictEqual(s.extra, ['test-early', 'test-late', 'test-broken']);
+  // the panel's own sections are there too (Vision & listening models, order 35): every one in order, the test ones where they belong
+  assert.deepStrictEqual(s.extra, ['test-early', 'test-late', 'understand', 'test-broken']);
   assert.ok(s.extraClosed && s.extraBody);
-  assert.deepStrictEqual(s.extraAfter, ['test-early', 'test-late', 'test-live', 'test-broken'], 'one registered while Settings is open shows too');
+  assert.deepStrictEqual(s.extraAfter, ['test-early', 'test-late', 'test-live', 'understand', 'test-broken'], 'one registered while Settings is open shows too');
   assert.ok(s.sections.includes('Added by another file') && s.sections.includes('Broken one'), 'a section that fails to draw doesn’t take Settings down');
 });
 

@@ -178,7 +178,7 @@
       const hasKey = !!(US.secrets.get('anthropicKey') || US.secrets.get('geminiKey'));
       const sec = (id, title, kids, opts) => h('div', { dataset: { section: id } }, ui.section(title, kids, Object.assign({ open: false }, opts)));
       const aiCard = ui.card(h('div.card-title', 'AI (optional)'),
-        h('div.muted', 'Only the Assistant’s free-form requests and Story’s automatic themes use AI. Your footage never leaves this computer – only text (your request, or transcript lines) is sent, straight to the provider you choose.'),
+        h('div.muted', 'Only the Assistant’s free-form requests and Story’s automatic themes use AI. Text (your request, or transcript lines) is sent, straight to the provider you choose. Your footage stays on this computer unless you allow it for a project: a few small stills (Footage, below), or stills and sound to a cloud model (Vision & listening models). A project set to “nothing leaves this computer” sends nothing.'),
         provider, aiStatus,
         sec('ai-keys', 'API keys', [
           keyField('anthropicKey', 'Claude API key', 'From console.anthropic.com › API keys. Pay-as-you-go; typical requests cost a fraction of a penny.', 'claude'),
@@ -424,7 +424,7 @@
         const previewSeg = ui.segmented({ options: [{ value: 'cost', label: 'Only when it costs more than the limit above' }, { value: 'always', label: 'Always show me first' }], value: US.settings.get('ai.preview', 'cost'), onChange: x => US.settings.set('ai.preview', x) });
         const clearBtn = ui.button('Clear this project’s log', { small: true, kind: 'ghost', onClick: async () => { if (await ui.confirm({ title: 'Clear the log for this project?', text: 'The record of what was sent is deleted from this computer. Nothing changes at Claude or Google.', ok: 'Clear', danger: true })) { S.clear(projSel.get()); fillProjects(); draw(); } } });
         const card = ui.card(h('div.card-title', 'What was sent to AI'),
-          h('div.muted', 'Every AI request carries text only – transcript lines, names, your request – never footage, frames or audio. Here is exactly what went, request by request, so you (or a client) can check.'),
+          h('div.muted', 'Every AI request carries text – transcript lines, names, your request – and, only for projects where you allowed it, small stills or pieces of sound from the footage (each listed with its size; the pictures and sound themselves aren’t kept here). Here is exactly what went, request by request, so you (or a client) can check.'),
           ui.section('Show the requests', [
             ui.field('Project', projSel), list,
             h('div.row', ui.button('Refresh', { small: true, kind: 'ghost', icon: 'refresh', onClick: () => { fillProjects(); draw(); } }), clearBtn, ui.button('Open the folder', { small: true, kind: 'ghost', icon: 'folder', onClick: () => openFolder(S.dir()) }))

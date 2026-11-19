@@ -28,7 +28,8 @@ try {
   U.setRoute('local');
 
   // 1. Settings has the section, with sizes before any download, and nothing is on the computer that wasn't asked for
-  const sec = (US.settingsSections.list || []).find(s => s.id === 'understand') || { create: US.understandUI.create };
+  const sec = US.settingsSections.list().find(s => s.id === 'understand');
+  T.assert(sec && sec.title === 'Vision & listening models', 'registered as a Settings section');
   const el = sec.create(), text = el.textContent;
   T.assert(/On this computer/.test(text) && /Cloud/.test(text) && /Update models automatically/.test(text) && /Kept in: /.test(text), 'the section shows both routes, the update toggle and where models are kept');
   const downloads = Array.from(el.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => /^Download \(/.test(t));
