@@ -144,6 +144,40 @@ test('a search: every place asked with the request and its key, options up to �
   } finally { f.restore(); }
 });
 
+test('shape and size: named plainly, checked from each clip’s width and height – “not known” is its own answer', () => {
+  assert.deepStrictEqual([B.ratioName(1920, 1080), B.ratioName(1080, 1920), B.ratioName(1080, 1080), B.ratioName(1080, 1350), B.ratioName(4096, 2160), B.ratioName(1440, 1080), B.ratioName(2000, 1000), B.ratioName(0, 1080)], ['16:9', '9:16', '1:1', '4:5', '17:9', '4:3', '2.00:1', '']);
+  const c = (width, height) => ({ width, height });
+  assert.deepStrictEqual([B.shapeFits(c(1920, 1080), '16:9'), B.shapeFits(c(4096, 2160), '16:9'), B.shapeFits(c(1440, 1080), '16:9'), B.shapeFits(c(1080, 1920), '16:9'), B.shapeFits(c(0, 0), '16:9'), B.shapeFits(c(1, 2), 'any')], [true, true, false, false, null, true]);
+  assert.deepStrictEqual([B.shapeFits(c(1080, 1920), '9:16'), B.shapeFits(c(1080, 1350), '9:16'), B.shapeFits(c(1080, 1350), '4:5'), B.shapeFits(c(1000, 1000), '1:1'), B.shapeFits(c(1920, 1080), '1:1')], [true, false, true, true, false]);
+  assert.deepStrictEqual([B.sizeFits(c(1920, 1080), 1080), B.sizeFits(c(1080, 1920), 1080), B.sizeFits(c(1280, 720), 1080), B.sizeFits(c(3840, 2160), 2160), B.sizeFits(c(0, 720), 720), B.sizeFits(c(0, 0), 720), B.sizeFits(c(0, 0), 0)], [true, true, false, true, true, null, true]);
+  assert.deepStrictEqual(['720', '1080', '2160', 'max', 'hd', undefined].map(B.sizeSide), [720, 1080, 2160, 0, 1080, 1080]);
+});
+
+test('a search for a shape and a size: Pexels and Pixabay are asked with their own filters, the rest sorted by width and height, YouTube says it can’t', async () => {
+  const f = fakeNet();
+  try {
+    const r = await B.search(job(), { requests: ['harbour'], aim: 10, shape: '16:9', minSide: 1080, fresh: true });
+    const x = r.results[0];
+    assert.ok(/orientation=landscape&size=medium/.test(f.asked.find(a => a.url && /pexels/.test(a.url)).url), 'Pexels: its orientation and size filters');
+    assert.ok(/min_width=1881&min_height=1058/.test(f.asked.find(a => a.url && /pixabay/.test(a.url)).url), 'Pixabay: the least width and height');
+    assert.deepStrictEqual(x.pool.filter(c => c.source !== 'youtube').map(c => c.key), ['pexels:857251', 'pixabay:125', 'commons:1'], 'the upright Pexels clip and the 720p Commons one are left out');
+    assert.ok(x.pool.filter(c => c.source === 'youtube').length === 2 && x.pool.filter(c => c.source === 'youtube').every(c => c.unsure), 'YouTube’s are shown anyway, marked as not known');
+    assert.ok(x.notes.some(n => /YouTube’s search doesn’t say a video’s shape or size, so it can’t keep to “16:9, at least 1080p”/.test(n)), x.notes.join(' | '));
+    // upright: Pexels asked for portrait; only the upright clip fits; a place with nothing that fits says so
+    f.asked.length = 0;
+    const up = await B.search(job(), { requests: ['harbour'], aim: 10, shape: '9:16', sources: { youtube: false }, fresh: true });
+    assert.ok(/orientation=portrait/.test(f.asked.find(a => a.url && /pexels/.test(a.url)).url) && !/size=/.test(f.asked.find(a => a.url && /pexels/.test(a.url)).url));
+    assert.deepStrictEqual(up.results[0].pool.map(c => c.key), ['pexels:99']);
+    assert.ok(up.results[0].notes.some(n => /Pixabay: found 1 video, but none 9:16/.test(n)) && up.results[0].notes.some(n => /Wikimedia Commons: found 2 videos, but none 9:16/.test(n)));
+    // 4K: only what is 4K; any shape and any size ask the sites for nothing special
+    const k4 = await B.search(job(), { requests: ['harbour'], aim: 10, minSide: 2160, sources: { youtube: false }, fresh: true });
+    assert.deepStrictEqual(k4.results[0].pool.map(c => c.key), ['pexels:857251']);
+    f.asked.length = 0;
+    await B.search(job(), { requests: ['harbour'], aim: 10, sources: { youtube: false }, fresh: true });
+    assert.ok(!f.asked.some(a => /orientation=|size=|min_width/.test(a.url)));
+  } finally { f.restore(); }
+});
+
 test('a search with a place that can’t be used: said plainly, the others still looked in; none usable is an error', async () => {
   let f = fakeNet({ keys: { pixabayKey: 'PB' }, noYtdlp: true });
   try {
@@ -206,6 +240,17 @@ test('a download: a folder named after the request, clear file names, the list o
     assert.strictEqual(f.asked.find(a => a.download && /pexels/.test(a.download)).download, 'https://videos.pexels.com/857251-uhd.mp4');
     assert.deepStrictEqual([big.done.length, big.failed.length, big.failed[0].why], [1, 1, 'It isn’t there any more.']);
     assert.ok(!fs.readdirSync(path.join(dir, 'big', 'other')).some(n => /\.mp4|\.part/.test(n)));
+    // the size to download: the best copy up to it; YouTube through the engine's own format choice
+    f.asked.length = 0;
+    await B.run(job(), { picks: [picks[0], picks[3]], folder: path.join(dir, 's720'), size: '720' });
+    assert.strictEqual(f.asked.find(a => a.download).download, 'https://videos.pexels.com/857251-sd.mp4', 'up to 720p: the 360p copy, not the 1080p one');
+    assert.deepStrictEqual([f.asked.find(a => a.ytDownload).ytDownload.quality, f.asked.find(a => a.ytDownload).ytDownload.maxHeight], ['premiere', 720]);
+    f.asked.length = 0;
+    await B.run(job(), { picks: [picks[0], picks[3]], folder: path.join(dir, 's4k'), size: '2160' });
+    assert.strictEqual(f.asked.find(a => a.download).download, 'https://videos.pexels.com/857251-uhd.mp4');
+    assert.strictEqual(f.asked.find(a => a.ytDownload).ytDownload.quality, 'best');
+    const at = (a, k) => a[a.indexOf(k) + 1];
+    assert.ok(/height<=720\]/.test(at(US.youtube.argsFor('u', { folder: '/o', maxHeight: 720 }), '-f')) && /height<=1080\]/.test(at(US.youtube.argsFor('u', { folder: '/o' }), '-f')) && at(US.youtube.argsFor('u', { folder: '/o', maxHeight: 720 }), '-S') === 'res:720,vcodec:h264,fps');
     await assert.rejects(B.run(job(), { picks: [], folder: dir }), e => e.code === 'BAD_INPUT');
     // Stop is honoured between clips
     const stopped = job(); stopped.check = () => { throw new US.UserError('CANCELLED'); };

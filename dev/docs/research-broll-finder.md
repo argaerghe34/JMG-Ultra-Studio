@@ -90,6 +90,21 @@ are not ticked, and downloading one asks first. Every downloaded clip is listed 
 folder: file, title, source, page, author, licence, licence link, whether it's free, a credit line, the request and
 the date. This is a plain-words guide, not legal advice: the page linked for each clip is what counts.
 
+## Shape (aspect ratio) and size (added 19 Nov 2026, the user asked)
+"Shape": Any / 16:9 / 9:16 / 1:1 / 4:5. "Size": any, or at least 720p / 1080p / 4K (on the short side). "Size to
+download": the best copy up to 720p / 1080p / 4K, or the largest there is.
+
+| Source | Shape | Least size | Copy downloaded |
+|---|---|---|---|
+| Pexels | its own `orientation=landscape/portrait/square`, then checked from width × height (4:5 is asked as portrait) | its own `size=small/medium/large` (HD / Full HD / 4K) | best `video_files` entry up to the size |
+| Pixabay | no filter of its own: three times as many results are asked for and sorted by width × height | its own `min_width` / `min_height` | best of `large/medium/small/tiny` up to the size |
+| Wikimedia Commons, Internet Archive | sorted by width × height | sorted by width × height | Commons: its best WebM copy up to the size; Archive: its MP4 |
+| NASA | **can't**: the library doesn't give width (shown anyway, with a note) | from the copy's name (`~large` ≈ 1080p) | best copy up to the size |
+| YouTube | **can't**: yt-dlp's quick search gives no width or height, and looking each video up fully takes seconds apiece (shown anyway, with a note) | **can't** at search | yt-dlp's format choice: H.264 up to 720p or 1080p; "4K" and "largest" use the Download tab's "Highest quality" (converted to H.264) |
+
+A shape counts with 8% leeway, so cinema-wide 4K (4096×2160) is still 16:9. Each option shows its size and shape
+("1920×1080 · 16:9"), or "size not said".
+
 ## Nothing is downloaded before the button
 Searching asks each site for a list (text and thumbnail addresses). Thumbnails are `<img>` and previews are
 `<video>` pointing at the site's own small file: they play from the internet and nothing is written to the chosen

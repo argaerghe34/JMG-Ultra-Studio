@@ -51,6 +51,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const boxes = cards.map(c => c.querySelector('input[type=checkbox]'));
   if (boxes.map(b => b.checked).join() !== 'true,false,true') fail('free clips ticked, the one needing permission not: ' + boxes.map(b => b.checked).join());
   if (!cards.some(c => /standard licence: you need permission/.test(c.textContent)) || !cards[0].querySelector('.bff-licence.free')) fail('licences aren’t shown plainly');
+  if (!/1920×1080 · 16:9/.test(cards[0].textContent)) fail('a card doesn’t show its size and shape: ' + cards[0].textContent);
+  if (!one('[data-bf="shape"]') || !/16:9/.test(one('[data-bf="shape"]').textContent) || !/At least 4K/.test(one('[data-bf="shape"]').innerHTML) || !/Up to 720p/.test(view().textContent)) fail('no shape, size or download-size choice on the screen');
   if (!cards[0].querySelector('img') || !/Open on Pexels/.test(cards[0].textContent) || !/1920×1080/.test(cards[0].textContent)) fail('a card lacks its thumbnail, page link or size');
   if (!/2 ticked/.test(view().textContent) || !/Download 2 ticked clips/.test(one('[data-bf="go"]').textContent)) fail('the ticked count is wrong: ' + one('[data-bf="go"]').textContent);
   // a preview plays from the site's small file

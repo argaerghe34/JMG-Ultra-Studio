@@ -76,6 +76,33 @@
     return { file: fit.length ? fit[fit.length - 1] : fl[0], preview: fl.find(f => shortSide(f) >= 240) || fl[0] };
   }
 
+  /* ---------- pure: shape (aspect ratio) and size ---------- */
+  const SHAPES = { any: { label: 'Any shape' }, '16:9': { label: '16:9', r: 16 / 9, hint: 'wide' }, '9:16': { label: '9:16', r: 9 / 16, hint: 'upright' }, '1:1': { label: '1:1', r: 1, hint: 'square' }, '4:5': { label: '4:5', r: 4 / 5, hint: 'portrait post' } };
+  const NAMED = [['16:9', 16 / 9], ['9:16', 9 / 16], ['1:1', 1], ['4:5', 4 / 5], ['5:4', 5 / 4], ['4:3', 4 / 3], ['3:4', 3 / 4], ['3:2', 3 / 2], ['2:3', 2 / 3], ['17:9', 17 / 9], ['21:9', 21 / 9]];
+  /** “16:9” for 1920×1080, “1.90:1” for a shape with no everyday name, '' when the size isn't known. */
+  function ratioName(w, h) {
+    if (!(w > 0 && h > 0)) return '';
+    const r = w / h, hit = NAMED.find(n => Math.abs(r / n[1] - 1) < 0.025);
+    return hit ? hit[0] : r >= 1 ? r.toFixed(2) + ':1' : '1:' + (1 / r).toFixed(2);
+  }
+  /** Is a clip the shape asked for? true / false, or null when the site didn't say its width and height.
+      A little leeway (8%), so cinema-wide 4K (4096×2160) still counts as 16:9. */
+  function shapeFits(clip, shape) {
+    const S = SHAPES[shape];
+    if (!S || !S.r) return true;
+    if (!(clip.width > 0 && clip.height > 0)) return null;
+    return Math.abs((clip.width / clip.height) / S.r - 1) <= 0.08;
+  }
+  /** Is a clip at least minSide on its short side (720, 1080, 2160)? true / false / null (not known). */
+  function sizeFits(clip, minSide) {
+    if (!(minSide > 0)) return true;
+    const side = clip.width > 0 && clip.height > 0 ? Math.min(clip.width, clip.height) : clip.height > 0 ? clip.height : 0;
+    return side ? side >= minSide * 0.98 : null;
+  }
+  const SIZE_NAME = { 720: '720p', 1080: '1080p', 2160: '4K' };
+  /** The download-size setting ('720' | '1080' | '2160' | 'max'; 'hd' from the first version) -> the largest short side (0 = any). */
+  const sizeSide = v => (v === 'max' ? 0 : v === 'hd' ? 1080 : [720, 1080, 2160].includes(+v) ? +v : 1080);
+
   /* ---------- pure: each site's answer -> clips ----------
      A clip: {key, source, sourceName, id, title, page, author, authorUrl, thumb, preview (plays in the panel; '' = none),
      previewVia ('ytdlp': ask the downloader for a small stream), duration (s), width, height, licence {id, name, label,
@@ -213,11 +240,20 @@
   const q = encodeURIComponent;
   const SOURCES = [
     { id: 'pexels', name: 'Pexels', on: true, secret: 'pexelsKey', keyUrl: 'https://www.pexels.com/api/', site: 'https://www.pexels.com', about: 'Stock footage, free to use. Needs a free key.',
-      async search(term, n, c) { return parsePexels(await c.net.json(`https://api.pexels.com/v1/videos/search?query=${q(term)}&per_page=${Math.min(80, n)}`, { headers: { Authorization: c.key } })); } },
+      // Pexels' own filters: orientation (landscape, portrait, square) and size = the least it may be (small HD, medium Full HD, large 4K)
+      async search(term, n, c) {
+        const o = { '16:9': 'landscape', '9:16': 'portrait', '4:5': 'portrait', '1:1': 'square' }[c.shape], z = { 720: 'small', 1080: 'medium', 2160: 'large' }[c.minSide];
+        return parsePexels(await c.net.json(`https://api.pexels.com/v1/videos/search?query=${q(term)}&per_page=${Math.min(80, n)}${o ? '&orientation=' + o : ''}${z ? '&size=' + z : ''}`, { headers: { Authorization: c.key } }));
+      } },
     { id: 'pixabay', name: 'Pixabay', on: true, secret: 'pixabayKey', keyUrl: 'https://pixabay.com/api/docs/', site: 'https://pixabay.com', about: 'Stock footage, free to use. Needs a free key.',
-      async search(term, n, c) { return parsePixabay(await c.net.json(`https://pixabay.com/api/videos/?key=${q(c.key)}&q=${q(term.slice(0, 100))}&per_page=${Math.max(3, Math.min(200, n))}&safesearch=true`)); } },
-    { id: 'commons', name: 'Wikimedia Commons', on: true, site: 'https://commons.wikimedia.org', about: 'Free-licensed video (often needs a credit). No key.',
-      async search(term, n, c) { return parseCommons(await c.net.json(`https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrsearch=${q('filetype:video ' + term)}&gsrnamespace=6&gsrlimit=${Math.min(50, n)}&prop=videoinfo&viprop=${q('url|size|mime|extmetadata|derivatives')}&viurlwidth=480`)); } },
+      // Pixabay's own filters: the least width and height (it has none for shape – that's sorted here from each video's size)
+      async search(term, n, c) {
+        const r = (SHAPES[c.shape] || {}).r || 16 / 9, m = c.minSide || 0;
+        const mw = m ? Math.round(r >= 1 ? m * r : m) : 0, mh = m ? Math.round(r >= 1 ? m : m / r) : 0;
+        return parsePixabay(await c.net.json(`https://pixabay.com/api/videos/?key=${q(c.key)}&q=${q(term.slice(0, 100))}&per_page=${Math.max(3, Math.min(200, c.shape && c.shape !== 'any' ? n * 3 : n))}&safesearch=true${mw ? `&min_width=${Math.floor(mw * 0.98)}&min_height=${Math.floor(mh * 0.98)}` : ''}`));
+      } },
+    { id: 'commons', name: 'Wikimedia Commons', on: true, more: true, site: 'https://commons.wikimedia.org', about: 'Free-licensed video (often needs a credit). No key.',
+      async search(term, n, c) { return parseCommons(await c.net.json(`https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrsearch=${q('filetype:video ' + term)}&gsrnamespace=6&gsrlimit=${Math.min(50, c.filtered ? n * 2 : n)}&prop=videoinfo&viprop=${q('url|size|mime|extmetadata|derivatives')}&viurlwidth=480`)); } },
     { id: 'youtube', name: 'YouTube', on: true, site: 'https://www.youtube.com', about: 'Only videos marked Creative Commons count as free to use. Uses the Download tab’s downloader.',
       async search(term, n, c) {
         const ask = async (url, cc) => parseYouTube(JSON.parse(await c.net.ytdlp(['--flat-playlist', '-J', '--no-warnings', '--playlist-end', String(n), '--', url])), cc);
@@ -275,17 +311,20 @@
 
   /* searches are kept for a day (Pixabay asks for that; it also saves the free allowances) */
   const DAY = 24 * 3600 * 1000;
-  const cacheKey = (sid, term, n, freeOnly) => US.fsx.hash([sid, term.toLowerCase(), n, freeOnly ? 1 : 0].join('|'));
+  const cacheKey = (sid, term, n, freeOnly, shape, minSide) => US.fsx.hash([sid, term.toLowerCase(), n, freeOnly ? 1 : 0, shape || 'any', minSide || 0].join('|'));
   function cacheGet(key) { try { const c = US.cache.get('brollfinder', key); return c && Date.now() - c.at < DAY ? c.clips : null; } catch (e) { return null; } }
   function cachePut(key, clips) { try { US.cache.set('brollfinder', key, { at: Date.now(), clips }); } catch (e) { /* not kept */ } }
 
-  const DEFAULTS = { aim: 8, freeOnly: true, sources: {}, folder: '', toBin: false, size: 'hd', maxLen: 600, ai: false };
+  const DEFAULTS = { aim: 8, freeOnly: true, sources: {}, folder: '', toBin: false, size: '1080', maxLen: 600, ai: false, shape: 'any', minSide: 0 };
   const opts = () => Object.assign({}, DEFAULTS, US.settings.get('brollfinder', {}));
   const sourceOn = (o, s) => (o.sources && o.sources[s.id] != null ? !!o.sources[s.id] : s.on);
 
   /**
-   * Look for each request. o: {requests: [text], aim, freeOnly, sources: {id: bool}, maxLen (s; 0 = any), phrases:
-   * {request: [search words]}, fresh (don't use the day's kept searches)}
+   * Look for each request. o: {requests: [text], aim, freeOnly, sources: {id: bool}, maxLen (s; 0 = any), shape ('any' |
+   * '16:9' | '9:16' | '1:1' | '4:5'), minSide (0 | 720 | 1080 | 2160: the least it may be on its short side), phrases:
+   * {request: [search words]}, fresh (don't use the day's kept searches)}. A site that can filter by shape or size is
+   * asked to; the rest are sorted here by each video's width and height – and where a site doesn't say them (YouTube's
+   * search), its videos are shown anyway and a note says so.
    * -> {results: [{term, clips (aim of them, places taking turns), pool (every clip found), notes: [plain lines]}], summary}
    */
   async function search(job, o) {
@@ -295,6 +334,7 @@
     const aim = Math.max(1, Math.min(40, Math.round(+o.aim || DEFAULTS.aim)));
     const wanted = SOURCES.filter(s => sourceOn(o, s)), blocked = wanted.map(s => sourceBlocked(s)).filter(Boolean), usable = wanted.filter(s => !sourceBlocked(s));
     if (!usable.length) throw new US.UserError('BAD_INPUT', { title: wanted.length ? 'None of the places can be searched yet.' : 'No place to look is switched on.', action: wanted.length ? blocked.join(' ') : 'Open “Where to look” and switch one on.' });
+    const shape = SHAPES[o.shape] ? o.shape : 'any', minSide = [720, 1080, 2160].includes(+o.minSide) ? +o.minSide : 0, filtered = shape !== 'any' || minSide > 0;
     const per = Math.max(6, Math.min(30, aim * 2)), results = [];
     for (let i = 0; i < requests.length; i++) {
       job.check();
@@ -306,10 +346,10 @@
       const lists = await Promise.all(usable.map(async s => {
         const found = [];
         for (const w of asks) {
-          const key = cacheKey(s.id, w, per, o.freeOnly);
+          const key = cacheKey(s.id, w, per, o.freeOnly, shape, minSide);
           let clips = o.fresh ? null : cacheGet(key);
           if (!clips) {
-            try { clips = await s.search(w, per, { net, key: s.secret ? net.key(s.secret) : '', freeOnly: !!o.freeOnly }); cachePut(key, clips); }
+            try { clips = await s.search(w, per, { net, key: s.secret ? net.key(s.secret) : '', freeOnly: !!o.freeOnly, shape, minSide, filtered }); cachePut(key, clips); }
             catch (e) { if (e && e.code === 'CANCELLED') throw e; notes.push(plainFail(s, e)); US.log && US.log('warn', `B-roll finder: ${s.name} search failed`, String((e && e.message) || e).replace(/key=[^&\s]+/g, 'key=…'), 'brollfinder'); clips = []; }
           }
           found.push(clips);
@@ -319,6 +359,14 @@
         if (o.freeOnly) all = all.filter(c => c.licence && c.licence.free);
         if (o.maxLen > 0) all = all.filter(c => !c.duration || c.duration <= o.maxLen);
         if (before && !all.length) notes.push(`${s.name}: found ${US.plural(before, 'video')}, but none ${o.freeOnly ? 'free to use' : 'short enough'}${o.freeOnly && o.maxLen > 0 ? ' and short enough' : ''}.`);
+        if (filtered && all.length) {
+          // the shape and size asked for: kept when it fits, left out when it doesn't, and kept with a plain note when the site doesn't say
+          const had = all.length, want = [shape !== 'any' ? shape : '', minSide ? `at least ${SIZE_NAME[minSide]}` : ''].filter(Boolean).join(', ');
+          let unknown = 0;
+          all = all.filter(c => { const a = shapeFits(c, shape), b = sizeFits(c, minSide); if (a === false || b === false) return false; if (a === null || b === null) { unknown++; c.unsure = true; } return true; });
+          if (!all.length) notes.push(`${s.name}: found ${US.plural(had, 'video')}, but none ${want}.`);
+          else if (unknown) notes.push(s.id === 'youtube' ? `YouTube’s search doesn’t say a video’s shape or size, so it can’t keep to “${want}”: its videos are shown anyway – check the preview. The download takes the best picture up to the size you choose.` : `${s.name} doesn’t say the shape or size of ${unknown === all.length ? 'its videos' : US.plural(unknown, 'video')}, so ${unknown === 1 && all.length > 1 ? 'it is' : 'they are'} shown anyway (“${want}” can’t be checked) – look at the preview.`);
+        }
         return all;
       }));
       const pool = pick(lists, 999);
@@ -377,13 +425,14 @@
     try { const f = fs.readdirSync(dir).find(n => n.startsWith(stem) && !/\.part(\.mp4)?$/.test(n) && fs.statSync(path.join(dir, n)).size > 0); return f ? path.join(dir, f) : ''; } catch (e) { return ''; }
   }
   /**
-   * Download the chosen clips. o: {picks: [{term, clip}], folder, toBin, size ('hd' up to 1080p | 'max' the largest)}
+   * Download the chosen clips. o: {picks: [{term, clip}], folder, toBin, size ('720' | '1080' | '2160': the best copy
+   * the site has up to that size on its short side; 'max': the largest there is)}
    * -> {summary, done: [{term, clip, file, was (already there)}], failed: [{term, clip, why}], folders: [paths], imported}
    */
   async function run(job, o) {
     const picks = (o.picks || []).filter(p => p && p.clip);
     if (!picks.length) throw new US.UserError('BAD_INPUT', { title: 'No clips are ticked.', action: 'Tick the ones you want, then press Download.' });
-    const root = US.fsx.ensureDir(o.folder || defaultFolder()), maxSide = o.size === 'max' ? 0 : 1080;
+    const root = US.fsx.ensureDir(o.folder || defaultFolder()), maxSide = sizeSide(o.size);
     const done = [], failed = [], folders = new Set();
     for (let i = 0; i < picks.length; i++) {
       job.check();
@@ -399,7 +448,7 @@
         if (clip.via === 'ytdlp') {
           const y = US.settings.get('youtube', {}) || {};
           const sub = { check: () => job.check(), set: () => {}, progress: (f, t) => job.progress(at + part * Math.min(1, f), t || label), get cancelled() { return job.cancelled; } };
-          const r = await net.ytDownload(sub, { links: [clip.page], folder: dir, toBin: false, quality: o.size === 'max' ? 'best' : 'premiere', playlist: false, signIn: y.signIn || 'off', browser: y.browser, cookies: y.cookies });
+          const r = await net.ytDownload(sub, { links: [clip.page], folder: dir, toBin: false, quality: maxSide === 0 || maxSide > 1080 ? 'best' : 'premiere', maxHeight: maxSide || undefined, playlist: false, signIn: y.signIn || 'off', browser: y.browser, cookies: y.cookies });
           job.check();
           const got = r && r.done && r.done[0] && r.done[0].files && r.done[0].files[0];
           if (!got) throw new Error((r && r.failed && r.failed[0] && r.failed[0].why) || 'Nothing was downloaded.');
@@ -449,7 +498,7 @@
 
   /* ---------- the tab ---------- */
   const fmtLen = s => (s > 0 ? US.fmtDur(Math.round(s)) : '');
-  const fmtSize = c => (c.width && c.height ? `${c.width}×${c.height}` : c.height ? `${c.height}p` : '');
+  const fmtSize = c => (c.width && c.height ? `${c.width}×${c.height} · ${ratioName(c.width, c.height)}` : c.height ? `${c.height}p` : 'size not said');
   let fill = null;   // set by the open tab: put a request in the box (Ask uses it)
 
   US.tools.register({
@@ -478,6 +527,9 @@
       const count = () => { const n = parseRequests(query.value).length; countLine.textContent = US.say(n > 1 ? `${n} requests – each gets its own options and its own folder.` : 'Plain words work best: what’s in the shot, where, what time of day.'); };
       const aim = h('input.input.bff-aim', { type: 'number', min: 1, max: 40, step: 1, value: o.aim, dataset: { bf: 'aim' }, onchange: () => { o.aim = Math.max(1, Math.min(40, Math.round(+aim.value || DEFAULTS.aim))); aim.value = o.aim; save(); } });
       const freeOnly = ui.toggle({ label: 'Only free-to-use footage', hint: 'On: stock sites, public domain and Creative Commons you may use in a film (some need a credit). Off: also shows YouTube videos you’d need permission for – clearly marked, and not ticked.', value: o.freeOnly, onChange: x => { o.freeOnly = x; save(); } });
+      const shape = ui.segmented({ options: Object.entries(SHAPES).map(([value, x]) => ({ value, label: x.label, title: x.hint ? `Only ${x.hint} footage` : 'Any shape of picture' })), value: SHAPES[o.shape] ? o.shape : 'any', onChange: x => { o.shape = x; save(); } });
+      const minSide = ui.select({ options: [{ value: '0', label: 'Any size' }, { value: '720', label: 'At least 720p (HD)' }, { value: '1080', label: 'At least 1080p (Full HD)' }, { value: '2160', label: 'At least 4K' }], value: String(o.minSide || 0), onChange: x => { o.minSide = +x; save(); } });
+      const shapeBox = h('div', { dataset: { bf: 'shape' } }, ui.field('Shape', shape), ui.field('Size', minSide, 'Pexels and Pixabay are asked for exactly this; elsewhere the results are sorted by their own width and height. Where a site doesn’t say (YouTube’s search), its videos are shown anyway and it says so.'));
       const aiBox = h('div');
       function drawAI() {
         US.clear(aiBox);
@@ -564,7 +616,8 @@
       const folderLine = h('div.grow.field-hint');
       const showFolder = () => { const f = folder(); folderLine.textContent = `Saving to ${US.fsx.pretty ? US.fsx.pretty(f) : f} › a folder for each request`; folderLine.title = f; };
       const toBin = ui.toggle({ label: 'Also add to a bin in the project', hint: `Off: the clips are only saved to the folder. On: they’re also imported into “${BIN_ROOT.split('/').join(' › ')} › the request”.`, value: !!o.toBin, onChange: x => { o.toBin = x; save(); } });
-      const size = ui.segmented({ options: [{ value: 'hd', label: 'HD (up to 1080p)', title: 'Smaller files that play smoothly' }, { value: 'max', label: 'Largest there is', title: '4K where the site has it – bigger downloads' }], value: o.size === 'max' ? 'max' : 'hd', onChange: x => { o.size = x; save(); } });
+      const sizeOf = () => (o.size === 'max' ? 'max' : String(sizeSide(o.size)));
+      const size = ui.segmented({ options: [{ value: '720', label: 'Up to 720p', title: 'Small files' }, { value: '1080', label: 'Up to 1080p', title: 'Plays smoothly – right for most edits' }, { value: '2160', label: 'Up to 4K', title: 'Bigger downloads' }, { value: 'max', label: 'Largest there is', title: 'Whatever the site’s biggest copy is' }], value: sizeOf(), onChange: x => { o.size = x; save(); } });
       const picks = () => found.flatMap(r => r.clips.filter(c => ticked.has(r.term + '\n' + c.key)).map(clip => ({ term: r.term, clip })));
       const warnLine = h('div');
       const dl = ui.actionButton('Download the ticked clips', async () => {
@@ -592,7 +645,7 @@
       const downloadCard = h('div', { dataset: { bf: 'download' } }, ui.card(h('div.card-title', 'Download'),
         h('div.row', folderLine, ui.button('Choose folder…', { small: true, kind: 'ghost', icon: 'folder', onClick: () => { try { const r = US.app.pickFiles({ folder: true, title: 'Where should the B-roll go?', start: folder() }); if (r[0]) { folderSet(US.normPath(r[0])); showFolder(); } } catch (e) { ui.showError(e); } } }),
           ui.button('Open', { small: true, kind: 'ghost', onClick: () => US.app.reveal(US.fsx.ensureDir(folder())) })),
-        toBin, ui.field('Size', size), warnLine, dl, doneLine,
+        toBin, ui.field('Size to download', size, 'Where a site has several copies of a clip, the best one up to this size is taken.'), warnLine, dl, doneLine,
         h('div.field-hint', `Each request gets its own folder, with “${LIST_NAME}” – every clip’s page, author and licence. Clips already there are skipped.`)));
 
       const go = ui.actionButton('Find B-roll', async () => {
@@ -603,7 +656,7 @@
             job.set({ who: 'ai', msg: 'Wording the searches' });
             try { phrases = await improve(requests); } catch (e) { if (e && e.code === 'CANCELLED') throw e; US.log && US.log('warn', 'B-roll finder: the AI couldn’t word the searches – your own words are used', (e && (e.title || e.message)) || '', 'brollfinder'); }
           }
-          return search(job, { requests, aim: o.aim, freeOnly: o.freeOnly, sources: o.sources, maxLen: o.maxLen, phrases });
+          return search(job, { requests, aim: o.aim, freeOnly: o.freeOnly, sources: o.sources, maxLen: o.maxLen, shape: o.shape, minSide: o.minSide, phrases });
         });
         if (r === undefined) return;
         found = r.results; ticked = new Set(); doneLine.textContent = '';
@@ -617,13 +670,13 @@
       v.body.append(
         ui.card(h('div.card-title', 'What are you looking for?'), query, countLine,
           h('div.row.bff-aimrow', h('span', 'Aim for'), aim, h('span', 'clips for each request')),
-          freeOnly, aiBox, where, go,
+          shapeBox, freeOnly, aiBox, where, go,
           h('div.field-hint', 'Looking only shows you what’s there – nothing is downloaded.')),
         resultsBox, downloadCard);
       count(); drawWhere(); drawAI(); showFolder(); drawDownload();
       return {
         el: v.el,
-        onShow(a) { o = opts(); aim.value = o.aim; freeOnly.set(o.freeOnly); toBin.set(!!o.toBin); size.set(o.size === 'max' ? 'max' : 'hd'); drawWhere(); drawAI(); showFolder(); if (a && a.query) fill(a.query); },
+        onShow(a) { o = opts(); aim.value = o.aim; freeOnly.set(o.freeOnly); toBin.set(!!o.toBin); size.set(sizeOf()); shape.set(SHAPES[o.shape] ? o.shape : 'any'); minSide.set(String(o.minSide || 0)); drawWhere(); drawAI(); showFolder(); if (a && a.query) fill(a.query); },
         onHide() { stopOthers(null); }
       };
     }
@@ -647,5 +700,5 @@
     run: async p => { US.tools.open('brollfinder', { query: (p && p.query) || '' }); return { summary: p && p.query ? `B-roll finder is open with “${p.query}” – press Find B-roll. Nothing is downloaded until you tick clips and press Download.` : 'B-roll finder is open – type what you need there.' }; }
   });
 
-  US.brollFinder = { parseRequests, safeName, fileName, LICENCES, licenceFrom, pickFiles, parsePexels, parsePixabay, parseCommons, parseYouTube, archiveClip, nasaClip, SOURCES, sourceBlocked, pick, search, improve, run, noteSource, LIST_NAME, defaultFolder, binPath, BIN_ROOT, matchAsk, net, DEFAULTS };
+  US.brollFinder = { SHAPES, ratioName, shapeFits, sizeFits, sizeSide, parseRequests, safeName, fileName, LICENCES, licenceFrom, pickFiles, parsePexels, parsePixabay, parseCommons, parseYouTube, archiveClip, nasaClip, SOURCES, sourceBlocked, pick, search, improve, run, noteSource, LIST_NAME, defaultFolder, binPath, BIN_ROOT, matchAsk, net, DEFAULTS };
 })();
