@@ -1,0 +1,8 @@
+/* JMG Ultra Studio – Auto Sync (js/tools/48-autosync.js): the small picture of the new sequence, one row per camera or recorder */
+.as-lanes { display: flex; flex-direction: column; gap: 3px; margin: 10px 0; }
+.as-lane { display: flex; align-items: center; gap: 8px; }
+.as-lane-name { flex: 0 0 96px; font-size: 10.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-lane-strip { position: relative; flex: 1; height: 14px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.as-clip { position: absolute; top: 1px; bottom: 1px; border-radius: 2px; opacity: .9; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .35); }
+.as-clip:hover { opacity: 1; }
+.as-clip.loose { opacity: .45; background-image: repeating-linear-gradient(45deg, transparent 0 3px, rgba(0, 0, 0, .35) 3px 6px); }
