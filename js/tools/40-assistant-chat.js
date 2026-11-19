@@ -875,7 +875,7 @@
       if (j.kind === 'seq') can.push({ entry: j, text: `Delete the sequence “${j.name}” it made` });
       else if (j.kind === 'bin') can.push({ entry: j, text: `Remove the bin “${j.path}” it made, if nothing is left in it` });
       else if (j.kind === 'markers') can.push({ entry: j, text: `Take ${US.plural((j.guids || []).length, 'marker')} off “${j.name}”` });
-      else if (j.kind === 'items') can.push({ entry: j, text: 'Put labels, names and bins back as they were' });
+      else if (j.kind === 'items') can.push({ entry: j, text: (j.undo || []).every(u => u.op === 'marker') ? `Take the ${US.plural((j.undo || []).length, 'clip marker')} it added off again` : 'Put labels, names and bins back as they were' });
       else if (j.kind === 'placed') can.push({ entry: j, text: `Take the ${US.plural((j.list || []).length, 'clip')} it added out again` });
       else if (j.kind === 'inplace') cant.push({ entry: j, text: `“${j.name}” was changed itself, so it can’t be put back from here${j.backupName ? ` – a copy from before the change is kept as “${j.backupName}”` : ''}. Edit › Undo in the editor also steps back through it.` });
       else if (j.kind === 'cant') cant.push({ entry: j, text: j.text });

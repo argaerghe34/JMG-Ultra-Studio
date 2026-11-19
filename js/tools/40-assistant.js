@@ -154,6 +154,7 @@
       modelSel.setOptions(cs.map(c => ({ value: c.id, label: c.id === 'auto' ? `AI: automatic${aiOn() ? ` (${US.ai.label()})` : ''}` : `AI: ${c.label}` })), cs.some(c => c.id === want) ? want : 'auto');
       modelSel.title = 'Which AI this chat uses. Text is sent; small stills only when you’ve allowed them for the project. Never video or sound unless you chose that for the project.';
       modelSel.disabled = !aiOn();
+      drawSettings();
     }
     // what one request may spend before it stops to ask (0 = no limit: the cost is still shown as it goes)
     const LIMITS = [0.5, 2, 5, 10, 0];
@@ -169,11 +170,20 @@
     const undoAllBtn = ui.button('Undo all', { small: true, kind: 'ghost', title: 'Take back everything the AI did in this chat: the sequences, bins and markers it made, and the labels, names and bins it changed', onClick: () => doUndo(cur, null) });
     undoAllBtn.classList.add('chat-undo-all', 'hidden');
     const RISK_SPEND = [0.5, 1, 2, 5];
+    // how often it asks, which AI and the spending limit fold away under one line that says what is chosen, so the
+    // pinned top stays two thin rows however narrow the panel is
+    const optsRow = h('div.row.chat-opts', modeSel, modelSel, limitSel);
     const settingsSec = ui.section(`${PERSONA ? 'Chat' : 'Ask'} settings`, [
+      optsRow,
       ui.toggle({ label: 'Always proceed in new chats', hint: 'Steps run without a card to approve first. Anything risky – changing a sequence itself, deleting, a lot at once, long or heavy work, something Undo can’t take back, a costly step, footage leaving this computer – still stops and warns you.', value: !!set('always', false), onChange: x => { put('always', !!x); if (cur && !cur.items.length) { cur.always = !!x; drawTabs(); } } }),
       ui.field('Warn before a step expected to cost more than', ui.select({ options: RISK_SPEND.map(x => ({ value: String(x), label: `$${x % 1 ? x.toFixed(2) : x}` })), value: String(RISK_SPEND.includes(+set('riskSpend', 1)) ? +set('riskSpend', 1) : 1), onChange: x => put('riskSpend', +x) }))
     ], { open: false });
     settingsSec.classList.add('chat-settings');
+    const settingsHint = h('span.section-hint.chat-settings-now');
+    settingsSec.querySelector('.section-head').appendChild(settingsHint);
+    const picked = sel => { const op = sel.options && sel.options[sel.selectedIndex]; return op ? op.textContent : ''; };
+    function drawSettings() { settingsHint.textContent = [picked(modeSel), picked(modelSel), picked(limitSel)].filter(Boolean).join(' · '); settingsHint.title = 'How often it asks before a step · which AI this chat uses · when one request stops to ask about its cost. Click to change them.'; }
+    for (const sel of [modeSel, modelSel, limitSel]) sel.addEventListener('change', () => drawSettings());
 
     const DOT = { thinking: 'The AI is thinking', working: 'Working in the editor', waiting: 'Waiting its turn', asking: 'Waiting for you' };
     function drawTabs() {
@@ -197,7 +207,7 @@
       const plan = cur ? C.undoPlan(cur) : { can: [], cant: [] };
       undoAllBtn.classList.toggle('hidden', !plan.can.length && !plan.cant.length);
       undoAllBtn.disabled = !!mine;
-      drawCost(); drawWorking(); drawAnswers();
+      drawCost(); drawWorking(); drawAnswers(); drawSettings();
     }
     /** Chats kept with the project: the open ones and, under Earlier, the ones closed (the newest 30). */
     // in the project's own store (not projectSettings: that falls back to the last project's value, and chats belong to one project)
@@ -442,7 +452,7 @@
       else if (it.k === 'step') { it.el = bubble(c, 'bot agent-tool', h('span.agent-step', US.say(it.text)), it.result ? h('span.agent-res', ' → ' + it.result) : null); }
       else if (it.k === 'result') { const el = it.on && it.on.el; if (el) el.appendChild(h('span.agent-res', ' → ' + it.text)); }
       else if (it.k === 'warn') bubble(c, 'bot agent-warn', it.text);
-      else if (it.k === 'paused') bubble(c, 'bot wide agent-warn chat-paused', h('div', h('b', 'Plan paused. '), it.text), h('div.row', behind(c, it), undoable(c, it.turn) ? ui.button('Undo what this request did so far', { small: true, kind: 'ghost', onClick: () => doUndo(c, it.turn) }) : null));
+      else if (it.k === 'paused') bubble(c, 'bot wide agent-warn chat-paused', h('div', h('b', 'Plan paused. '), it.text), h('div.row.chat-end-tools', behind(c, it), undoable(c, it.turn) ? ui.button('Undo what this request did so far', { small: true, kind: 'ghost', onClick: () => doUndo(c, it.turn) }) : null));
       else if (it.k === 'undone') {
         const list = (label, xs, cls) => (xs && xs.length ? h('div', h('div.field-label', label), h('ul.chat-list' + (cls || ''), xs.map(x => h('li', US.say(x))))) : null);
         bubble(c, 'bot wide chat-undone', h('div', h('b', it.undone && it.undone.length ? 'Undone.' : 'Nothing was taken back.')), list('Taken back', it.undone, '.ok'), list('Kept', it.kept), list('Couldn’t be undone from here', it.cant, '.no'), list('Didn’t work', it.failed, '.no'));
@@ -581,7 +591,7 @@
     }
 
     /* ----- putting it together: the bar of chats and the options stay at the top; only the messages scroll ----- */
-    const head = h('div.chat-head', h('div.chat-top', tabs, counter, undoAllBtn), h('div.row.chat-opts', modeSel, modelSel, limitSel, alwaysChip), settingsSec);
+    const head = h('div.chat-head', h('div.chat-top', tabs, counter, alwaysChip, undoAllBtn), settingsSec);
     const foot = h('div.chat-foot', working, answers, micRow, h('div.chat-bar', input, D && D.supported() ? micBtn : null, sendBtn, stopBtn), costLine);
     function load() {
       for (const c of chats) c.logEl.remove();
@@ -600,7 +610,7 @@
 
   US.tools.register({
     id: 'assistant', name: 'Assistant', short: 'Ask', icon: 'ask', order: 40,
-    hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips', 'listSequences', 'listBins', 'deleteSequence', 'removeSequenceMarkers', 'askStamp', 'askRemoveBins', 'dictateTranscribe'],
+    hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips', 'listSequences', 'listBins', 'deleteSequence', 'removeSequenceMarkers', 'removeClipMarkers', 'askStamp', 'askRemoveBins', 'dictateTranscribe'],
     blurb: 'Say what you want in plain English – it reads your project, asks when it isn’t sure, shows what it will do and does it.',
     create() {
       const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'One chat for everything: run a tool, change a sequence or the project, ask about your interviews or how to do something. It says what it understood and what it will do, and asks before it changes anything.',
