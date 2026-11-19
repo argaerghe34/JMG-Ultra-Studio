@@ -1,0 +1,29 @@
+/* JMG Ultra Studio – B-roll finder (js/tools/47-brollfinder.js): the options as a grid of small cards */
+.bff-aimrow { align-items: center; gap: 8px; margin: 8px 0; }
+input.bff-aim { width: 64px; flex: none; text-align: center; }
+.bff-sources { display: flex; flex-direction: column; gap: 10px; }
+.bff-source { display: flex; flex-direction: column; gap: 5px; }
+.bff-key { margin-left: 44px; align-items: center; gap: 6px; }
+.bff-results { display: flex; flex-direction: column; gap: var(--gap); }
+.bff-results:empty { display: none; }
+.bff-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 8px; }
+.bff-card { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface-2); min-width: 0; }
+.bff-card.off { opacity: .55; }
+.bff-frame { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 4px; overflow: hidden; }
+.bff-frame video, .bff-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.bff-thumb { position: absolute; inset: 0; padding: 0; border: 0; background: none; cursor: pointer; color: #fff; }
+.bff-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; padding: 8px; border-radius: 50%; background: rgba(0, 0, 0, .55); }
+.bff-thumb:hover .bff-play { background: var(--accent); }
+.bff-len { position: absolute; right: 4px; bottom: 4px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 0, 0, .7); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.bff-wait { position: absolute; inset: auto 0 0 0; padding: 3px 6px; background: rgba(0, 0, 0, .7); color: #fff; font-size: 10.5px; }
+.bff-line { display: flex; align-items: flex-start; gap: 6px; cursor: pointer; }
+.bff-line input { margin-top: 2px; flex: none; }
+.bff-title { font-size: 12px; font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.bff-meta { font-size: 10.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bff-licence { font-size: 10.5px; line-height: 1.35; padding: 3px 6px; border-radius: 4px; border-left: 3px solid var(--border-2); background: var(--surface-3); color: var(--text-2); }
+.bff-licence.free { border-left-color: var(--ok); }
+.bff-licence.careful { border-left-color: var(--warn); }
+.bff-licence.ask { border-left-color: var(--err); color: var(--text); }
+.bff-foot { align-items: center; justify-content: space-between; font-size: 10.5px; margin-top: auto; }
+.bff-got { display: inline-flex; align-items: center; gap: 3px; color: var(--ok); }
+.bff-credit { margin-top: -4px; }
