@@ -2,6 +2,8 @@
 // mvfxApply lays a title's layers on tracks named "mVFX 1, 2, 3…" above the edit: each text layer is Premiere's own
 // Basic Title template (Essential Graphics) with the words, font, size and colour set in its Source Text, the rules and
 // bars are PNG stills the panel painted, and the in/out animation is keyframes on Opacity and Motion › Position.
+// Motion › Position is a fraction of the frame in Premiere's scripting (0.5, 0.5 = the middle), never pixels: the panel
+// sends pixels, and they are divided by the sequence's size here (sending pixels put every title far outside the picture).
 // mvfxFreeze holds the frame at the playhead (exported as PNG, placed above). mvfxMove keyframes a camera move on
 // clips; mvfxLook puts a Lumetri Color effect with a look's settings on them. mvfxTemplates is Resolve's (nothing here).
 (function (U) {
@@ -13,6 +15,15 @@
     function property(c, re) { if (!c) return null; try { for (var p = 0; p < c.properties.numItems; p++) if (re.test(String(c.properties[p].displayName))) return c.properties[p]; } catch (e) { } return null; }
     function mediaTime(ti, seqSec) { var speed = 1; try { speed = Math.abs(ti.getSpeed()) || 1; } catch (e) { } var t = new Time(); t.seconds = ti.inPoint.seconds + (seqSec - ti.start.seconds) * speed; return t; }
     function timeObj(s) { var t = new Time(); t.seconds = s; return t; }
+    /** A clip's end moved to `sec` – with a Time, and with plain seconds if this Premiere wants those (2027 does for markers). */
+    function setEnd(ti, sec, log, what) {
+        try { ti.end = timeObj(sec); } catch (e) { log.push((what || 'end') + ': ' + e); }
+        var got = null; try { got = ti.end.seconds; } catch (e1) { }
+        if (got != null && Math.abs(got - sec) < 0.02) return true;
+        try { ti.end = sec; } catch (e2) { log.push((what || 'end') + ' (seconds): ' + e2); }
+        try { got = ti.end.seconds; } catch (e3) { }
+        return got != null && Math.abs(got - sec) < 0.02;
+    }
     function clipAt(seq, kind, track, start) {
         var tr = (kind === 'audio' ? seq.audioTracks : seq.videoTracks)[track], half = 0.5 / U.seqFps(seq);
         if (!tr) return null;
@@ -96,13 +107,18 @@
         return out;
     }
     function hexRgb(hex) { var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || '')); return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [255, 255, 255]; }
-    /** Keyframes: an opacity fade in/out, a move in (rise/slide), a burst (0 → full → 0), a drift, a flicker. */
+    /** Keyframes: an opacity fade in/out, a move in (rise/slide), a burst (0 → full → 0), a drift, a flicker.
+        anim: {type, inSec, outSec, dx, dy (pixels), delay (s before it comes in), peak (0–1, its fullest strength)} */
     function animate(seq, ti, anim, pos, log) {
         if (!anim || anim.type === 'none') return;
         var fps = U.seqFps(seq), s = ti.start.seconds, e = ti.end.seconds, len = e - s, f = 1 / fps;
+        var W = Number(seq.frameSizeHorizontal) || 1920, H = Number(seq.frameSizeVertical) || 1080;
+        var ndx = Number(anim.dx || 0) / W, ndy = Number(anim.dy || 0) / H;   // pixels -> fractions of the frame
+        var wait = Math.max(0, Math.min(Number(anim.delay) || 0, len / 2));   // a layer that comes in a little later
         var op = property(component(ti, /^Opacity$/), /^Opacity$/), full = 100;
         try { if (op && op.getValue() <= 1) full = 1; } catch (e0) { }
-        function okey(t, val) { var k = mediaTime(ti, t); op.addKey(k); op.setValueAtKey(k, val * full / 100, true); }
+        var peak = anim.peak != null ? Math.max(0, Math.min(1, Number(anim.peak))) : 1;   // how strong it is at its fullest (an overlay's Strength)
+        function okey(t, val) { var k = mediaTime(ti, t); op.addKey(k); op.setValueAtKey(k, val * peak * full / 100, true); }
         if (!op) { log.push('no Opacity'); return; }
         try {
             op.setTimeVarying(true);
@@ -110,7 +126,8 @@
             else if (anim.type === 'flicker') { var n = Math.min(80, Math.floor(len * fps / 2)), seed = 7; for (var i = 0; i <= n; i++) { seed = (seed * 1103515245 + 12345) % 2147483648; okey(s + i * 2 * f, 40 + (seed / 2147483648) * 60); } }
             else {
                 var inS = Math.min(anim.inSec || 0.5, len / 2.5), outS = Math.min(anim.outSec || 0.5, len / 2.5);
-                okey(s, 0); okey(s + inS, 100); if (outS > 0) { okey(e - outS, 100); okey(e - f, 0); }
+                okey(s, 0); if (wait > f) okey(s + wait, 0);
+                okey(s + wait + inS, 100); if (outS > 0) { okey(e - outS, 100); okey(e - f, 0); }
             }
         } catch (e1) { log.push('opacity keys: ' + e1); }
         var mv = (anim.dx || anim.dy) && (anim.type === 'rise' || anim.type === 'slide' || anim.type === 'drift');
@@ -121,8 +138,8 @@
             posP.setTimeVarying(true);
             var x0 = pos ? pos[0] : posP.getValue()[0], y0 = pos ? pos[1] : posP.getValue()[1];
             function pkey(t, x, y) { var k = mediaTime(ti, t); posP.addKey(k); posP.setValueAtKey(k, [x, y], true); try { posP.setInterpolationTypeAtKey(k, 5, true); } catch (e3) { } }
-            if (anim.type === 'drift') { var m = Math.max(2, Math.round(len / 1.5)), sd = 3; for (var j = 0; j <= m; j++) { sd = (sd * 1103515245 + 12345) % 2147483648; var rx = sd / 2147483648 - 0.5; sd = (sd * 1103515245 + 12345) % 2147483648; var ry = sd / 2147483648 - 0.5; pkey(s + (len * j) / m, x0 + (j ? rx * 2 * anim.dx : 0), y0 + (j ? ry * 2 * anim.dy : 0)); } }
-            else { pkey(s, x0 + (anim.dx || 0), y0 + (anim.dy || 0)); pkey(s + Math.min(anim.inSec || 0.5, len / 2.5), x0, y0); }
+            if (anim.type === 'drift') { var m = Math.max(2, Math.round(len / 1.5)), sd = 3; for (var j = 0; j <= m; j++) { sd = (sd * 1103515245 + 12345) % 2147483648; var rx = sd / 2147483648 - 0.5; sd = (sd * 1103515245 + 12345) % 2147483648; var ry = sd / 2147483648 - 0.5; pkey(s + (len * j) / m, x0 + (j ? rx * 2 * ndx : 0), y0 + (j ? ry * 2 * ndy : 0)); } }
+            else { pkey(s, x0 + ndx, y0 + ndy); if (wait > f) pkey(s + wait, x0 + ndx, y0 + ndy); pkey(s + wait + Math.min(anim.inSec || 0.5, len / 2.5), x0, y0); }
         } catch (e2) { log.push('position keys: ' + e2); }
     }
     /** A still (PNG) laid for `seconds` at `start` on track t (stills are placed up to their own length, then stretched). */
@@ -136,35 +153,44 @@
         var got = null, best = 1e9;
         for (var k = 0; k < tr.clips.numItems; k++) { var d = Math.abs(tr.clips[k].start.seconds - start); if (d < best) { best = d; got = tr.clips[k]; } }
         if (!got || best > 0.05) throw U.err('HOST_SCRIPT', 'Still not placed on V' + (t + 1), 'Premiere didn’t place the picture.', 'Check the track isn’t locked, then try again.');
-        if (seconds > want + 0.02) { try { got.end = timeObj(start + seconds); } catch (e2) { log.push('stretch: ' + e2); } }
+        if (seconds > want + 0.02) setEnd(got, start + seconds, log, 'stretch');
         return got;
     }
+    /** Strength and blend mode of a picture layer (Opacity › Opacity and Blend Mode). */
+    function dress(ti, L, log) {
+        var oc = component(ti, /^Opacity$/);
+        if (L.alpha != null && L.alpha < 1) { var op = property(oc, /^Opacity$/); if (op) { try { op.setValue(Number(L.alpha) * (op.getValue() <= 1 ? 1 : 100), true); } catch (e0) { log.push('opacity: ' + e0); } } }
+        if (L.blend && L.blend !== 'normal') { var bm = property(oc, /^Blend Mode$/); if (bm) { try { bm.setValue({ overlay: 17, screen: 10, multiply: 3, add: 11 }[L.blend] || 0, true); } catch (e1) { log.push('blend: ' + e1); } } else log.push('no Blend Mode'); }
+    }
     /**
-     * Lay a preset's layers. a: {seqId, start, seconds, name, layers:[{kind:'still', itemId, anim, name, blend?, alpha?} |
-     * {kind:'text', text, font, size (px), colour, bold, x, y (px, the text's centre), anim, name}]}
+     * Lay a preset's layers, each on the lowest free "mVFX n" track above the one before (so a second title over the
+     * same moment never lands on the first). a: {seqId, start, seconds, name, layers:[{kind:'still', itemId, anim, name,
+     * blend?, alpha?} | {kind:'text', text, font, size (px), colour, bold, x, y (px, the text's centre), anim, name}]}
+     * anim: {type, inSec, outSec, dx, dy (px), delay (s)}
      * -> {placed, track (the first), trackName, tracks, start, end, text:[{words, font, size, colour, keys}], log}
      */
     fn.mvfxApply = function (a) {
         var seq = U.needSeq(a.seqId), log = [], out = { placed: 0, tracks: [], text: [], start: a.start, end: a.start + a.seconds, log: log };
-        var W = seq.frameSizeHorizontal, H = seq.frameSizeVertical, mogrt = null;
+        var W = Number(seq.frameSizeHorizontal) || 1920, H = Number(seq.frameSizeVertical) || 1080, mogrt = null, from = 1;
         for (var i = 0; i < a.layers.length; i++) {
-            var L = a.layers[i], t = ourTrack(seq, i + 1, log), ti = null;
+            var L = a.layers[i], free = freeOurTrack(seq, a.start, a.seconds, log, from), t = free.t, ti = null;
+            from = free.n + 1;
             if (L.kind === 'still') {
                 ti = placeStill(seq, t, U.needItem(L.itemId), a.start, a.seconds, log);
-                if (L.alpha != null && L.alpha < 1) { var op = property(component(ti, /^Opacity$/), /^Opacity$/); if (op) { try { op.setValue(Number(L.alpha) * (op.getValue() <= 1 ? 1 : 100), true); } catch (e0) { } } }
-                if (L.blend && L.blend !== 'normal') { var bm = property(component(ti, /^Opacity$/), /^Blend Mode$/); if (bm) { try { bm.setValue({ overlay: 17, screen: 10, multiply: 3, add: 11 }[L.blend] || 0, true); } catch (e1) { log.push('blend: ' + e1); } } else log.push('no Blend Mode'); }
+                dress(ti, L, log);
                 animate(seq, ti, L.anim, null, log);
             } else {
                 if (!mogrt) { mogrt = basicTitle(); if (!mogrt) throw U.err('NOT_FOUND', 'Basic Title.mogrt not found under ' + app.path, 'Premiere’s Basic Title template isn’t installed.', 'Reinstall Premiere’s Essential Graphics templates, or make the text with the Type tool.'); }
                 try { ti = seq.importMGT(mogrt, String(Math.round(a.start * U.TICKS)), t, 0); } catch (e2) { log.push('importMGT: ' + e2); }
                 if (!ti) throw U.err('HOST_SCRIPT', 'importMGT refused on V' + (t + 1) + ': ' + log.join('; '), 'Premiere didn’t add the text layer.', 'Check the track isn’t locked, then try again.');
-                try { ti.end = timeObj(a.start + a.seconds); } catch (e3) { log.push('end: ' + e3); }
+                setEnd(ti, a.start + a.seconds, log, 'end');
                 var r = setText(ti, L, log);
                 out.text.push(r);
-                // the words sit centred on the frame: move the whole graphic so they sit where the preset wants them
+                // the words sit centred on the frame: move the whole graphic so they sit where the preset wants them.
+                // Position is a fraction of the frame (0.5, 0.5 = the middle) – pixels would throw the words out of the picture.
                 var m = component(ti, /^Motion$/), pos = property(m, /^Position$/), sc = property(m, /^Scale$/);
-                var px = [Number(L.x), Number(L.y)];
-                if (pos) { try { pos.setValue(px, true); } catch (e4) { log.push('position: ' + e4); } }
+                var px = [Number(L.x) / W, Number(L.y) / H];
+                if (pos) { try { pos.setValue(px, true); } catch (e4) { log.push('position: ' + e4); } } else log.push('no Position');
                 if (!r.size && sc && L.size) { var base = r.baseSize || 100; try { sc.setValue(100 * Number(L.size) / base, true); } catch (e5) { log.push('scale: ' + e5); } }
                 animate(seq, ti, L.anim, px, log);
             }
@@ -173,22 +199,24 @@
             if (i === 0) { out.track = t; try { out.trackName = String(seq.videoTracks[t].name); } catch (e7) { out.trackName = ''; } }
         }
         if (!out.placed) throw U.err('BAD_INPUT', 'No layers', 'There was nothing to add.', 'Type some words first.');
-        if (W && H && out.text.length && !out.text[0].colour) out.note = 'Premiere kept the template’s colour – change it in Essential Graphics';
+        if (out.text.length && !out.text[0].words) out.note = 'Premiere didn’t take the words – type them in the Properties panel';
+        else if (out.text.length && !out.text[0].colour) out.note = 'Premiere kept the template’s colour – change it in the Properties panel';
         return out;
     };
 
     /** The lowest "mVFX n" track with nothing between start and start + seconds (a new one on top when all are busy). */
-    function freeOurTrack(seq, start, seconds, log) {
-        for (var n = 1; n <= 12; n++) {
+    function freeOurTrack(seq, start, seconds, log, from) {
+        for (var n = from || 1; n <= 12; n++) {
             var t = ourTrack(seq, n, log), tr = seq.videoTracks[t], busy = false;
             for (var k = 0; k < tr.clips.numItems && !busy; k++) { var c = tr.clips[k]; if (c.start.seconds < start + seconds - 0.001 && c.end.seconds > start + 0.001) busy = true; }
-            if (!busy) return t;
+            if (!busy) return { t: t, n: n };
         }
         throw U.err('BAD_INPUT', 'Twelve mVFX tracks are busy at ' + start, 'There are already twelve titles on top of each other here.', 'Move the playhead, or remove some.');
     }
     /**
      * An animated title: the PNG frames the panel drew, imported as one clip (numbered stills at the sequence's frame
-     * rate) and laid on a free mVFX track. a: {seqId, first (the first frame's path), fps, start, seconds, name, binPath}
+     * rate) and laid on a free mVFX track. a: {seqId, first (the first frame's path), fps, start, seconds, name, binPath,
+     * blend?, alpha?, anim? (a moving overlay: its blend mode, strength and fade)}
      * -> {itemId, track, trackName, start, end, existing, log}
      */
     fn.mvfxClip = function (a) {
@@ -199,8 +227,10 @@
         // numbered stills come in at Preferences › Media › Indeterminate Media Timebase: make them the sequence's rate
         try { if (a.fps) it.setOverrideFrameRate(Number(a.fps)); } catch (e) { log.push('frame rate: ' + e); }
         if (a.name && !items[0].existing) { try { it.name = String(a.name); } catch (e1) { } }
-        var t = freeOurTrack(seq, a.start, a.seconds, log);
+        var t = freeOurTrack(seq, a.start, a.seconds, log).t;
         var ti = placeStill(seq, t, it, a.start, a.seconds, log);
+        dress(ti, a, log);
+        if (a.anim) animate(seq, ti, a.anim, null, log);
         var tn = ''; try { tn = String(seq.videoTracks[t].name); } catch (e2) { }
         return { itemId: items[0].id, track: t, trackName: tn, start: ti.start.seconds, end: ti.end.seconds, existing: !!items[0].existing, log: log };
     };
@@ -211,7 +241,7 @@
         var file = fn.exportFrame({ seqId: a.seqId, seconds: a.at, outBase: a.outBase });
         var items = fn.importFiles({ paths: [file], binPath: a.binPath || 'JMG Ultra Studio/mVFX' });
         if (!items.length) throw U.err('HOST_SCRIPT', 'Frame not imported: ' + file, 'Premiere didn’t import the frame.', 'Try again.');
-        var it = U.needItem(items[0].id), t = ourTrack(seq, 1, log);
+        var it = U.needItem(items[0].id), t = freeOurTrack(seq, a.at, a.seconds, log).t;
         var ti = placeStill(seq, t, it, a.at, a.seconds, log);
         try { ti.name = 'Freeze ' + U.framesToTC(U.secToFrames(a.at, seq), seq); } catch (e) { }
         return { itemId: items[0].id, track: t, start: ti.start.seconds, end: ti.end.seconds, path: file, log: log };
@@ -222,7 +252,7 @@
      * the clip's start), scale, x, y (fractions of the frame)}], ease} -> {done, skipped:[{start, why}], log}
      */
     fn.mvfxMove = function (a) {
-        var seq = U.needSeq(a.seqId), out = { done: 0, skipped: [], log: [] }, W = seq.frameSizeHorizontal, H = seq.frameSizeVertical;
+        var seq = U.needSeq(a.seqId), out = { done: 0, skipped: [], log: [] };
         for (var i = 0; i < a.targets.length; i++) {
             var g = a.targets[i], ti = clipAt(seq, g.kind || 'video', g.track, g.start);
             if (!ti) { out.skipped.push({ start: g.start, why: 'not on the timeline any more' }); continue; }
@@ -236,7 +266,7 @@
                 for (var k = 0; k < a.keys.length; k++) {
                     var key = a.keys[k], t = mediaTime(ti, ti.start.seconds + key.at);
                     sc.addKey(t); sc.setValueAtKey(t, Number(key.scale), true);
-                    pos.addKey(t); pos.setValueAtKey(t, [bx + Number(key.x || 0) * W, by + Number(key.y || 0) * H], true);
+                    pos.addKey(t); pos.setValueAtKey(t, [bx + Number(key.x || 0), by + Number(key.y || 0)], true);   // Position is already a fraction of the frame
                     if (a.ease) { try { sc.setInterpolationTypeAtKey(t, 5, true); pos.setInterpolationTypeAtKey(t, 5, true); } catch (e1) { } }
                 }
                 out.done++;
@@ -280,7 +310,41 @@
         return out;
     };
 
+    function samePath(a, b) { return String(a || '').replace(/\\/g, '/').toLowerCase() === String(b || '').replace(/\\/g, '/').toLowerCase(); }
+    /**
+     * A picture dragged from the mVFX tab and dropped on the timeline (Premiere placed the file itself, where it was
+     * dropped): found by its file, then given its length (when nothing follows it on the track), blend mode, strength,
+     * fade and name, and its project item moved into our bin. a: {path, seconds?, blend?, alpha?, anim?, name?, binPath?}
+     * -> {found: false} | {found: true, seqId, track, trackName, start, end, log}
+     */
+    fn.mvfxDropped = function (a) {
+        var seq = app.project.activeSequence, log = [];
+        if (!seq) return { found: false };
+        var hit = null, track = -1, t, k, c, p;
+        for (t = 0; t < seq.videoTracks.numTracks && !hit; t++) {
+            for (k = 0; k < seq.videoTracks[t].clips.numItems; k++) {
+                c = seq.videoTracks[t].clips[k]; p = '';
+                try { p = c.projectItem ? c.projectItem.getMediaPath() : ''; } catch (e) { }
+                if (samePath(p, a.path)) { hit = c; track = t; break; }
+            }
+        }
+        if (!hit) return { found: false };
+        var start = hit.start.seconds;
+        if (a.seconds) {
+            var want = start + Number(a.seconds), next = 1e12, tr = seq.videoTracks[track];
+            for (k = 0; k < tr.clips.numItems; k++) { var s2 = tr.clips[k].start.seconds; if (s2 > start + 0.001 && s2 < next) next = s2; }
+            if (want <= next + 0.001) setEnd(hit, want, log, 'length');
+            else log.push('kept its length: another clip follows on the track');
+        }
+        dress(hit, a, log);
+        if (a.anim) animate(seq, hit, a.anim, null, log);
+        if (a.name) { try { hit.name = String(a.name); } catch (e2) { } }
+        try { hit.projectItem.moveBin(U.ensureBin(a.binPath || 'JMG Ultra Studio/mVFX')); } catch (e3) { log.push('bin: ' + e3); }
+        var tn = ''; try { tn = String(seq.videoTracks[track].name); } catch (e4) { }
+        return { found: true, seqId: seq.sequenceID, track: track, trackName: tn, start: start, end: hit.end.seconds, log: log };
+    };
+
     /** Resolve's Fusion templates – nothing to install for Premiere. a: {write:[{name, kind, body}]} -> {dir, written, restart} */
-    U.mvfxText = { setText: setText, textProperties: textProperties };
+    U.mvfxText = { setText: setText, textProperties: textProperties, animate: animate };
     fn.mvfxTemplates = function (a) { return { dir: '', written: [], restart: false, note: 'Premiere needs no templates: titles are made with Basic Title.' }; };
 })(UStudio);

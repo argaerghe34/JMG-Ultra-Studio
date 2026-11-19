@@ -100,3 +100,15 @@ test('mvfxClip: the drawn frames come in as one image-sequence clip in the mVFX 
   assert.strictEqual(later.trackName, 'mVFX 1', 'free again after 7 s');
   await assert.rejects(() => S.run('mvfxClip', { seqId: S.seqId, first: path.join(dir, 'missing_0001.png'), frames: 10, fps: 25, start: 0, seconds: 1 }), /NOTHING_FOUND|aren’t there/);
 });
+
+test('mvfxDropped: a picture dragged from the tab is found on the open timeline by its file; nothing there says so; a moving overlay’s clip takes blend and strength without failing', async () => {
+  const S = withTimeline(), file = path.join(S.dir, 'vignette-dropped-abc.png'); fs.writeFileSync(file, 'x');
+  assert.strictEqual((await S.run('mvfxDropped', { path: file })).found, false);
+  const still = S.F.addMedia(file, { frames: 125 });
+  S.F.pool.AppendToTimeline([{ mediaPoolItem: still, startFrame: 0, endFrame: 124, trackIndex: 1, recordFrame: S.tl.GetStartFrame() + 300, mediaType: 1 }]);
+  const r = await S.run('mvfxDropped', { path: file.toUpperCase(), seconds: 5, blend: 'screen', name: 'Vignette' });
+  assert.ok(r.found && r.seqId === S.seqId && Math.abs(r.start - 12) < 0.05 && Array.isArray(r.log), JSON.stringify(r));
+  const dir = path.join(S.dir, 'grain-film-abc'); fs.mkdirSync(dir); for (let i = 1; i <= 50; i++) fs.writeFileSync(path.join(dir, `grain_${String(i).padStart(4, '0')}.png`), 'x');
+  const g = await S.run('mvfxClip', { seqId: S.seqId, first: path.join(dir, 'grain_0001.png'), frames: 50, fps: 25, start: 1, seconds: 2, name: 'Film grain', blend: 'overlay', alpha: 0.35, anim: { type: 'fade', peak: 0.35 } });
+  assert.strictEqual(g.trackName, 'mVFX 1'); assert.ok(Array.isArray(g.log));
+});
