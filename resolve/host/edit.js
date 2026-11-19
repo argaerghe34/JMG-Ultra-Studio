@@ -276,6 +276,8 @@ module.exports = (R, fns) => {
       out.video = tl.GetTrackCount('video'); out.audio = tl.GetTrackCount('audio');
       return out;
     },
+    /** Resolve gives add-ons no way to read an effect's settings: the clips come back with no effects listed, and say so. */
+    clipEffects(a) { return ((a && a.targets) || []).map(g => ({ start: g.start, track: g.track, kind: g.kind, found: false, name: '', effects: [], unsupported: 'Resolve doesn’t let add-ons read an effect’s settings.' })); },
     /** Resolve gives add-ons no way to select timeline clips: says so (0 selected). */
     selectClips() { return 0; },
 

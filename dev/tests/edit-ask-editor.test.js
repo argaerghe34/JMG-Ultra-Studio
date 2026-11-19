@@ -74,9 +74,22 @@ test('Premiere – move in time: later clips first when moving later, never befo
   const op = p(b, 'Opacity', 'Opacity');
   assert.ok(r.done === 1 && op.varying && op.keys.length === 2 && near(op.keys[0].t, 10) && near(op.keys[1].t, 11) && op.keys[1].v === 100, 'keyframes at the clip’s own media times: ' + JSON.stringify(op.keys));
   r = P.fn.editApply({ seqId: 's1', op: 'set', params: { effect: 'Lumetri Color', property: 'Exposure', value: 1 }, targets: [tg(4)] });
-  assert.ok(/has no “Lumetri Color” – add the effect first/.test(r.skipped[0].why));
+  assert.ok(/has no “Lumetri Color” \(it has: Motion, Opacity, Crop\) – add the effect first/.test(r.skipped[0].why), r.skipped[0].why);
   r = P.fn.editApply({ seqId: 's1', op: 'set', params: { effect: 'Crop', property: 'Feather', value: 1 }, targets: [tg(4)] });
   assert.ok(/“Crop” has no setting called “Feather”\. It has: Left, Top\./.test(r.skipped[0].why), r.skipped[0].why);
+  // an effect as Premiere 27 can hand it over: hidden settings (“_ …”) and a nameless “Error occurred” one are never offered;
+  // the effect is found by the name Effect Controls shows before its internal name, the last one added when it is there twice
+  const mkProp = (n, val) => { const q = { displayName: n, value: val, getValue: () => q.value, setValue: x => { q.value = x; }, isTimeVarying: () => false, setTimeVarying() {} }; return q; };
+  const fx = (name, match, props) => ({ displayName: name, matchName: match, properties: new Proxy({ numItems: props.length }, { get: (o, k) => (k in o ? o[k] : props[+k]) }) });
+  b._comps.push(fx('Blur A', 'AE.ADBE Gaussian Blur 2', [mkProp('Error occurred', 0), mkProp('Amount', 5), mkProp('_ Applied Version', 2)]), fx('Gaussian Blur', 'AE.Other', [mkProp('Blurriness', 0)]), fx('Gaussian Blur', 'AE.Other', [mkProp('Blurriness', 0)]));
+  b.components = new Proxy({ numItems: b._comps.length }, { get: (o, k) => (k in o ? o[k] : b._comps[+k]) });
+  r = P.fn.editApply({ seqId: 's1', op: 'set', params: { effect: 'Gaussian Blur', property: 'Blurriness', value: 30 }, targets: [tg(4)] });
+  assert.deepStrictEqual([r.done, b._comps[4].properties[0].value, b._comps[5].properties[0].value], [1, 0, 30], 'the one added last');
+  r = P.fn.editApply({ seqId: 's1', op: 'set', params: { effect: 'AE.ADBE Gaussian Blur 2', property: 'Nope', value: 1 }, targets: [tg(4)] });
+  assert.ok(/“AE\.ADBE Gaussian Blur 2” has no setting called “Nope”\. It has: Amount\.$/.test(r.skipped[0].why), 'found by its internal name too; only real settings listed: ' + r.skipped[0].why);
+  const read = JSON.parse(JSON.stringify(P.fn.clipEffects({ seqId: 's1', targets: [tg(4), tg(99)] })));
+  assert.deepStrictEqual([read[0].found, read[0].name, read[0].effects.map(e => e.name), read[0].effects[3], read[1].found], [true, 'B.mp4', ['Motion', 'Opacity', 'Crop', 'Blur A', 'Gaussian Blur', 'Gaussian Blur'], { name: 'Blur A', matchName: 'AE.ADBE Gaussian Blur 2', settings: [{ name: 'Amount', value: 5 }] }, false]);
+  assert.deepStrictEqual(read[0].effects[0].settings, [{ name: 'Position', value: [0.5, 0.5] }, { name: 'Scale', value: 100 }]);
 });
 
 test('Premiere – a sequence’s name and In/Out; tracks added, named, locked, switched off – and said plainly when Premiere won’t; the selection; bins with counts; clips by name, file or bin', () => {
@@ -108,6 +121,7 @@ test('Resolve – the same commands: a timeline renamed, tracks added, named and
   const a = F.addMedia('/m/A.mp4', { frames: 2500 }), tl = F.addTimeline('Cut', [{ item: a, in: 0, out: 100 }]), seqId = tl.GetUniqueId();
   for (const op of ['trim', 'shift', 'set']) { const r = await run('editApply', { seqId, op, params: { length: 1, seconds: 1 }, targets: [{ kind: 'video', track: 0, start: 0 }] }); assert.ok(r.unsupported && /Resolve doesn’t let add-ons add (trims|slides of a clip along the timeline|effect settings by name)/.test(r.why), op + ': ' + r.why); }
   assert.strictEqual(await run('selectClips', { seqId, targets: [{ kind: 'video', track: 0, start: 0 }] }), 0);
+  assert.ok(/Resolve doesn’t let add-ons read an effect’s settings/.test((await run('clipEffects', { seqId, targets: [{ kind: 'video', track: 0, start: 0 }] }))[0].unsupported));
   let r = await run('seqSet', { seqId, name: 'Cut v2', inPoint: 1 });
   assert.ok(r.done.includes('name') && r.was.name === 'Cut' && tl.GetName() === 'Cut v2');
   assert.ok(r.done.includes('in') || /this Resolve doesn’t let add-ons set them/.test(r.failed.join()), JSON.stringify(r));

@@ -60,16 +60,24 @@
         return 1;
     }
     function esc(x) { return String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    /** The settings of an effect that a person would know by name (Premiere's own hidden ones, “_ …”, and unnamed ones left out). */
+    function settingNames(c) {
+        var names = [];
+        for (var k = 0; k < c.properties.numItems && names.length < 40; k++) { var n = ''; try { n = String(c.properties[k].displayName || ''); } catch (e) { n = ''; } if (n && n.charAt(0) !== '_' && n !== 'Error occurred') names.push(n); }
+        return names;
+    }
     /**
      * Set one setting of an effect that is on the clip (Motion, Opacity, Crop, Lumetri Color, Volume, anything added):
      * p.effect and p.property as the Effect Controls panel names them; p.value, or p.keys [{at (seconds from the clip's
      * start), value}] for keyframes.
      */
     function setProp(ti, p) {
-        var c = component(ti, new RegExp('^' + esc(p.effect) + '$', 'i'));
-        if (!c) throw U.err('BAD_INPUT', 'no effect ' + p.effect, 'That clip has no “' + p.effect + '” – add the effect first.');
+        var re = new RegExp('^' + esc(p.effect) + '$', 'i'), c = null, k0;
+        for (k0 = 0; k0 < ti.components.numItems; k0++) if (re.test(String(ti.components[k0].displayName))) c = ti.components[k0];
+        if (!c) for (k0 = 0; k0 < ti.components.numItems; k0++) if (re.test(String(ti.components[k0].matchName))) c = ti.components[k0];
+        if (!c) { var have = []; for (k0 = 0; k0 < ti.components.numItems; k0++) have.push(String(ti.components[k0].displayName)); throw U.err('BAD_INPUT', 'no effect ' + p.effect, 'That clip has no “' + p.effect + '” (it has: ' + have.join(', ') + ') – add the effect first.'); }
         var pr = property(c, new RegExp('^' + esc(p.property) + '$', 'i'));
-        if (!pr) { var names = []; for (var k = 0; k < c.properties.numItems && names.length < 30; k++) if (c.properties[k].displayName) names.push(c.properties[k].displayName); throw U.err('BAD_INPUT', 'no setting ' + p.property, '“' + p.effect + '” has no setting called “' + p.property + '”. It has: ' + names.join(', ') + '.'); }
+        if (!pr) { var names = settingNames(c); throw U.err('BAD_INPUT', 'no setting ' + p.property, '“' + p.effect + '” has no setting called “' + p.property + '”. It has: ' + names.join(', ') + '.'); }
         if (p.keys && p.keys.length) {
             pr.setTimeVarying(true);
             for (var i = 0; i < p.keys.length; i++) { var kt = mediaTime(ti, ti.start.seconds + Number(p.keys[i].at || 0)); pr.addKey(kt); pr.setValueAtKey(kt, p.keys[i].value, true); }
@@ -448,5 +456,27 @@
         for (t = 0; t < s.audioTracks.numTracks; t++) for (c = 0; c < s.audioTracks[t].clips.numItems; c++) { try { s.audioTracks[t].clips[c].setSelected(false, true); } catch (e2) { } }
         for (i = 0; i < (a.targets || []).length; i++) { var g = a.targets[i], ti = clipAt(s, g.kind, g.track, g.start); if (ti) { try { ti.setSelected(true, true); n++; } catch (e3) { } } }
         return n;
+    };
+    /**
+     * The effects on timeline clips, as Effect Controls names them, each with its settings (and a number's value) – so a
+     * setting can be set by its real name. a: {seqId, targets:[{kind, track, start}]}
+     * -> [{start, track, kind, name, found, effects:[{name, matchName, settings:[{name, value}]}]}]
+     */
+    fn.clipEffects = function (a) {
+        var s = U.needSeq(a.seqId), out = [];
+        for (var i = 0; i < (a.targets || []).length; i++) {
+            var g = a.targets[i], ti = clipAt(s, g.kind, g.track, g.start), row = { start: g.start, track: g.track, kind: g.kind, found: !!ti, name: ti ? ti.name : '', effects: [] };
+            if (ti) for (var k = 0; k < ti.components.numItems; k++) {
+                var c = ti.components[k], e = { name: String(c.displayName), matchName: String(c.matchName), settings: [] }, names = settingNames(c);
+                for (var n = 0; n < names.length; n++) {
+                    var pr = property(c, new RegExp('^' + esc(names[n]) + '$')), v = null;
+                    try { v = pr.getValue(); } catch (e1) { v = null; }
+                    e.settings.push({ name: names[n], value: typeof v === 'number' || typeof v === 'boolean' ? v : (v && v.length === 2 && typeof v[0] === 'number' ? [v[0], v[1]] : null) });
+                }
+                row.effects.push(e);
+            }
+            out.push(row);
+        }
+        return out;
     };
 })(UStudio);

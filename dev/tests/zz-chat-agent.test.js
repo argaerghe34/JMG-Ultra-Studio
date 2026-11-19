@@ -82,6 +82,7 @@ function setup(answers, { clips = [] } = {}) {
     if (fn === 'updateMarkers') return { done: a.markers.length, guids: {} };
     if (fn === 'setPlayhead' || fn === 'selectClips') return fn === 'selectClips' ? a.targets.length : true;
     if (fn === 'exportFrame') return a.outBase + '.png';
+    if (fn === 'clipEffects') return a.targets.map(g => ({ start: g.start, track: g.track, kind: g.kind, found: g.start === 0, name: 'RUTH.MP4', effects: [{ name: 'Motion', matchName: 'AE.ADBE Motion', settings: [{ name: 'Scale', value: 100 }, { name: 'Position', value: [0.5, 0.5] }] }, { name: 'Gaussian Blur', matchName: 'AE.X', settings: [{ name: 'Amount', value: 0 }, { name: 'Edge Behavior', value: null }] }] }));
     if (fn === 'sequenceInfo' && a.clips === false) return { id: a.seqId, name: nameOf(a.seqId), fps: 25, width: 1920, height: 1080, duration: 40, inPoint: -1, outPoint: -1, playhead: 3, video: [{ index: 0, name: 'Video 1', muted: false, locked: false }, { index: 1, name: 'B-roll', muted: true, locked: true }], audio: [{ index: 0, name: 'Audio 1' }], markers: ((P.marks || {})[a.seqId] || []).map((g, i) => ({ guid: g, start: i + 1, end: i + 1, color: 1, name: 'M' + g, comment: '' })) };
     if (fn === 'editRead' || fn === 'sequenceInfo') return { id: a.seqId, name: nameOf(a.seqId), fps: 25, duration: 40, markers: [], video: [{ index: 0, clips: [{ start: 0, end: 20, in: 0, out: 20, name: 'RUTH.MP4', path: '/m/RUTH.MP4', itemId: 'r', effects: [] }, { start: 20, end: 40, in: 30, out: 50, name: 'RUTH.MP4', path: '/m/RUTH.MP4', itemId: 'r', effects: [] }] }], audio: [] };
     if (fn === 'editProject') return { bins: P.bins.slice(), sequences: P.seqs.map(x => ({ id: x.id, name: x.name, bin: '', duration: 40, video: 1, audio: 1 })), clips: [] };
@@ -266,7 +267,7 @@ test('the editor itself, by typed commands: a sequence’s settings, a copy, a n
   const x = setup([E('sequence.settings'), E('sequence.duplicate', { name: 'String-out v2' }), E('sequence.rename', { name: 'Rough cut' }), E('sequence.inout', { in: 2, out: 30 }),
     E('track.add', { kind: 'video', count: 2 }), E('track.set', { track: 'V2', name: 'B-roll', locked: true }), E('sequence.extract', { ranges: [[5, 6], [9, 8], [12, 14]] }),
     E('marker.add', { sequence: 'Rough cut', markers: [{ at: 4, name: 'Check' }, { at: 9, end: 11, name: 'Slow', color: 1 }] }), E('marker.list', { sequence: 'Rough cut' }), E('marker.change', { sequence: 'Rough cut', markers: [{ id: 'g2', name: 'Fixed' }] }), E('marker.remove', { sequence: 'Rough cut', ids: ['g3'] }), E('marker.remove', { sequence: 'Rough cut', ids: ['g0'] }),
-    E('playhead', { at: 12 }), E('select', { clips: [{ track: 'V1', at: 0 }, { track: 'Q', at: 1 }] }), E('frame', { at: 3 }), E('format.disk'), E('track.set', { track: 'V1' }), T('finish', { reply: 'Done.' })]);
+    E('clip.effects', { clips: [{ track: 'V1', at: 0 }, { track: 'V1', at: 7 }] }), E('playhead', { at: 12 }), E('select', { clips: [{ track: 'V1', at: 0 }, { track: 'Q', at: 1 }] }), E('frame', { at: 3 }), E('format.disk'), E('track.set', { track: 'V1' }), T('finish', { reply: 'Done.' })]);
   try {
     x.P.marks = { mine: ['g0'] };
     const log = [], chat = C.newChat();
@@ -281,8 +282,9 @@ test('the editor itself, by typed commands: a sequence’s settings, a copy, a n
     // removing a marker it added: no warning; the editor's own: a warning first (mode “don't ask” notwithstanding)
     const warns = log.filter(i => i.k === 'warn?').map(i => i.w.reasons.map(q => q.id + ':' + q.text).join());
     assert.ok(warns.length === 1 && /^deletes:It removes 1 marker of yours from “Rough cut”/.test(warns[0]), JSON.stringify(warns));
-    assert.ok(/The playhead is at 0:12/.test(r(12)) && /1 of 1 clips are selected/.test(r(13)) && /The frame at 0:03 of “[^”]+” is saved: .*Frames.*\.png$/.test(r(14)), [r(12), r(13), r(14)].join(' | '));
-    assert.ok(/there is no editor command “format\.disk”/.test(r(15)) && /give "name", "locked" or "off"/.test(r(16)));
+    assert.ok(/^V1 0:00 “RUTH\.MP4”:\n  Motion: Scale = 100; Position = \[0\.5,0\.5\]\n  Gaussian Blur: Amount = 0; Edge Behavior\nV1 0:07: no clip starts there\nSet one with the edit tool’s “set”/.test(r(12)), r(12));
+    assert.ok(/The playhead is at 0:12/.test(r(13)) && /1 of 1 clips are selected/.test(r(14)) && /The frame at 0:03 of “[^”]+” is saved: .*Frames.*\.png$/.test(r(15)), [r(13), r(14), r(15)].join(' | '));
+    assert.ok(/there is no editor command “format\.disk”/.test(r(16)) && /give "name", "locked" or "off"/.test(r(17)));
     // Undo: the copies go, its remaining marker comes off, the name is given back; In/Out and the frame are said to stay
     const plan = C.undoPlan(chat);
     assert.ok(plan.can.some(c => /Give the sequence “Rough cut” its name “String-out” back/.test(c.text)) && plan.can.some(c => /Take 1 marker off “Rough cut”/.test(c.text)) && plan.cant.some(c => /In and Out of “Rough cut” were changed/.test(c.text)) && plan.cant.some(c => /The picture “[^”]+” stays on the disk/.test(c.text)), JSON.stringify([plan.can.map(c => c.text), plan.cant.map(c => c.text)]));
