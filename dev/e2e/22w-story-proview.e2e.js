@@ -92,8 +92,8 @@ try {
   T.assert([ticked[0].id, ticked[1].id, id(/passed away/)].every(x => usedIds.has(x)) && !usedIds.has(id(/taxi/)), 'used: ' + Array.from(usedIds).length);
   if ($('.pv-opts .section', tool).classList.contains('closed')) $('.pv-opts .section-head', tool).click();
   await W(50);
-  { const t = $('.pv-opts .toggle input', tool); if (t[1].checked) { t[1].click(); await W(300); } if ($('.pv-opts .toggle input', tool)[0].checked) { $('.pv-opts .toggle input', tool)[0].click(); await W(300); } }
-  $('.pv-opts .toggle input', tool)[0].click();   // on: reads the open sequence
+  { const t = $$('.pv-opts .toggle input', tool); if (t[1].checked) { t[1].click(); await W(300); } if (t[0].checked) { t[0].click(); await W(300); } }
+  $$('.pv-opts .toggle input', tool)[0].click();   // on: reads the open sequence
   for (let i = 0; i < 40 && !$$('.pv-rows .pv-used', tool).length; i++) await W(250);
   T.assert($('.pv-th[data-col="used"]', tool) && $$('.pv-rows .pv-used', tool).length === 3, 'three lines marked used: ' + $$('.pv-rows .pv-used', tool).length);
   const before = rowIds().length;
