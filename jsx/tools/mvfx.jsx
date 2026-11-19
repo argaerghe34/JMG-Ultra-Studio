@@ -83,10 +83,18 @@
      *   json         the JSON alone
      *   len32-utf16  the JSON's length as two UTF-16 units (low, high), then the JSON
      *   len32-bytes  the JSON's length as four characters, one byte each (little-endian), then the JSON
+     *   (all three blank the text in 27.0 – probe, 19 Nov; kept so the probe can show it again)
+     * The real format, read from a saved 27.0 project: a u64 length, then either UTF-16 JSON (the older format, still
+     * inside Premiere's own .mogrt files: {"mTextParam":{…every key…},"mVersion":1}, length = its bytes) or the magic
+     * 0x11223344 and a FlatBuffer (what 27.0 saves). A script's string seems to reach the value as UTF-16 units – what
+     * reads back is the bytes taken two at a time up to the first zero – so:
+     *   legacy-utf16 the u64 byte length as four UTF-16 units, then the full old JSON
+     *   fb-utf16     27.0's FlatBuffer (L.fb, hex, made by the panel: US.mvfxPack.sourceTextFB), two bytes a unit
+     *   fb-bytes     the same, one byte a character (if Premiere turns a script's string into bytes one per character)
      * What came back after each write is logged ("read" = the escaped first characters). dev/probes/mvfx-settext.js
      * tries every route on a real Basic Title and counts the text's pixels in an exported frame – the only true check.
      */
-    var TEXT_ROUTES = ['json', 'len32-utf16', 'len32-bytes'];
+    var TEXT_ROUTES = ['json', 'len32-utf16', 'len32-bytes', 'legacy-utf16', 'fb-utf16', 'fb-bytes'];
     function sourceTextProperty(ti) {
         try {
             for (var k = 0; k < ti.components.numItems; k++) {
@@ -108,16 +116,33 @@
         sheet.mFauxBold = { mParamValues: [[0, !!L.bold && !/bold|black|heavy/i.test(String(L.font || ''))]] };
         return JSON.stringify({ mTextParam: { mStyleSheet: sheet, mAlignment: 2 } });
     }
-    function routeValue(route, json) {
+    /** The old (pre-27) Source Text JSON with every key Premiere's own Basic Title has, set to these words and style. */
+    function legacyJSON(L) {
+        var rgb = hexRgb(L.colour || '#ffffff'), pv = function (v) { return { mParamValues: [[0, v]] }; };
+        return JSON.stringify({ mTextParam: { mAlignment: 2, mDefaultRun: [], mHeight: 0, mHindiDigits: false, mIndic: false, mIsVerticalText: false, mLeading: 0, mLigatures: false, mRTL: false, mShadowAngle: 135, mShadowBlur: 0, mShadowColor: 0, mShadowOffset: 10, mShadowOpacity: 100, mShadowSize: 0, mShadowVisible: false,
+            mStyleSheet: { mBaselineOption: pv(0), mBaselineShift: pv(0), mCapsOption: pv(0), mFauxBold: pv(!!L.bold && !/bold|black|heavy/i.test(String(L.font || ''))), mFauxItalic: pv(false), mFillColor: pv((rgb[0] << 16) | (rgb[1] << 8) | rgb[2]), mFillOverStroke: pv(true), mFillVisible: pv(true), mFontName: pv(String(L.font || 'MyriadPro-Regular')), mFontSize: pv(Number(L.size) || 100), mKerning: pv(0), mStrokeColor: pv(16777215), mStrokeVisible: pv(false), mStrokeWidth: pv(1), mText: String(L.text), mTracking: pv(Math.round(Number(L.tracking || 0) * 1000)), mTsumi: pv(0) },
+            mTabWidth: 400, mWidth: 0 }, mVersion: 1 });
+    }
+    /** Bytes (hex) as a string: two bytes a UTF-16 unit (little-endian), or one byte a character. */
+    function hexString(hex, perUnit) {
+        var s = '', n = String(hex || '').length / 2, b = function (k) { return parseInt(hex.substr(k * 2, 2), 16); };
+        if (perUnit === 1) { for (var k = 0; k < n; k++) s += String.fromCharCode(b(k)); return s; }
+        for (var j = 0; j + 1 < n; j += 2) s += String.fromCharCode(b(j) | (b(j + 1) << 8));
+        if (n % 2) s += String.fromCharCode(b(n - 1));
+        return s;
+    }
+    function routeValue(route, json, L) {
+        if (route === 'legacy-utf16') { var lj = legacyJSON(L || {}), nb = lj.length * 2; return String.fromCharCode(nb & 0xFFFF, (nb >>> 16) & 0xFFFF, 0, 0) + lj; }
+        if (route === 'fb-utf16' || route === 'fb-bytes') { if (!L || !L.fb) throw new Error('no FlatBuffer from the panel'); return hexString(L.fb, route === 'fb-bytes' ? 1 : 2); }
         var n = json.length;
         if (route === 'len32-utf16') return String.fromCharCode(n & 0xFFFF, (n >>> 16) & 0xFFFF) + json;
         if (route === 'len32-bytes') return String.fromCharCode(n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255) + json;
         return json;
     }
     /**
-     * Write the words into a Source Text that can't be read. opts.route: one route only (the probe; or the panel once
-     * the right one is known). Without it the routes are tried in order until what reads back has changed and isn't
-     * empty – a hint, not proof (Premiere may store a value it then can't show). -> {took, route, tries:[{route, read, error}]}
+     * Write the words into a Source Text that can't be read, by opts.route only (the probe). None of these routes is
+     * proven: in Premiere 27.0 all three blank the text (probe, 19 Nov), so setText never calls this without a route.
+     * -> {took, route, tries:[{route, read, error}]}
      */
     function writeBlob(prop, L, opts, log) {
         var json = textJSON(L), before = '', res = { took: false, route: '', tries: [] };
@@ -125,7 +150,7 @@
         var routes = opts && opts.route ? [opts.route] : TEXT_ROUTES;
         for (var i = 0; i < routes.length; i++) {
             var t = { route: routes[i], read: '', error: '' };
-            try { prop.setValue(routeValue(routes[i], json), true); } catch (e1) { t.error = String(e1); }
+            try { prop.setValue(routeValue(routes[i], json, L), true); } catch (e1) { t.error = String(e1); }
             try { t.read = escFew(prop.getValue()); } catch (e2) { t.read = 'unreadable'; }
             res.tries.push(t);
             var after = ''; try { after = String(prop.getValue()); } catch (e3) { }
@@ -144,6 +169,9 @@
         if (!list.length) {
             var st = sourceTextProperty(ti);
             if (!st) { log.push('no Source Text'); return out; }
+            // unreadable (Premiere 27.0): leave the template's own text alone – writing it blanks the layer – unless a
+            // route is asked for by name (dev/probes/mvfx-settext.js)
+            if (!(opts && opts.route)) { log.push('Source Text can’t be read in this Premiere – the words were left for the Properties panel'); out.forms.push('unreadable'); return out; }
             var b = writeBlob(st, L, opts, log);
             out.forms.push('blob'); out.route = b.route; out.tries = b.tries;
             if (b.took) { out.words = true; out.font = !!L.font; out.size = !!L.size; out.colour = !!L.colour; }
@@ -425,6 +453,6 @@
     };
 
     /** Resolve's Fusion templates – nothing to install for Premiere. a: {write:[{name, kind, body}]} -> {dir, written, restart} */
-    U.mvfxText = { setText: setText, textProperties: textProperties, animate: animate, sourceTextProperty: sourceTextProperty, textJSON: textJSON, routeValue: routeValue, ROUTES: TEXT_ROUTES };
+    U.mvfxText = { setText: setText, textProperties: textProperties, animate: animate, sourceTextProperty: sourceTextProperty, textJSON: textJSON, routeValue: routeValue, legacyJSON: legacyJSON, hexString: hexString, ROUTES: TEXT_ROUTES };
     fn.mvfxTemplates = function (a) { return { dir: '', written: [], restart: false, note: 'Premiere needs no templates: titles are made with Basic Title.' }; };
 })(UStudio);

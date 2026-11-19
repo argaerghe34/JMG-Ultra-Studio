@@ -58,6 +58,14 @@ T.assert(again.result.drawn === 0, 'the same overlay again draws nothing new');
 const rule = P.byId('nm-rule'), rv = vals('nm-rule', { duration: 4, shadow: 0, scale: 1, dx: 0, dy: 0, push: false, editable: true }); Object.assign(rv.text, { name: 'Mira Haddad', role: 'Nurse' });
 T.assert(M.editablePlan(rule, rv, { width: W, height: H }).ok, 'Ruled can be text layers');
 const ed = await M.apply(rule, rv, { at: 10 }, job);
+if (ed.result.fellBack) {
+  // this Premiere won't let a script set a text layer's words (27.0): the text layers are taken away again and the
+  // title is added drawn whole – check that's what is on the timeline, and nothing of the template's text is left
+  notes.push('WORDS AS TEXT LAYERS NOT POSSIBLE HERE: ' + ed.summary + ' · ' + JSON.stringify(ed.result.textLog || []));
+  const r = await US.host.call('editRead', { seqId: seq.id }), at10 = r.video.flatMap(t => t.clips.map(c => Object.assign({ track: t.name }, c))).filter(c => Math.abs(c.start - 10) < 0.05);
+  T.assert(at10.length === 1 && /\.png$/i.test(at10[0].path || '') && ed.result.removed >= 2, 'only the drawn title is at 10 s: ' + JSON.stringify(at10) + ' removed ' + ed.result.removed);
+}
+else {
 notes.push(ed.summary + ' · ' + JSON.stringify(ed.result.text.map(t => [t.words, t.font, t.size, t.colour])) + (ed.result.log.length ? ' · ' + ed.result.log.join('; ') : ''));
 T.assert(ed.result.editable && ed.result.textLayers === 2 && ed.result.art && ed.result.text.every(t => t.words), 'two text layers over the drawn rule: ' + JSON.stringify(ed.result));
 const seen = [], names = (await US.host.call('editRead', { seqId: seq.id })).video;
@@ -74,6 +82,8 @@ T.assert(seen.some(x => /MIRA HADDAD/i.test(x)) && seen.some(x => /NURSE/i.test(
   T.assert(shown.n > mine.n * 0.3, `the text layers show in the picture: ${shown.n} bright against ${mine.n} drawn`);
   T.assert(Math.abs(shown.x - mine.x) < 0.06 && Math.abs(shown.y - mine.y) < 0.06, `where the design puts them: ${JSON.stringify(shown)} against ${JSON.stringify(mine)}`);
 }
+
+}   // words as text layers
 
 // a picture dragged out and dropped: Premiere places the file itself; mvfxDropped then finds and dresses it
 {

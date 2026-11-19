@@ -126,6 +126,9 @@
    * shown which one Premiere shows; null tries them in order.
    */
   const textRoute = () => get('textRoute', null) || null;
+  /** Has this Premiere already refused a text layer's words (27.0)? Then titles are drawn, and the tab says so. */
+  const textDrawn = () => { const d = !RES && get('textDrawn', null); return !!d && (!d.app || !US.ctx.app || d.app === String(US.ctx.app)); };   // a newer Premiere is tried again
+  const noteDrawn = () => { if (!RES) set('textDrawn', { at: Date.now(), app: US.ctx.app ? String(US.ctx.app) : '' }); };
   /** A title (or a freeze frame's name tag) at `start`. -> the host's result */
   async function addTitle(preset, v, seq, start, seconds, job) {
     if (RES) {
@@ -135,13 +138,60 @@
       job && job.set({ msg: 'Inserting it at the playhead' });
       return US.host.call('mvfxApply', { seqId: seq.id, start, seconds, name: preset.label, title: { name: tpl.name, inputs: tpl.inputs, kind: 'titles' } });
     }
+    if (textDrawn() && !textRoute()) return addDrawnTitle(preset, v, seq, start, seconds, job, null);   // known: this Premiere won't take the words
     const paths = {};
     if ((preset.layers || []).some(l => l.type === 'rect')) { job && job.set({ who: 'computer', msg: 'Painting the rules and bars' }); paths.art = await paintPNG(preset, v, seq.width, seq.height, { text: false, t: 1 }); }
     const layers = P().premiereLayers(preset, v, seq, paths, measure);
     for (const L of layers) if (L.kind === 'still') L.itemId = await importPNG(L.path);
     job && job.set({ who: 'premiere', msg: 'Adding the text layers' });
     const out = await US.host.call('mvfxApply', { seqId: seq.id, start, seconds, name: preset.label, layers, textRoute: textRoute() });
-    return out;
+    if (!(out.text || []).some(t => !t.words)) { if ((out.text || []).length) set('textDrawn', null); return out; }
+    // this Premiere didn't let us set the words (27.0 – its Source Text can't be read or written by a script): the
+    // text layers would show the template's "Your Title Here", so everything just placed goes, and the title is
+    // added drawn whole – frame by frame, coming in and going out as the preview shows it
+    job && job.set({ who: 'premiere', msg: 'Premiere didn’t take the words – adding the title drawn instead' });
+    noteDrawn();
+    const placed = (out.tracks || []).map(t => ({ kind: 'video', track: t, start: out.start, end: out.end }));
+    const gone = await US.host.call('editApply', { seqId: seq.id, op: 'remove', params: { ripple: false }, targets: placed });
+    return addDrawnTitle(preset, v, seq, start, seconds, job, { removed: gone.done || 0, textLog: out.log });
+  }
+  /** A Plain text preset added drawn whole (renderPlain), as one clip on a free mVFX track. more: merged into the result. */
+  async function addDrawnTitle(preset, v, seq, start, seconds, job, more) {
+    const fps = seq.fps || 25, r = await renderPlain(preset, v, { width: seq.width, height: seq.height, fps }, seconds, job);
+    job && job.set({ who: 'premiere', msg: 'Placing it' });
+    const drawn = await US.host.call('mvfxClip', { seqId: seq.id, first: r.first, frames: r.frames, fps, start, seconds: r.frames / fps, name: preset.label, binPath: BIN });
+    return Object.assign(drawn, more || {}, { drawnTitle: true, dir: r.dir, frames: r.frames, note: ['drawn title – words can’t be edited in Properties in this Premiere', drawn.note].filter(Boolean).join(' · ') });
+  }
+  /**
+   * A Plain text preset drawn whole, frame by frame (PNGs with transparency at the sequence's size and rate): its
+   * layers come in one after another as in the preview, hold, and fade out. Frames that look the same are one picture
+   * linked again. -> {dir, first, frames, drawn}
+   */
+  async function renderPlain(preset, v, size, seconds, job) {
+    const W = size.width, H = size.height, fps = Number(size.fps) || 25, n = Math.max(2, Math.round(seconds * fps));
+    const inLen = (preset.inSec || 0.6) + 0.08 * ((preset.layers || []).length || 1) + 0.3, outLen = Math.min(preset.outSec || 0.5, seconds / 3);
+    const dir = path.join(artDir(), `${preset.id}-drawn-${P().hashOf({ id: preset.id, t: v.text, c: v.colours, f: v.fonts, s: [v.scale, v.dx, v.dy], W, H, fps, n, e: 1 })}`);
+    const file = i => path.join(dir, `${preset.id}_${String(i + 1).padStart(4, '0')}.png`), done = path.join(dir, 'title.json');
+    if (fs.existsSync(done) && fs.existsSync(file(n - 1))) return { dir, first: file(0), frames: n, drawn: 0 };
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    if (!ctx) throw new US.UserError('HOST_SCRIPT', { title: 'The title couldn’t be drawn.', action: 'Close and reopen the panel, then try again.', detail: 'no 2D canvas' });
+    fs.mkdirSync(dir, { recursive: true });
+    const made = new Map(); let drawn = 0;
+    for (let i = 0; i < n; i++) {
+      job && job.check && job.check();
+      const t = i / fps, k = Math.round(Math.min(1, t / inLen) * 1000) / 1000, a = Math.round(Math.max(0, Math.min(1, (seconds - t) / outLen)) * 1000) / 1000, key = k + '|' + a;
+      if (made.has(key)) { try { fs.linkSync(file(made.get(key)), file(i)); } catch (e) { fs.copyFileSync(file(made.get(key)), file(i)); } continue; }
+      ctx.clearRect(0, 0, W, H); ctx.save(); ctx.globalAlpha = a;
+      P().paint(ctx, W, H, preset, v, { t: k, frame: 0 });
+      ctx.restore();
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      fs.writeFileSync(file(i), Buffer.from(await blob.arrayBuffer()));
+      made.set(key, i); drawn++;
+      job && job.progress(0.1 + 0.7 * (i + 1) / n, `Drawing the title · frame ${i + 1} of ${n}`);
+    }
+    fs.writeFileSync(done, JSON.stringify({ preset: preset.id, drawn: true, values: { text: v.text, colours: v.colours, fonts: v.fonts, scale: v.scale, dx: v.dx, dy: v.dy, duration: seconds }, width: W, height: H, fps, frames: n }, null, 1));
+    return { dir, first: file(0), frames: n, drawn };
   }
   /** What decides how an animated title looks – the same values give the same frames (so they're drawn once). */
   const motionKey = (preset, v, W, H, fps, total, art) => P().hashOf(Object.assign({ id: preset.id, t: v.text, c: v.colours, f: v.fonts, s: [v.scale, v.dx, v.dy, v.shadow, v.rot, v.stretch], o: v.opt, W, H, fps, total, e: 1 }, art ? { art: 1 } : {}));
@@ -199,6 +249,7 @@
   function editablePlan(preset, v, size) {
     if (preset.kind !== 'motion') return { ok: false, layers: 0, why: '' };
     if (RES) return { ok: false, layers: 0, why: 'In Resolve an animated title is one clip – the Plain text presets are Fusion titles you can change in the Inspector.' };
+    if (textDrawn()) return { ok: false, layers: 0, why: 'This Premiere doesn’t let add-ons set a text layer’s words, so titles are drawn – their words can’t be edited in Properties.' };
     const ctx = measureCtx();
     if (!ctx) return { ok: false, layers: 0, why: '' };
     const W = (size && size.width) || 1920, H = (size && size.height) || 1080, n = M().nativeText(M().prepare(ctx, W, H, preset, v, Number(v.duration || preset.duration || 5))).length;
@@ -225,8 +276,19 @@
       len = art.end - art.start;
     }
     job && job.set({ who: 'premiere', msg: 'Adding the text layers' }); job && job.progress(0.9);
-    const layers = texts.map(t => ({ kind: 'text', text: t.text, family: t.family, font: P().psName(t.family, t.bold), bold: t.bold, size: t.px, colour: t.colour, x: t.cx, y: t.cy, width: t.width, align: 'centre', tracking: t.tracking, anim: t.anim, name: t.text.split('\n')[0].slice(0, 40) }));
+    const layers = texts.map(t => ({ kind: 'text', fb: P().sourceTextFB({ text: t.text, font: P().psName(t.family, t.bold), size: t.px }), text: t.text, family: t.family, font: P().psName(t.family, t.bold), bold: t.bold, size: t.px, colour: t.colour, x: t.cx, y: t.cy, width: t.width, align: 'centre', tracking: t.tracking, anim: t.anim, name: t.text.split('\n')[0].slice(0, 40) }));
     const out = await US.host.call('mvfxApply', { seqId: seq.id, start, seconds: len, name: preset.label, layers, textRoute: textRoute() });
+    if ((out.text || []).some(t => !t.words)) {
+      // this Premiere didn't let us set the words (27.0): take the text layers and the lines away again and add the
+      // title drawn whole, as it would be with the switch off – so what's on the timeline is the title, not template text
+      job && job.set({ who: 'premiere', msg: 'Premiere didn’t take the words – adding the title drawn instead' });
+      noteDrawn();
+      const placed = (out.tracks || []).map(t => ({ kind: 'video', track: t, start: out.start, end: out.end })).concat(art ? [{ kind: 'video', track: art.track, start: art.start, end: art.end }] : []);
+      const gone = await US.host.call('editApply', { seqId: seq.id, op: 'remove', params: { ripple: false }, targets: placed });
+      const r = await addMotion(preset, v, seq, start, seconds, job);
+      return Object.assign(r, { editable: false, fellBack: true, removed: gone.done || 0, textLog: out.log, note: ['this Premiere doesn’t let add-ons set a text layer’s words, so the title is drawn – to edit words in Properties, use a Plain text preset and type them there', r.note].filter(Boolean).join(' · ') });
+    }
+    set('textDrawn', null);
     if (art) { out.art = art; out.tracks = [art.track].concat(out.tracks || []); }
     return Object.assign(out, { editable: true, textLayers: layers.length, note: [art && art.note, out.note].filter(Boolean).join(' · ') });
   }
@@ -278,7 +340,7 @@
       const file = path.join(dir, 'title.json');
       if (!fs.existsSync(file)) continue;
       const made = JSON.parse(fs.readFileSync(file, 'utf8')), preset = P().byId(made.preset);
-      if (!preset) continue;
+      if (!preset || preset.kind !== 'motion') continue;   // a drawn Plain text title: add it again instead
       if (made.artOnly) throw new US.UserError('BAD_INPUT', { title: 'This title’s words are text layers.', action: 'Click a text layer above it in the Timeline and change the words in Premiere’s Properties panel.' });
       const values = valuesFor(preset);
       Object.assign(values.text, made.values.text || {}); Object.assign(values.colours, made.values.colours || {}); Object.assign(values.fonts, made.values.fonts || {});
@@ -329,6 +391,7 @@
       const old = opts.replace, at = old ? old.start : start;
       if (v.editable && !old && editablePlan(preset, v, seq).ok) {
         const r = await addEditable(preset, v, seq, start, seconds, job);
+        if (r.fellBack) return { summary: `${preset.label} added ${where} on ${r.trackName || 'V' + (r.track + 1)} · ${r.note}`, result: r };
         return { summary: `${preset.label} added ${where} as ${US.plural(r.textLayers, 'text layer')} you can change in Properties${r.art ? ', with its lines drawn underneath' : ''} (${r.trackName || 'V' + (r.track + 1)} up)${r.note ? ' · ' + r.note : ''}`, result: r };
       }
       const r = await addMotion(preset, v, seq, at, seconds, job, old ? async () => { const x = await US.host.call('editApply', { seqId: seq.id, op: 'remove', params: { ripple: false }, targets: [old] }); if (!x.done) throw new US.UserError('HOST_SCRIPT', { title: 'The old title couldn’t be removed.', action: 'Delete it in the Timeline, then add the new one at the playhead.', detail: JSON.stringify(x.skipped || x.log || '') }); } : null);
@@ -623,6 +686,7 @@
 
       /* ---------- the tiles ---------- */
       const textBadge = p => {
+        if (p.kind === 'title' && textDrawn()) return null;
         if (p.kind === 'title') return { text: 'Editable text', title: RES ? 'A Fusion title: change the words in the Inspector.' : 'Premiere’s own text: change the words, font, size and colour in the Properties panel.' };
         if (p.kind === 'motion' && !RES && editablePlan(p, valuesOf(p)).ok) return { text: 'Editable text: optional', title: 'Switch on “Words as text layers” to change the words in Premiere’s Properties panel.' };
         return null;
@@ -698,7 +762,7 @@
         // Premiere: the words as its own text layers (the Properties panel), or the whole title as one drawn clip
         const plan = motion ? editablePlan(preset, values, seqSize()) : null;
         const editable = plan && plan.ok ? ui.toggle({ label: 'Words as text layers (change them in Premiere’s Properties panel)', value: !!values.editable, hint: `${US.plural(plan.layers, 'text layer')} of Premiere’s own, in the same place, face, size and colour – its lines and pen strokes stay animated underneath. The letters fade in together instead of one by one.`, onChange: x => { values.editable = x; remember(preset, values); drawEditor(); } }) : null;
-        const how = preset.kind === 'title' ? ui.note(RES ? 'Added as a Fusion title: change the words in the Inspector.' : 'Added as Premiere’s own text, one layer a line: change the words, font, size and colour in the Properties panel. The rules and bars are a picture underneath.', 'info')
+        const how = preset.kind === 'title' ? ui.note(RES ? 'Added as a Fusion title: change the words in the Inspector.' : textDrawn() ? 'This Premiere doesn’t let add-ons set a text layer’s words, so the title is drawn, as the preview shows it – its words can’t be edited in Properties. To change them, change them here and add it again.' : 'Added as Premiere’s own text, one layer a line: change the words, font, size and colour in the Properties panel. The rules and bars are a picture underneath. If this Premiere doesn’t take the words, the title is drawn instead.', 'info')
           : motion && plan && !plan.ok && plan.why ? h('div.field-hint', plan.why) : null;
         const swap = motion && replacing;
         const loadBtn = motion ? ui.button(RES ? 'Change the title under the playhead…' : 'Change the selected title…', { small: true, kind: 'ghost', onClick: async () => {

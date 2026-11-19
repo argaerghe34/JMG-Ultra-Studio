@@ -63,23 +63,38 @@ test('Premiere hands back a clip without its Source Text (seen in 27.0): the wor
   assert.strictEqual(JSON.parse(of(tracks[1].clips[0], 'Text', 'Source Text').value).mTextParam.mStyleSheet.mText, 'Mira Haddad');
 });
 
-test('Premiere 27.0: Source Text reads back as one character, so the words are written from scratch – the routes in order, or the one asked for; each try logged', () => {
+test('Premiere 27.0: Source Text reads back as one character – it is left alone (writing it blanked the text), and said; a route named by the probe still writes', () => {
   const { U, seq, tracks } = world(), real = seq.importMGT;
   let stored = '\u017c';   // what 27.0 reads back: one character of a binary value
   const blob = () => { const p = prop('Source Text', ''); p.getValue = () => stored.charAt(0); p.setValue = v => { stored = v; return true; }; return p; };
   seq.importMGT = function (f, ticks, t) { const s = Number(ticks) / TICKS, c = clip(s, s + 5); c.components.push(comp('Text', [blob(), prop('Position', [0.5, 0.53])])); tracks[t].clips.push(c); return c; };
   const L = [{ kind: 'text', text: 'Mira Haddad', font: 'Georgia', size: 63, colour: '#c9a96a', x: 345, y: 826, anim: { type: 'fade' } }];
   const r = U.fn.mvfxApply({ seqId: 's1', start: 1, seconds: 5, layers: L });
-  assert.ok(r.text[0].words && r.text[0].route === 'json', JSON.stringify(r.text[0]));
+  assert.ok(!r.text[0].words && stored === '\u017c', 'nothing written: ' + JSON.stringify(r.text[0]));
+  assert.ok(/Properties/.test(r.note) && r.log.some(x => /can’t be read/.test(x)), r.note + ' | ' + r.log.join(' | '));
+  const rj = U.fn.mvfxApply({ seqId: 's1', start: 10, seconds: 5, layers: L, textRoute: 'json' });
+  assert.ok(rj.text[0].route === 'json', JSON.stringify(rj.text[0]));
   const o = JSON.parse(stored).mTextParam.mStyleSheet;
   assert.strictEqual(o.mText, 'Mira Haddad'); assert.strictEqual(o.mFontName.mParamValues[0][1], 'Georgia'); assert.strictEqual(o.mFontSize.mParamValues[0][1], 63); assert.strictEqual(o.mFillColor.mParamValues[0][1], 0xc9a96a);
-  assert.ok(r.log.some(x => /written from scratch \(was \\u017c\): json → \{/.test(x)), r.log.join(' | '));
+  assert.ok(rj.log.some(x => /written from scratch \(was \\u017c\): json → \{/.test(x)), rj.log.join(' | '));
   // one route asked for: 4-byte length first, then the JSON
   const r2 = U.fn.mvfxApply({ seqId: 's1', start: 20, seconds: 5, layers: L, textRoute: 'len32-bytes' });
   const n = stored.length - 4;
   assert.strictEqual(r2.text[0].route, 'len32-bytes'); assert.deepStrictEqual([0, 1, 2, 3].map(i => stored.charCodeAt(i)), [n & 255, (n >> 8) & 255, 0, 0]); assert.strictEqual(stored.slice(4, 5), '{');
   U.fn.mvfxApply({ seqId: 's1', start: 40, seconds: 5, layers: L, textRoute: 'len32-utf16' });
   assert.deepStrictEqual([stored.charCodeAt(0), stored.charCodeAt(1), stored.charAt(2)], [stored.length - 2, 0, '{']);
+});
+
+test('the routes found in a saved 27.0 project: the old UTF-16 JSON behind a u64 byte length, or 27.0’s FlatBuffer two bytes a UTF-16 unit (or one a character)', () => {
+  const { U } = world(), T = U.mvfxText, L = { text: 'Mira', font: 'Georgia', size: 60, colour: '#c9a96a', fb: '7c0100000000000044332211abcd' };
+  const leg = T.routeValue('legacy-utf16', '', L), json = leg.slice(4), o = JSON.parse(json);
+  same([leg.charCodeAt(0), leg.charCodeAt(1), leg.charCodeAt(2), leg.charCodeAt(3)], [json.length * 2, 0, 0, 0]);
+  assert.strictEqual(o.mVersion, 1); assert.strictEqual(o.mTextParam.mStyleSheet.mText, 'Mira'); assert.strictEqual(o.mTextParam.mStyleSheet.mFillColor.mParamValues[0][1], 0xc9a96a);
+  assert.strictEqual(Object.keys(o.mTextParam.mStyleSheet).length, 17, 'every key Basic Title has');
+  const u = T.routeValue('fb-utf16', '', L);
+  same(Array.from(u).map(c => c.charCodeAt(0)), [0x017c, 0, 0, 0, 0x3344, 0x1122, 0xcdab]);   // 0x017c: what 27.0 reads back from Basic Title
+  same(Array.from(T.routeValue('fb-bytes', '', L)).map(c => c.charCodeAt(0)), [0x7c, 1, 0, 0, 0, 0, 0, 0, 0x44, 0x33, 0x22, 0x11, 0xab, 0xcd]);
+  assert.throws(() => T.routeValue('fb-utf16', '', { text: 'x' }), /FlatBuffer/);
 });
 
 test('a second title over the same moment takes the next free mVFX tracks; one later is back on the first', () => {
