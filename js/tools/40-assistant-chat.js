@@ -876,7 +876,8 @@
     for (const j of (chat.journal || []).slice().reverse()) {
       if (j.undone || (turn != null && j.turn !== turn)) continue;
       if (j.kind === 'seq') can.push({ entry: j, text: `Delete the sequence “${j.name}” it made` });
-      else if (j.kind === 'bin') can.push({ entry: j, text: `Remove the bin “${j.path}” it made, if nothing is left in it` });
+      // a bin left because something is in it isn't offered again (the editor's things are in it)
+      else if (j.kind === 'bin') { if (!j.kept) can.push({ entry: j, text: `Remove the bin “${j.path}” it made, if nothing is left in it` }); }
       else if (j.kind === 'markers') can.push({ entry: j, text: `Take ${US.plural((j.guids || []).length, 'marker')} off “${j.name}”` });
       else if (j.kind === 'items') can.push({ entry: j, text: (j.undo || []).every(u => u.op === 'marker') ? `Take the ${US.plural((j.undo || []).length, 'clip marker')} it added off again` : 'Put labels, names and bins back as they were' });
       else if (j.kind === 'placed') can.push({ entry: j, text: `Take the ${US.plural((j.list || []).length, 'clip')} it added out again` });
@@ -927,7 +928,7 @@
           const r = (await US.host.call('askRemoveBins', { paths: bins.map(x => x.entry.path) })) || {};
           for (const x of bins) {
             if (arr(r.removed).includes(x.entry.path)) { x.entry.undone = true; res.undone.push(`Removed the bin “${x.entry.path}”`); }
-            else { const k = arr(r.kept).find(y => y.path === x.entry.path); if (k && k.why === 'not there any more') x.entry.undone = true; else res.kept.push(`The bin “${x.entry.path}” stays – it is ${k ? k.why : 'still in use'}`); }
+            else { const k = arr(r.kept).find(y => y.path === x.entry.path); if (k && k.why === 'not there any more') x.entry.undone = true; else { x.entry.kept = k ? k.why : 'still in use'; res.kept.push(`The bin “${x.entry.path}” stays – it is ${x.entry.kept}`); } }
           }
         } catch (e) { res.failed.push(`Removing the bins it made: ${explain(e).title}`); }
       }

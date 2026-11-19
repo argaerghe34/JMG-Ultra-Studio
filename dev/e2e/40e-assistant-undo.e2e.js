@@ -44,7 +44,7 @@ try {
   T.assert(end, 'the request finished: ' + JSON.stringify(log.map(i => i.k + (i.text ? ':' + i.text : '') + (i.result ? ' → ' + i.result : ''))).slice(0, 1200));
   T.assert(a.always === true && !warned.length, 'Always proceed was chosen on the first card and nothing here was risky: ' + JSON.stringify(warned.map(w => w.reasons)));
   const kinds = a.journal.map(j => j.kind);
-  T.assert(kinds.filter(k => k === 'seq').length === 2 && kinds.includes('items') && kinds.includes('markers'), 'the journal has the copy, the version, the labels and the markers: ' + JSON.stringify(a.journal.map(j => [j.kind, j.name || j.path || (j.guids || []).length])));
+  T.assert(kinds.filter(k => k === 'seq').length === 2 && kinds.includes('items') && kinds.includes('markers'), 'the journal has the copy, the version, the labels and the markers: ' + JSON.stringify(a.journal.map(j => [j.turn, j.kind, j.name || j.path || (j.guids || j.undo || []).length, j.seqId || ''])) + ' · steps: ' + JSON.stringify(log.filter(i => i.k === 'step').map(i => i.text + ' → ' + (i.result || ''))));
   T.assert(a.journal.filter(j => j.kind === 'seq').every(j => j.stamp && j.stamp.clips > 0), 'each sequence it made is noted as it was left: ' + JSON.stringify(a.journal.filter(j => j.kind === 'seq').map(j => j.stamp)));
   T.assert(a.journal.find(j => j.kind === 'markers').guids.length === 2, 'its two markers, not the editor’s own');
   T.assert(end.trace.some(t => t.kind === 'call' && /scale 115/.test(t.detail)) && end.trace.some(t => t.kind === 'check' || t.kind === 'result') && end.tokensIn === 900 * 7, 'behind the scenes has each call with its arguments, and the tokens: ' + end.tokensIn);
@@ -60,7 +60,11 @@ try {
   T.assert(info.markers.length === 1 && info.markers[0].name === 'The editor’s own' && info.video[0].clips.length === 3, 'the editor’s own sequence and marker are untouched: ' + JSON.stringify(info.markers.map(m => m.name)));
   T.assert(US.ctx.sequence && US.ctx.sequence.id === seq.id, 'back in the sequence that was open: ' + JSON.stringify(US.ctx.sequence && US.ctx.sequence.name));
   out.bins = res.undone.filter(x => /bin/.test(x)).concat(res.kept);
-  T.assert(a.work === null && !C.undoPlan(a).can.length, 'nothing left to undo');
+  // the script's “open” step made the editor's own sequence the working one: it stays (Undo never deletes their sequence)
+  const left = C.undoPlan(a), J = () => JSON.stringify((a.journal || []).map(j => ({ turn: j.turn, kind: j.kind, name: j.name || j.path || '', seqId: j.seqId, undone: j.undone, kept: j.kept || '', n: (j.guids || j.undo || j.list || []).length, stamp: j.stamp })));
+  T.assert(!left.can.length, 'nothing left to undo – still offered: ' + JSON.stringify(left.can.map(x => x.text)) + ' · result: ' + JSON.stringify(res) + ' · journal: ' + J());
+  T.assert(!a.work || a.work.seqId === seq.id, 'the working sequence is the editor’s own or none: ' + JSON.stringify(a.work));
+  out.journal = J();
 
   /* 2 – a copy the editor has changed since: asked first */
   const b = C.newChat(), lb = [];
