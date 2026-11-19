@@ -324,3 +324,41 @@ Local: free to run. Time per hour of footage could not be computed – no publis
 
 ## What was built (filled in by the build)
 
+Built in the `claude/n-understand` branch (19 Nov 2026). The user's rule of 19 Nov 2026 applies: sound (with stills) may go
+to a cloud model only through the per-project "Cloud" choice, off by default; a project set to "nothing leaves this
+computer" sends nothing.
+
+### The routes that exist in code
+
+| Route | What it is | Download | Verified here |
+|---|---|---|---|
+| **Listening, on this computer – built in** | `US.dsp.soundEvents` (js/core/dsp.js): music, applause/cheering, silence, wind, steady noise, a raised voice, and a sound-quality label, measured from 16 kHz mono sound. No model. | none | Unit-tested on made-up sound. Not tuned on real footage beyond what `US.dsp.classify` (Song Splitter) already was. It cannot name laughter. |
+| **Vision, on this computer – the helper** | llama.cpp `llama-server` **b12359** (MIT), started hidden on 127.0.0.1 at low priority, with one of: SmolVLM2 500M, SmolVLM2 2.2B, Gemma 4 E2B (recommended), Gemma 4 E4B – all Apache-2.0, GGUF + mmproj from the `ggml-org` pages on Hugging Face. Stills (512 px, about one per 10 s, at most 24 a clip) go to its `/v1/chat/completions` as `image_url` parts with a JSON schema. | helper 13–25 MB; models 0.55 / 1.7 / 3.4 / 5.2 GB; SHA-256 checked, resumable, only on a button press | **Not run**: no model or helper was downloaded in the worktree. Unit tests use a stand-in server. To check: Settings › Vision & listening models › Download SmolVLM2 500M, then `node dev/e2e/run.js understand`. |
+| **Vision, on this computer – your own model** | A vision model already in Ollama / LM Studio (Settings › AI › Footage), through the existing `US.ai.json` local route. | by Ollama | The request path is the one "Describe the footage" already uses. |
+| **Listening, on this computer – a model (experimental)** | Gemma 4 E2B/E4B through the helper, `input_audio` WAV pieces of 30 s (at most 20 a clip, spread evenly). Google's card claims speech only; whether it names laughter/applause is unproven. | same files as vision | **Not run.** |
+| **Cloud – Gemini** | `US.ai.media` (js/core/ai.js): stills + 16 kHz mono WAV pieces (120 s) as `inlineData`, `mediaResolution` low, JSON back. Refused unless "Cloud" is chosen for the project; refused for a project kept on this computer; every request in What was sent to AI with its length and size. | none | Guards and the request record are unit-tested. **No real request was made** (no cost allowed). |
+| **Cloud – Claude** | Stills only (Claude takes no sound), same function. | none | As above. |
+
+Not built, and why:
+- **Whole video files to Gemini** (Files API upload). Source clips are far too big to send as they are, and making a small
+  copy needs ffmpeg or Media Encoder. Gemini samples video at 1 frame a second anyway; stills + sound carries the same
+  information for less. The estimates in Settings are for stills + sound.
+- **Embedding search (CLIP / SigLIP) and a classic audio tagger (YAMNet / AST / CLAP)**. They need onnxruntime (web or
+  node) shipped or downloaded, and neither is confirmed to run in CEP's Chromium 99 / Node 17. Search is over the words
+  of the records instead (stems and a few synonyms). A tagger is the right next step for laughter on this computer.
+- **LFM3-Omni-2B** (the one small model documented to describe non-speech sound): its licence wasn't read, so it is not
+  in the list.
+- **Windows GPU build of the helper** (Vulkan): the CPU build is listed; the Vulkan one needs testing on the PC first.
+
+### Estimates shown in Settings
+- Local listening: measured with "Measure this computer" (20 s of test sound), else assumed 40× real time.
+- Local looking: measured once the model has run (a running average per still), else the model's stated range
+  (e.g. 3–15 s a still for Gemma 4 E2B) – shown as "an estimate, not measured here".
+- Cloud: stills × 258–280 tokens + sound × 25–32 tokens a second + 120–260 tokens of answer a minute, at the paid
+  price of the chosen model, shown as a range with the date of the prices (`US.ai.MEDIA_PRICES`). Gemini's ledger entry
+  stays at $0 as for every Gemini request (free allowance); the paid-rate figure is kept beside it.
+
+### Model updates
+`models.json` in the repository root is the list "Check for updates" reads (same content as the list built in; a test
+keeps them equal). A newer list is only believed when every file is HTTPS from huggingface.co / github.com with a size
+and SHA-256. "Update models automatically" is off by default.

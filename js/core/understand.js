@@ -363,8 +363,8 @@
    * Do what a clip still needs (or part of it: `keepGoing()` false stops between requests and the rest is picked up
    * next time). -> {rec, did: {vision, listening, listenModel}, more: true when it stopped early, usd, skipped}
    */
-  async function analyse(item, { job = null, heavy = false, keepGoing = () => true, force = false, only = null } = {}) {
-    const P = plan();
+  async function analyse(item, { job = null, heavy = false, keepGoing = () => true, force = false, only = null, plan: given = null } = {}) {
+    const P = given || plan();   // given: who looks and listens, when the caller has decided (tests)
     let rec = force ? null : peek(item.path);
     if (rec && rec.fromLook) rec = null;
     rec = rec ? Object.assign({}, rec) : { v: VERSION, shots: [], events: [], sounds: [], duration: item.duration || 0 };

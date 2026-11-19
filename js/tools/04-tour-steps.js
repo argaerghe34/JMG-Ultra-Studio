@@ -98,7 +98,7 @@
     ],
     selects: [
       { target: 'text:What counts as usable', title: 'Selects', text: 'Grades any footage Best / Good / OK and leaves out only what’s technically unusable – blurry, far too dark or shaky.' },
-      { target: 'text:Find selects', title: 'Find selects', text: 'Then sort them into bins by type, mark the best and make a selects sequence.' }
+      { target: 'text:Find selects', title: 'Find selects', text: 'Then sort them into bins by type, mark the best and make a selects sequence.', tip: 'Once the footage has been looked at and listened to (Settings › Vision & listening models), each select also says what’s in it and how it sounds, and you can search them: “the market”, “people laughing”.' }
     ],
     subclips: [
       { target: 'text:Make subclips', title: 'Subclip Maker', text: 'Every clip in a bin (its In to Out) or on the timeline (the part used) becomes a subclip – handy for browsing long clips.' }

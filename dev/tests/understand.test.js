@@ -376,3 +376,17 @@ test('Selects reads the understanding: what’s in a select, a shot size for sho
   assert.deepStrictEqual(US.selects.searchSelects([a, b], '', [rec]), [a, b]);
   assert.deepStrictEqual(US.selects.searchSelects([a, b], 'helicopter', [rec]), []);
 });
+
+test('Settings › Vision & listening models in jsdom: both routes with pros, cons and this project’s estimate; sizes on the Download buttons; Cloud asks first', () => {
+  const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'understand-ui.js')], { encoding: 'utf8', timeout: 120000 });
+  const last = (r.stdout || '').trim().split('\n').pop();
+  let o; try { o = JSON.parse(last); } catch (e) { throw new Error('understand-ui.js gave no result:\n' + (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-1500)); }
+  assert.deepStrictEqual(o.errors, []);
+  assert.deepStrictEqual([o.title, o.section, o.routes], ['Vision & listening models', 'understand', ['On this computer', 'Cloud', 'Off']]);
+  assert.ok(o.prosCons.pros >= 6 && o.prosCons.cons >= 6, 'pros and cons for both');
+  assert.deepStrictEqual(o.estimate, { footage: true, local: true, cloud: true, assumed: true }, 'the estimate is for this project, and says what is assumed');
+  assert.ok(o.downloads.length === 4 && o.downloads.every(t => /\d (MB|GB)/.test(t)) && o.deleteButtons === 0, 'nothing downloaded; each size is on its button: ' + o.downloads);
+  assert.ok(o.kept && o.autoUpdate && o.status && o.statusText);
+  assert.ok(o.confirm && /see and hear/.test(o.confirm.title) && o.confirm.says && /Keep it on this computer/.test(o.confirm.buttons[0]) && /Yes – up to about/.test(o.confirm.buttons[1]), JSON.stringify(o.confirm));
+  assert.deepStrictEqual(o.afterNo, { route: 'local', mediaOn: false }, 'cloud stays off on “no”');
+});
