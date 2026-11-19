@@ -53,13 +53,15 @@ Search everything with **⌘K** (Ctrl+K on Windows).
 
 ## 5. What stays on your computer
 
-- AI gets text only – your request and transcript lines – sent straight to the provider you choose.
-- A few small stills go to Claude or Gemini only if you switch that on for a project (**Settings › AI › Footage**).
-- Sound or video goes to a cloud model only if you choose **Cloud** for that project in **Vision & listening models**. It's off until you pick it, and you see the cost first.
-- A project set to **nothing leaves this computer** sends nothing at all. Models on your own computer may always look and listen.
-- **What was sent to AI** (in Settings) shows the exact text of every request.
+Your footage stays on your computer unless you choose otherwise, project by project:
 
-Your footage itself is never uploaded, and tools that change a sequence always work on a copy.
+- AI gets text – your request and transcript lines – sent straight to the AI you choose.
+- Stills – a few small ones – only if you switch them on for a project in **Settings › AI (optional) › Footage – what the AI may see**.
+- Sound or video goes to a cloud model only if you pick **Cloud** for that project in **Settings › Vision & listening models**. It's off until you pick it, and you see the cost first.
+- A project set to **nothing leaves this computer** sends nothing off this computer – not even text. Models on your own computer may always look and listen.
+- **Settings › What was sent to AI** shows the exact text of every request, and any stills or sound that went (with their size).
+
+Tools that change a sequence always work on a copy.
 
 ## 6. Getting help
 
