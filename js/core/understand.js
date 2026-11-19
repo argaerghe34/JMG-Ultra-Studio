@@ -63,7 +63,7 @@
   function visionRequest(item, stills) {
     const user = [`Clip “${item.name || 'clip'}”, ${fmtT(item.duration)} long. ${stills.length === 1 ? 'One still' : stills.length + ' stills'} follow.`];
     for (const s of stills) { user.push(`Still at ${Math.round(s.t * 10) / 10} seconds:`); user.push({ image: { data: s.data, mime: 'image/jpeg', w: s.w, h: s.h, note: `${item.name || 'clip'} at ${fmtT(s.t)}` } }); }
-    return { system: VSYSTEM, user, schema: VSCHEMA, maxTokens: 300 + stills.length * 220, feature: 'Seeing footage' };
+    return { system: VSYSTEM, user, schema: VSCHEMA, maxTokens: 700 + stills.length * 300, feature: 'Seeing footage' };
   }
   const tagsOf = x => Array.from(new Set((Array.isArray(x) ? x : []).map(t => String(t).toLowerCase().trim()).filter(t => t && t.length <= 30))).slice(0, 10);
   /**
@@ -107,7 +107,7 @@
     '"sounds": each thing heard that isn’t plain talking – laughter, applause, cheering, music, singing, a crowd, wind, traffic, other noise, a long silence, a raised voice, crying – with "from"/"to" in seconds from the start of this piece and "what" in a few words (“two people laugh”, “soft piano”). An empty list when there is only plain talk. ' +
     '"tone": how the speaking sounds, in a few words (“warm and amused”, “hesitant, close to tears”, “flat”), or "" when nobody speaks. Only what you can hear – never guess. British English.';
   function listenRequest(item, chunk, wavBase64, bytes) {
-    return { system: ASYSTEM, user: [`A piece of the sound of “${item.name || 'clip'}”, ${Math.round(chunk.end - chunk.start)} seconds long (from ${fmtT(chunk.start)} in the clip).`, { media: { kind: 'audio', data: wavBase64, mime: 'audio/wav', bytes, seconds: chunk.end - chunk.start, note: `${item.name || 'clip'} ${fmtT(chunk.start)}–${fmtT(chunk.end)}` } }], schema: ASCHEMA, maxTokens: 500, feature: 'Hearing footage' };
+    return { system: ASYSTEM, user: [`A piece of the sound of “${item.name || 'clip'}”, ${Math.round(chunk.end - chunk.start)} seconds long (from ${fmtT(chunk.start)} in the clip).`, { media: { kind: 'audio', data: wavBase64, mime: 'audio/wav', bytes, seconds: chunk.end - chunk.start, note: `${item.name || 'clip'} ${fmtT(chunk.start)}–${fmtT(chunk.end)}` } }], schema: ASCHEMA, maxTokens: 900, feature: 'Hearing footage' };
   }
   function tidyListen(r, chunk, by) {
     const len = chunk.end - chunk.start;
@@ -674,7 +674,7 @@
         const req = visionRequest(item, g.stills);
         req.system = 'You look at small stills of a moment of ONE clip, in time order, and answer a video editor’s question from what they show – a look, a gesture, who is in frame, what happens. Be specific and brief. Say when the stills don’t show enough to tell. Never guess names or places that aren’t visible. British English.';
         req.user = req.user.concat([`What was heard and seen around then, from earlier listening: ${d ? d.text : 'nothing noted'}`, `The editor asks: “${String(o.question).trim()}”`]);
-        req.schema = ASK_SCHEMA; req.maxTokens = 600; req.feature = 'Watching footage';
+        req.schema = ASK_SCHEMA; req.maxTokens = 1000; req.feature = 'Watching footage';
         try { const r = await routes.vision(pl, req, { job, onUsage: u => { out.usd += u.usd || 0; out.paidUsd += u.paidUsd || 0; } }); answer = clip(r && r.answer, 800); }
         catch (e) { if (e && e.code === 'CANCELLED') throw e; answer = ''; out.note = (US.errors && US.errors.explain(e).title) || String(e && e.message || e); }
       }

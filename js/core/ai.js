@@ -552,7 +552,7 @@
     if (r.status !== 200) throw new US.UserError('AI_FAILED', { title: 'The model couldn’t be removed.', action: 'Remove it in Ollama itself (ollama rm …).', detail: `${r.status}: ${String(r.text || '').slice(0, 200)}` });
     return true;
   }
-  async function local({ system, user, turns, schema, maxTokens = 16000, feature, as, onUsage, model: wanted, url, temperature = 0.2 }) {
+  async function local({ system, user, turns, schema, maxTokens = 16000, feature, as, onUsage, model: wanted, url, temperature = 0.2, noThinking = false }) {
     // url: another address on this computer (Ultra Studio's own helper for seeing and hearing) – still localhost only
     const model = wanted || localModel();
     if (!model) throw new US.UserError('AI_KEY', { title: 'Choose a local model first.', action: 'Settings › AI › On this computer: pick the model (Ollama or LM Studio must be running).' });
@@ -561,7 +561,9 @@
     const stills = imagesOf(user).concat(mediaOf(user));
     const content = stills.length ? user.map(b => (isImage(b) ? { type: 'image_url', image_url: { url: `data:${b.image.mime || 'image/jpeg'};base64,${b.image.data}` } } : isMedia(b) ? { type: 'input_audio', input_audio: { data: b.media.data, format: /mp3|mpeg/.test(b.media.mime || '') ? 'mp3' : 'wav' } } : { type: 'text', text: typeof b === 'string' ? b : b.text || '' })).filter(x => x.image_url || x.input_audio || x.text) : blocksText(user);
     const messages = [{ role: 'system', content: sys }, { role: 'user', content }].concat((turns || []).flatMap(t => [{ role: 'assistant', content: String(t.assistant) }, { role: 'user', content: String(t.user) }]));
-    const body = Object.assign({ model, messages, max_tokens: Math.min(maxTokens, 16000), temperature, stream: false }, schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: false } } } : {});
+    // noThinking (Ultra Studio's helper): a model that thinks before answering (Gemma 4) spends the whole answer on its
+    // thoughts and leaves the answer empty – llama-server switches that off with these two (other servers ignore them)
+    const body = Object.assign({ model, messages, max_tokens: Math.min(maxTokens, 16000), temperature, stream: false }, noThinking ? { reasoning_effort: 'none', chat_template_kwargs: { enable_thinking: false } } : {}, schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: false } } } : {});
     const logged = sentLog.begin({ provider: 'local', model, feature, req: { system, user, turns, schema }, est: { usd: 0, inputTokens: Math.ceil(sys.length / 3.6) }, as });
     let r;
     try { r = await httpLocal('POST', '/v1/chat/completions', body, 600000, url); }
@@ -574,7 +576,15 @@
     sentLog.end(logged, { ok: true, model, usd: 0, tokensIn: u.prompt_tokens || 0, tokensOut: u.completion_tokens || 0 });
     record('local:' + model, { input_tokens: u.prompt_tokens || 0, output_tokens: u.completion_tokens || 0 }, feature, 0, null);   // no key: nothing to bill
     if (onUsage) { try { onUsage({ provider: 'local', model, name: `${model} (on this computer)`, usd: 0, tokensIn: u.prompt_tokens || 0, tokensOut: u.completion_tokens || 0 }); } catch (e) { /* the caller's sums */ } }
-    if (!text) throw new US.UserError('AI_FAILED', { title: 'The local AI sent back an empty answer.', action: 'Try again, or a larger model.' });
+    if (!text) {
+      // thoughts are never taken for the answer, even when they hold something that looks like one
+      const thought = !!(ch.message && ch.message.reasoning_content), cut = ch.finish_reason === 'length';
+      const e = new US.UserError('AI_FAILED', cut
+        ? { title: 'The model on this computer ran out of room before answering.', action: thought ? 'It spent its answer thinking. Try again; if it keeps happening, choose another model in Settings.' : 'Try a smaller request, or a larger model.', detail: `finish_reason length after ${u.completion_tokens || '?'} tokens${thought ? ' (all of it reasoning_content)' : ''}; max_tokens ${body.max_tokens}` }
+        : { title: 'The local AI sent back an empty answer.', action: 'Try again, or a larger model.', detail: `finish_reason ${ch.finish_reason || '?'}${thought ? '; only reasoning_content came back' : ''}` });
+      e.emptyAnswer = true; e.thought = thought; e.cut = cut;
+      throw e;
+    }
     return { text };
   }
   /** "Nothing leaves this computer" for the open project: only the local model (or no AI) is used for it. */
@@ -682,7 +692,15 @@
   }
   /** A model on this computer at its own address (Ultra Studio's helper): stills and sound, JSON back. Nothing leaves. */
   async function localAt({ url, model, system, user, schema, maxTokens = 1500, feature, as, onUsage, temperature }) {
-    const r = await local({ system, user, schema, maxTokens, feature, as, onUsage, model: model || 'local', url, temperature });
+    const ask = max => local({ system, user, schema, maxTokens: max, feature, as, onUsage, model: model || 'local', url, temperature, noThinking: true });
+    let r;
+    try { r = await ask(maxTokens); }
+    catch (e) {
+      // an empty answer (the model thought, or ran out of room): once more with thinking off and three times the room
+      if (!(e && e.emptyAnswer)) throw e;
+      US.log('info', `The model on this computer gave no answer (${e.cut ? 'ran out of room' : 'empty'}${e.thought ? ', it was thinking' : ''}) – asking once more with more room`, e.detail || '', 'understand');
+      r = await ask(Math.min(16000, maxTokens * 3));
+    }
     return parseJSON(r.text);
   }
 

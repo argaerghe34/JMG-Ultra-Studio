@@ -439,3 +439,36 @@ test('a clip with no sound track is listened to once and noted as such – not l
     release();
   } finally { U.routes.sound = keep; US.ctx = CTX0; }
 });
+
+test('a model that thinks first (Gemma 4): thinking is switched off for the helper; thoughts are never taken for the answer; one more try with more room; “ran out of room” said plainly', async () => {
+  const seen = [];
+  let mode = 'think-then-answer';
+  const s = await new Promise(res => { const x = http.createServer((req, rs) => { let b = ''; req.on('data', c => { b += c; }); req.on('end', () => {
+    const body = JSON.parse(b); seen.push(body); rs.setHeader('content-type', 'application/json');
+    // the first try: all thoughts, no answer, cut off – as Gemma 4 E2B did in Premiere
+    const thinking = { choices: [{ finish_reason: 'length', message: { content: '', reasoning_content: 'The stills show… {"shots":[{"from":0,"to":9,"description":"WRONG – from the thoughts"}]}' } }], usage: { completion_tokens: body.max_tokens } };
+    const answer = { choices: [{ finish_reason: 'stop', message: { content: '{"shots":[],"events":[]}', reasoning_content: '' } }] };
+    rs.end(JSON.stringify(mode === 'always-thinks' || seen.length === 1 ? thinking : answer));
+  }); }); x.listen(0, '127.0.0.1', () => res(x)); });
+  const url = `http://127.0.0.1:${s.address().port}`;
+  try {
+    const r = await US.ai.localAt({ url, model: 'gemma-4-e2b', system: 's', user: ['Still:', { image: { data: 'QUJD', w: 8, h: 8 } }], schema: { type: 'object' }, maxTokens: 1000, feature: 'Seeing footage' });
+    assert.deepStrictEqual(r, { shots: [], events: [] }, 'the answer, never the thoughts');
+    assert.strictEqual(seen.length, 2, 'asked once more');
+    assert.ok(seen.every(b => b.reasoning_effort === 'none' && b.chat_template_kwargs.enable_thinking === false), 'thinking is switched off in every request to the helper');
+    assert.deepStrictEqual(seen.map(b => b.max_tokens), [1000, 3000], 'with three times the room the second time');
+    // it still only thinks: said plainly, with what happened in the details – and not asked a third time
+    mode = 'always-thinks'; seen.length = 0;
+    await assert.rejects(() => US.ai.localAt({ url, model: 'gemma-4-e2b', system: 's', user: 'x', maxTokens: 500 }), e => /ran out of room before answering/.test(e.title) && /thinking/.test(e.action) && /reasoning_content/.test(e.detail));
+    assert.strictEqual(seen.length, 2);
+    // the helper itself is started with thinking off, and vision requests have room to answer
+    const T = tinyCatalogue(), spawned = [];
+    try {
+      const spawn = (exe, args) => { const p = new EventEmitter(); p.pid = 0; p.stderr = new EventEmitter(); const srv = http.createServer((q, rs) => { rs.writeHead(200); rs.end('{}'); }); srv.listen(+args[args.indexOf('--port') + 1], '127.0.0.1'); p.kill = () => { srv.close(); p.emit('exit'); }; spawned.push(args); return p; };
+      await M.start('tiny', { spawn });
+      const a = spawned[0];
+      assert.deepStrictEqual([a[a.indexOf('--reasoning') + 1], a[a.indexOf('--reasoning-budget') + 1]], ['off', '0']);
+    } finally { T.undo(); }
+    assert.ok(P.visionRequest({ name: 'c', duration: 30 }, [STILL(1), STILL(2), STILL(3), STILL(4)]).maxTokens >= 1500);
+  } finally { s.close(); }
+});

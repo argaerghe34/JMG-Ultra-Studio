@@ -236,7 +236,10 @@
     helper.model = id;
     helper.starting = (async () => {
       const port = await freePort(), url = `http://127.0.0.1:${port}`;
-      const args = ['-m', fileOf(m, 'model'), '--mmproj', fileOf(m, 'mmproj'), '--host', '127.0.0.1', '--port', String(port), '--no-webui', '--ctx-size', '8192', '--threads', String(Math.max(2, Math.floor(os.cpus().length / 2)))];
+      const args = ['-m', fileOf(m, 'model'), '--mmproj', fileOf(m, 'mmproj'), '--host', '127.0.0.1', '--port', String(port), '--no-webui', '--ctx-size', '8192', '--threads', String(Math.max(2, Math.floor(os.cpus().length / 2))),
+        // no thinking out loud: Gemma 4 otherwise spends its whole answer on reasoning and the answer comes back empty
+        // (seen in Premiere, 19 Nov 2026). Both flags are in b12359's server README.
+        '--reasoning', 'off', '--reasoning-budget', '0'];
       let err = '', gone = false;
       const p = spawn(exePath(), args, { cwd: path.dirname(exePath()), windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
       helper.proc = p;
