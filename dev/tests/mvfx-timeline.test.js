@@ -63,6 +63,25 @@ test('Premiere hands back a clip without its Source Text (seen in 27.0): the wor
   assert.strictEqual(JSON.parse(of(tracks[1].clips[0], 'Text', 'Source Text').value).mTextParam.mStyleSheet.mText, 'Mira Haddad');
 });
 
+test('Premiere 27.0: Source Text reads back as one character, so the words are written from scratch – the routes in order, or the one asked for; each try logged', () => {
+  const { U, seq, tracks } = world(), real = seq.importMGT;
+  let stored = '\u017c';   // what 27.0 reads back: one character of a binary value
+  const blob = () => { const p = prop('Source Text', ''); p.getValue = () => stored.charAt(0); p.setValue = v => { stored = v; return true; }; return p; };
+  seq.importMGT = function (f, ticks, t) { const s = Number(ticks) / TICKS, c = clip(s, s + 5); c.components.push(comp('Text', [blob(), prop('Position', [0.5, 0.53])])); tracks[t].clips.push(c); return c; };
+  const L = [{ kind: 'text', text: 'Mira Haddad', font: 'Georgia', size: 63, colour: '#c9a96a', x: 345, y: 826, anim: { type: 'fade' } }];
+  const r = U.fn.mvfxApply({ seqId: 's1', start: 1, seconds: 5, layers: L });
+  assert.ok(r.text[0].words && r.text[0].route === 'json', JSON.stringify(r.text[0]));
+  const o = JSON.parse(stored).mTextParam.mStyleSheet;
+  assert.strictEqual(o.mText, 'Mira Haddad'); assert.strictEqual(o.mFontName.mParamValues[0][1], 'Georgia'); assert.strictEqual(o.mFontSize.mParamValues[0][1], 63); assert.strictEqual(o.mFillColor.mParamValues[0][1], 0xc9a96a);
+  assert.ok(r.log.some(x => /written from scratch \(was \\u017c\): json → \{/.test(x)), r.log.join(' | '));
+  // one route asked for: 4-byte length first, then the JSON
+  const r2 = U.fn.mvfxApply({ seqId: 's1', start: 20, seconds: 5, layers: L, textRoute: 'len32-bytes' });
+  const n = stored.length - 4;
+  assert.strictEqual(r2.text[0].route, 'len32-bytes'); assert.deepStrictEqual([0, 1, 2, 3].map(i => stored.charCodeAt(i)), [n & 255, (n >> 8) & 255, 0, 0]); assert.strictEqual(stored.slice(4, 5), '{');
+  U.fn.mvfxApply({ seqId: 's1', start: 40, seconds: 5, layers: L, textRoute: 'len32-utf16' });
+  assert.deepStrictEqual([stored.charCodeAt(0), stored.charCodeAt(1), stored.charAt(2)], [stored.length - 2, 0, '{']);
+});
+
 test('a second title over the same moment takes the next free mVFX tracks; one later is back on the first', () => {
   const { U } = world(), L = [{ kind: 'text', text: 'A', x: 960, y: 540, anim: { type: 'fade' } }, { kind: 'text', text: 'B', x: 960, y: 600, anim: { type: 'fade' } }];
   same(U.fn.mvfxApply({ seqId: 's1', start: 1, seconds: 5, layers: L }).tracks, [1, 2]);
