@@ -52,23 +52,34 @@ if (RES) {
 }
 
 // Premiere
+US.settings.set('mvfx.textDrawn', undefined);   // try the text layers afresh in this Premiere
 const lt = await M.apply(P.byId('hairline'), v(P.byId('hairline'), { name: 'Mira Haddad', role: 'Nurse' }), { at: 1 }, job);
 notes.push('hairline: ' + lt.summary);
+let info;
+if (lt.result.drawnTitle) {
+  // this Premiere won't let a script set a text layer's words (27.0): the text layers were taken away again and the
+  // title drawn whole – only the drawn clip is at 1 s, nothing of the template's "Your Title Here"
+  notes.push('PLAIN TEXT IS DRAWN IN THIS PREMIERE: ' + JSON.stringify(lt.result.textLog || []) + ' · removed ' + lt.result.removed);
+  info = await read();
+  const at1 = info.video.flatMap(t => t.clips.map(c => Object.assign({ track: t.name }, c))).filter(c => Math.abs(c.start - 1) < 0.05 && /^mVFX/i.test(c.track));
+  T.assert(at1.length === 1 && /\.png$/i.test(at1[0].path || '') && Math.abs(at1[0].end - 6) < 0.1 && /words can’t be edited in Properties/.test(lt.summary), 'only the drawn title at 1–6 s, and said: ' + JSON.stringify(at1) + ' · ' + lt.summary);
+} else {
 T.assert(lt.result.placed === 3 && lt.result.tracks.length === 3, 'a rule and two text layers: ' + JSON.stringify(lt.result));
 notes.push('text JSON keys: ' + JSON.stringify(lt.result.text.map(t => [t.words, t.font, t.size, t.colour, t.keys.slice(0, 12)])));
 const words = await US.host.call('renderRanges', { seqId: seq.id, track: 'mVFX 2', kinds: 'text' });
 T.assert(words.ranges.length === 1 && words.ranges[0].name === 'Mira Haddad' && Math.abs(words.ranges[0].start - 1) < 0.05 && Math.abs(words.ranges[0].end - 6) < 0.1, 'the name read back from the text layer: ' + JSON.stringify(words.ranges));
 const role = await US.host.call('renderRanges', { seqId: seq.id, track: 'mVFX 3', kinds: 'text' });
 T.assert(role.ranges.length === 1 && role.ranges[0].name === 'NURSE', 'the role in capitals: ' + JSON.stringify(role.ranges));
-let info = await read();
+info = await read();
 const art = info.video.find(t => /^mVFX 1$/i.test(t.name));
 T.assert(art && art.clips.length === 1 && Math.abs(art.clips[0].start - 1) < 0.05 && /\.png$/i.test(art.clips[0].path || ''), 'the rule as a PNG on mVFX 1: ' + JSON.stringify(art && art.clips));
+}
 // …and the title is really IN the picture (it used to be placed thousands of pixels outside it): the same title again
 // past the end of the clips, where the frame is otherwise black – what Premiere shows there against the panel's own drawing
 {
   const path = require('path'), sz = await US.host.call('sequenceInfo', { seqId: seq.id, clips: false }), W = sz.width, H = sz.height, hair = P.byId('hairline'), hv = v(hair, { name: 'Mira Haddad', role: 'Nurse' });
   const far = await M.apply(hair, hv, { at: 14 }, job);
-  T.assert(far.result.placed === 3, 'the title again at 14 s: ' + far.summary);
+  T.assert(far.result.placed === 3 || far.result.drawnTitle, 'the title again at 14 s: ' + far.summary);
   const file = await US.host.call('exportFrame', { seqId: seq.id, seconds: 14 + 3, outBase: path.join(M.artDir(), 'e2e-plain-title') });
   const c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d', { willReadFrequently: true });
   const box = { x: 0, y: Math.round(H * 0.66), w: Math.round(W * 0.7), h: Math.round(H * 0.3) };   // where Hairline sits
@@ -81,7 +92,7 @@ T.assert(art && art.clips.length === 1 && Math.abs(art.clips[0].start - 1) < 0.0
   T.assert(shown.n > mine.n * 0.3, `the title shows in Premiere’s picture where a lower third sits: ${shown.n} bright pixels against the panel’s ${mine.n} (${file})`);
   T.assert(Math.abs(shown.x - mine.x) < 0.06 && Math.abs(shown.y - mine.y) < 0.06, `and it sits where the preview shows it: ${JSON.stringify(shown)} against ${JSON.stringify(mine)}`);
   const sel = await US.host.call('renderRanges', { seqId: seq.id, track: 'mVFX 2', kinds: 'text' });
-  T.assert(sel.ranges.some(r => r.name === 'Mira Haddad' && Math.abs(r.start - 14) < 0.05), 'its words read back at 14 s: ' + JSON.stringify(sel.ranges));
+  if (!far.result.drawnTitle) T.assert(sel.ranges.some(r => r.name === 'Mira Haddad' && Math.abs(r.start - 14) < 0.05), 'its words read back at 14 s: ' + JSON.stringify(sel.ranges));
 }
 // an overlay
 const g = await M.apply(P.byId('grain'), v(P.byId('grain')), { at: 2 }, job);
