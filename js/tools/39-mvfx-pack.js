@@ -464,10 +464,52 @@
       if (L.type !== 'text') return;
       const p = textPlacement(L, values, W, H, measure);
       if (!p.words.trim()) return;
-      out.push({ kind: 'text', text: p.words, family: fontFor(L, values), font: psName(fontFor(L, values), !!L.bold), bold: !!L.bold, size: p.px, colour: (values.colours || DOC)[L.colour] || DOC[L.colour], x: p.cx, y: p.cy, width: p.width, align: L.align || 'left', tracking: L.tracking || 0, anim: anim(L.anim, i), name: p.words.split('\n')[0].slice(0, 40) });
+      out.push({ kind: 'text', fb: sourceTextFB({ text: p.words, font: psName(fontFor(L, values), !!L.bold), size: p.px }), text: p.words, family: fontFor(L, values), font: psName(fontFor(L, values), !!L.bold), bold: !!L.bold, size: p.px, colour: (values.colours || DOC)[L.colour] || DOC[L.colour], x: p.cx, y: p.cy, width: p.width, align: L.align || 'left', tracking: L.tracking || 0, anim: anim(L.anim, i), name: p.words.split('\n')[0].slice(0, 40) });
     });
     return out;
   }
+  /* ---------- Premiere 27's Source Text, as bytes (for jsx/tools/mvfx.jsx › writeBlob's "fb" routes) ---------- */
+  // What Premiere 27.0 keeps for a text layer's Source Text, read from a saved test project (19 Nov 2026): a u64
+  // little-endian length, the magic 0x11223344, then a FlatBuffer (its length is the u64). This one is Basic Title.mogrt
+  // as 27.0 stored it: "Your Title Here", MyriadPro-Regular, 100. Its schema isn't published; what's known (file
+  // offsets): the run's text is a string pointed to from 0x110, the font name from the vector element at 0xe0, the
+  // size is a float at 0xac. The fill colour isn't stored (white is the default), so it can't be changed this way.
+  const FB_BASIC_TITLE = 'fAEAAAAAAABEMyIRFAAAAAAADgAKAAQACQAAAAAACAAOAAAAZAAAAAEBXgAwABQAEAAAAAAALAAAAAAAAAAAAAAAKAAAACQAAAAgAAAAHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAAAACAAAAAAAGwAHAF4AAAAAAAABKAAAAAAAAAFEAAAAYAAAAAAAAAAAAAAAAAAgQQAAyEIkAAAAAgAAAEz///9Q////BAAGAAQAAAAAAAoACAAFAAYABwAKAAAAAAAAAAEAAAAEAAAAEQAAAE15cmlhZFByby1SZWd1bGFyAAAAAQAAAAwAAAAIAA4ABAAIAAgAAABkAAAAPAAAAAAANgAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAIAAQANgAAAAIAAAAIAAAACAAAAPT////4/////P///wQABAAEAAAADwAAAFlvdXIgVGl0bGUgSGVyZQA=';
+  const FB = { text: 0x110, font: 0xe0, size: 0xac };
+  const b64bytes = s => (typeof Buffer !== 'undefined' ? Uint8Array.from(Buffer.from(s, 'base64')) : Uint8Array.from(atob(s), c => c.charCodeAt(0)));
+  const utf8 = s => (typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(s) : Uint8Array.from(Buffer.from(String(s), 'utf8')));
+  /**
+   * A Source Text value in 27.0's own format with these words, font (PostScript name) and size (px): the template with
+   * new strings added at its end and its pointers moved to them (a FlatBuffer offset points forwards, so that's
+   * allowed), the size written in place, the length at the front updated, padded to a multiple of 4. L: {text, font,
+   * size}. -> hex string
+   */
+  function sourceTextFB(L) {
+    const t = b64bytes(FB_BASIC_TITLE), parts = [t], dv0 = new DataView(t.buffer, t.byteOffset, t.byteLength);
+    // the template is what we think it is
+    if (dv0.getUint32(8, true) !== 0x11223344 || dv0.getUint32(FB.text, true) + FB.text !== 0x174 || dv0.getUint32(FB.font, true) + FB.font !== 0xe4) throw new Error('Source Text template changed');
+    let size = t.length;
+    const add = (field, s) => {   // a FlatBuffer string (u32 length, UTF-8, NUL, padding) at the end; field points at it
+      const b = utf8(String(s)), at = size, len = 4 + b.length + 1, pad = (4 - (len % 4)) % 4, out = new Uint8Array(len + pad);
+      new DataView(out.buffer).setUint32(0, b.length, true); out.set(b, 4);
+      parts.push(out); size += out.length;
+      dv0.setUint32(field, at - field, true);
+    };
+    add(FB.text, L.text == null ? '' : L.text);
+    if (L.font) add(FB.font, L.font);
+    if (L.size) dv0.setFloat32(FB.size, Number(L.size), true);
+    const all = new Uint8Array(size); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
+    const dv = new DataView(all.buffer);
+    dv.setUint32(0, size - 12, true); dv.setUint32(4, 0, true);   // the FlatBuffer's length (after the length and the magic)
+    return Array.from(all, x => (x < 16 ? '0' : '') + x.toString(16)).join('');
+  }
+  /** Read back what sourceTextFB made (for tests and the probe): {text, font, size} */
+  function readSourceTextFB(hex) {
+    const b = Uint8Array.from(hex.match(/../g).map(x => parseInt(x, 16))), dv = new DataView(b.buffer);
+    const str = field => { const at = field + dv.getUint32(field, true), n = dv.getUint32(at, true); return new TextDecoder().decode(b.slice(at + 4, at + 4 + n)); };
+    return { text: str(FB.text), font: str(FB.font), size: dv.getFloat32(FB.size, true), length: Number(dv.getUint32(0, true)), magic: dv.getUint32(8, true) };
+  }
+
   /** Keyframes for a movement across a clip of `seconds` at `fps`: [{at (s), scale, x, y}] – x, y as fractions of the frame. */
   function moveKeys(preset, seconds, fps = 25) {
     const m = preset.move || {}, len = m.seconds && m.seconds < seconds ? m.seconds : seconds, keys = [];
@@ -490,5 +532,5 @@
   /** A short file-safe tag of the values, so the same picture is painted once. */
   function hashOf(obj) { let h = 2166136261; for (const ch of JSON.stringify(obj)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h.toString(36); }
 
-  US.mvfxPack = { PRESETS, GROUPS, FAMILIES, ROLES, PREFER, DOC, FILM, byId, defaults, wordsOf, available, psName, paint, paintArt, paintDustFilm, filmPlan, premiereLayers, textPlacement, moveKeys, readiness, hashOf, rng, ease, wrap, cssFont, hexToRgb, fontFor };
+  US.mvfxPack = { PRESETS, GROUPS, FAMILIES, ROLES, PREFER, DOC, FILM, byId, defaults, wordsOf, available, psName, paint, paintArt, paintDustFilm, filmPlan, premiereLayers, textPlacement, moveKeys, readiness, hashOf, rng, ease, wrap, cssFont, hexToRgb, fontFor, sourceTextFB, readSourceTextFB, FB_BASIC_TITLE };
 })();

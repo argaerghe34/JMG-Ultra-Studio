@@ -276,7 +276,7 @@
       len = art.end - art.start;
     }
     job && job.set({ who: 'premiere', msg: 'Adding the text layers' }); job && job.progress(0.9);
-    const layers = texts.map(t => ({ kind: 'text', text: t.text, family: t.family, font: P().psName(t.family, t.bold), bold: t.bold, size: t.px, colour: t.colour, x: t.cx, y: t.cy, width: t.width, align: 'centre', tracking: t.tracking, anim: t.anim, name: t.text.split('\n')[0].slice(0, 40) }));
+    const layers = texts.map(t => ({ kind: 'text', fb: P().sourceTextFB({ text: t.text, font: P().psName(t.family, t.bold), size: t.px }), text: t.text, family: t.family, font: P().psName(t.family, t.bold), bold: t.bold, size: t.px, colour: t.colour, x: t.cx, y: t.cy, width: t.width, align: 'centre', tracking: t.tracking, anim: t.anim, name: t.text.split('\n')[0].slice(0, 40) }));
     const out = await US.host.call('mvfxApply', { seqId: seq.id, start, seconds: len, name: preset.label, layers, textRoute: textRoute() });
     if ((out.text || []).some(t => !t.words)) {
       // this Premiere didn't let us set the words (27.0): take the text layers and the lines away again and add the

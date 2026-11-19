@@ -182,3 +182,17 @@ test('film that moves: a loop of different frames, then the same again; dust is 
   const pattern = n => { const c = ctx(), made = []; c.createImageData = (w, h) => { const o = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; made.push(o); return o; }; P.paint(c, 480, 270, grain, { alpha: 1 }, { text: false, frame: n, loop: 25 }); return Array.from(made[0].data.slice(0, 64)).join(','); };
   assert.notStrictEqual(pattern(0), pattern(1)); assert.strictEqual(pattern(3), pattern(3));
 });
+
+test('Premiere 27’s Source Text bytes: the template with our words, font and size – lengths, magic and pointers right, read back the same', () => {
+  const hex = P.sourceTextFB({ text: 'Mira Haddad – nurse', font: 'Georgia-Bold', size: 63 }), b = Buffer.from(hex, 'hex');
+  assert.strictEqual(b.length % 4, 0); assert.strictEqual(b.readUInt32LE(0), b.length - 12); assert.strictEqual(b.readUInt32LE(8), 0x11223344);
+  const r = P.readSourceTextFB(hex);
+  assert.deepStrictEqual([r.text, r.font, r.size], ['Mira Haddad – nurse', 'Georgia-Bold', 63]);
+  const tpl = Buffer.from(P.FB_BASIC_TITLE, 'base64');
+  assert.strictEqual(tpl.length, 392); assert.strictEqual(P.readSourceTextFB(tpl.toString('hex')).text, 'Your Title Here');
+  assert.ok(b.slice(12, 0x100).equals(Buffer.concat([tpl.slice(12, 0xa0 + 12), b.slice(0xac, 0xb0), tpl.slice(0xb0, 0xe0), b.slice(0xe0, 0xe4), tpl.slice(0xe4, 0x100)])), 'only the size and the font pointer changed in the first part');
+  assert.strictEqual(P.readSourceTextFB(P.sourceTextFB({ text: '' })).text, '');
+  // every native text layer of a plain title carries them
+  const ls = P.premiereLayers(P.byId('hairline'), P.defaults(P.byId('hairline')), { width: 1920, height: 1080 }, {}, null).filter(l => l.kind === 'text');
+  assert.ok(ls.length === 2 && ls.every(l => P.readSourceTextFB(l.fb).text === l.text));
+});
