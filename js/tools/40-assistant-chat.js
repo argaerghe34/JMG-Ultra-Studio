@@ -742,7 +742,7 @@
     const o = Object.assign({ mode: 'ask', maxSteps: 25, budget: 2 }, opts);
     // limit({kind: 'money'|'steps', used, limit, total}) -> 'more' (as much again), 'free' (no limit in this chat) or 'stop'
     const h = Object.assign({ event() {}, status() {}, approve: async () => ({ ok: true }), choose: async () => null, limit: async () => 'stop', warn: async () => 'continue', trace() {}, journal() {} }, hooks);
-    const show = item => { const it = Object.assign({ at: Date.now() }, item); if (it.k === 'result') { const last = chat.items[chat.items.length - 1]; if (last && last.k === 'step' && !last.result) { last.result = it.text; h.event(Object.assign({}, it, { on: last })); return; } } chat.items.push(it); h.event(it); };
+    const show = item => { const it = Object.assign({ at: Date.now() }, item); if (it.k === 'result') { let last = null; for (let i = chat.items.length - 1; i >= 0 && chat.items[i].k !== 'me'; i--) if (chat.items[i].k === 'step') { last = chat.items[i]; break; } /* the step it belongs to (a card may have come in between) */ if (last && !last.result) { last.result = it.text; h.event(Object.assign({}, it, { on: last })); return; } } chat.items.push(it); h.event(it); };
     // behind the scenes: every reading, plan, call, result, check and retry of this request, as it happens
     chat.trace = [];
     const tr = e => { const x = { at: Date.now(), kind: e.kind, text: clip(e.text, 400), detail: e.detail ? clip(e.detail, 1500) : '' }; chat.trace.push(x); if (chat.trace.length > 150) chat.trace.shift(); try { h.trace(x, chat); } catch (err) { /* the screen's own business */ } };

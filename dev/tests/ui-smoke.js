@@ -326,6 +326,17 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
     if (!/Recipes/.test(txt) || !/Get interviews ready/.test(txt)) errors.push('Ask tab: no recipes');
     as.el.remove(); checks.push('ask: one chat box, recipes');
   }
+  // Producer: its chat is the same screen as Ask's (pinned head, one chat box, working row), beside the two pages it had
+  {
+    const pr = US.tools.get('producer').create(); w.document.body.appendChild(pr.el); pr.onShow({ page: 'chat' });
+    const seg = Array.from(pr.el.querySelectorAll('.segmented button')).map(b => b.textContent);
+    if (seg.join('|') !== 'Talk to the producer|Notes on the cut|Pick-up interview') errors.push('Producer: pages are ' + seg.join('|'));
+    if (!pr.el.querySelector('.chat-head .chat-tabs') || !pr.el.querySelector('.chat-foot .chat-input') || !pr.el.querySelector('.chat-working') || pr.el.querySelectorAll('.chat-opts select').length !== 3 || !/review my cut/.test(pr.el.querySelector('.chat-input').placeholder)) errors.push('Producer: no chat like Ask’s');
+    if (/Recipes/.test(pr.el.querySelector('.chat-logs').textContent)) errors.push('Producer: Ask’s recipes don’t belong in its chat');
+    pr.onShow({ page: 'notes' });
+    if (pr.el.querySelector('.chat-head') || !/Notes on the cut|transcripts/.test(pr.el.textContent)) errors.push('Producer: Notes on the cut is gone');
+    pr.el.remove(); checks.push('producer: chat page like Ask, notes and pick-ups kept');
+  }
   // a conversation: what it understood, its plan, a question with answers to pick, a step, the report – and a second chat beside it
   {
     const wasAI = US.ai, wasCall = US.host.call, script = [
@@ -341,6 +352,10 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       const wait = async (sel, n = 1) => { for (let i = 0; i < 200 && as.el.querySelectorAll(sel).length < n; i++) await new Promise(r => setTimeout(r, 10)); return as.el.querySelectorAll(sel); };
       const run = as._submit('colour the drone clips green and tell me how many there were');
       const opts = await wait('.chat-option', 2);
+      // the question has no box of its own: its answers are buttons just above the one chat box, which says it is being answered
+      if (as.el.querySelector('.chat-card input') || as.el.querySelectorAll('textarea, input[type=text], input:not([type])').length !== 1 || !as.el.querySelector('.chat-foot .chat-answers .chat-option') || !/^Your answer to: Which bin\?/.test(as.el.querySelector('.chat-input').placeholder)) errors.push('Ask chat: the question should be answered in the one chat box – ' + as.el.querySelector('.chat-input').placeholder);
+      if (as.el.querySelector('.chat-working').classList.contains('hidden') || !/Waiting for you/.test(as.el.querySelector('.chat-working-text').textContent) || !as.el.querySelector('.chat-working .chat-behind-btn')) errors.push('Ask chat: no working row');
+      if (!as.el.querySelector('.chat-head .chat-tabs') || !as.el.querySelector('.chat-head .chat-opts')) errors.push('Ask chat: the top bar isn’t in the pinned head');
       if (opts.length !== 2 || !/You want the drone clips coloured/.test(as.el.textContent) || !/Ask which bin/.test(as.el.textContent)) errors.push('Ask chat: no understanding, plan or question – ' + as.el.textContent.slice(-300));
       if (!as.el.querySelector('.chat-dot.asking')) errors.push('Ask chat: the tab doesn’t show it is waiting for you');
       // while it waits, a second chat is there to use
@@ -352,9 +367,10 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
       else card.click();
       await run;
       const end = as.el.querySelector('.chat-end');
-      if (!end || !/Both drone clips are green now/.test(end.textContent) || !/2 clips coloured green/.test(end.textContent) || !/How I got there/.test(end.textContent) || !/Put them in a Selects bin/.test(end.textContent)) errors.push('Ask chat: no report – ' + (end ? end.textContent : as.el.textContent.slice(-300)));
+      if (!end || !/Both drone clips are green now/.test(end.textContent) || !/2 clips coloured green/.test(end.textContent) || !/Behind the scenes/.test(end.textContent) || !/Step by step/.test(end.textContent) || !/Undo this reply/.test(end.textContent) || !/Put them in a Selects bin/.test(end.textContent)) errors.push('Ask chat: no report – ' + (end ? end.textContent : as.el.textContent.slice(-300)));
       if (labelled.length !== 2 || labelled[0].label !== 13) errors.push('Ask chat: the clips weren’t coloured – ' + JSON.stringify(labelled));
-      if (as._chats()[0].status !== 'idle' || as.el.querySelector('.chat-dot')) errors.push('Ask chat: still shown as working');
+      if (as._chats()[0].status !== 'idle' || as.el.querySelector('.chat-dot') || !as.el.querySelector('.chat-working').classList.contains('hidden') || !as.el.querySelector('.chat-answers').classList.contains('hidden')) errors.push('Ask chat: still shown as working');
+      if (as.el.querySelector('.chat-undo-all').classList.contains('hidden') || as.el.querySelector('.chat-input').placeholder.indexOf('e.g.') !== 0) errors.push('Ask chat: no Undo all after a change, or the chat box still says it is answering');
       as.el.remove(); checks.push('ask chat: understood → question → approval → done, with a second chat');
     } catch (e) { errors.push('Ask chat: ' + (e.stack || e)); } finally { US.ai = wasAI; US.host.call = wasCall; }
   }
