@@ -86,7 +86,8 @@ test('the rail in your own order: Up/Down, dragging, kept in this computer’s s
 test('Settings: Updates first; the long parts are closed dropdowns; nothing removed', () => {
   const s = shell().settings;
   assert.strictEqual(s.firstCard, 'Updates');
-  assert.deepStrictEqual(s.cardOrder.slice(0, 3), ['Updates', 'AI (optional)', 'What was sent to AI']);
+  // Quick start sits just under Updates (note 57, js/tools/03-quickstart.js)
+  assert.deepStrictEqual(s.cardOrder.slice(0, 4), ['Updates', 'Quick start', 'AI (optional)', 'What was sent to AI']);
   assert.deepStrictEqual(s.text, [], 'missing from Settings: ' + s.text.join(', '));
   for (const t of ['API keys', 'Models', 'Cost', 'Footage – what the AI may see', 'Without AI – what still works', 'Show the requests', 'Keeping and previewing']) assert.ok(s.sections.includes(t), 'no dropdown “' + t + '”');
   assert.deepStrictEqual(s.openSections, ['API keys'], 'only API keys is open (there is no key yet) – open: ' + s.openSections.join(', '));

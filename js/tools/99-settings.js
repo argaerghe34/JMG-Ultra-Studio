@@ -211,6 +211,7 @@
       US.bus.on('settings-sections', US.debounce(drawExtra, 50));
       US.append(v.body, [
         updatesCard(),
+        US.quickstart ? US.quickstart.card() : null,   // Quick start, near the top (js/tools/03-quickstart.js)
         aiCard,
         extraBox,
         sentCard(),

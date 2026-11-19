@@ -16,8 +16,15 @@ const tools = ORDER.map(([group, names]) => (group ? `**${group}**\n\n` : '') + 
 md = md.replace('{{TOOLS}}', tools);
 const aiCosts = fs.existsSync(path.join(dir, 'ai-costs.md')) ? fs.readFileSync(path.join(dir, 'ai-costs.md'), 'utf8') : '';
 md = md.replace('{{AICOSTS}}', aiCosts);
+// the quick start first (the user's note 57: the guide was buried under what's new) – from QUICKSTART.md at the
+// repository root, the same page GitHub and Settings › Quick start show: its # title becomes this page's first ## and
+// its own ## sections go one level down
+const qsFile = path.join(dir, '..', '..', 'QUICKSTART.md');
+const quick = fs.existsSync(qsFile) ? fs.readFileSync(qsFile, 'utf8').replace(/\r/g, '').replace(/^## /gm, '### ').replace(/^# /m, '## ') : '';
+md = md.replace('{{QUICKSTART}}', quick);
+// what's new after the guide, as one section (each version a ### under it, so the contents line stays short)
 const whatsNew = fs.existsSync(path.join(dir, 'whats-new.md')) ? fs.readFileSync(path.join(dir, 'whats-new.md'), 'utf8') : '';
-md = md.replace('{{WHATSNEW}}', whatsNew);
+md = md.replace('{{WHATSNEW}}', whatsNew ? '## What\'s new\n\n' + whatsNew.replace(/\r/g, '').replace(/^## (?:What's new in )?/gm, '### ') : '');
 const version = (fs.readFileSync(path.join(dir, '..', '..', 'CSXS', 'manifest.xml'), 'utf8').match(/ExtensionBundleVersion="([^"]+)"/) || [])[1];
 
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -67,7 +74,7 @@ footer { color:var(--muted); font-size:13px; text-align:center; padding:20px; }
 <header><div class="wrap"><div class="mark">JU</div><div><h1>JMG Ultra Studio</h1><p>Your editing tools inside Premiere Pro and DaVinci Resolve Studio · version ${version}</p></div></div></header>
 <nav>${toc}</nav>
 <main>${out.join('\n')}</main>
-<footer>JMG Ultra Studio ${version} · works offline · nothing is uploaded</footer>
+<footer>JMG Ultra Studio ${version} · works offline · your footage stays on your computer unless you choose otherwise</footer>
 </body></html>`;
 fs.writeFileSync(path.join(dir, 'Read me first.html'), html);
 console.log('Wrote', path.join(dir, 'Read me first.html'), html.length, 'bytes');

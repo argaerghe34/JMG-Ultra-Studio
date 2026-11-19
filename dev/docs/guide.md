@@ -1,4 +1,4 @@
-{{WHATSNEW}}
+{{QUICKSTART}}
 
 ## Install (2 minutes)
 
@@ -52,7 +52,7 @@ Not in the Workspace menu? Open a project, then quit Resolve completely and open
 - **Always shows what's happening** in the status bar at the top: who's working (Ultra Studio, Premiere, Media Encoder, AI), what it's doing, progress, time left, and a **Stop** button – one click stops after the current step, three quick clicks stop at once (AI requests too). Click the bar for the full activity log.
 - **Says which AI it's using** – the top bar shows the model, or **No AI**. Without AI everything still works; the features that work best with AI say they're running their basic version, and **Settings › AI › Without AI** explains what's different. Settings also shows usage by API key, and **What was sent to AI** – the exact text of every request, kept on this computer, with an option to see each one before it's sent.
 - **Plain errors.** Every problem says what went wrong and the one thing to do next. Technical details sit behind **Details**.
-- **Nothing is uploaded.** Analysis runs on your computer, using Premiere itself to read every format it can play. AI is optional and only ever sees text.
+- **Your footage stays on your computer unless you choose otherwise.** Analysis runs on your computer, using Premiere itself to read every format it can play. AI is optional and gets text; stills only if you switch them on for a project, and sound or video only if you pick **Cloud** for that project in **Settings › Vision & listening models** (see *What stays on your computer* above).
 - **Remembers analysis.** Analysing a clip once is enough; moving sliders afterwards is instant.
 
 ## Overnight prep
@@ -82,3 +82,5 @@ New here? **Settings › Take the tour** has a one-minute tour and a **Full guid
 If an export or a Media Encoder step never starts, quit **Adobe Media Encoder** (and Premiere, if it has stopped responding), open Premiere again and retry – Premiere starts a fresh Media Encoder by itself.
 
 Files live in `~/Library/Application Support/JMG Ultra Studio` (Mac) or `%APPDATA%\JMG Ultra Studio` (Windows): settings, analysis cache, logs. Exports go to `Documents/JMG Ultra Studio`.
+
+{{WHATSNEW}}
