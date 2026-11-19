@@ -359,6 +359,9 @@
   };
 
   /* =================== doing a clip =================== */
+  // what ffmpeg says about a file with no sound track (measured in Premiere on 19 Nov: WhatsApp videos without sound
+  // were left “waiting for a render” that could never help)
+  const NO_TRACK = /matches no streams|does not contain any stream|no audio stream|no sound track/i;
   /**
    * Do what a clip still needs (or part of it: `keepGoing()` false stops between requests and the rest is picked up
    * next time). -> {rec, did: {vision, listening, listenModel}, more: true when it stopped early, usd, skipped}
@@ -386,9 +389,17 @@
         did.listening = true;
       } catch (e) {
         if (e && e.code === 'CANCELLED') throw e;
-        // can't be read without a render: it waits for Overnight prep (heavy), and isn't tried again every few seconds
-        rec.listening = heavy ? { cant: true, why: 'no sound could be read', at: Date.now() } : { waiting: 'render', at: Date.now() };
-        out.skipped = 'sound';
+        if (NO_TRACK.test(String(e && (e.message || e.detail) || e))) {
+          // a clip with no sound at all (a phone video sent without it, a screen recording): nothing to wait for
+          rec.listening = { done: true, by: 'builtin', how: 'none', noTrack: true, at: Date.now() };
+          rec.sound = { label: 'no sound track', speech: 0 };
+          rec.sounds = (rec.sounds || []).filter(s => s.by !== 'built-in');
+          did.listening = true;
+        } else {
+          // can't be read without a render: it waits for Overnight prep (heavy), and isn't tried again every few seconds
+          rec.listening = heavy ? { cant: true, why: 'no sound could be read', at: Date.now() } : { waiting: 'render', at: Date.now() };
+          out.skipped = 'sound';
+        }
       }
       save(item, rec);
     }
@@ -506,6 +517,8 @@
   /* =================== the queue =================== */
   const HEAVY_SECS = 20 * 60;   // model work beyond this isn't started in the background unless the editor says so
   const Q = { items: [], project: '', listed: false, listing: false, state: 'idle', why: '', running: false, timer: null, last: null, failed: 0, lastError: '' };
+  const retried = new Set();   // clips whose sound waited for a render, tried once more this session
+  let held = 0;   // pause(): background work waits until every hold is released (e2e tests, nothing persistent)
   const backgroundOn = () => set('background') !== false;
   const heavyInBackground = () => set('heavyInBackground') === true;
   /** Clips of the open project (once per project, when calm). */
@@ -522,7 +535,7 @@
   /** What's left: [{item, need}] and how long the model work would take here. */
   function backlog(P = plan()) {
     const todo = [];
-    for (const it of Q.items) { const n = needs(peek(it.path), P), r = peek(it.path); if (r && r.vision && r.vision.cant && r.vision.by === P.vision.id) n.vision = false; if (r && r.listening && r.listening.waiting) n.listeningWaits = true; if (r && r.listenModel && r.listenModel.waiting) n.listenModel = false; if (anyNeed(n)) todo.push({ item: it, need: n }); }
+    for (const it of Q.items) { const n = needs(peek(it.path), P), r = peek(it.path); if (r && r.vision && r.vision.cant && r.vision.by === P.vision.id) n.vision = false; if (r && r.listening && r.listening.waiting) { if (retried.has(it.path)) n.listeningWaits = true; else n.retry = true; } if (r && r.listenModel && r.listenModel.waiting) n.listenModel = false; if (anyNeed(n)) todo.push({ item: it, need: n }); }
     const vis = todo.filter(t => t.need.vision).map(t => t.item);
     const e = estimate(vis, { bench: bench(), visionModel: P.vision.model || (P.vision.kind === 'own' ? { id: P.vision.id, name: P.vision.label, assume: [2, 15] } : null) });
     const visionSecs = e.local.visionSecs ? (e.local.visionSecs[0] + e.local.visionSecs[1]) / 2 : 0;
@@ -557,7 +570,7 @@
   }
   /** One small slice of background work, if the computer is calm. -> true when something was done */
   async function tick() {
-    if (Q.running || !backgroundOn() || !curProject() || !US.footage) return false;
+    if (Q.running || held > 0 || !backgroundOn() || !curProject() || !US.footage) return false;
     const P = plan();
     if (P.route === 'off') return false;
     if (Q.project !== curProject()) { Q.items = []; Q.listed = false; Q.failed = 0; }
@@ -571,6 +584,7 @@
       const next = B.todo.find(t => t.need.listening && !t.need.listeningWaits) || (!heavy && B.todo.find(t => t.need.vision)) || (!heavy && B.todo.find(t => t.need.listenModel));
       if (!next) return false;
       Q.last = next.item.name;
+      if (next.need.retry) retried.add(next.item.path);
       US.bus.emit('understand', status());
       const only = next.need.listening && !next.need.listeningWaits ? ['listening'] : next.need.vision ? ['vision'] : ['listenModel'];
       const t0 = Date.now();
@@ -724,6 +738,41 @@
     backgroundOn, queue: Q, routes,
     /** Footage in the open project as last counted: {clips, minutes, at} or null. */
     footage: () => pstore().get('understand.footage') || null,
+    /**
+     * Hold the background queue (it finishes the request in hand first). -> release(); waits for that request to end.
+     */
+    async pause({ waitMs = 120000 } = {}) {
+      held++; let done = false;
+      const t0 = Date.now(); while (Q.running && Date.now() - t0 < waitMs) await new Promise(r => setTimeout(r, 200));
+      return () => { if (!done) { done = true; held = Math.max(0, held - 1); kick(); } };
+    },
+    /** Everything kept about one clip, taken away: -> what was there (give it to unforget() to put it back). */
+    forget(p) {
+      const k = keyOf(p), saved = { path: p, cache: null, shared: null, index: null };
+      try { saved.cache = US.cache.get('understand', k); } catch (e) { saved.cache = null; }
+      try { require('fs').unlinkSync(US.cache.file('understand', k)); } catch (e) { /* not there */ }
+      mem.delete(k);
+      const S = sharedData(); if (S && S.clips[travelKey(p)]) { saved.shared = S.clips[travelKey(p)]; delete S.clips[travelKey(p)]; saveShared(); }
+      const idx = Object.assign({}, pstore().get('understand.index') || {}); if (idx[p]) { saved.index = idx[p]; delete idx[p]; pstore().set('understand.index', idx); }
+      return saved;
+    },
+    unforget(saved) {
+      if (!saved || !saved.path) return;
+      const p = saved.path, k = keyOf(p);
+      mem.delete(k);
+      try { if (saved.cache) US.cache.set('understand', k, saved.cache); else require('fs').unlinkSync(US.cache.file('understand', k)); } catch (e) { /* gone */ }
+      const S = sharedData(); if (S) { if (saved.shared) S.clips[travelKey(p)] = saved.shared; else delete S.clips[travelKey(p)]; saveShared(); }
+      const idx = Object.assign({}, pstore().get('understand.index') || {}); if (saved.index) idx[p] = saved.index; else delete idx[p]; pstore().set('understand.index', idx);
+    },
+    /** What is kept for the open project, for a look by hand: [{name, path, duration, at, seen, heard, sounds, quality, by}] */
+    kept() {
+      return known().map(p => { const r = peek(p); if (!r) return { path: p, name: US.basename(p), kept: false };
+        return { name: r.name, path: p, duration: Math.round(r.duration || 0), at: r.at ? new Date(r.at).toISOString() : '', fromLook: !!r.fromLook,
+          seen: r.vision ? (r.vision.done ? `done by ${r.vision.label || r.vision.by}` : r.vision.cant ? 'can’t be read: ' + r.vision.why : `part done (${r.vision.next}/${r.vision.total})`) : (r.shots || []).length ? 'from an older description' : 'not looked at',
+          heard: r.listening ? (r.listening.done ? `built-in, read via ${r.listening.how}` : r.listening.waiting ? 'waiting: its sound needs a render' : 'couldn’t be read') : 'not listened to',
+          listenModel: r.listenModel ? (r.listenModel.done ? 'done by ' + r.listenModel.label : 'waiting') : '',
+          sounds: (r.sounds || []).map(s => `${s.type} ${fmtT(s.start)}–${fmtT(s.end)}`), quality: r.sound ? r.sound.label : '' }; });
+    },
     /** Forget what's kept in memory (tests; after models change). */
     reset() { mem.clear(); shared = null; sharedFor = ''; Q.items = []; Q.listed = false; Q.project = ''; Q.failed = 0; },
     _pure: { visionTimes, listenChunks, visionRequest, tidyVision, mergeShots, listenRequest, tidyListen, builtinSounds, mergeSounds, summarise, rowsOf, digestOf, VSCHEMA, ASCHEMA, keyOf, sharedFile, travelKey, HEAVY_SECS }
