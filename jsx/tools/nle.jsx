@@ -23,7 +23,7 @@
         if (!new File(f.fsName).exists) throw U.err('HOST_SCRIPT', 'exportAsFinalCutProXML wrote nothing (' + (why || ok) + ')', 'Premiere didn’t write the XML file.', 'Check the export folder can be written to, then try again.');
         var report = '', rf = newTextFiles(dir.fsName, before);
         if (rf.length) { var t = new File(rf[0]); t.encoding = 'UTF-8'; if (t.open('r')) { report = t.read(); t.close(); } }
-        return { path: f.fsName, native: 'xmeml', report: report };
+        return { path: f.fsName, 'native': 'xmeml', report: report };   // quoted: "native" is a reserved word in ExtendScript (ES3)
     };
     /**
      * An FCP 7 XML file as a new sequence (and its clips) in a bin. a: {path, name, binPath} -> {seqId, name, clips}
