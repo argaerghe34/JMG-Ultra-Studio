@@ -14,6 +14,11 @@ await US.host.call('placeClips', { seqId: seq.id, cursor: 0, clips: [{ id: items
 await T.open(seq.id);
 const info = await US.host.call('sequenceInfo', { seqId: seq.id, clips: false }), fps = info.fps, W = info.width, H = info.height;
 const notes = [`${W}×${H} at ${fps}`], job = US.jobs.testJob('mvfx-film');
+// whether this Premiere takes a text layer's words is remembered in a setting shared with the installed copy (54-mvfx
+// may just have set it): tried afresh here, and put back as it was at the end (also when a check fails)
+const wasDrawn = US.settings.get('mvfx.textDrawn', null);
+US.settings.set('mvfx.textDrawn', undefined);
+try {
 const vals = (id, more) => Object.assign(M.valuesFor(P.byId(id)), more);
 const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -110,3 +115,4 @@ const pos = JSON.parse(await prop(0, 0, 'Motion', 'Position', 'var ks=pr.getKeys
 notes.push('pan keys (fractions of the frame): ' + JSON.stringify(pos));
 if (pos.length) T.assert(pos.every(k => k[0] > 0.3 && k[0] < 0.7 && Math.abs(k[1] - 0.5) < 0.1), 'the pan stays in the picture: ' + JSON.stringify(pos));
 return notes;
+} finally { US.settings.set('mvfx.textDrawn', wasDrawn == null ? undefined : wasDrawn); }
