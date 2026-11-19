@@ -1,3 +1,27 @@
+## What's new in 1.3.39
+
+**New: Deliver › Other editors**
+- Send the open sequence to **Final Cut Pro** (FCPXML), **DaVinci Resolve** or **Premiere Pro** (FCP 7 XML), or as an **EDL** or **OpenTimelineIO** file. It also lists what didn't come across (effects, titles, speed…).
+- Bring in a timeline from Final Cut Pro, Premiere, Resolve, an EDL or OTIO as a **new sequence**, with its clips and markers. Media that has moved is found by name in a folder you pick. Your own sequence is never changed.
+
+**DaVinci Resolve catches up with Premiere**
+- **Listening no longer blocks Resolve.** Silence Cut, Beat Cut, Song Splitter, Podcast, Tell the voices apart and Check my setup now read the sound straight from your media files. Resolve doesn't render any more, so its timeline and page don't switch. (Clip volume and fades set in Resolve aren't heard this way. Settings › Listening to sound switches back to Resolve's render.)
+- **Quick effects and Ask in Resolve 21.1+:** transitions, speed, volume and effects from the Effects Library, plus **Flip** and renaming. **Punch in every other** works on the whole track, or between In and Out. The buttons and Ask use the clips **selected in the Timeline**. What Resolve still can't do (keyframed zooms, text layers, razor cuts) is said plainly.
+- **Cut copies keep their look:** Silence Cut, fillers, Take Sets, Song Splitter and Podcast no longer refuse timelines with titles or generators. Cut clips keep their grade, Fusion effects, colour, flags and markers.
+- **Story › At the playhead › Insert** in Resolve, on a copy of the timeline.
+- **Deliver › Render ranges as Text titles** in Resolve: add, rename, move and colour them, as in Premiere.
+- **MC Selects now works in Resolve.**
+- **The project's folder** is found as soon as a Resolve project opens. **Home › Choose the project's folder…** puts it where you want.
+- Footage stills work for any clip in Resolve.
+
+**Windows**
+- The local AI model (Ollama) is reached on Windows. Before, it could look as if it wasn't running.
+- ffmpeg is found where winget, Chocolatey and Scoop install it.
+- "Ctrl-click" is shown on Windows instead of "⌘-click".
+
+**Ask (in 1.3.38.1)**
+- Markers Ask adds in Premiere go on once, and its cuts keep every line it chose.
+
 ## What's new in 1.3.38.1
 
 - **Ask (Premiere): markers it adds work.** In 1.3.38, a marker Ask added could fail with "Illegal Parameter type" yet stay in the sequence, so trying again added it twice. Markers now go on once, and a marker that can't be finished is removed before Ask reports the problem.
