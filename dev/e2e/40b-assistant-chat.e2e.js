@@ -1,7 +1,7 @@
 // Ask – one chat for everything, in real Premiere (no AI cost: the AI's turns are a stand-in script).
 // Three clips in a fresh sequence. Chat A: reads the sequence, punches in on every clip on V1, switches the first one off and colours them – approved from the card, with the second step (switching off) unticked – on a copy; then reports. The colour isn't offered: Premiere can't colour timeline clips, and the card says so. Chat B, at the same time:
-// reads the project and adds a marker on the first clip of the same sequence, in the sequence itself (asked first, as
-// it changes the editor's own). Both finish; the steps in Premiere took turns; the original only has B's marker.
+// reads the project and adds a marker on the first clip of the same sequence, in the sequence itself (it stops at the
+// warning first, as it changes the editor's own – Continue there; a copy from before the change is kept). Both finish; the steps in Premiere took turns; the original only has B's marker.
 // (The check is on scale, which Premiere reads back; a timeline clip's colour label can't be read from a script here.)
 // In Resolve, timeline clips can be coloured: the card offers the colour as a third step (unticked here, so the copy's
 // clips stay uncoloured), and at the end the colour is set on the copy and read back.
@@ -11,7 +11,7 @@ const items = await T.importOnce(['C001_sharp_static.mp4', 'C002_blurry.mp4', 'C
 const seq = await T.freshSequence(NAME, items[0].id, BIN);
 await US.host.call('placeClips', { seqId: seq.id, cursor: 0, clips: items.map(it => ({ id: it.id, in: 0, out: 4 })) });
 await T.open(seq.id);
-for (const s of (await US.host.call('listSequences')).filter(s => s.name === `${NAME} – Ask`)) await US.host.call('deleteSequence', { seqId: s.id });
+for (const s of (await US.host.call('listSequences')).filter(s => s.name === `${NAME} – Ask` || s.name === `${NAME} – before Ask`)) await US.host.call('deleteSequence', { seqId: s.id });
 const step = (tool, args = {}, say = '', extra = {}) => Object.assign({ say, understood: '', plan: [], tool, argsJson: JSON.stringify(args) }, extra);
 const a = C.newChat(), b = C.newChat();
 const script = {
@@ -28,7 +28,9 @@ let both = 0, most = 0;   // AI requests in flight at once: the chats think side
 US.ai = Object.assign({}, realAI, { available: () => true, label: () => 'Claude', provider: () => 'claude',
   json: async req => { sent.push(req); most = Math.max(most, ++both); await T.sleep(150); both--; const x = script[req.as.id].shift(); if (!x) throw new Error('no more scripted turns'); return x; } });
 const logs = { a: [], b: [] }, cards = [], states = [];
-const hooks = (k, chat) => ({ event: it => logs[k].push(it), status: () => states.push(`${k}:${chat.status}`), approve: async card => { cards.push({ k, risk: card.risk, title: card.title, detail: card.detail, dropped: card.dropped || [], steps: (card.steps || []).map(s => E.describe(s)) }); return { ok: true, steps: k === 'a' ? card.steps.slice(0, 1) : card.steps }; }, choose: async () => null });
+const hooks = (k, chat) => ({ event: it => logs[k].push(it), status: () => states.push(`${k}:${chat.status}`), approve: async card => { cards.push({ k, risk: card.risk, title: card.title, detail: card.detail, dropped: card.dropped || [], steps: (card.steps || []).map(s => E.describe(s)) }); return { ok: true, steps: k === 'a' ? card.steps.slice(0, 1) : card.steps }; }, choose: async () => null,
+  // a risky step (the sequence itself) stops at the warning instead of a card
+  warn: async w => { cards.push({ k, warned: true, risk: w.risk, title: w.title, detail: w.detail, reasons: w.reasons.map(r => r.id), dropped: [], steps: [] }); return 'continue'; } });
 try {
   for (let i = 0; i < 100 && US.jobs.current; i++) await T.sleep(200);
   await Promise.all([C.send(a, 'punch in on the clips on V1 and colour them green', hooks('a', a), { mode: 'ask' }), C.send(b, `add a marker called Ask test on the first clip of ${NAME}, in the sequence itself`, hooks('b', b), { mode: 'own' })]);
@@ -43,7 +45,10 @@ const RES = US.app.is('resolve');
 T.assert(ca && ca.risk === 'new' && ca.steps.length === (RES ? 3 : 2) && /scale 120% · 3 clips on V1/.test(ca.steps[0]) && /Switch off · 1 clip on V1/.test(ca.steps[1]) && (!RES || /Colour .*· 3 clips on V1/.test(ca.steps[2])) && /a copy of/.test(ca.detail), 'A’s card: ' + JSON.stringify(ca));
 if (RES) T.assert(!ca.dropped.length, 'Resolve colours timeline clips: the colour step is on the card, nothing left out: ' + JSON.stringify(ca.dropped));
 else T.assert(ca.dropped.length === 1 && /Premiere can’t colour clips on a timeline/.test(ca.dropped[0]), 'colouring timeline clips isn’t offered in Premiere, and the card says why: ' + JSON.stringify(ca.dropped));
-T.assert(cb && cb.risk === 'own' && /ITSELF – no copy/.test(cb.detail), 'B’s card: ' + JSON.stringify(cb));
+T.assert(cb && cb.warned && cb.risk === 'own' && /ITSELF – no copy/.test(cb.detail) && cb.reasons.includes('inPlace'), 'B’s warning: ' + JSON.stringify(cb));
+const kept = (await US.host.call('listSequences')).filter(s => s.name === `${NAME} – before Ask`);
+T.assert(kept.length === 1 && b.journal.some(j => j.kind === 'inplace' && j.backupId === kept[0].id), 'a copy from before B’s change is kept: ' + JSON.stringify(b.journal));
+T.assert(a.journal.some(j => j.kind === 'seq' && j.seqId === a.work.seqId), 'A’s copy is in its journal, so it can be undone');
 // what Premiere has now: the copy's clips are at 120% and not green (the unticked step didn't run); the original is at its own size and has B's marker
 T.assert(a.work && a.work.ours && a.work.name === `${NAME} – Ask`, 'A works on its copy: ' + JSON.stringify(a.work));
 const copy = await US.host.call('editRead', { seqId: a.work.seqId }), orig = await US.host.call('editRead', { seqId: seq.id });
@@ -65,5 +70,6 @@ T.assert(view.querySelector('.chat-tab.chat-new') && !view.querySelector('.chat-
 let labels = '', labelsOk = false;
 try { const x = await US.host.call('editApply', { seqId: a.work.seqId, op: 'label', params: { label: 13 }, targets: copy.video[0].clips.map(c => ({ kind: 'video', track: 0, start: c.start, end: c.end })) }); const back = await US.host.call('editRead', { seqId: a.work.seqId }); labels = `set on ${x.done}, skipped ${(x.skipped || []).length}${x.skipped && x.skipped[0] ? ' (' + x.skipped[0].why + ')' : ''}, read back: ${back.video[0].clips.map(c => c.label)}`; labelsOk = x.done === 3 && back.video[0].clips.every(c => c.label === 13); } catch (e) { labels = 'failed: ' + (e.title || e.message); }
 await US.host.call('deleteSequence', { seqId: a.work.seqId }).catch(() => {});
+for (const s of kept) await US.host.call('deleteSequence', { seqId: s.id }).catch(() => {});
 if (RES) T.assert(labelsOk, 'Resolve colours the copy’s timeline clips Green and reads it back: ' + labels);
 return { timelineLabels: labels, cards: cards.map(c => `${c.k}: ${c.risk} – ${c.steps.join(' | ')}`), waited: [...new Set(states)].join(' '), a: endA.reply, b: endB.reply };

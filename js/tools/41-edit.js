@@ -572,7 +572,8 @@
           undo.push({ op: 'move', items: s.targets.map(t => ({ id: t.itemId, bin: (m.items.find(i => i.itemId === t.itemId) || {}).bin })) });
           await US.host.call('moveItems', { ids, binPath: String(s.params.bin || 'Ask').replace(/\s*\/\s*/g, '/') }); r.done = ids.length;
         } else if (s.op === 'marker') {
-          for (const t of s.targets) { await US.host.call('addClipMarkers', { id: t.itemId, markers: [{ start: 0, end: 0, name: s.params.name || 'Ask', comment: s.params.comment || '', color: s.params.color != null ? s.params.color : 6 }] }); r.done++; }
+          // the markers' ids are remembered, so Undo can take exactly these off again
+          for (const t of s.targets) { const g = await US.host.call('addClipMarkers', { id: t.itemId, markers: [{ start: 0, end: 0, name: s.params.name || 'Ask', comment: s.params.comment || '', color: s.params.color != null ? s.params.color : 6 }] }); if (Array.isArray(g) && g.length) undo.push({ op: 'marker', id: t.itemId, guids: g }); r.done++; }
         } else if (s.op === 'sequence') {
           const seq = await US.host.call('newSequence', { name: s.params.name || 'Ask', binPath: 'JMG Ultra Studio/Ask', likeId: ids[0] });
           const info = await US.host.call('itemsInfo', { ids });
@@ -620,12 +621,13 @@
     return { summary: `${US.plural(done, 'change')}${copyName ? ` in the copy “${copyName}”` : ''}${skipped ? ` · ${skipped} skipped` : ''}`, results, seqId, copy: !!copy, copyName };
   }
 
-  /** Put project edits back (labels, names, bins). */
+  /** Put project edits back (labels, names, bins, and the clip markers it added). */
   async function undoItems(undo) {
     for (const u of undo.slice().reverse()) {
       if (u.op === 'label') await US.host.call('setLabels', { items: u.items.filter(x => x.label != null).map(x => ({ id: x.id, label: x.label })) });
       else if (u.op === 'rename') await US.host.call('renameItem', { id: u.id, name: u.name });
       else if (u.op === 'move') for (const x of u.items) if (x.bin) await US.host.call('moveItems', { ids: [x.id], binPath: x.bin.replace(/\s*\/\s*/g, '/') });
+      else if (u.op === 'marker') await US.host.call('removeClipMarkers', { id: u.id, guids: u.guids }).catch(() => {});
     }
   }
 

@@ -6,7 +6,11 @@
    - Pick-up interview: what the story needs that nobody has said yet (from a brief, the interviews and, if you like,
      the cut), and the questions to ask each person to get it – ready for a reshoot or a phone call.
    Both read Story's shared transcript (cached an hour, so they're cheap after Ask, Themes and so on). Text only: the
-   transcripts and the brief are sent, never footage. Pure logic (unit-tested) first, then the tab. */
+   transcripts and the brief are sent, never footage. Pure logic (unit-tested) first, then the tab.
+   - Talk to the producer (1.3.40): the same chat engine as Ask (US.chat, the same screen: US.chatView) with a
+     producer's manner – US.chatPersonas.producer. It has every tool Ask has (reads the project and sequences, searches
+     the interviews, edits, builds, runs the panel's tools, asks with answers to pick) plus its own: notes, pickups and
+     marknotes below. It shows its work the same way: the working row, behind the scenes, the AI in use and the spend. */
 (function () {
   'use strict';
   const US = window.US, h = US.h, ui = US.ui;
@@ -283,6 +287,68 @@
     return file;
   }
 
+  /* ---------- the producer as a chat: a persona on Ask's engine, with these tools of its own ---------- */
+  /** Notes as the AI reads them back: the verdict, then each note with the lines it is about. */
+  function notesForAI(rec) {
+    const res = rec.result, at = new Map(); for (const r of rec.cut || []) if (!at.has(r.lineId)) at.set(r.lineId, r.start);
+    return [`NOTES on “${rec.name}” (the editor sees them as a card with each line to play, jump to or place):`, `VERDICT: ${res.verdict || '(none)'}`]
+      .concat(res.notes.map((n, i) => `${i + 1}. [${KINDS[n.kind].label}] ${n.title} – ${n.text}${n.items.length ? '\n' + n.items.slice(0, 8).map(it => `   line ${it.from}${it.to !== it.from ? '–' + it.to : ''} (${it.tag === 'cut' ? (at.has(it.from) ? `in the cut at ${mmss(at.get(it.from))}` : 'in the cut') : 'not in the cut'})${it.note ? ': ' + it.note : ''}`).join('\n') : ''}`), rec.missing ? [`NOTE: ${rec.missing}`] : []).join('\n');
+  }
+  function pickupsForAI(rec) {
+    const res = rec.result;
+    return ['PICK-UP INTERVIEW PLAN (the editor sees it as a card, by person or by gap, to copy or save as Word):', `SUMMARY: ${res.summary || '(none)'}`]
+      .concat(res.gaps.map((g, i) => `${i + 1}. GAP “${g.title}” – ${g.why}\n` + g.asks.map(a => `   ask ${nameOfSpeaker(a.speaker)}: ${a.question}`).join('\n') + (g.near.length ? '\n' + g.near.slice(0, 4).map(n => `   closest so far: line ${n.from}${n.note ? ' – ' + n.note : ''}`).join('\n') : '')), rec.missing ? [`NOTE: ${rec.missing}`] : []).join('\n');
+  }
+  const PERSONA = {
+    name: 'Producer', feature: 'Producer',
+    intro: [
+      'YOUR ROLE HERE: you are the Producer in JMG Ultra Studio – an experienced documentary producer who has read every interview and looks over the editor’s shoulder. Everything below about “the assistant” is about you: you have every one of its tools and follow its rules. Your manner is a producer’s: you think about the story, the audience and the deadline, not only the task in front of you.',
+      '- Be proactive. Asked to review – or given nothing specific – look first: read the project, the open sequence and what the interviews hold, then say what you see, the most important first: what works, what is weak or missing in the story, and what is technically off (the panel’s checking tools find gaps, offline clips, missing captions and loudness).',
+      '- Notice problems the editor did not ask about, and say so briefly: a strong line buried late, a point made twice, a jump nobody explains, a slow middle, an opening that doesn’t earn attention, a cut far from the length it is for.',
+      '- Always propose what to do next: in "next" give up to three concrete things you could do now, in the editor’s own words (“Move Ruth’s line about the oven to the opening”, “Build a 60-second version”). Do them when asked – edit, build, mark and run the panel’s tools as the assistant does; the same approval cards and warnings apply.',
+      '- Notes on a cut come from your "notes" tool and a pick-up interview plan from your "pickups" tool (each reads every transcript: call it once per request, then work from what it returned); "marknotes" puts the latest notes on the sequence as range markers.',
+      '- Be direct and specific – name people, times in the cut and the lines themselves. Never invent what people said, and never say something is fixed that a tool did not report as done.',
+      ''
+    ],
+    tools: {
+      notes: {
+        desc: 'A producer’s notes on a cut, from the interview lines heard in the sequence set against every interview: what is buried, said twice, missing, slow or unclear, the opening and ending, and better lines left out – each with the transcript lines it is about (ids you can pass to lines or build): args {"sequence":"an s… id or name – leave out for your working sequence or the open one","focus":"all|pace|clarity|structure|emotion|missing","tone":"blunt|kind","brief":"what the film is for, if you know"}. A bigger AI request (it reads every transcript). The editor sees the notes as a card.',
+        risk: 'ai', title: a => `Producer’s notes on ${a.sequence ? `“${clean(a.sequence, 40)}”` : 'the cut'}${a.focus && a.focus !== 'all' && FOCUS[a.focus] != null ? ` – ${a.focus}` : ''}`,
+        run: async (a, x) => {
+          const sq = await x.seqFor(a.sequence); if (sq.error) return sq.error;
+          const r = await getNotes(x.job, { seqId: sq.seqId, brief: clean(a.brief, 1500) || US.settings.get('producer.brief', ''), tone: TONES[a.tone] ? a.tone : US.settings.get('producer.tone', 'blunt'), focus: FOCUS[a.focus] != null ? a.focus : 'all' });
+          x.event({ k: 'card', card: 'producerNotes', id: r.notes.id, keep: true });
+          x.note(r.summary);
+          return notesForAI(r.notes);
+        }
+      },
+      pickups: {
+        desc: 'Plan a pick-up interview: what the story still needs that nobody has said, and the questions to ask each person to get it: args {"brief":"what the film needs to say, if you know","sequence":"an s… id or name to check against a cut – leave out to plan from the interviews alone","people":["only ask these people – leave out for everyone"]}. A bigger AI request (it reads every transcript). The editor sees the plan as a card.',
+        risk: 'ai', title: a => `Plan a pick-up interview${a.sequence ? ` against “${clean(a.sequence, 40)}”` : ''}`,
+        run: async (a, x) => {
+          let seqId = ''; if (a.sequence) { const sq = await x.seqFor(a.sequence); if (sq.error) return sq.error; seqId = sq.seqId; }
+          const r = await planPickups(x.job, { brief: clean(a.brief, 1500) || US.settings.get('producer.brief', ''), seqId, people: (Array.isArray(a.people) ? a.people : []).map(String).filter(Boolean).slice(0, 20) });
+          x.event({ k: 'card', card: 'producerPickups', id: r.plan.id, keep: true });
+          x.note(r.summary);
+          return pickupsForAI(r.plan);
+        }
+      },
+      marknotes: {
+        desc: 'Put your latest notes on their sequence as range markers, one where each note points, in the note’s colour (earlier Producer markers there are replaced): args {}.',
+        risk: 'new', title: () => 'Mark the notes on the sequence', detail: () => 'A range marker where each note points, on the sequence the notes are about. Earlier Producer markers there are replaced; nothing else changes.',
+        run: async (a, x) => {
+          S().loadState(); const rec = pstate().notes[0];
+          if (!rec) return 'There are no notes yet – call "notes" first.';
+          const r = await markNotes(x.job, rec);
+          x.note(r.summary);
+          return `${r.summary}.`;
+        }
+      }
+    }
+  };
+  US.chatPersonas = US.chatPersonas || {};
+  US.chatPersonas.producer = PERSONA;
+
   US.actions.register({
     id: 'producer.notes', tool: 'producer', title: 'Notes on the cut', changes: false,
     describe: 'A devil’s-advocate producer reads the interview lines in a sequence (and every interview) and argues with the cut: what’s buried, repeated, missing, slow or unclear, and better lines left out. Text only.',
@@ -316,13 +382,13 @@
   /* ---------- the tab ---------- */
   US.tools.register({
     id: 'producer', name: 'Producer', short: 'Producer', icon: 'producer', group: 'find', order: 24,
-    blurb: 'A second opinion from the transcripts: notes on your cut, and the questions for a pick-up interview.',
-    hostFns: ['sequenceInfo', 'storySequenceTiming', 'listSequences', 'setPlayhead', 'addSequenceMarkers', 'removeSequenceMarkers'],
+    blurb: 'A producer who has read everything: talk it through, get notes on your cut, and the questions for a pick-up interview.',
+    hostFns: ['sequenceInfo', 'storySequenceTiming', 'listSequences', 'setPlayhead', 'addSequenceMarkers', 'removeSequenceMarkers', 'editRead', 'editProject', 'editApply', 'cloneSequence', 'listBins', 'deleteSequence', 'askStamp', 'askRemoveBins'],
     create() {
-      const v = ui.toolView({ icon: 'producer', title: 'Producer', blurb: 'A producer who has read every interview. Notes on the cut argues with your edit – what’s buried, said twice, missing or slow, and better lines you left out. Pick-up interview finds what the story still needs and writes the questions to get it. Reads Story’s transcripts as text – never the footage.' });
-      let page = US.settings.get('producer.page', 'notes'), shownNotes = null, shownPlan = null, by = US.settings.get('producer.by', 'person');
+      const v = ui.toolView({ icon: 'producer', title: 'Producer', blurb: 'A producer who has read every interview. Talk to the producer is a chat with everything Ask can do – it reviews your project and cut, notices problems, proposes what to do next and does it when you say. Notes on the cut argues with your edit – what’s buried, said twice, missing or slow, and better lines you left out. Pick-up interview finds what the story still needs and writes the questions to get it. Reads Story’s transcripts as text – never the footage.' });
+      let page = US.settings.get('producer.page', 'chat'), shownNotes = null, shownPlan = null, by = US.settings.get('producer.by', 'person'), chat = null;
       const top = h('div'), body = h('div');
-      const pageSeg = ui.segmented({ value: page, onChange: x => { page = x; US.settings.set('producer.page', x); render(); }, options: [{ value: 'notes', label: 'Notes on the cut' }, { value: 'pickups', label: 'Pick-up interview' }] });
+      const pageSeg = ui.segmented({ value: page, onChange: x => { page = x; US.settings.set('producer.page', x); render(); }, options: [{ value: 'chat', label: 'Talk to the producer', title: 'A chat with everything Ask can do, in a producer’s manner: it reviews, notices problems, proposes next steps and does them' }, { value: 'notes', label: 'Notes on the cut' }, { value: 'pickups', label: 'Pick-up interview' }] });
       top.appendChild(h('div.row', pageSeg));
 
       const lineOf = id => S().lineOf(id), ivName = id => US.keep((S().interviewOf(id) || {}).name || '');
@@ -366,7 +432,7 @@
         if (P.notes.length > 1) body.appendChild(h('div.row.producer-history', h('span.field-hint', 'Earlier:'), P.notes.map(n => h('button.chip' + (n === shownNotes ? '.on' : ''), { onclick: () => { shownNotes = n; render(); } }, US.keep(`${n.name} · ${new Date(n.updated).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`)))));
         if (shownNotes) body.appendChild(notesCard(shownNotes));
       }
-      function notesCard(rec) {
+      function notesCard(rec, { inChat = false } = {}) {
         const res = rec.result, firstAt = new Map();
         for (const r of rec.cut || []) if (!firstAt.has(r.lineId)) firstAt.set(r.lineId, r.start);
         const copy = () => notesText(res, { name: rec.name, lineText: say, timeOf: id => (firstAt.has(id) ? firstAt.get(id) : null) });
@@ -381,8 +447,8 @@
         return ui.card(h('div.card-title', US.keep(`Notes on “${rec.name}”`), h('span.right.field-hint', rec.by || '')),
           res.verdict ? h('div.producer-verdict', res.verdict) : null, rec.missing ? ui.note(rec.missing, 'warn') : null, tools,
           notes.length ? notes : ui.empty({ title: 'No notes came back', text: 'Try again, or choose another focus.' }),
-          h('div.field-label', 'Answer back'), replyBox('e.g. “the repetition is on purpose – it’s a refrain”, or “what would you open with?”', x => US.jobs.run({ title: 'Producer notes', tool: 'producer' }, async job => { const r = await getNotes(job, { id: rec.id, reply: x }); shownNotes = r.notes; render(); return { summary: r.summary }; })),
-          h('div.field-hint', 'It reads the cut again, so changes you’ve made since count.'));
+          inChat ? null : h('div.field-label', 'Answer back'), inChat ? h('div.field-hint', 'Answer back in the chat – “the repetition is on purpose”, “fix the opening the way you suggest”.') : replyBox('e.g. “the repetition is on purpose – it’s a refrain”, or “what would you open with?”', x => US.jobs.run({ title: 'Producer notes', tool: 'producer' }, async job => { const r = await getNotes(job, { id: rec.id, reply: x }); shownNotes = r.notes; render(); return { summary: r.summary }; })),
+          inChat ? null : h('div.field-hint', 'It reads the cut again, so changes you’ve made since count.'));
       }
 
       /* pick-up interview */
@@ -405,7 +471,7 @@
         if (P.pickups.length > 1) body.appendChild(h('div.row.producer-history', h('span.field-hint', 'Earlier:'), P.pickups.map(n => h('button.chip' + (n === shownPlan ? '.on' : ''), { onclick: () => { shownPlan = n; render(); } }, new Date(n.updated).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })))));
         if (shownPlan) body.appendChild(planCard(shownPlan));
       }
-      function planCard(rec) {
+      function planCard(rec, { inChat = false } = {}) {
         const res = rec.result, q = res.gaps.reduce((k, g) => k + g.asks.length, 0);
         const bySeg = ui.segmented({ value: by, onChange: x => { by = x; US.settings.set('producer.by', x); render(); }, options: [{ value: 'person', label: 'By person', title: 'A question sheet for each person' }, { value: 'gap', label: 'By gap', title: 'What the story needs, with the questions for it' }] });
         const text = () => pickupText(res, { nameOf: nameOfSpeaker, by });
@@ -421,11 +487,26 @@
         return ui.card(h('div.card-title', `${US.plural(res.gaps.length, 'gap')} · ${US.plural(q, 'question')}`, h('span.right.field-hint', rec.by || '')),
           res.summary ? h('div.producer-verdict', res.summary) : null, rec.missing ? ui.note(rec.missing, 'warn') : null, tools,
           list.length ? list : ui.empty({ title: 'No gaps came back', text: 'Try again with a brief.' }),
-          h('div.field-label', 'Change it'), replyBox('e.g. “Ruth can’t be reached – give her questions to David”, or “more about the 1990s”', x => US.jobs.run({ title: 'Planning the pick-up interview', tool: 'producer' }, async job => { const r = await planPickups(job, { id: rec.id, reply: x }); shownPlan = r.plan; render(); return { summary: r.summary }; })));
+          inChat ? null : h('div.field-label', 'Change it'), inChat ? h('div.field-hint', 'Change it in the chat – “Ruth can’t be reached, give her questions to David”.') : replyBox('e.g. “Ruth can’t be reached – give her questions to David”, or “more about the 1990s”', x => US.jobs.run({ title: 'Planning the pick-up interview', tool: 'producer' }, async job => { const r = await planPickups(job, { id: rec.id, reply: x }); shownPlan = r.plan; render(); return { summary: r.summary }; })));
       }
 
+      /* talk to the producer: Ask's chat screen with the producer's persona (made once, kept while the tab lives) */
+      function renderChat() {
+        if (!chat) chat = US.chatView({ key: 'producerChat', tool: 'producer', persona: 'producer',
+          placeholder: 'e.g. review my cut and tell me what to fix first · what is this story missing? · tighten the middle, then tell me what you changed',
+          hello: 'I’m your producer. I’ve got your interviews, your project and your cut in front of me – ask me to review it, tell you what’s missing or what to do next, and I’ll do the work too when you say so.',
+          examples: ['Review my project and tell me what to do next', 'Give me notes on the open cut', 'What is this story still missing?', 'Is this cut ready to send to the client?', 'Plan a pick-up interview', 'Fix the biggest problem in the cut, then tell me what you changed'],
+          cards: {
+            producerNotes: it => { S().loadState(); const rec = pstate().notes.find(x => x.id === it.id); return rec ? notesCard(rec, { inChat: true }) : null; },
+            producerPickups: it => { S().loadState(); const rec = pstate().pickups.find(x => x.id === it.id); return rec ? planCard(rec, { inChat: true }) : null; }
+          } });
+        body.append(...chat.parts);
+        chat.onShow();
+      }
       function render() {
         US.clear(body);
+        v.el.classList.toggle('chat-tool', page === 'chat');
+        if (page === 'chat' && US.chatView) { renderChat(); return; }
         if (!S()) return;
         S().loadState();
         const b = blocked();
@@ -444,5 +525,5 @@
     }
   });
 
-  US.producer = { cutListing, KINDS, notesTask, notesFollowUp, organiseNotes, noteMarkers, notesText, pickupTask, organisePickups, byPerson, pickupText, pickupDoc, getNotes, markNotes, planPickups };
+  US.producer = { PERSONA, notesForAI, pickupsForAI, cutListing, KINDS, notesTask, notesFollowUp, organiseNotes, noteMarkers, notesText, pickupTask, organisePickups, byPerson, pickupText, pickupDoc, getNotes, markNotes, planPickups };
 })();
