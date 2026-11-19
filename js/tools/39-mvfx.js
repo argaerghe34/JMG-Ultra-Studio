@@ -227,6 +227,15 @@
     job && job.set({ who: 'premiere', msg: 'Adding the text layers' }); job && job.progress(0.9);
     const layers = texts.map(t => ({ kind: 'text', text: t.text, family: t.family, font: P().psName(t.family, t.bold), bold: t.bold, size: t.px, colour: t.colour, x: t.cx, y: t.cy, width: t.width, align: 'centre', tracking: t.tracking, anim: t.anim, name: t.text.split('\n')[0].slice(0, 40) }));
     const out = await US.host.call('mvfxApply', { seqId: seq.id, start, seconds: len, name: preset.label, layers, textRoute: textRoute() });
+    if ((out.text || []).some(t => !t.words)) {
+      // this Premiere didn't let us set the words (27.0): take the text layers and the lines away again and add the
+      // title drawn whole, as it would be with the switch off – so what's on the timeline is the title, not template text
+      job && job.set({ who: 'premiere', msg: 'Premiere didn’t take the words – adding the title drawn instead' });
+      const placed = (out.tracks || []).map(t => ({ kind: 'video', track: t, start: out.start, end: out.end })).concat(art ? [{ kind: 'video', track: art.track, start: art.start, end: art.end }] : []);
+      const gone = await US.host.call('editApply', { seqId: seq.id, op: 'remove', params: { ripple: false }, targets: placed });
+      const r = await addMotion(preset, v, seq, start, seconds, job);
+      return Object.assign(r, { editable: false, fellBack: true, removed: gone.done || 0, textLog: out.log, note: ['this Premiere doesn’t let add-ons set a text layer’s words, so the title is drawn – to edit words in Properties, use a Plain text preset and type them there', r.note].filter(Boolean).join(' · ') });
+    }
     if (art) { out.art = art; out.tracks = [art.track].concat(out.tracks || []); }
     return Object.assign(out, { editable: true, textLayers: layers.length, note: [art && art.note, out.note].filter(Boolean).join(' · ') });
   }
@@ -329,6 +338,7 @@
       const old = opts.replace, at = old ? old.start : start;
       if (v.editable && !old && editablePlan(preset, v, seq).ok) {
         const r = await addEditable(preset, v, seq, start, seconds, job);
+        if (r.fellBack) return { summary: `${preset.label} added ${where} on ${r.trackName || 'V' + (r.track + 1)} · ${r.note}`, result: r };
         return { summary: `${preset.label} added ${where} as ${US.plural(r.textLayers, 'text layer')} you can change in Properties${r.art ? ', with its lines drawn underneath' : ''} (${r.trackName || 'V' + (r.track + 1)} up)${r.note ? ' · ' + r.note : ''}`, result: r };
       }
       const r = await addMotion(preset, v, seq, at, seconds, job, old ? async () => { const x = await US.host.call('editApply', { seqId: seq.id, op: 'remove', params: { ripple: false }, targets: [old] }); if (!x.done) throw new US.UserError('HOST_SCRIPT', { title: 'The old title couldn’t be removed.', action: 'Delete it in the Timeline, then add the new one at the playhead.', detail: JSON.stringify(x.skipped || x.log || '') }); } : null);

@@ -115,9 +115,9 @@
         return json;
     }
     /**
-     * Write the words into a Source Text that can't be read. opts.route: one route only (the probe; or the panel once
-     * the right one is known). Without it the routes are tried in order until what reads back has changed and isn't
-     * empty – a hint, not proof (Premiere may store a value it then can't show). -> {took, route, tries:[{route, read, error}]}
+     * Write the words into a Source Text that can't be read, by opts.route only (the probe). None of these routes is
+     * proven: in Premiere 27.0 all three blank the text (probe, 19 Nov), so setText never calls this without a route.
+     * -> {took, route, tries:[{route, read, error}]}
      */
     function writeBlob(prop, L, opts, log) {
         var json = textJSON(L), before = '', res = { took: false, route: '', tries: [] };
@@ -144,6 +144,9 @@
         if (!list.length) {
             var st = sourceTextProperty(ti);
             if (!st) { log.push('no Source Text'); return out; }
+            // unreadable (Premiere 27.0): leave the template's own text alone – writing it blanks the layer – unless a
+            // route is asked for by name (dev/probes/mvfx-settext.js)
+            if (!(opts && opts.route)) { log.push('Source Text can’t be read in this Premiere – the words were left for the Properties panel'); out.forms.push('unreadable'); return out; }
             var b = writeBlob(st, L, opts, log);
             out.forms.push('blob'); out.route = b.route; out.tries = b.tries;
             if (b.took) { out.words = true; out.font = !!L.font; out.size = !!L.size; out.colour = !!L.colour; }
