@@ -30,6 +30,8 @@
         for (var c = 0; c < tr.clips.numItems; c++) if (Math.abs(tr.clips[c].start.seconds - start) <= half) return tr.clips[c];
         return null;
     }
+    /** Is video track t one of ours ("mVFX 1, 2, 3…": titles, overlays, text layers, held frames)? */
+    function isOurs(seq, t) { var nm = ''; try { nm = trim(seq.videoTracks[t].name); } catch (e) { } return /^mVFX \d+$/i.test(nm); }
     /** Our n-th track ("mVFX 1" is the lowest of ours, made above everything the first time). -> track index */
     function ourTrack(seq, n, log) {
         var want = TRACK + ' ' + n, t;
@@ -184,6 +186,13 @@
                 try { ti = seq.importMGT(mogrt, String(Math.round(a.start * U.TICKS)), t, 0); } catch (e2) { log.push('importMGT: ' + e2); }
                 if (!ti) throw U.err('HOST_SCRIPT', 'importMGT refused on V' + (t + 1) + ': ' + log.join('; '), 'Premiere didn’t add the text layer.', 'Check the track isn’t locked, then try again.');
                 setEnd(ti, a.start + a.seconds, log, 'end');
+                // Premiere 27.0 showed no Source Text on the clip importMGT handed back (19 Nov): look again at the
+                // clip on the track (a fresh object), after a moment if need be – dev/probes/mvfx-basic-title.js
+                for (var tryN = 0; tryN < 3 && !textProperties(ti).length; tryN++) {
+                    if (tryN) $.sleep(250);
+                    var again = clipAt(seq, 'video', t, a.start);
+                    if (again) ti = again;
+                }
                 var r = setText(ti, L, log);
                 out.text.push(r);
                 // the words sit centred on the frame: move the whole graphic so they sit where the preset wants them.
@@ -249,12 +258,15 @@
 
     /**
      * A camera move: Motion › Scale and Position keyframed. a: {seqId, targets:[{kind, track, start, end}], keys:[{at (s from
-     * the clip's start), scale, x, y (fractions of the frame)}], ease} -> {done, skipped:[{start, why}], log}
+     * the clip's start), scale, x, y (fractions of the frame)}], ease, onlyPicture (leave our own mVFX tracks alone)}
+     * -> {done, skipped:[{start, why}], log}
      */
     fn.mvfxMove = function (a) {
         var seq = U.needSeq(a.seqId), out = { done: 0, skipped: [], log: [] };
         for (var i = 0; i < a.targets.length; i++) {
-            var g = a.targets[i], ti = clipAt(seq, g.kind || 'video', g.track, g.start);
+            var g = a.targets[i];
+            if (a.onlyPicture && isOurs(seq, g.track)) { out.skipped.push({ start: g.start, why: 'a title or overlay of ours' }); continue; }
+            var ti = clipAt(seq, g.kind || 'video', g.track, g.start);
             if (!ti) { out.skipped.push({ start: g.start, why: 'not on the timeline any more' }); continue; }
             try {
                 var m = component(ti, /^Motion$/), sc = property(m, /^Scale$/), pos = property(m, /^Position$/);
@@ -277,13 +289,15 @@
 
     /**
      * A look: a Lumetri Color effect on each clip with the look's settings (the .cube is saved for its Input LUT by hand).
-     * a: {seqId, targets, look:{id, lut, lumetri:{Temperature: 28, …}, label}} -> {done, skipped, set:[names], log}
+     * a: {seqId, targets, look:{id, lut, lumetri:{Temperature: 28, …}, label}, onlyPicture} -> {done, skipped, set:[names], log}
      */
     fn.mvfxLook = function (a) {
         var seq = U.needSeq(a.seqId), q = U.openAndQE(seq), out = { done: 0, skipped: [], set: [], log: [] };
         var eff = null; try { eff = qe.project.getVideoEffectByName('Lumetri Color'); } catch (e) { }
         for (var i = 0; i < a.targets.length; i++) {
-            var g = a.targets[i], ti = clipAt(seq, g.kind || 'video', g.track, g.start);
+            var g = a.targets[i];
+            if (a.onlyPicture && isOurs(seq, g.track)) { out.skipped.push({ start: g.start, why: 'a title or overlay of ours' }); continue; }
+            var ti = clipAt(seq, g.kind || 'video', g.track, g.start);
             if (!ti) { out.skipped.push({ start: g.start, why: 'not on the timeline any more' }); continue; }
             try {
                 var lum = component(ti, /^Lumetri/);

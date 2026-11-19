@@ -55,8 +55,8 @@
       { target: '.word-cloud', title: 'The cloud', text: 'Bigger means said more. Click a word to see every time it’s said; shift-click to pick several, then build a sequence of them.' }
     ],
     producer: [
-      { target: '@head', title: 'Producer', text: 'A second opinion from the transcripts: notes on your cut, and what a pick-up interview should ask.' },
-      { target: '.segmented', title: 'Two kinds of help', text: 'Notes on the cut, or a plan for a pick-up interview with the questions to ask.', tip: 'It reads the transcripts as text – never the footage.' }
+      { target: '@head', title: 'Producer', text: 'A producer who has read every interview: talk it through, get notes on your cut, and what a pick-up interview should ask.' },
+      { target: '.segmented', title: 'Three kinds of help', text: 'Talk to the producer – a chat that reviews your project and cut, notices problems, proposes what to do next and does it when you say. Or go straight to notes on the cut, or a pick-up interview plan.', tip: 'The chat can do everything Ask can, and shows its work the same way: what it is doing, “Behind the scenes”, the AI in use and the cost.' }
     ],
     silence: [
       { target: 'text:Find the pauses', title: 'Find the pauses', text: 'Ultra Studio listens to the sequence and finds every pause. Nothing changes until you make a cut copy.' },
@@ -90,7 +90,9 @@
       { target: 'text:Other editors', title: 'Other editors', text: 'Send this sequence to Final Cut Pro or another editor as a timeline file, or bring in a timeline one of them made – with a list of what didn’t come across.' }
     ],
     assistant: [
-      { target: '@head', title: 'Ask', text: 'Say what you want in plain English: “cut the silences”, “markers on every beat”, or a question about your interviews.', tip: 'Anything that changes the project is shown as a plan first – nothing runs until you press Run.' }
+      { target: '@head', title: 'Ask', text: 'Say what you want in plain English: “cut the silences”, “markers on every beat”, or a question about your interviews.', tip: 'Anything that changes the project is shown first – Proceed, Always proceed or Skip. Risky steps always stop and warn you.' },
+      { target: '.chat-head', title: 'Always in reach', text: 'Your chats, how often it asks, which AI and the spending limit stay at the top while the messages scroll. “Undo all” appears here once the AI has changed something: it takes back everything it did in the chat, and says plainly what it can’t.' },
+      { target: '.chat-foot', title: 'One box for everything', text: 'Type here – or press the microphone and speak; your words are made on this computer and put in the box to check. When the AI asks a question, its suggested answers appear as buttons just above, and typing your own still works.', tip: 'While it works, a row here shows what it is doing. Open “Behind the scenes” for every step in detail.' }
     ],
     advanced: [
       { target: '.tiles', title: 'Tools for particular jobs', text: 'Selects, Subclip Maker, MC Selects, Take Sets, Podcast, mVFX and Download. Each opens here and has a link back.', tip: 'The ☆ beside a tool’s title puts it on the sidebar.' },

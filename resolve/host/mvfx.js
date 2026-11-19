@@ -188,11 +188,14 @@ module.exports = (R, fns) => {
     /** Resolve doesn't let add-ons keyframe: said plainly (the panel sets a still punch-in through editApply). */
     mvfxMove(a) { return { done: 0, skipped: [], unsupported: true, why: 'Resolve doesn’t let add-ons keyframe moves – add them on the Edit page (Inspector › Transform keyframes), or use Premiere.' }; },
 
-    /** A look: its .cube on the first node of each clip. a: {seqId, targets, look:{id, lut, label}} -> {done, skipped, log} */
+    /** A look: its .cube on the first node of each clip. a: {seqId, targets, look:{id, lut, label}, onlyPicture (leave our
+        own mVFX tracks alone)} -> {done, skipped, log} */
     mvfxLook(a) {
       const tl = R.needSeq(a.seqId), out = { done: 0, skipped: [], log: [] };
       if (!R.exists(a.look && a.look.lut)) throw R.err('NOT_FOUND', 'LUT missing: ' + (a.look && a.look.lut), 'The look’s LUT file isn’t there.', 'Try again – the panel writes it to Documents › JMG Ultra Studio › Looks.');
+      const ours = t => /^mVFX \d+$/i.test(String(tryCall(() => tl.GetTrackName('video', t + 1), '') || '').trim());
       for (const g of a.targets || []) {
+        if (a.onlyPicture && ours(g.track)) { out.skipped.push({ start: g.start, why: 'a title or overlay of ours' }); continue; }
         const ti = clipAt(tl, g.kind || 'video', g.track, g.start);
         if (!ti) { out.skipped.push({ start: g.start, why: 'not on the timeline any more' }); continue; }
         if (tryCall(() => ti.SetLUT(1, a.look.lut), false)) out.done++;

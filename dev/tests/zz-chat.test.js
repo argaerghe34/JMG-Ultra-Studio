@@ -23,12 +23,13 @@ test('what a step touches, and when the editor is asked first', () => {
   assert.strictEqual(C.riskOf('action', { id: 'check.run' }, { action: { changes: false } }), 'read');
   assert.strictEqual(C.riskOf('action', { id: 'deliver.pack' }, { action: { changes: true } }), 'out');
   assert.strictEqual(C.riskOf('action', { id: 'deliver.chapters' }, { action: { changes: false } }), 'read');
-  // ask: everything that changes; own: only their own work and files; never: nothing; “Always proceed” covers new things only
+  // ask: everything that changes; own: only their own work and files; never: nothing; “Always proceed” covers everything but
+  // stills leaving the computer (risky steps stop at a warning instead: zz-chat-safety.test.js)
   const grid = m => ['read', 'ai', 'new', 'own', 'out', 'sees'].map(r => C.asksFirst(r, m)).join();
   assert.strictEqual(grid('ask'), 'false,false,true,true,true,true');
   assert.strictEqual(grid('own'), 'false,false,false,true,true,true', 'stills leaving the computer are asked about like the editor’s own work');
   assert.strictEqual(grid('never'), 'false,false,false,false,false,false');
-  assert.deepStrictEqual([C.asksFirst('new', 'ask', true), C.asksFirst('own', 'ask', true), C.asksFirst('out', 'ask', true)], [false, true, true]);
+  assert.deepStrictEqual([C.asksFirst('new', 'ask', true), C.asksFirst('own', 'ask', true), C.asksFirst('out', 'ask', true), C.asksFirst('sees', 'ask', true)], [false, false, false, true]);
 });
 
 test('the AI’s turn read; a chat’s name; older results shortened; what is kept with the project', () => {
@@ -145,7 +146,7 @@ test('a whole conversation: understood and plan shown → a question answered �
   } finally { x.restore(); putBack(); }
 });
 
-test('a step turned down doesn’t run and the AI is told (with what the editor said instead); “don’t ask” runs straight through; the sequence itself always asks first', async () => {
+test('a step turned down doesn’t run and the AI is told (with what the editor said instead); “don’t ask” runs straight through; the sequence itself always stops at a warning first', async () => {
   const edit = (extra = {}) => T('edit', Object.assign({ where: 'sequence', steps: [{ op: 'opacity', targets: { tracks: ['V1'] }, params: { value: 50 } }] }, extra));
   let x = setup([edit(), T('finish', { reply: 'Left as it was.' })]);
   const log = [];
@@ -162,11 +163,12 @@ test('a step turned down doesn’t run and the AI is told (with what the editor 
   } finally { x.restore(); }
   x = setup([edit({ inPlace: true }), T('finish', { reply: 'Done.' })]);
   try {
-    const l3 = [];
-    await C.send(C.newChat(), 'half opacity on V1, in the sequence itself', hooksFor(l3), { mode: 'own' });
-    const card = l3.find(i => i.k === 'approve?').card;
-    assert.ok(card.risk === 'own' && /“My cut” ITSELF – no copy/.test(card.detail));
-    assert.ok(x.host.some(h => h[0] === 'editApply' && h[1].seqId === 'mine') && !x.host.some(h => h[0] === 'cloneSequence'));
+    const l3 = [], warned = [];
+    await C.send(C.newChat(), 'half opacity on V1, in the sequence itself', Object.assign(hooksFor(l3), { warn: async w => { warned.push(w); return 'continue'; } }), { mode: 'own' });
+    assert.ok(warned.length === 1 && warned[0].risk === 'own' && /“My cut” ITSELF – no copy/.test(warned[0].detail) && warned[0].reasons.some(r => r.id === 'inPlace'), 'a warning, not a card');
+    assert.ok(!l3.some(i => i.k === 'approve?'));
+    assert.ok(x.host.some(h => h[0] === 'editApply' && h[1].seqId === 'mine'));
+    assert.deepStrictEqual(x.host.filter(h => h[0] === 'cloneSequence').map(h => h[1].name), ['My cut – before Ask'], 'the only copy is the one kept from before');
   } finally { x.restore(); }
 });
 
