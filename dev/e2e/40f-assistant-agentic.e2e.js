@@ -85,7 +85,7 @@ try {
   const eb = (await US.host.call('askBins', { filter: EMPTY.split('/').pop() })).bins;   // this run's bin only
   T.assert(eb.length === 1 && eb[0].clips === 1, 'the empty bin was made and one clip moved into it: ' + JSON.stringify(eb) + ' · ' + rb[4]);
   await C.undo(b, { confirm: async () => 'keep' });
-  const eb2 = (await US.host.call('askBins', { filter: 'Empty one' })).bins;
+  const eb2 = (await US.host.call('askBins', { filter: EMPTY.split('/').pop() })).bins;
   T.assert(!eb2.length || eb2[0].clips === 0, 'Undo put the clip back and took the empty bin away: ' + JSON.stringify(eb2));
   out.find = rb.map(r => r.slice(0, 120));
 
