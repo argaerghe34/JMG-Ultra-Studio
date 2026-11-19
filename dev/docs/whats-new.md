@@ -1,3 +1,12 @@
+## What's new in 1.3.40.1
+
+Not tested in Premiere or Resolve (unit tests only).
+
+- **Settings › Vision & listening models › Models on this computer** is now the one place for local models. It explains why there is more than one (three jobs: reading and writing, looking at footage, listening), the two ways to get one (downloaded by Ultra Studio, or your own from Ollama or LM Studio), and that only the model chosen for a job is used.
+- **Each model is listed once**, with where it comes from. In 1.3.40 a model from Ollama, such as Qwen 3.5, could show up to four times in three places.
+- **AI › Footage – what the AI may see** now holds only the permission, with a button to the model choice. **On this computer (offline)** uses the same "reading and writing" choice.
+- Models you already have in Ollama keep working. New downloads of the older three through Ollama are no longer offered in Settings.
+
 ## What's new in 1.3.40
 
 Tested in real Premiere Pro 2027 on the Mac. **Not yet tested in DaVinci Resolve or on Windows.**
