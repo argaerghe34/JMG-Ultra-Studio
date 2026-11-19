@@ -10,7 +10,6 @@ const ROUTES = {
   'safe zones for Reels': 'safezones.add',
   'hide the safe zones': 'safezones.hide',
   'make youtube chapters': 'deliver.chapters',
-  'split the concert into songs': 'songs.split',
   'lines about volunteering': 'story.search',
   'find where they talk about faith': 'story.search',
   'find the themes': 'story.themes',
