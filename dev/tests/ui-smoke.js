@@ -602,6 +602,24 @@ US.tools.open = () => {}; // no app shell here; the test drives the Story screen
         if (ap[1].seconds !== 5 || ap[1].start !== 0) errors.push('mvfx: at the playhead for 5 s ' + ap[1].start + '/' + ap[1].seconds);
       }
       if (!/Tag added at/.test(mt.el.textContent)) errors.push('mvfx: no report: ' + mt.el.querySelector('.pad-status').textContent);
+      // Premiere 27.0 won't take a text layer's words: the text layers go again and the title is added drawn whole
+      {
+        const fake = { font: '10px x', globalAlpha: 1, measureText(t) { return { width: t.length * 5 }; } };
+        for (const k of ['save', 'restore', 'fillRect', 'clearRect', 'beginPath', 'closePath', 'moveTo', 'lineTo', 'stroke', 'fill', 'rect', 'clip', 'fillText', 'arc']) fake[k] = () => {};
+        const wasCtx = w.HTMLCanvasElement.prototype.getContext, wasBlob = w.HTMLCanvasElement.prototype.toBlob, seen = [];
+        w.HTMLCanvasElement.prototype.getContext = () => fake;
+        w.HTMLCanvasElement.prototype.toBlob = cb => cb({ arrayBuffer: async () => new Uint8Array([137, 80, 78, 71]).buffer });
+        US.host.call = async (fn, a) => { seen.push([fn, a]); if (fn === 'sequenceInfo') return { id: 's1', name: 'Cut', fps: 25, width: 1920, height: 1080, duration: 30 }; if (fn === 'findGuideItem') return 'png1'; if (fn === 'mvfxApply') return { placed: a.layers.length, track: 2, tracks: [2, 3], start: a.start, end: a.start + a.seconds, text: [{ words: false }, { words: false }], log: ['Source Text can’t be read'] }; if (fn === 'editApply') return { done: a.targets.length }; if (fn === 'mvfxClip') return { itemId: 'c9', track: 2, trackName: 'mVFX 1', start: a.start, end: a.start + a.seconds }; return wasCall(fn, a); };
+        try {
+          const r = await US.mvfx.apply(US.mvfxPack.byId('tag'), null, { at: 3 }, US.jobs.testJob('mvfx'));
+          const rm = seen.find(c => c[0] === 'editApply'), clip = seen.find(c => c[0] === 'mvfxClip');
+          if (!rm || rm[1].op !== 'remove' || rm[1].targets.length !== 2 || !clip || clip[1].frames !== 125 || clip[1].start !== 3 || !r.result.drawnTitle || !/drawn title – words can’t be edited in Properties/.test(r.summary)) errors.push('mvfx: no drawn fallback ' + r.summary + ' ' + JSON.stringify(seen.map(c => c[0])));
+          // known now: the next plain title is drawn straight away, without trying text layers
+          seen.length = 0;
+          await US.mvfx.apply(US.mvfxPack.byId('hairline'), null, { at: 9 }, US.jobs.testJob('mvfx'));
+          if (seen.some(c => c[0] === 'mvfxApply') || !seen.some(c => c[0] === 'mvfxClip')) errors.push('mvfx: the second plain title tried text layers again ' + JSON.stringify(seen.map(c => c[0])));
+        } finally { w.HTMLCanvasElement.prototype.getContext = wasCtx; w.HTMLCanvasElement.prototype.toBlob = wasBlob; US.settings.set('mvfx.textDrawn', undefined); }
+      }
       // a movement goes on the selected clips with keyframes
       Array.from(groups).find(b => /Movements/.test(b.textContent)).click();
       await new Promise(r => setTimeout(r, 30));
