@@ -1,7 +1,7 @@
 // JMG Ultra Studio – the window Resolve opens from Workspace › Workflow Integrations › JMG Ultra Studio.
 // The panel is the same one Premiere uses (index.html, js/, css/); it needs Node in the page, so this follows
 // Blackmagic's "compatibility mode" sample (nodeIntegration on, contextIsolation off).
-const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, systemPreferences } = require('electron');
 const path = require('path'), fs = require('fs');
 
 // Development: with a file called "debug" next to this one, the panel can be driven by dev/cep.js on port 8892.
@@ -20,6 +20,23 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   win.loadFile(path.join(__dirname, 'index.html'));
 }
+
+// Ask › dictation: may the microphone be used? (Electron lets this window's own page open it; no permission handler is
+// set, so nothing else about permissions changes.) On a Mac the system is asked once – but only when this window's app
+// says why it wants the microphone (without that line macOS closes an app that asks), else 'unavailable'.
+// -> 'granted' | 'denied' | 'unavailable'
+ipcMain.handle('ultra-studio:mic', async () => {
+  try {
+    if (process.platform !== 'darwin' || !systemPreferences || !systemPreferences.getMediaAccessStatus) return 'granted';
+    const st = systemPreferences.getMediaAccessStatus('microphone');
+    if (st === 'granted') return 'granted';
+    if (st === 'denied' || st === 'restricted') return 'denied';
+    let plist = '';
+    try { plist = fs.readFileSync(path.join(path.dirname(process.execPath), '..', 'Info.plist')).toString('latin1'); } catch (e) { plist = ''; }
+    if (!/NSMicrophoneUsageDescription/.test(plist)) return 'unavailable';
+    return (await systemPreferences.askForMediaAccess('microphone')) ? 'granted' : 'denied';
+  } catch (e) { return 'unavailable'; }
+});
 
 /*
  * The Resolve commands (resolve/host) run here, in the main process, which keeps the single connection to Resolve:

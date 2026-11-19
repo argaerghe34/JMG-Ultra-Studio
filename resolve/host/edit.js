@@ -220,6 +220,70 @@ module.exports = (R, fns) => {
         return { id: R.id(tl), itemId: mpi ? R.id(mpi) : '', name: String(tl.GetName() || ''), bin: R.binPath(e ? e.parts : []), duration: R.tlDuration(tl), video: tl.GetTrackCount('video'), audio: tl.GetTrackCount('audio') };
       });
       return { bins: idx.folders.map(f => R.binPath(f.parts)).filter(p => p !== '(Project root)'), sequences, clips, more };
+    },
+
+    /* ---------- Ask › Undo: what the chat made, checked before it is taken away again (as jsx/tools/edit.jsx) ---------- */
+    /** a: {seqIds} -> [{id, missing:true} | {id, name, duration, clips, markers, guids}] */
+    askStamp(a) {
+      return ((a && a.seqIds) || []).map(id => {
+        const tl = R.timelineById(id);
+        if (!tl) return { id, missing: true };
+        let clips = 0;
+        for (const type of ['video', 'audio']) for (let k = 1, n = tl.GetTrackCount(type) || 0; k <= n; k++) clips += R.list(tl.GetItemListInTrack(type, k)).filter(Boolean).length;
+        const fps = R.fps(tl), marks = tryCall(() => R.readMarkers(tl, f => f / fps, fps), []) || [];
+        return { id, name: String(tl.GetName() || ''), duration: Math.round(R.tlDuration(tl) * 1000) / 1000, clips, markers: marks.length, guids: marks.map(m => m.guid) };
+      });
+    },
+    /** Bins Ask made, taken away only when nothing is left in them. a: {paths} -> {removed:[paths], kept:[{path, why}]} */
+    askRemoveBins(a) {
+      const want = ((a && a.paths) || []).slice().sort((x, y) => y.split(' / ').length - x.split(' / ').length), removed = [], kept = [];
+      for (const p of want) {
+        R.forget();
+        const e = R.index().folders.find(f => R.binPath(f.parts) === p);
+        if (!e || !e.parts.length) { kept.push({ path: p, why: 'not there any more' }); continue; }
+        if (R.list(e.folder.GetClipList()).length || R.list(e.folder.GetSubFolderList()).length) { kept.push({ path: p, why: 'not empty' }); continue; }
+        if (tryCall(() => R.pool().DeleteFolders([e.folder]), false)) removed.push(p); else kept.push({ path: p, why: 'Resolve would not remove it' });
+      }
+      R.forget();
+      return { removed, kept };
+    },
+
+    /**
+     * Ask › dictation: the words in a short recording, by Resolve's own transcription on this computer (21.1+). The
+     * file goes into JMG Ultra Studio/.dictation, is transcribed, read and taken out again (the bin too).
+     * a: {path, maxMs} -> {text} or {unsupported: true, why}
+     */
+    async dictateTranscribe(a) {
+      const T = Object.assign({ poll: 700, now: () => Date.now() }, R.transcribeTiming);
+      const bin = R.ensureBin('JMG Ultra Studio/.dictation');
+      const it = R.inFolder(bin, () => R.list(R.pool().ImportMedia([a.path])).filter(Boolean))[0];
+      const tidy = () => {
+        if (it) tryCall(() => R.pool().DeleteClips([it]), false);
+        R.forget();
+        const e = R.index().folders.find(f => f.parts.join('/') === 'JMG Ultra Studio/.dictation');
+        if (e && !R.list(e.folder.GetClipList()).length && !R.list(e.folder.GetSubFolderList()).length) tryCall(() => R.pool().DeleteFolders([e.folder]), false);
+        R.forget();
+      };
+      if (!it) { tidy(); return { unsupported: true, why: 'Resolve would not take the recording.' }; }
+      const words = () => {
+        const tr = tryCall(() => it.GetTranscription(), null), segs = tr && R.list(tr.segments);
+        if (!segs || !segs.length) return null;
+        return segs.map(g => { const ws = R.list(g.words); return (ws.length ? ws.map(w => String(w.text || '')) : [String(g.text || '')]).join(' '); }).join(' ').replace(/\(\.\.\.\)|\(…\)/g, ' ').replace(/\s+/g, ' ').trim();
+      };
+      try {
+        if (typeof it.GetTranscription !== 'function' || typeof it.TranscribeAudio !== 'function') return { unsupported: true, why: 'This Resolve can’t transcribe for add-ons (it needs Resolve 21.1 or later).' };
+        if (!tryCall(() => it.TranscribeAudio(true), false)) return { unsupported: true, why: 'Resolve did not start transcribing.' };
+        const pr = R.project(), end = T.now() + (a.maxMs || 90000);
+        while (T.now() < end) {
+          await new Promise(r => setTimeout(r, T.poll));
+          const st = tryCall(() => (pr.GetTranscribeAudioStatus && pr.GetTranscribeAudioStatus()) || {}, {});
+          const got = words();
+          if (got != null && !/Analyzing|Initializing/i.test(String(st.JobStatus || ''))) return { text: got };
+          if (/Cancel/i.test(String(st.JobStatus || '')) || st.Error) break;
+        }
+        const last = words();
+        return { text: last || '' };
+      } finally { tidy(); }
     }
   };
 };

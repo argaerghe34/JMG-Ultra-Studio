@@ -255,4 +255,48 @@
         }
         return { bins: bins, sequences: seqs, clips: clips, more: more };
     };
+
+    /* ---------- Ask › Undo: what the chat made, checked before it is taken away again ---------- */
+    /**
+     * Where sequences stand now, so Ask can tell whether one it made has been changed since.
+     * a: {seqIds:[...]} -> [{id, missing:true} | {id, name, duration, clips, markers, guids:[marker ids]}]
+     */
+    fn.askStamp = function (a) {
+        var out = [], ids = a.seqIds || [];
+        for (var i = 0; i < ids.length; i++) {
+            var s = U.seqById(ids[i]);
+            if (!s) { out.push({ id: ids[i], missing: true }); continue; }
+            var n = 0, t, guids = [];
+            for (t = 0; t < s.videoTracks.numTracks; t++) n += s.videoTracks[t].clips.numItems;
+            for (t = 0; t < s.audioTracks.numTracks; t++) n += s.audioTracks[t].clips.numItems;
+            try { var m = s.markers.getFirstMarker(); while (m) { guids.push(m.guid); m = s.markers.getNextMarker(m); } } catch (e) { }
+            out.push({ id: ids[i], name: s.name, duration: Math.round(U.ticksToSec(s.end) * 1000) / 1000, clips: n, markers: guids.length, guids: guids });
+        }
+        return out;
+    };
+    /**
+     * Take away bins Ask made – only the ones with nothing left in them (a bin holding anything stays, and says so).
+     * a: {paths:['JMG Ultra Studio / Ask', ...]} (as listBins gives them) -> {removed:[paths], kept:[{path, why}]}
+     */
+    fn.askRemoveBins = function (a) {
+        var want = (a.paths || []).slice(0), removed = [], kept = [], i;
+        // deepest first, so a bin emptied by removing the one inside it can go too
+        want.sort(function (x, y) { return y.split(' / ').length - x.split(' / ').length; });
+        for (i = 0; i < want.length; i++) {
+            var found = null;
+            U.walk(U.project().rootItem, function (c) { if (c.type === 2 && U.binPath(c) === want[i]) { found = c; return false; } });
+            if (!found) { kept.push({ path: want[i], why: 'not there any more' }); continue; }
+            if (found.children && found.children.numItems > 0) { kept.push({ path: want[i], why: 'not empty' }); continue; }
+            try { found.deleteBin(); removed.push(want[i]); } catch (e) { kept.push({ path: want[i], why: 'Premiere would not remove it' }); }
+        }
+        return { removed: removed, kept: kept };
+    };
+    /**
+     * Ask › dictation. Premiere gives scripts no way to start its own transcription, so this says so (Resolve's twin
+     * transcribes with Resolve); the panel then uses a listening model on this computer when there is one.
+     * a: {path} -> {unsupported: true, why}
+     */
+    fn.dictateTranscribe = function (a) {
+        return { unsupported: true, why: 'Premiere can’t be asked to transcribe from a panel.' };
+    };
 })(UStudio);

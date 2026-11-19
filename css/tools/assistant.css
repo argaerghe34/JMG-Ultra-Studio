@@ -83,3 +83,65 @@
 .agent-plan-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
 .agent-seqs { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .chat-cost { text-align: right; padding-top: 2px; min-height: 14px; }
+
+/* ---------- Ask and Producer's chat (1.3.40): pinned top bar, working row, behind the scenes, answers, dictation ---------- */
+/* the chats bar and options stay put while the messages scroll (the tab's own scroller is .view) */
+.chat-head { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 6px 0; margin: -6px 0 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+.chat-head .chat-top, .chat-head .chat-opts { margin-bottom: 0; }
+.chat-head .chat-settings { border-top: 0; padding-top: 0; font-size: 12px; }
+.chat-head .chat-settings .section-body { padding: 6px 0 2px; display: flex; flex-direction: column; gap: 8px; }
+.chat-undo-all { flex: none; white-space: nowrap; }
+.chat-always { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.chat-foot { position: sticky; bottom: 0; z-index: 4; background: var(--bg); display: flex; flex-direction: column; gap: 6px; padding-top: 6px; }
+.chat-foot .chat-bar { position: static; padding: 0 0 2px; }
+.chat-input.answering { border-color: var(--accent); }
+/* the working row */
+.chat-working { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.chat-working.hidden { display: none; }
+.chat-working > .row { gap: 8px; align-items: center; }
+.chat-working-text { flex: 1; min-width: 0; color: var(--text); }
+.chat-working-dots { display: inline-flex; gap: 3px; flex: none; }
+.chat-working-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: chat-bounce 1.1s ease-in-out infinite; }
+.chat-working-dots i:nth-child(2) { animation-delay: .15s; }
+.chat-working-dots i:nth-child(3) { animation-delay: .3s; }
+.chat-working.waiting .chat-working-dots i { background: var(--warn); animation: none; opacity: .8; }
+@keyframes chat-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .chat-working-dots i, .chat-dot, .chat-mic.recording { animation: none !important; opacity: .9; }
+  .chat-behind-btn .icon, .chat-mic-level i { transition: none; }
+}
+/* behind the scenes */
+.chat-behind-btn { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.chat-behind-btn .icon { transition: transform .15s; }
+.chat-behind-btn.open .icon { transform: rotate(90deg); }
+.chat-behind { max-height: 220px; overflow-y: auto; border-top: 1px solid var(--border); padding-top: 6px; }
+.chat-behind.hidden { display: none; }
+.chat-behind-wrap { flex: 1; min-width: 0; }
+.chat-trace { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; }
+.chat-trace-row { display: grid; grid-template-columns: auto 58px minmax(0, 1fr); gap: 6px; align-items: baseline; }
+.chat-trace-time { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.chat-trace-kind { color: var(--text-2); font-weight: 600; }
+.chat-trace-text { color: var(--text); user-select: text; }
+.chat-trace-detail { color: var(--text-2); white-space: pre-wrap; word-break: break-word; margin-top: 1px; }
+.chat-trace-row.kind-error .chat-trace-kind, .chat-trace-row.kind-risk .chat-trace-kind, .chat-trace-row.kind-retry .chat-trace-kind { color: var(--warn); }
+.chat-trace-row.kind-ai .chat-trace-kind, .chat-trace-row.kind-plan .chat-trace-kind { color: var(--accent-hi); }
+.chat-end-tools { flex-wrap: wrap; align-items: flex-start; gap: 6px; }
+/* suggested answers, just above the chat box */
+.chat-answers { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 10px; background: var(--surface); }
+.chat-answers.hidden { display: none; }
+.chat-answers select.input { width: 100%; }
+.bubble.chat-card.chat-question { border-color: var(--accent); }
+/* the warning before a risky step, and undo */
+.chat-warn { display: flex; flex-direction: column; gap: 6px; }
+.chat-warn .pre { white-space: pre-wrap; }
+.bubble.chat-undone { border-color: var(--border); }
+/* dictation */
+.chat-mic { flex: none; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 8px; }
+.chat-mic.recording { color: #fff; background: var(--err); border-color: var(--err); animation: chat-pulse 1.2s ease-in-out infinite; }
+.chat-mic.busy { opacity: .6; }
+.chat-mic-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.chat-mic-row.hidden { display: none; }
+.chat-mic-row.busy .btn, .chat-mic-row.busy .chat-mic-level { display: none; }
+.chat-mic-level { flex: none; width: 70px; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.chat-mic-level i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s linear; }
+.chat-mic-time { color: var(--text-2); }

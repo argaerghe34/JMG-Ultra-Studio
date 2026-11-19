@@ -56,7 +56,13 @@
   ];
   const READS = new Set(['project', 'timeline', 'selection', 'bin', 'footage', 'search', 'lines', 'themes', 'ask', 'finish']);
   /** The tools on offer here. */
-  function toolsHere() { return Object.assign({}, TOOLS); }
+  function toolsHere(persona = null) {
+    const t = Object.assign({}, TOOLS);
+    // seeing and hearing the footage itself: only when that part of the app is there (US.understand)
+    if (US.understand && typeof US.understand.describe === 'function') t.watch = 'Watch and listen to one clip, or a moment of it, and say what is seen and heard – for what the transcript and the written descriptions miss (a look, a gesture, a noise, music, who is in frame): args {"clip":"an i… id from a bin or footage reading, or the exact clip name","bin":"the bin that id came from – leave out for the whole project","from":seconds,"to":seconds,"question":"what you need to know"}. Slower than reading; the editor is warned first when footage would leave this computer.';
+    if (persona && persona.tools) { const { finish } = t; delete t.finish; for (const [k, x] of Object.entries(persona.tools)) t[k] = x.desc; t.finish = finish; }
+    return t;
+  }
 
   /**
    * How much a step touches: 'read' (nothing changes) · 'ai' (reads, but a bigger AI request) · 'new' (makes new
@@ -66,6 +72,8 @@
   function riskOf(tool, args = {}, { action = null } = {}) {
     if (READS.has(tool) || tool === 'open') return 'read';
     if (tool === 'interviews') return 'ai';
+    if (tool === 'watch') return US.understand && typeof US.understand.where === 'function' && whereOf(US.understand.where()).where === 'cloud' ? 'sees' : 'ai';
+    { const pt = personaTool(tool); if (pt) return pt.risk || 'ai'; }
     // stills leaving the computer: asked about like the editor's own work (a local model looking is just reading)
     if (tool === 'look') return US.footage && US.footage.looker().where === 'local' ? 'ai' : 'sees';
     if (tool === 'build' || tool === 'version') return 'new';
@@ -81,11 +89,59 @@
     }
     return 'own';
   }
-  /** Does the editor approve this step first? always: they chose “Always proceed” in this chat (their own work and exports still ask). */
+  const whereOf = w => (w && typeof w === 'object' ? { where: w.where || 'local', label: w.label || '' } : { where: w === 'cloud' ? 'cloud' : 'local', label: '' });
+  /**
+   * Does the editor approve this step first? always: they chose “Always proceed” in this chat – nothing is asked about
+   * except stills leaving the computer. Risky steps still stop at a warning whatever is chosen here (dangerOf).
+   */
   function asksFirst(risk, mode = 'ask', always = false) {
     if (risk === 'read' || risk === 'ai') return false;
-    if (risk === 'own' || risk === 'out' || risk === 'sees') return mode !== 'never';
-    return mode === 'ask' && !always;
+    if (risk === 'sees') return mode !== 'never';
+    if (always) return false;
+    if (risk === 'own' || risk === 'out') return mode !== 'never';
+    return mode === 'ask';
+  }
+
+  /* ---------- the risk check: one place that says which steps get a warning first, whatever the editor chose ---------- */
+  const DANGER = { manyClips: 150, manySequences: 5, spend: 1 };
+  const DELETES = /(^|[.\-_])(delete|remove|clean|tidy|relink|consolidate|archive|purge|trash)/i;
+  const HEAVY = /^(overnight|export|encoder|web\.|youtube|download)|^deliver\.(?!chapters|text)|[.](describe|transcribe|render|export|proxies|analyse|download)\b/i;
+  /**
+   * Is this step risky enough to stop and warn about – even with “Always proceed” on or “Don’t ask” chosen?
+   * info: {action (the panel tool), steps (an edit's checked steps, with their targets), mine (the sequence is a copy
+   * this chat made), seqName, cloud + label (footage goes to a cloud AI), estimateUsd, limits}.
+   * -> {risky, reasons: [{id, text}]} – ids: inPlace (changes a sequence itself, not a copy) · deletes · many (a lot
+   * of clips or sequences at once) · heavy (long or heavy work) · noUndo (Undo here can't take it back) · spend
+   * (expected to cost more than the threshold) · footage (pictures or sound leave this computer).
+   */
+  function dangerOf(tool, args = {}, info = {}) {
+    const reasons = [], add = (id, text) => { if (!reasons.some(r => r.id === id)) reasons.push({ id, text }); };
+    const lim = Object.assign({}, DANGER, info.limits || {});
+    if (tool === 'edit') {
+      const steps = (info.steps || (Array.isArray(args.steps) ? args.steps : [])).filter(Boolean);
+      const onItems = args.where === 'bin' || args.where === 'project';
+      const others = steps.filter(x => x.op === 'append' || x.multi || x.sequences);
+      const inPlace = !onItems && !!args.inPlace && !info.mine;
+      const live = inPlace || onItems;   // the editor's own things, not a copy
+      if (inPlace) add('inPlace', `It changes ${info.seqName ? `“${info.seqName}”` : 'the sequence'} itself, not a copy.`);
+      if (others.length) add('inPlace', 'It changes other sequences themselves, not copies of them.');
+      if (steps.some(x => x.op === 'remove' && (live || x.multi || x.sequences))) add('deletes', 'It deletes clips from a sequence of yours – not from a copy.');
+      const nSeq = US.sum(others.map(x => (x.perSeq ? x.perSeq.length : x.op === 'append' && x.targets ? x.targets.length : 0)));
+      const nClips = US.sum(steps.filter(x => live || x.multi).map(x => (x.perSeq ? US.sum(x.perSeq.map(q => (q.targets || []).length)) : (x.targets || []).length)));
+      if (nSeq > lim.manySequences) add('many', `It touches ${nSeq} sequences in one go.`);
+      else if (nClips > lim.manyClips) add('many', `It changes ${nClips} clips in one go.`);
+      if (steps.some(x => x.multi || (x.sequences && x.op !== 'append'))) add('noUndo', 'Undo in this chat can’t take it back – only Edit › Undo in the editor, one sequence at a time.');
+      else if (inPlace) add('noUndo', 'Undo in this chat can’t put the sequence itself back – a copy from before is kept so nothing is lost.');
+    } else if (tool === 'action') {
+      const id = String(args.id || ''), act = info.action || {};
+      if (act.deletes || DELETES.test(id)) add('deletes', 'It can delete, move or relink things in the project or on the disk.');
+      if (act.heavy || HEAVY.test(id)) add('heavy', 'It is long or heavy work – the editor may be slow, or busy, while it runs.');
+      if (riskOf('action', args, { action: act }) === 'out') add('noUndo', 'It writes files, which Undo can’t take back.');
+      if (act.sendsFootage) add('footage', 'It sends pictures or sound from your footage to a cloud AI.');
+    }
+    if ((tool === 'look' || tool === 'watch') && info.cloud) add('footage', `${tool === 'look' ? 'Small stills' : 'Pictures or sound'} from your footage leave this computer${info.label ? ` – they go to ${info.label}` : ''}.`);
+    if (+info.estimateUsd >= lim.spend) add('spend', `It is expected to cost about $${(+info.estimateUsd).toFixed(2)} of AI.`);
+    return { risky: reasons.length > 0, reasons };
   }
 
   /* ---------- what the AI is told ---------- */
@@ -96,10 +152,11 @@
   // the chat's own tools do these better
   const NOT_ACTIONS = new Set(['story.ask', 'edit.ask']);
   const actionsHere = () => (US.actions ? US.actions.list().filter(a => !NOT_ACTIONS.has(a.id)) : []);
-  function rules({ resolve = RES(), actions = [], ops = { timeline: [], items: [] }, tools = TOOLS, opsInfo = (E() || {}).OPS || {} } = {}) {
+  function rules({ resolve = RES(), actions = [], ops = { timeline: [], items: [] }, tools = TOOLS, opsInfo = (E() || {}).OPS || {}, persona = null } = {}) {
     const ed = resolve ? 'DaVinci Resolve' : 'Adobe Premiere Pro';
     const opLine = k => `- ${k}: ${(opsInfo[k] || {}).desc || ''} Settings: ${(opsInfo[k] || {}).params || ''}`;
     return [
+      ...(persona && persona.intro ? [persona.intro.join('\n')] : []),
       `You are the assistant inside JMG Ultra Studio, a panel in ${ed}, working for a video editor (documentaries, charity films, interviews, events, podcasts, social cut-downs). They talk to you in one chat. You do what they ask by calling tools, one per turn, and reading what each returns. You can read and change the project and its ${resolve ? 'timelines' : 'sequences'}, search and question the interview transcripts, and run every tool the panel has.${resolve ? ' Use Resolve’s words with the editor: timeline, Media Pool, render queue.' : ''}`,
       'You work from text: clip and sequence names, times, tracks, labels, effects, markers, transcript lines and what each tool reports. You don’t watch video or hear audio. What is IN the picture you know two ways: the written descriptions Ultra Studio keeps of each clip ("footage" – free; use it for “find the shots with a red car”, “organise by what’s in the shot”, B-roll for a line), and, when the descriptions don’t answer it, a few small stills of particular clips ("look"). If clips have no description yet, say so and offer to describe them (the panel tool footage.describe – it tells the editor the cost). For sound, focus, shake and exposure, the panel’s own tools measure the footage on this computer (best shots, sharpness, silences, beats, colour matching).',
       'Answer every turn as JSON: "say" – one short first-person sentence telling the editor what you are doing now and why (plain British English, no jargon, no ids); "understood" – on the first turn after each request from the editor, one or two sentences saying what you take the request to mean, including anything you are assuming (which sequence, which clips, how long) – else ""; "plan" – on that first turn, the steps you intend, 1–8 short lines – later only if the plan changes, else []; "tool" – the tool to call; "argsJson" – its arguments as a JSON object string.',
@@ -155,7 +212,10 @@
   /** One line for a step, as the editor reads it. */
   function describeCall(tool, a = {}) {
     const act = tool === 'action' && US.actions ? US.actions.get(a.id) : null;
+    const pt = personaTool(tool);
+    if (pt) return pt.title ? pt.title(a) : tool;
     return ({
+      watch: () => `Watch and listen to ${a.clip ? `“${clip(a.clip, 40)}”` : 'the moment'}${a.question ? `: “${clip(a.question, 60)}”` : ''}`,
       project: () => 'Read the project', timeline: () => `Read ${a.sequence ? `“${clip(a.sequence, 40)}”` : 'the sequence'}`, selection: () => 'Look at what’s selected', bin: () => `Read ${a.bin ? `the bin “${clip(a.bin, 40)}”` : 'the whole project’s clips'}`,
       search: () => `Search the interviews: “${clip(a.query || a.speaker, 50)}”`, lines: () => `Read ${US.plural((a.ids || []).length, 'line')}`, themes: () => 'Look at the themes',
       interviews: () => `Ask the interviews: “${clip(a.request, 70)}”`,
@@ -167,6 +227,45 @@
       open: () => `Open “${clip(a.sequence, 40)}”`, version: () => `Keep a version “${clip(a.name, 30)}”`, ask: () => 'Ask you a question', finish: () => 'Report'
     }[tool] || (() => tool))();
   }
+
+  const plainKey = k => String(k).replace(/([A-Z])/g, ' $1').replace(/[_-]+/g, ' ').toLowerCase().trim();
+  function plainVal(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'string') return `“${clip(v, 90)}”`;
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    if (typeof v === 'number') return String(Math.round(v * 1000) / 1000);
+    if (Array.isArray(v)) return v.length > 6 ? `${v.slice(0, 6).map(plainVal).join(', ')} and ${v.length - 6} more` : v.map(plainVal).join(', ');
+    return Object.entries(v).filter(([, x]) => x != null && x !== '').map(([k, x]) => `${plainKey(k)} ${plainVal(x)}`).join(', ');
+  }
+  /** A step's arguments in plain words, one line each, for “behind the scenes”. */
+  function describeArgs(tool, a = {}) {
+    const out = [];
+    if (tool === 'edit') {
+      out.push(a.where === 'bin' ? `in the bin ${plainVal(a.bin)}` : a.where === 'project' ? 'in the whole project' : a.where === 'selection' ? 'on the selected clips' : a.where === 'transcripts' ? 'on the transcript lines heard in the sequence' : `on ${a.sequence ? plainVal(a.sequence) : 'the working or open sequence'}${a.inPlace ? ' – the sequence itself, not a copy' : ' – on a copy'}`);
+      (Array.isArray(a.steps) ? a.steps : []).forEach((x, i) => { if (!x) return; const t = plainVal(x.targets), ps = plainVal(x.params), sq = plainVal(x.sequences); out.push(`${i + 1}. ${((E() && E().OPS[x.op]) || {}).title || x.op}${ps ? ` – ${ps}` : ''}${t ? ` · which clips: ${t}` : ''}${sq ? ` · in other sequences: ${sq}` : ''}${x.why ? ` (${x.why})` : ''}`); });
+      return out;
+    }
+    if (tool === 'action') { out.push(`panel tool: ${a.id || ''}`); const ps = plainVal(a.params || {}); out.push(ps ? `settings: ${ps}` : 'its usual settings'); return out; }
+    if (tool === 'build') { out.push(`name ${plainVal(a.name)}`); for (const x of Array.isArray(a.sections) ? a.sections : []) out.push(`section ${plainVal(x.name || '')}: ${US.plural((x.lineIds || []).length, 'line')}`); if (a.targetSeconds) out.push(`aiming for ${fmtT(a.targetSeconds)}`); return out; }
+    for (const [k, v] of Object.entries(a || {})) { const t = plainVal(v); if (t) out.push(`${plainKey(k)}: ${t}`); }
+    return out;
+  }
+  /** The working row's words: what the chat is doing right now ('' when it isn't working). */
+  function workingLine(chat) {
+    if (!chat || !chat.status || chat.status === 'idle') return '';
+    const p = chat.phase || {}, ai = chat.usedModel || (US.ai && US.ai.label ? US.ai.label() : 'The AI');
+    if (chat.status === 'asking') return 'Waiting for you';
+    if (chat.status === 'waiting') return `Waiting its turn${chat.waitingFor ? ` – “${clip(chat.waitingFor, 50)}” is running` : ''}`;
+    if (chat.status === 'working' || p.kind === 'running' || p.kind === 'checking') return `${p.kind === 'checking' ? 'Checking' : 'Running'}${p.n ? ` step ${p.n}${p.of && p.of >= p.n ? ` of ${p.of}` : ''}` : ''}${p.name ? ` · ${p.name}` : ''}`;
+    if (p.kind === 'planning') return `Planning · ${ai} is reading your request`;
+    return `Thinking · ${ai} is working out the next step`;
+  }
+
+  /* ---------- personas: the same engine with another manner and a few tools of its own (Producer) ---------- */
+  /** US.chatPersonas[id] = {name, feature, intro: [lines], tools: {name: {desc, risk, title(a), detail(a), run(a, ctx)}}} */
+  let personaNow = null;
+  const personaOf = id => (id && US.chatPersonas && US.chatPersonas[id]) || null;
+  const personaTool = tool => (personaNow && personaNow.tools && personaNow.tools[tool]) || Object.values(US.chatPersonas || {}).map(p => p.tools && p.tools[tool]).find(Boolean) || null;
 
   /* ---------- the interviews, as the AI reads them ---------- */
   /** The rows for transcript lines: id, interview, speaker, time, text. */
@@ -192,14 +291,15 @@
    * conversation with the AI after the first message), context + first (the first message), work (its working
    * sequence), versions, status ('idle'|'thinking'|'working'|'waiting'|'asking'), spent, steps, model, always}
    */
-  function newChat(o = {}) { return Object.assign({ id: US.uid('chat'), title: 'New chat', items: [], turns: [], context: '', first: '', work: null, versions: [], status: 'idle', spent: 0, steps: 0, model: 'auto', always: false, at: Date.now(), updated: Date.now() }, o); }
+  function newChat(o = {}) { return Object.assign({ id: US.uid('chat'), title: 'New chat', items: [], turns: [], context: '', first: '', work: null, versions: [], status: 'idle', spent: 0, steps: 0, model: 'auto', always: false, journal: [], requests: 0, origin: null, at: Date.now(), updated: Date.now() }, o); }
   /** What's kept with the project: the conversation and what was shown, without the heavy or live parts. */
   function toStored(c) {
     return { id: c.id, title: c.title, at: c.at, updated: c.updated, model: c.model, context: clip(c.context, 20000), first: clip(c.first, 4000), turns: compact(c.turns || [], { keep: 3, room: 400 }).slice(-40).map(t => ({ assistant: clip(t.assistant, 3000), user: clip(t.user, 3000) })),
-      last: c.last || '', pendingResult: clip(c.pendingResult || '', 2000), work: c.work, versions: (c.versions || []).slice(-20), spent: c.spent || 0, steps: c.steps || 0,
-      items: (c.items || []).filter(x => x.k !== 'card' || x.keep).slice(-120).map(x => { const y = Object.assign({}, x); delete y.el; delete y.live; return y; }) };
+      last: c.last || '', pendingResult: clip(c.pendingResult || '', 2000), work: c.work, versions: (c.versions || []).slice(-20), spent: c.spent || 0, steps: c.steps || 0, requests: c.requests || 0, origin: c.origin || null, persona: c.persona || '',
+      journal: (c.journal || []).slice(-150).map(j => Object.assign({}, j, j.undo ? { undo: j.undo.slice(0, 60) } : {}, j.list ? { list: j.list.slice(0, 200) } : {}, j.guids ? { guids: j.guids.slice(0, 500) } : {})),
+      items: (c.items || []).filter(x => x.k !== 'card' || x.keep).slice(-120).map(x => { const y = Object.assign({}, x); delete y.el; delete y.live; delete y.on; if (y.trace) y.trace = y.trace.slice(-60).map(t => ({ at: t.at, kind: t.kind, text: clip(t.text, 200), detail: clip(t.detail, 300) })); return y; }) };
   }
-  function fromStored(s) { return newChat(Object.assign({}, s, { status: 'idle', always: false })); }
+  function fromStored(s) { return newChat(Object.assign({}, s, { status: 'idle', always: false, journal: Array.isArray(s.journal) ? s.journal : [] })); }
 
   /* ---------- hands on the editor: one step at a time, across every chat ---------- */
   let chain = Promise.resolve(), queued = 0;
@@ -278,7 +378,55 @@
     return { scope, model: m, plan, others: c.others };
   }
 
-  /** One tool call → the text the AI reads back. hooks: {event, approve, choose}. */
+  /* ---------- the journal: what each step made or changed, so it can be taken back ---------- */
+  /**
+   * chat.journal: [{id, turn (which request), step (its title), undone, kind, …}] – kind: 'seq' (a sequence it made:
+   * seqId, name, stamp) · 'bin' (path) · 'markers' (seqId, name, guids) · 'items' (undo: labels, names, bins as they
+   * were) · 'placed' (list: clips added to sequences) · 'inplace' (a sequence changed itself: seqId, name, and the copy
+   * kept from before: backupId, backupName) · 'cant' (text: something Undo can't take back).
+   */
+  function journalAdd(chat, entry, hooks) {
+    chat.journal = chat.journal || [];
+    if (entry.kind === 'seq' && chat.journal.some(j => !j.undone && (j.seqId === entry.seqId || j.backupId === entry.seqId))) return null;
+    if (entry.kind === 'bin' && chat.journal.some(j => !j.undone && j.kind === 'bin' && j.path === entry.path)) return null;
+    const e = Object.assign({ id: US.uid('j'), turn: chat.requests || 0, at: Date.now(), undone: false }, entry);
+    chat.journal.push(e);
+    if (hooks && hooks.journal) hooks.journal();
+    return e;
+  }
+  const arr = x => (Array.isArray(x) ? x : []);
+  /** The project's sequences and bins, and the open sequence's markers, before a step that changes something. */
+  async function snapshot() {
+    try {
+      const seqs = arr(await US.host.call('listSequences')), bins = arr(await US.host.call('listBins')).map(b => b.path);
+      const open = US.ctx && US.ctx.sequence && US.ctx.sequence.id;
+      let marks = null;
+      if (open) { const st = arr(await US.host.call('askStamp', { seqIds: [open] }))[0]; if (st && !st.missing) marks = { seqId: open, name: st.name, guids: arr(st.guids) }; }
+      return { seqs, bins, marks };
+    } catch (e) { return null; }
+  }
+  /** After the step: new sequences, bins and markers go in the journal; the sequences this chat made are noted as they are now. */
+  async function noteChanges(chat, before, step, hooks) {
+    try {
+      if (before) {
+        const seqs = arr(await US.host.call('listSequences')), bins = arr(await US.host.call('listBins')).map(b => b.path);
+        const had = new Set(before.seqs.map(x => x.id)), hadBin = new Set(before.bins);
+        for (const x of seqs) if (!had.has(x.id)) journalAdd(chat, { kind: 'seq', seqId: x.id, name: x.name, step }, hooks);
+        for (const b of bins) if (!hadBin.has(b) && !/(^|\/ )Before$/.test(b)) journalAdd(chat, { kind: 'bin', path: b, step }, hooks);
+        if (before.marks && !chat.journal.some(j => j.kind === 'seq' && j.seqId === before.marks.seqId)) {
+          const st = arr(await US.host.call('askStamp', { seqIds: [before.marks.seqId] }))[0], old = new Set(before.marks.guids);
+          const fresh = st && !st.missing ? arr(st.guids).filter(g => !old.has(g)) : [];
+          if (fresh.length) journalAdd(chat, { kind: 'markers', seqId: before.marks.seqId, name: before.marks.name, guids: fresh, step }, hooks);
+        }
+      }
+      const mine = (chat.journal || []).filter(j => j.kind === 'seq' && !j.undone);
+      if (mine.length) { const by = new Map(arr(await US.host.call('askStamp', { seqIds: mine.map(j => j.seqId) })).map(x => [x.id, x])); for (const j of mine) { const st = by.get(j.seqId); if (st && !st.missing) j.stamp = { duration: st.duration, clips: st.clips, markers: st.markers }; } }
+    } catch (e) { /* the journal is a help, never a reason for a step to fail */ }
+  }
+  /** What this request has done so far, for a warning: ["Read the sequence → …", …]. */
+  function doneSoFar(chat) { const i = chat.items.map(x => x.k).lastIndexOf('me'); return chat.items.slice(i + 1).filter(x => x.k === 'step' && x.result).map(x => `${x.text} → ${x.result}`); }
+
+  /** One tool call → the text the AI reads back. hooks: {event, status, approve, choose, warn, trace, journal}. */
   async function callTool(chat, st, hooks, opts) {
     const a = st.args || {}, ed = E(), tool = st.tool;
     const note = text => { hooks.event({ k: 'result', text }); return text; };
@@ -287,11 +435,29 @@
     const approve = async (risk, card) => {
       if (!asksFirst(risk, opts.mode, chat.always)) return { ok: true };
       chat.status = 'asking'; hooks.status();
+      trace('ask', `Asked you first: “${title}”`);
       const r = (await hooks.approve(Object.assign({ risk, title }, card))) || { ok: false };
       if (r.always) chat.always = true;
       if (!r.ok && r.note) said = r.note;
+      trace('ask', r.ok ? (r.always ? 'You approved – and chose Always proceed for this chat' : 'You approved') : r.note ? `You said instead: “${clip(r.note, 120)}”` : 'You skipped it – it did not run');
       return r;
     };
+    const trace = (kind, text, detail) => { if (hooks.trace) hooks.trace({ kind, text, detail }); };
+    // a risky step stops at a warning whatever the editor chose about being asked; Continue there is the approval
+    const guard = async (risk, card = {}, info = {}) => {
+      const d = dangerOf(tool, a, Object.assign({ limits: opts.limits }, info));
+      // stills leaving the computer are already asked about by a card each time: that card is the warning
+      if (!d.risky || (d.reasons.every(r => r.id === 'footage') && asksFirst(risk, opts.mode, chat.always))) return approve(risk, card);
+      chat.status = 'asking'; hooks.status();
+      trace('risk', `Stopped to warn you before “${title}”`, d.reasons.map(r => r.text).join('\n'));
+      const r = hooks.warn ? await hooks.warn({ risk, title, detail: card.detail || '', reasons: d.reasons, sofar: doneSoFar(chat) }) : 'continue';
+      if (r !== 'continue') { trace('risk', 'You chose to change course – the step did not run'); throw { pause: true, title }; }
+      trace('risk', 'You chose to continue');
+      return { ok: true, steps: card.steps };
+    };
+    const journal = entry => journalAdd(chat, Object.assign({ step: title }, entry), hooks);
+    // a step that changes something: what it made is found by comparing the project before and after
+    const withChanges = fn => withHands(async job => { const before = await snapshot(); try { return await fn(job); } finally { await noteChanges(chat, before, title, hooks); } });
     let said = '';
     const REFUSED = 'The editor turned this step down – it did not run. Don’t repeat it unchanged: carry on without it, ask them what they’d like instead, or finish.';
     const refusedNow = () => (said ? `The editor did not approve this step – it did not run. Instead they say: “${said}”. Go by that.` : REFUSED);
@@ -357,7 +523,7 @@
         });
         if (!items.length) return p0;
         const n = Math.max(1, Math.min(4, +a.stills || 2));
-        const ok = await approve(L.where === 'local' ? 'ai' : 'sees', { detail: `${L.where === 'local' ? 'On this computer' : `Small stills (768 pixels wide) will be sent to ${L.label}`}: up to ${US.plural(n, 'still')} each of ${items.slice(0, 6).map(it => `“${it.name}”`).join(', ')}${items.length > 6 ? ` and ${items.length - 6} more` : ''}.\nTo answer: ${q}\nNo video or sound is sent.` });
+        const ok = await guard(L.where === 'local' ? 'ai' : 'sees', { detail: `${L.where === 'local' ? 'On this computer' : `Small stills (768 pixels wide) will be sent to ${L.label}`}: up to ${US.plural(n, 'still')} each of ${items.slice(0, 6).map(it => `“${it.name}”`).join(', ')}${items.length > 6 ? ` and ${items.length - 6} more` : ''}.\nTo answer: ${q}\nNo video or sound is sent.` }, { cloud: L.where !== 'local', label: L.label, estimateUsd: L.where === 'cloud' && F.costFor ? F.costFor(items.length, n, L.provider === 'claude' ? L.model : null) : 0 });
         if (!ok.ok) return refusedNow();
         return withHands(async job => {
           const r = await F.ask(job, items, q, { perClip: n });
@@ -401,11 +567,12 @@
       }
       case 'version': {
         if (!chat.work) return 'There is no working sequence yet.';
-        const ok = await approve('new', { detail: `A copy of “${chat.work.name}” to compare later.` }); if (!ok.ok) return refusedNow();
-        return withHands(async () => {
+        const ok = await guard('new', { detail: `A copy of “${chat.work.name}” to compare later.` }); if (!ok.ok) return refusedNow();
+        return withChanges(async () => {
           const nm = `${chat.work.name} – ${clip(String(a.name || `v${chat.versions.length + 1}`).replace(/[\\/:*?"<>|]/g, ''), 30)}`;
           const c = await US.host.call('cloneSequence', { seqId: chat.work.seqId, name: nm, binPath: 'JMG Ultra Studio/Ask/Versions' });
           chat.versions.push({ seqId: c.id, name: c.name, why: 'kept as a version' });
+          journal({ kind: 'seq', seqId: c.id, name: c.name });
           await US.host.call('openSequence', { seqId: chat.work.seqId }).catch(() => {});
           note(`Kept “${c.name}”`);
           return `Kept a copy “${c.name}”. You carry on working in “${chat.work.name}”.`;
@@ -418,9 +585,9 @@
         const unknown = US.sum((a.sections || []).map(x => (x.lineIds || []).filter(id => !S.lineOf(String(id))).length));
         if (!sections.length) return 'ERROR: none of those line ids exist. Use ids from search, lines or themes.';
         const name = `Ask – ${clip(String(a.name || chat.title).replace(/[\\/:*?"<>|]/g, ''), 50)}`, n = US.sum(sections.map(x => x.lineIds.length));
-        const ok = await approve('new', { detail: `A new sequence “${name}” from ${US.plural(n, 'line')} of the interviews${sections.length > 1 ? `, in ${US.plural(sections.length, 'section')}: ${sections.map(x => x.name).filter(Boolean).slice(0, 6).join(' · ')}` : ''}${+a.targetSeconds ? `, aiming for ${fmtT(a.targetSeconds)}` : ''}. Your clips and sequences aren’t changed.` });
+        const ok = await guard('new', { detail: `A new sequence “${name}” from ${US.plural(n, 'line')} of the interviews${sections.length > 1 ? `, in ${US.plural(sections.length, 'section')}: ${sections.map(x => x.name).filter(Boolean).slice(0, 6).join(' · ')}` : ''}${+a.targetSeconds ? `, aiming for ${fmtT(a.targetSeconds)}` : ''}. Your clips and sequences aren’t changed.` });
         if (!ok.ok) return refusedNow();
-        return withHands(async job => {
+        return withChanges(async job => {
           // the lines are the AI's choice: none is dropped to fit a length (Story's own "weaker lines left out" would
           // take one out without saying which – found in Premiere, 18 Nov 2026). The length is reported against the target.
           const out = await S.buildSequence(job, { name, groups: sections, target: 0 });
@@ -429,6 +596,7 @@
           const short = out.placed != null && out.placed < n ? ` Only ${out.placed} of your ${US.plural(n, 'line')} went in: the editor’s soundbite settings leave out the interviewer’s lines and can run neighbouring lines together, and a line whose clip isn’t in the project is skipped – read the sequence to see which.` : '';
           chat.work = { seqId: out.seq.id, name: out.seq.name, ours: true };
           chat.versions.push({ seqId: out.seq.id, name: out.seq.name, why: 'built from the interviews' });
+          journal({ kind: 'seq', seqId: out.seq.id, name: out.seq.name });
           note(out.summary);
           return `${out.summary}.${length}${short}${unknown ? ` ${unknown} unknown line ids were left out.` : ''} It is now your working sequence – read it with "timeline" to check it.`;
         });
@@ -463,12 +631,26 @@
         const mine = timeline && chat.work && chat.work.ours && chat.work.seqId === scope.seqId;
         const inPlace = !!a.inPlace || mine, risk = !timeline || ownSteps.length || (a.inPlace && !mine) ? 'own' : 'new';
         const where = !timeline ? `your clips in ${scope.where === 'bin' ? `the bin “${scope.binName}”` : 'the project'} (labels, names and bins can be put back with Undo afterwards)` : mine ? `“${m.seq.name}” (the copy this chat made)` : a.inPlace ? `“${m.seq.name}” ITSELF – no copy` : `a copy of “${m.seq.name}” (yours stays as it is)`;
-        const ok = await approve(risk, { kind: 'edit', steps: plan.steps, model: m, dropped: plan.dropped, detail: `${rest.length ? `On ${where}.` : ''}${ownSteps.length ? ` ${US.say ? US.say('Edits in other sequences change those sequences themselves.') : ''}` : ''}`.trim() });
+        const ok = await guard(risk, { kind: 'edit', steps: plan.steps, model: m, dropped: plan.dropped, detail: `${rest.length ? `On ${where}.` : ''}${ownSteps.length ? ` ${US.say ? US.say('Edits in other sequences change those sequences themselves.') : ''}` : ''}`.trim() }, { steps: plan.steps, mine, seqName: timeline ? m.seq.name : '' });
         if (!ok.ok) return refusedNow();
         const steps = ok.steps && ok.steps.length ? ok.steps : plan.steps;
-        return withHands(async job => {
+        return withChanges(async job => {
           const conv = { model: m, others: prep.others, workSeqId: mine ? chat.work.seqId : null, workSeqName: mine ? chat.work.name : '' };
+          // the editor's own sequence is about to change itself: a copy of it as it is now is kept first, so nothing is lost
+          if (timeline && inPlace && !mine && steps.some(x => !(x.op === 'append' || x.multi))) {
+            try {
+              job.set({ who: 'premiere', msg: 'Keeping a copy from before the change' });
+              const b = await US.host.call('cloneSequence', { seqId: scope.seqId, name: `${m.seq.name} – before Ask`, binPath: 'JMG Ultra Studio/Ask/Before' });
+              if (b && b.id) { journal({ kind: 'inplace', seqId: scope.seqId, name: m.seq.name, backupId: b.id, backupName: b.name }); await US.host.call('openSequence', { seqId: scope.seqId }).catch(() => {}); }
+              else journal({ kind: 'inplace', seqId: scope.seqId, name: m.seq.name });
+            } catch (e) { journal({ kind: 'inplace', seqId: scope.seqId, name: m.seq.name }); }
+          }
           const out = await ed.run(job, conv, steps, { copy: timeline && !inPlace });
+          if (out.copyName && out.seqId && !mine) journal({ kind: 'seq', seqId: out.seqId, name: out.copyName });
+          for (const r of out.results || []) if (r.seqId) journal({ kind: 'seq', seqId: r.seqId, name: (r.step && r.step.params && r.step.params.name) || 'Ask' });
+          if (out.undo && out.undo.length) journal({ kind: 'items', undo: out.undo });
+          if (out.unplace && out.unplace.length) journal({ kind: 'placed', list: out.unplace });
+          if (out.multi) { const names = [...new Set(steps.filter(x => x.multi).flatMap(x => (x.perSeq || []).map(q => q.name)))]; journal({ kind: 'cant', text: `Edits made in ${US.plural(names.length, 'sequence')} themselves (${names.slice(0, 6).map(n => `“${n}”`).join(', ')}${names.length > 6 ? '…' : ''}) – use Edit › Undo in the editor, in each one` }); }
           if (timeline && out.seqId && rest.length) {
             if (out.copyName && !mine) { chat.work = { seqId: out.seqId, name: out.copyName, ours: true }; chat.versions.push({ seqId: out.seqId, name: out.copyName, why: `copy of “${m.seq.name}”` }); }
             else if (!chat.work) chat.work = { seqId: out.seqId, name: m.seq.name, ours: false };
@@ -487,9 +669,9 @@
         const params = US.actions.normalize(act, a.params || {});
         const risk = riskOf('action', a, { action: act });
         const detail = Object.entries(params).filter(([k, v]) => v !== '' && v != null && act.params[k] && v !== act.params[k].default).map(([k, v]) => `${k}: ${typeof v === 'string' ? `“${clip(v, 60)}”` : v}`).join(' · ');
-        const ok = await approve(risk, { detail: [US.say ? US.say(act.describe || '') : act.describe || '', detail].filter(Boolean).join('\n') });
+        const ok = await guard(risk, { detail: [US.say ? US.say(act.describe || '') : act.describe || '', detail].filter(Boolean).join('\n') }, { action: act });
         if (!ok.ok) return refusedNow();
-        return withHands(async job => {
+        return (risk === 'read' ? withHands : withChanges)(async job => {
           if (chat.work && chat.work.ours) { await US.host.call('openSequence', { seqId: chat.work.seqId }).catch(() => {}); if (US.refreshContext) await US.refreshContext(); }
           const before = US.ctx && US.ctx.sequence && US.ctx.sequence.id;
           job.set({ who: 'studio', msg: US.say ? US.say(act.title) : act.title });
@@ -500,6 +682,7 @@
           if (now && before && now.id !== before) { chat.work = { seqId: now.id, name: now.name, ours: true }; chat.versions.push({ seqId: now.id, name: now.name, why: US.say ? US.say(act.title) : act.title }); moved = ` Its result is the sequence “${now.name}”, now your working sequence.`; }
           if (out && out.ask) hooks.event({ k: 'card', card: 'ask', askId: out.ask.id, keep: true });
           const sum = (out && out.summary) || 'Done.';
+          if (out && out.file && risk === 'out') journal({ kind: 'cant', text: `The file “${US.basename ? US.basename(out.file) : out.file}” stays on the disk` });
           note(sum);
           return `${sum}${/[.!?]$/.test(sum) ? '' : '.'}${moved}${out && out.file ? ` File: ${US.basename ? US.basename(out.file) : out.file}.` : ''}`;
         });
@@ -513,31 +696,72 @@
         if (ans == null) return 'The editor closed the question without answering. Finish, saying what you need from them.';
         return `The editor answers: “${String(ans).trim()}”`;
       }
-      default: return 'ERROR: unknown tool.';
+      case 'watch': {
+        const U = US.understand; if (!U || typeof U.describe !== 'function') return 'Watching and listening to footage isn’t available here.';
+        const want = String(a.clip || '').trim(); if (!want) return 'ERROR: give "clip" (an id from a bin or footage reading, or its exact name).';
+        let item = null;
+        const p0 = await withHands(async job => {
+          const scope = { where: a.bin ? 'bin' : 'project' };
+          if (a.bin) { const b = await findBin(a.bin); if (b.error) return b.error; scope.binId = b.bin.id; }
+          const m = await ed.read(job, scope), it = m.items.find(x => x.id === want) || m.items.find(x => norm(x.name) === norm(want));
+          item = it ? { id: it.itemId, name: it.name, path: it.path || it.file || '' } : null;
+          return item ? '' : `No clip “${want}” was found. Use an id from a bin or footage reading of the same bin.`;
+        });
+        if (!item) return p0;
+        let w = { where: 'local', label: '' }; try { if (typeof U.where === 'function') w = whereOf(U.where()); } catch (e) { /* on this computer */ }
+        const ok = await guard(w.where === 'cloud' ? 'sees' : 'ai', { detail: `${w.where === 'cloud' ? `Pictures and sound from “${item.name}” will be sent to ${w.label || 'the cloud AI you chose for this project'}` : `“${item.name}” is watched on this computer – nothing leaves it`}.${a.question ? `\nTo answer: ${a.question}` : ''}` }, { cloud: w.where === 'cloud', label: w.label });
+        if (!ok.ok) return refusedNow();
+        return withHands(async job => {
+          job.set({ who: w.where === 'cloud' ? 'ai' : 'computer', msg: `Watching “${item.name}”` });
+          const r = await U.describe({ item, itemId: item.id, from: Math.max(0, +a.from || 0), to: Math.max(0, +a.to || 0), question: String(a.question || ''), job });
+          chat.spent += (r && r.usd) || 0;
+          const text = typeof r === 'string' ? r : (r && (r.text || r.description || r.answer)) || '';
+          note(`Watched “${item.name}”`);
+          return text ? `From watching and listening to “${item.name}”${+a.to ? ` (${fmtT(a.from)}–${fmtT(a.to)})` : ''}: ${text}` : 'Nothing came back from watching it.';
+        });
+      }
+      default: {
+        // a persona's own tool (Producer's notes, pick-ups…)
+        const pt = personaTool(tool); if (!pt) return 'ERROR: unknown tool.';
+        const risk = pt.risk || 'ai', changes = !(risk === 'ai' || risk === 'read');
+        if (changes) { const ok = await guard(risk, { detail: pt.detail ? pt.detail(a) : '' }); if (!ok.ok) return refusedNow(); }
+        return (changes ? withChanges : withHands)(job => pt.run(a, { chat, job, note, event: hooks.event, seqFor: want => seqFor(chat, want), spend: usd => { chat.spent += usd || 0; } }));
+      }
     }
   }
 
   /* ---------- the run ---------- */
   /**
    * Take the editor's message and work until it's answered. hooks: {event(item) – something to show; status() – the
-   * chat's state changed; approve(card) -> {ok, always, steps}; choose(q) -> answer}. opts: {mode, maxSteps, budget}.
+   * chat's state changed; approve(card) -> {ok, always, steps}; choose(q) -> answer; warn({title, reasons, sofar}) ->
+   * 'continue' | 'change' (a risky step); trace(entry) – one more line of “behind the scenes”; journal() – something
+   * it can undo was added}. opts: {mode, maxSteps, budget, persona (a US.chatPersonas id), limits (for dangerOf)}.
    * -> the chat (chat.status back to 'idle').
    */
   async function send(chat, text, hooks, opts = {}) {
     const o = Object.assign({ mode: 'ask', maxSteps: 25, budget: 2 }, opts);
     // limit({kind: 'money'|'steps', used, limit, total}) -> 'more' (as much again), 'free' (no limit in this chat) or 'stop'
-    const h = Object.assign({ event() {}, status() {}, approve: async () => ({ ok: true }), choose: async () => null, limit: async () => 'stop' }, hooks);
+    const h = Object.assign({ event() {}, status() {}, approve: async () => ({ ok: true }), choose: async () => null, limit: async () => 'stop', warn: async () => 'continue', trace() {}, journal() {} }, hooks);
     const show = item => { const it = Object.assign({ at: Date.now() }, item); if (it.k === 'result') { const last = chat.items[chat.items.length - 1]; if (last && last.k === 'step' && !last.result) { last.result = it.text; h.event(Object.assign({}, it, { on: last })); return; } } chat.items.push(it); h.event(it); };
-    const hk = { event: show, status: () => h.status(chat), approve: h.approve, choose: h.choose };
+    // behind the scenes: every reading, plan, call, result, check and retry of this request, as it happens
+    chat.trace = [];
+    const tr = e => { const x = { at: Date.now(), kind: e.kind, text: clip(e.text, 400), detail: e.detail ? clip(e.detail, 1500) : '' }; chat.trace.push(x); if (chat.trace.length > 150) chat.trace.shift(); try { h.trace(x, chat); } catch (err) { /* the screen's own business */ } };
+    const hk = { event: show, status: () => h.status(chat), approve: h.approve, choose: async q => { tr({ kind: 'ask', text: `Asked you: “${q.question}”`, detail: q.options && q.options.length ? `Answers offered: ${q.options.join(' · ')}` : '' }); const ans = await h.choose(q); tr({ kind: 'ask', text: ans == null ? 'You closed the question' : `You answered: “${clip(ans, 120)}”` }); return ans; }, warn: h.warn, trace: tr, journal: () => h.journal(chat) };
+    const P = personaOf(o.persona || chat.persona);
+    personaNow = P; chat.persona = P ? (o.persona || chat.persona) : '';
     if (!US.ai || !US.ai.available()) throw new US.UserError('AI_KEY');
     text = String(text || '').trim();
     chat.stop = false; chat.updated = Date.now();
     if (chat.title === 'New chat') chat.title = titleOf(text);
     chat.about = US.storyContext && US.storyContext.about ? US.storyContext.about(text) : '';
-    show({ k: 'me', text });
-    const as = { id: chat.id, title: `Ask: ${chat.title}`, about: chat.about };
-    const tools = toolsHere(), ed = E();
-    const system = [{ text: rules({ actions: actionsHere(), ops: { timeline: ed.opsFor('timeline'), items: ed.opsFor('items') }, tools }), cache: '1h' }];
+    chat.requests = (chat.requests || 0) + 1;
+    // the sequence that was open when they asked (not one this chat made): Undo comes back to it
+    { const open = US.ctx && US.ctx.sequence; if (open && open.id && !(chat.journal || []).some(j => j.kind === 'seq' && j.seqId === open.id)) chat.origin = { seqId: open.id, name: open.name }; }
+    show({ k: 'me', text, turn: chat.requests });
+    const feature = P ? P.feature || P.name : 'Ask';
+    const as = { id: chat.id, title: `${P ? P.name : 'Ask'}: ${chat.title}`, about: chat.about };
+    const tools = toolsHere(P), ed = E();
+    const system = [{ text: rules({ actions: actionsHere(), ops: { timeline: ed.opsFor('timeline'), items: ed.opsFor('items') }, tools, persona: P }), cache: '1h' }];
     const schema = Object.assign({}, STEP_SCHEMA, { properties: Object.assign({}, STEP_SCHEMA.properties, { tool: { type: 'string', enum: Object.keys(tools) } }) });
     const now = () => { const c = US.ctx || {}; return `Now: open sequence ${c.sequence ? `“${c.sequence.name}”` : 'none'}${chat.work ? `; your working sequence “${chat.work.name}”` : ''}; ${c.selection || 0} clips selected in the Project panel.`; };
     if (!chat.context) {
@@ -549,7 +773,8 @@
       chat.pendingResult = '';
     }
     const startSteps = chat.steps, startSpent = chat.spent, usd = x => (US.ai.fmtUSD ? US.ai.fmtUSD(x) : '$' + x.toFixed(2));
-    let fresh = true, done = false, stepsAllowed = o.maxSteps, moneyAllowed = o.budget;
+    let fresh = true, done = false, stepsAllowed = o.maxSteps, moneyAllowed = o.budget, stepNo = 0, planLen = 0, changed = false, tokIn = 0, tokOut = 0;
+    tr({ kind: 'read', text: 'Read your request and where things stand', detail: `${now()}\n${chat.requests === 1 ? 'Sent once and then read from the cache: what the project, the open sequence and the interviews are (as text).' : 'The conversation so far goes with it (older tool results shortened).'}` });
     // the chat keeps its own account (and asks at its limit), so single requests don't each stop to ask; the monthly limit still holds
     if (US.ai.setBudget) US.ai.setBudget(1e6, as);
     const atLimit = async (kind, used, limit) => {
@@ -566,12 +791,13 @@
         if (chat.stop) throw new US.UserError('CANCELLED');
         if (!chat.noLimit && chat.steps - startSteps >= stepsAllowed && !(await atLimit('steps', chat.steps - startSteps, stepsAllowed))) break;
         if (!chat.noLimit && o.budget > 0 && chat.spent - startSpent >= moneyAllowed && !(await atLimit('money', chat.spent - startSpent, moneyAllowed))) break;
-        chat.status = 'thinking'; hk.status();
+        chat.status = 'thinking'; chat.phase = { kind: fresh ? 'planning' : 'thinking' }; hk.status();
         let r;
-        try { r = await US.ai.json({ system, user: [{ text: chat.context, cache: '1h' }, chat.first], turns: compact(chat.turns), schema, maxTokens: 6000, effort: 'medium', feature: 'Ask', as, use: chat.model && chat.model !== 'auto' ? chat.model : undefined, onUsage: u => { chat.spent += u.usd || 0; chat.usedModel = u.name; } }); }
+        try { r = await US.ai.json({ system, user: [{ text: chat.context, cache: '1h' }, chat.first], turns: compact(chat.turns), schema, maxTokens: 6000, effort: 'medium', feature, as, use: chat.model && chat.model !== 'auto' ? chat.model : undefined, onUsage: u => { chat.spent += u.usd || 0; chat.usedModel = u.name; tokIn += u.tokensIn || 0; tokOut += u.tokensOut || 0; tr({ kind: 'ai', text: `${u.name || 'The AI'} answered`, detail: `${u.tokensIn || u.tokensOut ? `${(u.tokensIn || 0).toLocaleString('en-GB')} tokens read, ${(u.tokensOut || 0).toLocaleString('en-GB')} written · ` : ''}${u.usd ? `about ${usd(u.usd)}` : 'no charge'}` }); } }); }
         catch (e) {
           if (cancelled(e)) throw e;
           const x = explain(e);
+          tr({ kind: 'error', text: `The AI didn’t answer: ${x.title}`, detail: x.action || '' });
           show({ k: 'warn', text: `${x.title} ${x.action || ''}`.trim() });
           chat.pendingResult = `You were stopped before your next step (${x.title}). Carry on from where you were.`;
           break;
@@ -580,24 +806,48 @@
         chat.last = JSON.stringify(r || {});
         const st = parseStep(r, tools);
         chat.steps++;
-        if (fresh && st.understood) show({ k: 'understood', text: st.understood });
-        if (st.plan.length && (fresh || st.tool !== 'finish')) show({ k: 'plan', plan: st.plan });
+        if (fresh && st.understood) { show({ k: 'understood', text: st.understood }); tr({ kind: 'plan', text: 'What it understood', detail: st.understood }); }
+        if (st.plan.length && (fresh || st.tool !== 'finish')) { show({ k: 'plan', plan: st.plan }); planLen = st.plan.length; tr({ kind: 'plan', text: fresh ? 'The plan' : 'The plan changed', detail: st.plan.map((x, i) => `${i + 1}. ${x}`).join('\n') }); }
         fresh = false;
         if (st.say && st.tool !== 'finish') show({ k: 'say', text: st.say });
         let result;
-        if (st.bad) result = `ERROR: ${st.bad} Try again.`;
+        let paused = null;
+        if (st.bad) { result = `ERROR: ${st.bad} Try again.`; tr({ kind: 'retry', text: 'Its step couldn’t be read – asked to try again', detail: st.bad }); }
         else if (st.tool === 'finish') {
           const a = st.args, list = x => (Array.isArray(x) ? x : []).map(String).map(s => s.trim()).filter(Boolean).slice(0, 10);
-          show({ k: 'end', total: chat.spent, reply: String(a.reply || st.say || '').trim(), done: list(a.done), notDone: list(a.notDone), check: list(a.check), next: list(a.next).slice(0, 3), versions: (chat.versions || []).slice(), work: chat.work, model: chat.usedModel || US.ai.label(), spent: chat.spent - startSpent, steps: chat.steps - startSteps });
+          tr({ kind: 'report', text: 'Wrote the report' });
+          show({ k: 'end', turn: chat.requests, trace: chat.trace.slice(), tokensIn: tokIn, tokensOut: tokOut, total: chat.spent, reply: String(a.reply || st.say || '').trim(), done: list(a.done), notDone: list(a.notDone), check: list(a.check), next: list(a.next).slice(0, 3), versions: (chat.versions || []).slice(), work: chat.work, model: chat.usedModel || US.ai.label(), spent: chat.spent - startSpent, steps: chat.steps - startSteps });
           chat.pendingResult = ''; done = true; break;
         } else {
-          if (st.tool !== 'ask') show({ k: 'step', tool: st.tool, text: describeCall(st.tool, st.args) });
-          try { result = await callTool(chat, st, hk, o); }
-          catch (e) {
+          const name = describeCall(st.tool, st.args), risk = riskOf(st.tool, st.args, { action: st.tool === 'action' && US.actions ? US.actions.get(st.args.id) : null });
+          if (st.tool !== 'ask') {
+            show({ k: 'step', tool: st.tool, text: name });
+            stepNo++;
+            // reading something back after a change is the check
+            const checking = changed && (st.tool === 'timeline' || st.tool === 'project' || st.tool === 'bin' || st.tool === 'selection');
+            chat.phase = { kind: checking ? 'checking' : 'running', n: stepNo, of: Math.max(planLen, 0), name };
+            tr({ kind: checking ? 'check' : 'call', text: checking ? `Checking: ${name}` : name, detail: describeArgs(st.tool, st.args).join('\n') });
+          }
+          try {
+            result = await callTool(chat, st, hk, o);
+            if (st.tool !== 'ask') tr({ kind: /^ERROR|^Not run|^Nothing to do|did not run/.test(String(result)) ? 'retry' : 'result', text: /^ERROR|^Not run|^Nothing to do/.test(String(result)) ? 'That didn’t go through – the AI is told and tries another way' : 'What came back', detail: clip(result, 700) });
+            if (risk !== 'read' && risk !== 'ai' && risk !== 'sees') changed = true;
+          } catch (e) {
             if (cancelled(e)) throw e;
-            const x = explain(e);
-            result = `ERROR: ${x.title} ${x.action || ''}`.trim();
-            show({ k: 'result', text: `didn’t work: ${x.title}` });
+            if (e && e.pause) paused = e;
+            else {
+              const x = explain(e);
+              result = `ERROR: ${x.title} ${x.action || ''}`.trim();
+              show({ k: 'result', text: `didn’t work: ${x.title}` });
+              tr({ kind: 'error', text: `That step failed: ${x.title}`, detail: `${x.action || ''}\nThe AI is told and carries on.`.trim() });
+            }
+          }
+          if (paused) {
+            // “Change course” at a warning: the step did not run and the plan waits for what the editor says next
+            show({ k: 'result', text: 'paused – it did not run' });
+            show({ k: 'paused', turn: chat.requests, text: `Paused before “${paused.title}” – that step did not run, and nothing after it. Tell me what you’d like instead, or say “carry on” to go ahead with it.`, trace: chat.trace.slice() });
+            chat.pendingResult = `The editor PAUSED your plan at the step “${paused.title}” to change course – it did NOT run. Go by what they say next; only run that step if they ask for it.`;
+            break;
           }
         }
         chat.turns.push({ assistant: chat.last, user: clip(`RESULT of ${st.tool || 'that'}:\n${result}`, 9000) });
@@ -606,11 +856,89 @@
       if (!cancelled(e)) throw e;
       show({ k: 'warn', text: 'Stopped. What was made so far is kept.' });
       chat.pendingResult = 'The editor pressed Stop before you finished. Wait for what they say next.';
-    } finally { if (US.ai.endBudget) US.ai.endBudget(as); chat.status = 'idle'; chat.job = null; chat.updated = Date.now(); hk.status(); }
+    } finally { if (US.ai.endBudget) US.ai.endBudget(as); chat.status = 'idle'; chat.phase = null; chat.job = null; chat.updated = Date.now(); hk.status(); }
     return chat;
   }
   /** Stop a chat: after its current step (and the step itself, if it is the one running). */
   function stop(chat) { chat.stop = true; if (chat.job && US.jobs.current === chat.job) US.jobs.cancel(); }
 
-  US.chat = { lineRows, storySummary, TOOLS, STEP_SCHEMA, MODES, toolsHere, riskOf, asksFirst, rules, brief, parseStep, compact, titleOf, describeCall, actionCard, actionsHere, newChat, toStored, fromStored, hands, findSequence, prepareEdit, callTool, send, stop };
+  /* ---------- undo: take back what the AI did – all of it, or one reply ---------- */
+  const SEQ_BINS = /^JMG Ultra Studio \/ /;
+  /**
+   * What Undo would do. turn: only that request's changes (null = everything in the chat).
+   * -> {can: [{entry, text}], cant: [{entry, text}]} – newest first.
+   */
+  function undoPlan(chat, { turn = null } = {}) {
+    const can = [], cant = [];
+    for (const j of (chat.journal || []).slice().reverse()) {
+      if (j.undone || (turn != null && j.turn !== turn)) continue;
+      if (j.kind === 'seq') can.push({ entry: j, text: `Delete the sequence “${j.name}” it made` });
+      else if (j.kind === 'bin') can.push({ entry: j, text: `Remove the bin “${j.path}” it made, if nothing is left in it` });
+      else if (j.kind === 'markers') can.push({ entry: j, text: `Take ${US.plural((j.guids || []).length, 'marker')} off “${j.name}”` });
+      else if (j.kind === 'items') can.push({ entry: j, text: 'Put labels, names and bins back as they were' });
+      else if (j.kind === 'placed') can.push({ entry: j, text: `Take the ${US.plural((j.list || []).length, 'clip')} it added out again` });
+      else if (j.kind === 'inplace') cant.push({ entry: j, text: `“${j.name}” was changed itself, so it can’t be put back from here${j.backupName ? ` – a copy from before the change is kept as “${j.backupName}”` : ''}. Edit › Undo in the editor also steps back through it.` });
+      else if (j.kind === 'cant') cant.push({ entry: j, text: j.text });
+    }
+    return { can, cant };
+  }
+  /**
+   * Undo. confirm(entries) is asked about sequences the editor has changed since the AI made them -> 'delete' (take
+   * them away anyway) or anything else (keep them). Nothing of the editor's own is deleted without that answer.
+   * -> {undone: [texts], kept: [texts], cant: [texts], failed: [texts]}
+   */
+  async function undo(chat, { turn = null, confirm = async () => 'keep' } = {}) {
+    const plan = undoPlan(chat, { turn }), res = { undone: [], kept: [], cant: plan.cant.map(x => x.text), failed: [] };
+    if (!plan.can.length) return res;
+    const gone = new Set();
+    await hands(chat, turn == null ? 'Undoing what the AI did in this chat' : 'Undoing that reply', async job => {
+      const seqs = plan.can.filter(x => x.entry.kind === 'seq');
+      let by = new Map();
+      try { if (seqs.length) by = new Map(arr(await US.host.call('askStamp', { seqIds: seqs.map(x => x.entry.seqId) })).map(x => [x.id, x])); } catch (e) { by = new Map(); }
+      const moved = x => { const now = by.get(x.entry.seqId), was = x.entry.stamp; return !!(now && !now.missing && was && (Math.abs(now.duration - was.duration) > 0.05 || now.clips !== was.clips || now.markers !== was.markers)); };
+      const changed = seqs.filter(moved);
+      let keep = new Set();
+      if (changed.length && (await confirm(changed.map(x => x.entry))) !== 'delete') keep = new Set(changed.map(x => x.entry.id));
+      // come back to the sequence that was open before anything is taken away
+      if (chat.origin && chat.origin.seqId && !seqs.some(x => x.entry.seqId === chat.origin.seqId)) await US.host.call('openSequence', { seqId: chat.origin.seqId }).catch(() => {});
+      const bins = [];
+      for (let i = 0; i < plan.can.length; i++) {
+        job.check();
+        const x = plan.can[i], j = x.entry;
+        job.set({ who: 'premiere', msg: x.text }).progress(i / plan.can.length);
+        try {
+          if (j.kind === 'bin') { bins.push(x); continue; }
+          if (j.kind === 'seq') {
+            const now = by.get(j.seqId);
+            if (now && now.missing) { j.undone = true; gone.add(j.seqId); continue; }
+            if (keep.has(j.id)) { res.kept.push(`“${j.name}” stays – you’ve changed it since it was made`); continue; }
+            await US.host.call('deleteSequence', { seqId: j.seqId }); gone.add(j.seqId);
+          } else if (j.kind === 'markers') await US.host.call('removeSequenceMarkers', { seqId: j.seqId, guids: j.guids || [] });
+          else if (j.kind === 'items') await E().undoItems(j.undo || []);
+          else if (j.kind === 'placed') await E().unplace(j.list || []);
+          j.undone = true; res.undone.push(x.text.replace(/^Delete the sequence “(.*)” it made$/, 'Deleted the sequence “$1”').replace(/^Take /, 'Took ').replace(/^Put /, 'Put '));
+        } catch (e) { res.failed.push(`${x.text}: ${explain(e).title}`); }
+      }
+      if (bins.length) {
+        try {
+          const r = (await US.host.call('askRemoveBins', { paths: bins.map(x => x.entry.path) })) || {};
+          for (const x of bins) {
+            if (arr(r.removed).includes(x.entry.path)) { x.entry.undone = true; res.undone.push(`Removed the bin “${x.entry.path}”`); }
+            else { const k = arr(r.kept).find(y => y.path === x.entry.path); if (k && k.why === 'not there any more') x.entry.undone = true; else res.kept.push(`The bin “${x.entry.path}” stays – it is ${k ? k.why : 'still in use'}`); }
+          }
+        } catch (e) { res.failed.push(`Removing the bins it made: ${explain(e).title}`); }
+      }
+      if (US.refreshContext) await US.refreshContext();
+      return { summary: `Undone: ${US.plural(res.undone.length, 'thing')}${res.kept.length ? ` · ${res.kept.length} kept` : ''}${res.failed.length ? ` · ${res.failed.length} didn’t work` : ''}` };
+    });
+    if (chat.work && gone.has(chat.work.seqId)) chat.work = null;
+    chat.versions = (chat.versions || []).filter(v => !gone.has(v.seqId));
+    chat.project = null;
+    const told = res.undone.concat(res.kept, res.failed.map(x => `FAILED – ${x}`));
+    if (told.length) chat.pendingResult = `${chat.pendingResult || ''}\nThe editor pressed Undo${turn == null ? ' for everything you did in this chat' : ' for one of your replies'}: ${told.join('; ')}.${chat.work ? '' : ' You have no working sequence now.'} Ids you read before may be gone – read again before you use them.`.trim();
+    chat.updated = Date.now();
+    return res;
+  }
+
+  US.chat = { dangerOf, DANGER, describeArgs, workingLine, journalAdd, undoPlan, undo, personaOf, lineRows, storySummary, TOOLS, STEP_SCHEMA, MODES, toolsHere, riskOf, asksFirst, rules, brief, parseStep, compact, titleOf, describeCall, actionCard, actionsHere, newChat, toStored, fromStored, hands, findSequence, prepareEdit, callTool, send, stop };
 })();

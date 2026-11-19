@@ -380,7 +380,7 @@
     const usedModel = msg.model && MODELS[msg.model] ? msg.model : model;
     if (msg.usage) record(usedModel, msg.usage, feature, costOf(usedModel, msg.usage), key);
     if (msg.usage) settleBudget(est.usd, costOf(usedModel, msg.usage), as);
-    if (onUsage) { try { onUsage({ provider: 'claude', model: usedModel, name: MODELS[usedModel].name, usd: msg.usage ? costOf(usedModel, msg.usage) : 0 }); } catch (e) { /* the caller's sums */ } }
+    if (onUsage) { try { onUsage({ provider: 'claude', model: usedModel, name: MODELS[usedModel].name, usd: msg.usage ? costOf(usedModel, msg.usage) : 0, tokensIn: msg.usage ? (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0) : 0, tokensOut: msg.usage ? msg.usage.output_tokens || 0 : 0 }); } catch (e) { /* the caller's sums */ } }
     sentLog.end(logged, { ok: true, model: usedModel, usd: msg.usage ? costOf(usedModel, msg.usage) : 0, tokensIn: msg.usage ? msg.usage.input_tokens + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0) : 0, cacheRead: msg.usage ? msg.usage.cache_read_input_tokens || 0 : 0, tokensOut: msg.usage ? msg.usage.output_tokens : 0 });
     if (msg.usage && (msg.usage.cache_read_input_tokens || msg.usage.cache_creation_input_tokens)) noteWarm([].concat(Array.isArray(user) ? user : [], Array.isArray(system) ? system : []), usedModel, startedAt);
     if (msg.stop_reason === 'refusal') throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(msg.stop_details || {}) });
@@ -446,7 +446,7 @@
     // the “-latest” names follow Google's newest model: remember which one answered, so Settings can say
     if (r.json.modelVersion) noteGemini(used, r.json.modelVersion);
     if (r.json.usageMetadata) record(r.json.modelVersion || used, r.json.usageMetadata, feature, 0, key); // within Google's free allowance
-    if (onUsage) { try { onUsage({ provider: 'gemini', model: r.json.modelVersion || used, name: geminiName(r.json.modelVersion || used), usd: 0 }); } catch (e) { /* the caller's sums */ } }
+    if (onUsage) { try { onUsage({ provider: 'gemini', model: r.json.modelVersion || used, name: geminiName(r.json.modelVersion || used), usd: 0, tokensIn: (r.json.usageMetadata || {}).promptTokenCount || 0, tokensOut: ((r.json.usageMetadata || {}).candidatesTokenCount || 0) + ((r.json.usageMetadata || {}).thoughtsTokenCount || 0) }); } catch (e) { /* the caller's sums */ } }
     const cand = (r.json.candidates || [])[0];
     if (!cand) throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(r.json.promptFeedback || r.json).slice(0, 500) });
     const text = ((cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
@@ -557,7 +557,7 @@
     const u = r.json.usage || {};
     sentLog.end(logged, { ok: true, model, usd: 0, tokensIn: u.prompt_tokens || 0, tokensOut: u.completion_tokens || 0 });
     record('local:' + model, { input_tokens: u.prompt_tokens || 0, output_tokens: u.completion_tokens || 0 }, feature, 0, null);   // no key: nothing to bill
-    if (onUsage) { try { onUsage({ provider: 'local', model, name: `${model} (on this computer)`, usd: 0 }); } catch (e) { /* the caller's sums */ } }
+    if (onUsage) { try { onUsage({ provider: 'local', model, name: `${model} (on this computer)`, usd: 0, tokensIn: u.prompt_tokens || 0, tokensOut: u.completion_tokens || 0 }); } catch (e) { /* the caller's sums */ } }
     if (!text) throw new US.UserError('AI_FAILED', { title: 'The local AI sent back an empty answer.', action: 'Try again, or a larger model.' });
     return { text };
   }
@@ -654,7 +654,7 @@
     /** JSON answer matching a JSON Schema (objects need additionalProperties:false and required for Claude). */
     /** fast: a quick, short request (the Assistant's plans) – uses Gemini's quick model; Claude is quick at low effort. */
     /** as: whose request it is when it runs beside other work ({id, title, about}); use: another AI than Settings' for
-        this request (a choices() id); onUsage({provider, model, name, usd}): what it really cost. */
+        this request (a choices() id); onUsage({provider, model, name, usd, tokensIn, tokensOut}): what it really cost. */
     async json({ system, user, turns, schema, maxTokens, effort, fast, feature, as, use, onUsage }) {
       const u = use ? US.ai.resolveUse(use) : { provider: provider(), model: '' }, p = u.provider, model = u.model || undefined;
       if (p === 'none') throw new US.UserError('AI_KEY');
