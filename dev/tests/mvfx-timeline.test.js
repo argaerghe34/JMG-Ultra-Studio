@@ -26,7 +26,7 @@ function world(trackNames = ['Video 1', 'mVFX 1', 'mVFX 2', 'mVFX 3', 'mVFX 4'])
   const seq = { sequenceID: 's1', timebase: TICKS / 25, frameSizeHorizontal: 1920, frameSizeVertical: 1080, videoTracks: Object.assign(tracks, { numTracks: tracks.length }), audioTracks: Object.assign([], { numTracks: 0 }),
     importMGT(file, ticks, t) { const s = Number(ticks) / TICKS, c = clip(s, s + 5); c.components.push(comp('Text', [prop('Source Text', PARAM)])); tracks[t].clips.push(c); return c; } };
   const ctx = { app: { path: '/Applications/Adobe Premiere Pro 2027/Adobe Premiere Pro 2027.app', version: '27.0', project: { rootItem: {}, path: '/p/test.prproj', activeSequence: seq, sequences: Object.assign([seq], { numSequences: 1 }) } }, qe: {},
-    File: function (p) { this.exists = /Basic Title\.mogrt$/.test(p); this.fsName = p; }, Folder: function () {}, Time: function () { this.seconds = 0; }, JSON, Math, String, Number, RegExp, Array, Object, Date, isFinite, isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent, $: { writeln() {} } };
+    File: function (p) { this.exists = /Basic Title\.mogrt$/.test(p); this.fsName = p; }, Folder: function () {}, Time: function () { this.seconds = 0; }, JSON, Math, String, Number, RegExp, Array, Object, Date, isFinite, isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent, $: { writeln() {}, sleep() {} } };
   vm.createContext(ctx);
   for (const f of ['host.jsx', path.join('tools', 'mvfx.jsx')]) vm.runInContext(fs.readFileSync(path.join(ROOT, 'jsx', f), 'utf8'), ctx, { filename: f });
   return { U: ctx.UStudio, seq, tracks, ctx };
@@ -55,6 +55,14 @@ test('a plain title: each text layer lands inside the picture – its Position i
   same(op, [[0, 0], [0.4, 0], [1.1, 100], [4.5, 100], [4.96, 0]]);
 });
 
+test('Premiere hands back a clip without its Source Text (seen in 27.0): the words are set on the clip found on the track instead', () => {
+  const { U, seq, tracks } = world(), real = seq.importMGT;
+  seq.importMGT = function (f, ticks, t) { real.call(seq, f, ticks, t); return clip(Number(ticks) / TICKS, Number(ticks) / TICKS + 5); };   // a bare stand-in object
+  const r = U.fn.mvfxApply({ seqId: 's1', start: 2, seconds: 4, layers: [{ kind: 'text', text: 'Mira Haddad', x: 960, y: 900, anim: { type: 'fade' } }] });
+  assert.ok(r.text[0].words, JSON.stringify(r));
+  assert.strictEqual(JSON.parse(of(tracks[1].clips[0], 'Text', 'Source Text').value).mTextParam.mStyleSheet.mText, 'Mira Haddad');
+});
+
 test('a second title over the same moment takes the next free mVFX tracks; one later is back on the first', () => {
   const { U } = world(), L = [{ kind: 'text', text: 'A', x: 960, y: 540, anim: { type: 'fade' } }, { kind: 'text', text: 'B', x: 960, y: 600, anim: { type: 'fade' } }];
   same(U.fn.mvfxApply({ seqId: 's1', start: 1, seconds: 5, layers: L }).tracks, [1, 2]);
@@ -70,6 +78,18 @@ test('a camera move: Position keys are fractions of the frame added to where the
   const pos = of(tracks[0].clips[0], 'Motion', 'Position');
   same(pos.keys.map(k => k.v.map(x => Math.round(x * 100) / 100)), [[0.53, 0.5], [0.47, 0.5]]);
   same(of(tracks[0].clips[0], 'Motion', 'Scale').keys.map(k => k.v), [110, 110]);
+});
+
+test('Every clip: a move with onlyPicture leaves our own mVFX tracks alone (titles, grain, held frames), and still moves the picture', () => {
+  const { U, tracks } = world();
+  tracks[0].clips.push(clip(0, 4)); tracks[1].clips.push(clip(1, 6));
+  const keys = [{ at: 0, scale: 100, x: 0, y: 0 }, { at: 3.96, scale: 112, x: 0, y: 0 }];
+  const r = U.fn.mvfxMove({ seqId: 's1', targets: [{ kind: 'video', track: 0, start: 0 }, { kind: 'video', track: 1, start: 1 }], keys, ease: true, onlyPicture: true });
+  assert.strictEqual(r.done, 1); same(r.skipped, [{ start: 1, why: 'a title or overlay of ours' }]);
+  assert.strictEqual(of(tracks[1].clips[0], 'Motion', 'Scale').keys.length, 0, 'the title on mVFX 1 is untouched');
+  assert.strictEqual(of(tracks[0].clips[0], 'Motion', 'Scale').keys.length, 2);
+  // chosen by hand (selected clips): a title can still be moved
+  assert.strictEqual(U.fn.mvfxMove({ seqId: 's1', targets: [{ kind: 'video', track: 1, start: 1 }], keys, ease: true }).done, 1);
 });
 
 test('keyframes: a light leak drifts a few hundredths of the frame (not thousands of pixels); an overlay’s Strength is the height of its fade', () => {

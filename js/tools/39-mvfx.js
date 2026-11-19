@@ -83,11 +83,13 @@
     const info = await US.host.call('sequenceInfo', { seqId: s.id, clips: false });
     return Object.assign({ playhead: s.playhead || 0 }, info, { playhead: s.playhead != null ? s.playhead : 0 });
   }
+  /** Is this one of our tracks ("mVFX 1, 2, 3…": titles, overlays, text layers, held frames)? */
+  const ourTrack = t => /^mVFX \d+$/i.test(String((t && t.name) || '').trim());
   /** The top video clip under `at` that isn't one of ours (an "mVFX n" track). info: editRead's. -> {kind, track, start, end} | null */
   function clipUnder(info, at) {
     const tracks = (info.video || []).slice().sort((a, b) => (b.index || 0) - (a.index || 0));
     for (const t of tracks) {
-      if (/^mVFX \d+$/i.test(String(t.name || '').trim()) || t.locked) continue;
+      if (ourTrack(t) || t.locked) continue;
       const c = (t.clips || []).find(x => x.start <= at + 1e-6 && x.end > at + 1e-6);
       if (c) return { kind: 'video', track: t.index != null ? t.index : 0, start: c.start, end: c.end };
     }
@@ -95,7 +97,9 @@
   }
   /**
    * The clips a movement or look goes on: the selected ones – or, when nothing is selected, the clip under the playhead
-   * (Resolve: always the clip under the playhead) – or every clip. -> {info, targets, how (said in the result)}
+   * (Resolve: always the clip under the playhead) – or every clip: every picture clip, never our own layers on the
+   * "mVFX n" tracks (a push in or a look on every clip mustn't land on the titles and grain above them).
+   * -> {info, targets, how (said in the result), onlyPicture}
    */
   async function targets(seqId, scope, playhead) {
     const info = await US.host.call('editRead', { seqId });
@@ -106,9 +110,10 @@
       if (!sel.length) throw new US.UserError('NOTHING_FOUND', { title: RES ? 'There’s no clip under the playhead.' : 'No clips are selected, and there’s no clip under the playhead.', action: RES ? 'Resolve doesn’t tell add-ons which clips are selected, so the clip under the playhead is used – move the playhead onto one, or choose Every clip.' : 'Select some clips in the Timeline or put the playhead on one, or choose Every clip.' });
       if (!sel.some(s => s.kind === 'video')) sel = sel.concat(sel.map(s => Object.assign({}, s, { kind: 'video' })));
     }
-    const ts = US.quickfx.targetsFor(info, sel, 'video');
-    if (!ts.length) throw new US.UserError('NOTHING_FOUND', { title: 'No video clips to change.', action: 'Select video clips on unlocked tracks.' });
-    return { info, targets: ts, how };
+    const ours = new Set((info.video || []).filter(ourTrack).map(t => (t.index != null ? t.index : 0)));
+    const ts = US.quickfx.targetsFor(info, sel, 'video').filter(t => scope !== 'all' || !ours.has(t.track));
+    if (!ts.length) throw new US.UserError('NOTHING_FOUND', { title: 'No video clips to change.', action: scope === 'all' ? 'There are only titles and overlays here – put some clips in the sequence first.' : 'Select video clips on unlocked tracks.' });
+    return { info, targets: ts, how, onlyPicture: scope === 'all' };
   }
   /** Resolve: make sure a template file is in the Effects Library (written now, with these values baked in). */
   async function ensureTemplate(tpl) {
@@ -342,22 +347,22 @@
       return { summary: `Frame held for ${seconds} s ${where} on V${fr.track + 1}${notes.length ? ' · ' + notes.join(' · ') : ''}`, result: fr };
     }
     if (preset.kind === 'move') {
-      const { info, targets: ts, how } = await targets(seq.id, opts.scope || 'selection', start);
+      const { info, targets: ts, how, onlyPicture } = await targets(seq.id, opts.scope || 'selection', start);
       if (RES) {   // only the still punch-in: no keyframes by script
         const r = await US.host.call('editApply', { seqId: seq.id, op: 'motion', params: { scale: preset.move.scale[1] }, targets: ts });
         return { summary: `${preset.label}: ${US.plural(r.done || 0, 'clip')} set to ${preset.move.scale[1]}% (Resolve doesn’t let add-ons keyframe, so it’s a still punch-in)`, result: r };
       }
       let done = 0; const skipped = [];
       for (const t of ts) {
-        const r = await US.host.call('mvfxMove', { seqId: seq.id, targets: [t], keys: P().moveKeys(preset, t.end - t.start, info.fps || 25), ease: true });
+        const r = await US.host.call('mvfxMove', { seqId: seq.id, targets: [t], keys: P().moveKeys(preset, t.end - t.start, info.fps || 25), ease: true, onlyPicture });
         done += r.done || 0; skipped.push(...(r.skipped || []));
       }
       return { summary: `${preset.label}: ${US.plural(done, 'clip')}${skipped.length ? ' · ' + skipped.length + ' skipped' : ''}${how ? ' – ' + how : ''}`, result: { done, skipped } };
     }
     if (preset.kind === 'look') {
-      const { targets: ts, how } = await targets(seq.id, opts.scope || 'selection', start);
+      const { targets: ts, how, onlyPicture } = await targets(seq.id, opts.scope || 'selection', start);
       const look = LK().LOOKS[preset.look];
-      const r = await US.host.call('mvfxLook', { seqId: seq.id, targets: ts, look: { id: preset.look, lut: lutFile(preset.look), lumetri: look.lumetri, label: look.label } });
+      const r = await US.host.call('mvfxLook', { seqId: seq.id, targets: ts, onlyPicture, look: { id: preset.look, lut: lutFile(preset.look), lumetri: look.lumetri, label: look.label } });
       if (r.unsupported) throw new US.UserError('BAD_INPUT', { title: r.why });
       return { summary: `${preset.label}: ${US.plural(r.done || 0, 'clip')}${r.skipped && r.skipped.length ? ' · ' + r.skipped.length + ' skipped' : ''}${RES ? ' (the LUT is on the first node)' : ' (Lumetri Color)'}${how ? ' – ' + how : ''}`, result: r };
     }

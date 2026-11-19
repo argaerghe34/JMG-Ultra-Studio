@@ -112,3 +112,13 @@ test('mvfxDropped: a picture dragged from the tab is found on the open timeline 
   const g = await S.run('mvfxClip', { seqId: S.seqId, first: path.join(dir, 'grain_0001.png'), frames: 50, fps: 25, start: 1, seconds: 2, name: 'Film grain', blend: 'overlay', alpha: 0.35, anim: { type: 'fade', peak: 0.35 } });
   assert.strictEqual(g.trackName, 'mVFX 1'); assert.ok(Array.isArray(g.log));
 });
+
+test('mvfxLook with onlyPicture: our own mVFX tracks are left alone; the picture clips get the LUT', async () => {
+  const S = withTimeline(), lut = path.join(S.dir, 'JMG Warm archive.cube'); fs.writeFileSync(lut, US.mvfxLooks.cube('warm', 3));
+  const dir = path.join(S.dir, 'nm-x'); fs.mkdirSync(dir); for (let i = 1; i <= 25; i++) fs.writeFileSync(path.join(dir, `nm-x_${String(i).padStart(4, '0')}.png`), 'x');
+  const t = await S.run('mvfxClip', { seqId: S.seqId, first: path.join(dir, 'nm-x_0001.png'), frames: 25, fps: 25, start: 0, seconds: 1, name: 'x' });
+  assert.strictEqual(t.trackName, 'mVFX 1');
+  const r = await S.run('mvfxLook', { seqId: S.seqId, onlyPicture: true, targets: [{ kind: 'video', track: 0, start: 0 }, { kind: 'video', track: t.track, start: t.start }], look: { id: 'warm', lut, label: 'Warm archive' } });
+  assert.strictEqual(r.done, 1); assert.deepStrictEqual(r.skipped.map(s => s.why), ['a title or overlay of ours']);
+  assert.strictEqual(S.tl.GetItemListInTrack('video', 1)[0].GetLUT(1), lut);
+});
