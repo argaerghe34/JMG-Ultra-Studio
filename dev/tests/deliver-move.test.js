@@ -52,10 +52,14 @@ test('deliver-move: Premiere – brings in an FCPXML as FCP 7 XML, media that mo
   for (const f of ['A001_interview.mov', 'B002_hands.mov']) fs.writeFileSync(path.join(media, 'Day 1', f), 'x');
   const file = path.join(dir, 'Interview cut.fcpxml'); fs.writeFileSync(file, fixture('fcp11-interview.fcpxml'));
   let imported = '';
-  const P = asPremiere({ nleImport: a => { imported = fs.readFileSync(a.path, 'utf8'); return { seqId: 'NEW', name: a.name, clips: 7 }; }, openSequence: () => true });
+  let added = null;
+  const P = asPremiere({ nleImport: a => { imported = fs.readFileSync(a.path, 'utf8'); return { seqId: 'NEW', name: a.name, clips: 7 }; }, openSequence: () => true,
+    sequenceInfo: () => ({ markers: [{ start: 24 / (24000 / 1001), name: 'Good line' }] }), addSequenceMarkers: a => { added = a; return []; } });
   try {
     const r = await M.bringIn({ file, mediaFolder: media }, fakeJob());
-    assert.deepStrictEqual(P.calls.map(c => c[0]), ['nleImport', 'openSequence']);
+    assert.deepStrictEqual(P.calls.map(c => c[0]), ['nleImport', 'sequenceInfo', 'addSequenceMarkers', 'openSequence']);
+    assert.deepStrictEqual(added.markers.map(m => [m.name, Math.round(m.start * 24), m.color]), [['Intro', 0, 2], ['Laugh', 192, 1]], 'markers the import missed are added; one it brought is not added twice');
+    assert.strictEqual(added.where, 'sequence'); assert.strictEqual(r.markersAdded, 2);
     assert.strictEqual(r.name, 'Interview cut (from Final Cut Pro)');
     assert.ok(/<xmeml version="4">/.test(imported));
     assert.ok(imported.includes(N.pathToUrl(path.join(media, 'Day 1', 'A001_interview.mov'), true)), 'relinked path in the XML');

@@ -90,6 +90,8 @@
     if (!kind) throw new US.UserError('BAD_INPUT', { title: 'That isn’t a timeline file this can read.', action: 'Choose an FCPXML (.fcpxml / .fcpxmld), FCP 7 XML (.xml), EDL (.edl) or OpenTimelineIO (.otio) file.', detail: file });
     return { path: p, kind, text: kind === 'aaf' ? '' : fs.readFileSync(p, 'utf8') };
   }
+  // marker colours as the editors' marker indexes (0 green, 1 red, 2 purple, 3 orange/sand, 4 yellow, 5 white/cream, 6 blue, 7 cyan)
+  const MARKER_INDEX = { Green: 0, Mint: 0, Red: 1, Rose: 1, Pink: 1, Purple: 2, Lavender: 2, Fuchsia: 2, Sand: 3, Cocoa: 3, Orange: 3, Yellow: 4, Lemon: 4, Cream: 5, White: 5, Blue: 6, Sky: 7, Cyan: 7 };
   const FROM = { fcpxml: 'Final Cut Pro', xmeml: 'FCP 7 XML', edl: 'EDL', otio: 'OTIO', aaf: 'AAF' };
 
   /**
@@ -130,9 +132,20 @@
       catch (e) { if (!tl) throw e; r = await US.host.call('nleImport', { path: conv(), name, mediaFolder: o.mediaFolder || '' }); how = 'converted to FCP 7 XML'; }
     } else { r = await US.host.call('nleImport', { path: conv(), name }); how = src.kind === 'xmeml' ? 'FCP 7 XML' : 'converted to FCP 7 XML'; }
     job.check();
+    // markers the editor's own import didn't bring (Resolve 21.2 drops FCPXML's – measured 19 Nov 2026): added from the file
+    let markersAdded = 0;
+    if (tl && tl.markers.length) {
+      try {
+        const have = ((await US.host.call('sequenceInfo', { seqId: r.seqId, clips: false })) || {}).markers || [];
+        const fps = tl.rate.num / tl.rate.den, near = (a, b) => Math.abs(a - b) <= 1.5 / fps;
+        const add = tl.markers.filter(m => !have.some(x => near(Number(x.start), m.at / fps) && String(x.name || '') === String(m.name || '')))
+          .map(m => Object.assign({ start: m.at / fps, name: m.name || '', comment: m.note || '', color: MARKER_INDEX[m.colour] != null ? MARKER_INDEX[m.colour] : 0 }, m.dur ? { end: (m.at + m.dur) / fps } : {}));
+        if (add.length) { await US.host.call('addSequenceMarkers', { seqId: r.seqId, markers: add, where: 'sequence' }); markersAdded = add.length; }
+      } catch (e) { US.log && US.log('warn', 'Markers not added to the new sequence', String(e && e.message || e), 'deliver'); }
+    }
     try { await US.host.call('openSequence', { seqId: r.seqId }); } catch (e) { /* made; just not shown */ }
     const st = tl ? N().stats(tl) : null, lost = tl ? N().lostLines(tl) : [];
-    return { seqId: r.seqId, name: r.name, clips: r.clips, expected: st ? st.clips : null, markers: st ? st.markers : null, lost, missing, found, how, kind: src.kind,
+    return { seqId: r.seqId, name: r.name, clips: r.clips, markersAdded, expected: st ? st.clips : null, markers: st ? st.markers : null, lost, missing, found, how, kind: src.kind,
       summary: `New sequence “${r.name}” – ${US.plural(r.clips, 'clip')}${missing.length ? `, ${US.plural(missing.length, 'file')} not found` : ''}${lost.length ? `; ${US.plural(lost.length, 'thing')} didn’t come across` : ''}` };
   }
 

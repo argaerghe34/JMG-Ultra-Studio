@@ -31,7 +31,7 @@ const results = {};
 for (const ext of ['.fcpxml', '.xml', '.otio', '.edl']) {
   const b = await T.action('deliver.fromEditor', { file: byExt[ext] });
   const got = await info(b.seqId), pics = pictures(got);
-  results[ext] = { name: b.name, clips: pics.length, markers: got.markers.length, how: b.how, lost: b.lost.length, missing: b.missing.length };
+  results[ext] = { name: b.name, clips: pics.length, markers: got.markers.length, markersAdded: b.markersAdded, how: b.how, lost: b.lost.length, missing: b.missing.length };
   T.assert(!keep.has(b.seqId), ext + ': a new sequence');
   T.assert(b.missing.length === 0, ext + ': every media file found');
   T.assert(pics.length === 2, `${ext}: two clips back, got ${pics.length}`);
