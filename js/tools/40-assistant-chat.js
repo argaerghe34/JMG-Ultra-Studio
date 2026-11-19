@@ -143,7 +143,7 @@
     }
     if ((tool === 'look' || tool === 'watch') && info.cloud) add('footage', `${tool === 'look' ? 'Small stills' : 'Pictures or sound'} from your footage leave this computer${info.label ? ` – they go to ${info.label}` : ''}.`);
     if (+info.estimateUsd >= lim.spend) add('spend', `It is expected to cost about $${(+info.estimateUsd).toFixed(2)} of AI.`);
-    for (const r of info.extra || []) if (r && r.id && r.text) add(r.id, r.text);   // a tool's own reasons (a download that needs permission, a very large one…)
+    for (const r of info.extra || []) if (r && r.id && r.text && !reasons.some(x => x.id === r.id)) reasons.push(Object.assign({}, r));   // a tool's own reasons (a download that needs permission, a very large one…)
     return { risky: reasons.length > 0, reasons };
   }
 
@@ -808,7 +808,8 @@
     const o = Object.assign({ mode: 'ask', maxSteps: 25, budget: 2 }, opts);
     // on its own (a follow-up it set itself): fewer steps, a spend cap (the “costly step” threshold), a time cap, and nobody to ask about limits
     const lone = !!o.unattended, loneStart = Date.now();
-    if (lone) { o.maxSteps = Math.min(o.maxSteps, FOLLOW.steps); o.budget = Math.min(o.budget > 0 ? o.budget : Infinity, (o.limits && +o.limits.spend) || DANGER.spend); }
+    const AL = alone({ spend: (o.limits && +o.limits.spend) || DANGER.spend });
+    if (lone) { o.maxSteps = AL.steps; o.budget = AL.spend; }   // budget 0 = no limit (the editor chose that)
     // limit({kind: 'money'|'steps', used, limit, total}) -> 'more' (as much again), 'free' (no limit in this chat) or 'stop'
     const h = Object.assign({ event() {}, status() {}, approve: async () => ({ ok: true }), choose: async () => null, limit: async () => 'stop', warn: async () => 'continue', trace() {}, journal() {}, planApprove: null, resume: null }, hooks);
     if (h.resume) chat._resume = h.resume;
@@ -847,6 +848,7 @@
     }
     const startSteps = chat.steps, startSpent = chat.spent, usd = x => (US.ai.fmtUSD ? US.ai.fmtUSD(x) : '$' + x.toFixed(2));
     let fresh = true, done = false, stepsAllowed = o.maxSteps, moneyAllowed = o.budget, stepNo = 0, planLen = 0, changed = false, tokIn = 0, tokOut = 0;
+    if (lone) tr({ kind: 'read', text: 'Working on its own – a follow-up it set itself', detail: aloneLine({ spend: (o.limits && +o.limits.spend) || DANGER.spend }, chat) });
     tr({ kind: 'read', text: 'Read your request and where things stand', detail: `${now()}\n${chat.requests === 1 ? 'Sent once and then read from the cache: what the project, the open sequence and the interviews are (as text).' : 'The conversation so far goes with it (older tool results shortened).'}` });
     // the chat keeps its own account (and asks at its limit), so single requests don't each stop to ask; the monthly limit still holds
     if (US.ai.setBudget) US.ai.setBudget(1e6, as);
@@ -864,7 +866,7 @@
         if (chat.stop) throw new US.UserError('CANCELLED');
         if (!chat.noLimit && chat.steps - startSteps >= stepsAllowed && !(await atLimit('steps', chat.steps - startSteps, stepsAllowed))) break;
         if (!chat.noLimit && o.budget > 0 && chat.spent - startSpent >= moneyAllowed && !(await atLimit('money', chat.spent - startSpent, moneyAllowed))) break;
-        if (lone && (chat.unattendedMs || 0) + (Date.now() - loneStart) >= FOLLOW.unattendedMs) { show({ k: 'warn', text: `Stopped: this chat has worked on its own for ${Math.round(FOLLOW.unattendedMs / 60000)} minutes in all, the most it may without you. Say “carry on” to let it finish.` }); chat.pendingResult = 'You were stopped at the limit for working on your own. Carry on if the editor asks.'; break; }
+        if (lone && AL.ms > 0 && (chat.unattendedMs || 0) + (Date.now() - loneStart) >= AL.ms) { show({ k: 'warn', text: `Stopped: this chat has worked on its own for ${spanWords(AL.ms)} in all, the most it may without you (Ask settings › Working on its own). Say “carry on” to let it finish.` }); chat.pendingResult = 'You were stopped at the limit for working on your own. Carry on if the editor asks.'; break; }
         chat.status = 'thinking'; chat.phase = { kind: fresh ? 'planning' : 'thinking' }; hk.status();
         let r;
         try { r = await US.ai.json({ system, user: [{ text: chat.context, cache: '1h' }, chat.first], turns: compact(chat.turns), schema, maxTokens: 6000, effort: 'medium', feature, as, use: chat.model && chat.model !== 'auto' ? chat.model : undefined, onUsage: u => { chat.spent += u.usd || 0; chat.usedModel = u.name; tokIn += u.tokensIn || 0; tokOut += u.tokensOut || 0; tr({ kind: 'ai', text: `${u.name || 'The AI'} answered`, detail: `${u.tokensIn || u.tokensOut ? `${(u.tokensIn || 0).toLocaleString('en-GB')} tokens read, ${(u.tokensOut || 0).toLocaleString('en-GB')} written · ` : ''}${u.usd ? `about ${usd(u.usd)}` : 'no charge'}` }); } }); }
@@ -946,25 +948,46 @@
   function stop(chat) { chat.stop = true; if (chat.job && US.jobs.current === chat.job) US.jobs.cancel(); }
 
   /* ---------- coming back later: follow-ups a chat sets itself (“check again in 30 minutes”) ---------- */
-  // the caps that stop it running away: follow-ups per chat, how far ahead, steps and minutes on its own
-  const FOLLOW = { perChat: 6, minMs: 1000, maxMs: 24 * 3600 * 1000, steps: 15, unattendedMs: 30 * 60 * 1000, retryMs: 15000, tries: 40, lateMs: 60000 };
+  // what stops it running away. The four caps are the editor's to set (Ask settings › Working on its own; kept per
+  // computer under askAlone.*, shared by Ask and Producer) – these are the defaults. 0 there means no limit.
+  // Not caps, and not changeable: on its own nothing risky runs (dangerOf), and never while a job or the editor is busy.
+  const FOLLOW = { perChat: 20, minMs: 1000, maxMs: 7 * 24 * 3600 * 1000, steps: 40, unattendedMs: 4 * 3600 * 1000, retryMs: 15000, tries: 40, lateMs: 60000 };
+  const ALONE = { followUps: [6, 20, 50, 0], minutes: [30, 120, 240, 720, 0], spend: ['', 1, 5, 20, 0], steps: [15, 40, 100] };
+  const aset = (k, d) => { try { const v = US.settings.get('askAlone.' + k, d); return v == null ? d : v; } catch (e) { return d; } };
+  /**
+   * The caps as they are set now: {perChat, ms, steps, spend} – 0 = no limit. spend '' in the settings means “the
+   * costly-step amount” (given by the screen in d.spend).
+   */
+  function alone(d = {}) {
+    const n = (k, def, list) => { const v = +aset(k, def); return list.includes(v) ? v : def; };
+    const sp = aset('spend', '');
+    return { perChat: n('followUps', FOLLOW.perChat, ALONE.followUps), ms: n('minutes', FOLLOW.unattendedMs / 60000, ALONE.minutes) * 60000, steps: n('steps', FOLLOW.steps, ALONE.steps) || FOLLOW.steps, spend: sp === '' || sp == null || !ALONE.spend.includes(+sp) ? +d.spend || DANGER.spend : +sp };
+  }
+  const spanWords = ms => (ms >= 3600000 ? `${Math.round(ms / 360000) / 10} hour${ms === 3600000 ? '' : 's'}` : `${Math.round(ms / 60000)} minutes`);
+  /** The limits in one plain line (the follow-up chip's tooltip, behind the scenes). */
+  function aloneLine(d = {}, chat = null) {
+    const L = alone(d), used = chat ? (chat.followups || []).filter(f => f.state !== 'cancelled').length : 0;
+    return `On its own this chat may set ${L.perChat ? `${L.perChat} follow-ups${chat ? ` (${used} so far)` : ''}` : 'any number of follow-ups'}, each up to 7 days ahead; work ${L.ms ? `${spanWords(L.ms)} in all` : 'as long as it needs'}${chat && chat.unattendedMs ? ` (${Math.round(chat.unattendedMs / 60000)} min so far)` : ''}; take ${L.steps} steps a run; and spend ${L.spend ? `about $${L.spend % 1 ? L.spend.toFixed(2) : L.spend} of AI a run` : 'without a limit on AI a run'}. Nothing risky ever runs without you – it waits – and it never starts while something else is running. Change these in ${chat && chat.persona ? 'Chat' : 'Ask'} settings › Working on its own.`;
+  }
   // the clock, so tests can run it by hand
   const clock = { now: () => Date.now(), set: (fn, ms) => setTimeout(fn, ms), clear: id => clearTimeout(id) };
   const timers = new Map();
   const live = f => f.state === 'pending' || f.state === 'due' || f.state === 'running';
   /**
    * Set a follow-up: in `inMs` (or at `at`, a time in ms), carry on with `text`. -> the follow-up, or {error}.
-   * A chat may set FOLLOW.perChat in all, none further ahead than a day, and none once it has used its time alone.
+   * A chat may set as many as the editor allows (alone().perChat), none further ahead than 7 days, and none once it has
+   * used its time alone.
    */
   function schedule(chat, { inMs = 0, at = 0, text = '' } = {}) {
     chat.followups = chat.followups || [];
     text = String(text || '').trim();
     if (!text) return { error: 'Say in "then" what to do when the time comes.' };
-    if (chat.followups.filter(f => f.state !== 'cancelled').length >= FOLLOW.perChat) return { error: `This chat has already set ${FOLLOW.perChat} follow-ups, the most it may. Ask the editor to say when to check again.` };
-    if ((chat.unattendedMs || 0) >= FOLLOW.unattendedMs) return { error: 'This chat has used all the time it may work on its own. Ask the editor to say when to check again.' };
+    const L = alone();
+    if (L.perChat > 0 && chat.followups.filter(f => f.state !== 'cancelled').length >= L.perChat) return { error: `This chat has already set ${L.perChat} follow-ups, the most it may (the editor can raise that in Ask settings › Working on its own). Ask the editor to say when to check again.` };
+    if (L.ms > 0 && (chat.unattendedMs || 0) >= L.ms) return { error: 'This chat has used all the time it may work on its own (the editor can raise that in Ask settings › Working on its own). Ask the editor to say when to check again.' };
     const when = at > 0 ? at : clock.now() + Math.max(0, +inMs || 0), wait = when - clock.now();
     if (wait < FOLLOW.minMs) return { error: 'That time has already passed – give a time ahead, or just do it now.' };
-    if (wait > FOLLOW.maxMs) return { error: 'A follow-up can be at most a day ahead.' };
+    if (wait > FOLLOW.maxMs) return { error: 'A follow-up can be at most 7 days ahead.' };
     const f = { id: US.uid('fu'), at: when, made: clock.now(), text: clip(text, 600), state: 'pending', tries: 0 };
     chat.followups.push(f);
     arm(chat, f);
@@ -1095,5 +1118,5 @@
     return res;
   }
 
-  US.chat = { FOLLOW, clock, schedule, cancelFollowUp, runFollowUp, rearm, disarm, quietly, gives, dangerOf, DANGER, describeArgs, workingLine, journalAdd, undoPlan, undo, personaOf, lineRows, storySummary, TOOLS, STEP_SCHEMA, MODES, toolsHere, riskOf, asksFirst, rules, brief, parseStep, compact, titleOf, describeCall, actionCard, actionsHere, newChat, toStored, fromStored, hands, findSequence, prepareEdit, callTool, send, stop };
+  US.chat = { FOLLOW, ALONE, alone, aloneLine, clock, schedule, cancelFollowUp, runFollowUp, rearm, disarm, quietly, gives, dangerOf, DANGER, describeArgs, workingLine, journalAdd, undoPlan, undo, personaOf, lineRows, storySummary, TOOLS, STEP_SCHEMA, MODES, toolsHere, riskOf, asksFirst, rules, brief, parseStep, compact, titleOf, describeCall, actionCard, actionsHere, newChat, toStored, fromStored, hands, findSequence, prepareEdit, callTool, send, stop };
 })();

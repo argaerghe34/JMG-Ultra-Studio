@@ -179,6 +179,31 @@
       ui.field('Warn before a step expected to cost more than', ui.select({ options: RISK_SPEND.map(x => ({ value: String(x), label: `$${x % 1 ? x.toFixed(2) : x}` })), value: String(RISK_SPEND.includes(+set('riskSpend', 1)) ? +set('riskSpend', 1) : 1), onChange: x => put('riskSpend', +x) }))
     ], { open: false });
     settingsSec.classList.add('chat-settings');
+    /* Working on its own: the caps and the download warnings – the editor's to set, the same for Ask and Producer (per computer) */
+    {
+      const AK = (k, d) => { const x = US.settings.get('askAlone.' + k, d); return x == null ? d : x; }, AP = (k, x) => US.settings.set('askAlone.' + k, x);
+      const pick = (key, def, opts, hint, onPick) => { const sel = ui.select({ options: opts.map(([value, label]) => ({ value: String(value), label })), value: String(opts.some(([x]) => String(x) === String(AK(key, def))) ? AK(key, def) : def), onChange: async x => { if (onPick && !(await onPick(x, sel))) return; AP(key, x === '' ? '' : isNaN(+x) ? x : +x); line(); } }); if (hint) sel.title = hint; return sel; };
+      const nowLine = h('div.field-hint.chat-alone-now');
+      const line = () => { nowLine.textContent = C.aloneLine({ spend: +set('riskSpend', 1) || 1 }, null).replace(/ Change these in .*$/, ''); };
+      const again = h('div');
+      const drawAgain = () => { US.clear(again); if (AK('noYouTubeWarn', false)) again.appendChild(h('div.row', h('span.field-hint.grow', 'You chose not to be warned about YouTube’s standard licence.'), ui.button('Warn me again', { small: true, kind: 'ghost', onClick: () => { AP('noYouTubeWarn', false); drawAgain(); } }))); };
+      const own = ui.section('Working on its own', [
+        h('div.field-hint', 'When a chat comes back by itself (“check again in 30 minutes”) nobody may be there – these say how far it may go. Whatever is set here, on its own it never runs anything risky (it waits for you) and never starts while something else is running.'),
+        ui.field('Follow-ups a chat may set', pick('followUps', 20, [[6, '6'], [20, '20'], [50, '50'], [0, 'No limit']])),
+        ui.field('Time a chat may work on its own, in all', pick('minutes', 240, [[30, '30 minutes'], [120, '2 hours'], [240, '4 hours'], [720, '12 hours'], [0, 'No limit']])),
+        ui.field('AI it may spend in one run on its own', pick('spend', '', [['', 'The costly-step amount above'], [1, '$1'], [5, '$5'], [20, '$20'], [0, 'No limit']], 'Your monthly AI limit in Settings always holds.',
+          async (x, sel) => { if (String(x) !== '0') return true; const ok = await ui.confirm({ title: 'No spending limit when it works on its own?', text: 'A chat that comes back by itself could then spend any amount of AI in one run, with nobody there to stop it. Your monthly AI limit in Settings still holds.', ok: 'No limit', danger: true }); if (!ok) sel.value = String(AK('spend', '')); return ok; })),
+        ui.field('Steps it may take in one run on its own', pick('steps', 40, [[15, '15'], [40, '40'], [100, '100']])),
+        nowLine,
+        ui.field('Warn about footage that isn’t free to use', pick('licenceWarn', 'chat', [['always', 'Every time'], ['chat', 'Once per chat'], ['never', 'Never']], 'The warning before downloading a clip you need permission to use. Each clip’s licence always shows on the card of clips to download.')),
+        again,
+        h('div.row', ui.field('Warn before a download larger than', pick('bigGB', 5, [[2, '2 GB'], [5, '5 GB'], [20, '20 GB'], [0, 'Never']])), ui.field('…or of more clips than', pick('manyClips', 40, [[20, '20'], [40, '40'], [100, '100'], [0, 'Never']])))
+      ], { open: false });
+      own.classList.add('chat-alone');
+      settingsSec.querySelector('.section-body').appendChild(own);
+      line(); drawAgain();
+      US.bus.on('settings', US.debounce(() => { line(); drawAgain(); }, 300));
+    }
     const settingsHint = h('span.section-hint.chat-settings-now');
     settingsSec.querySelector('.section-head').appendChild(settingsHint);
     const picked = sel => { const op = sel.options && sel.options[sel.selectedIndex]; return op ? op.textContent : ''; };
@@ -260,7 +285,7 @@
       for (const f of fs2) {
         if (f.state === 'due') followBar.appendChild(h('div.chat-follow-row.due', h('span.grow', h('b', `Was due at ${hhmm(f.at)}, while the panel was closed: `), US.say(f.text)),
           ui.button('Run it now', { small: true, kind: 'primary', onClick: () => { C.runFollowUp(cur, f.id); drawFollow(); keep(); } }), ui.button('Skip', { small: true, kind: 'ghost', onClick: () => { C.cancelFollowUp(cur, f.id); drawFollow(); keep(); } })));
-        else followBar.appendChild(h('div.chat-follow-row', h('span.chat-follow-clock', f.state === 'running' ? 'Now' : `Back in ${countdown(f.at - C.clock.now())}`), h('span.grow.chat-follow-text', { title: f.text }, US.say(f.text)),
+        else followBar.appendChild(h('div.chat-follow-row', h('span.chat-follow-clock', f.state === 'running' ? 'Now' : `Back in ${countdown(f.at - C.clock.now())}`), h('span.grow.chat-follow-text', { title: `${f.text}\n\n${C.aloneLine({ spend: +set('riskSpend', 1) || 1 }, cur)}` }, US.say(f.text)),
           f.state === 'running' ? null : ui.button('Cancel', { small: true, kind: 'ghost', title: 'Don’t come back to this', onClick: () => { C.cancelFollowUp(cur, f.id); drawFollow(); keep(); } })));
       }
     }
@@ -370,7 +395,7 @@
         // things the step would take (clips to download): each can be unticked
         const picks = card.items || [], onP = picks.map(() => true);
         const picksEl = picks.length ? h('div.chat-picks', picks.map((p, i) => h('label.chat-pick' + (p.warn ? '.warn' : ''), h('input', { type: 'checkbox', checked: true, onchange: e => { onP[i] = e.target.checked; } }),
-          p.thumb ? h('img.chat-pick-thumb', { src: p.thumb, alt: '', loading: 'lazy' }) : h('span.chat-pick-thumb'), h('span.grow', h('b', US.keep(p.label)), h('div.field-hint', p.sub || '')),
+          p.thumb ? h('img.chat-pick-thumb', { src: p.thumb, alt: '', loading: 'lazy' }) : h('span.chat-pick-thumb'), h('span.grow', h('b', US.keep(p.label)), p.warn ? h('span.chat-pick-tag', ui.pill('needs permission', 'var(--warn)')) : null, h('div.field-hint', p.sub || '')),
           p.link ? h('button.btn.small.ghost', { title: 'Open its page in your browser', onclick: e => { e.preventDefault(); US.app.openUrl(p.link); } }, 'Page') : null))) : null;
         const status = h('div.plan-status');
         const done = (r, text) => { c.pending = null; c.pendingKind = ''; box.classList.add('chat-card-done'); status.textContent = text; drawTabs(); res(r); };
@@ -406,13 +431,18 @@
     /** Before a risky step, whatever was chosen about asking: what has happened, what could, Continue or Change course. */
     async function warn(c, w) {
       if (c !== cur) { US.tools.open(TOOL); show(c); }
+      // a reason the editor can choose not to be told again (YouTube's standard licence): a tick box, kept per computer
+      const ticks = w.reasons.filter(x => x.dontAsk && x.dontAsk.key).map(x => ({ key: x.dontAsk.key, on: false, el: null, label: x.dontAsk.label }));
+      for (const t of ticks) t.el = h('label.row.chat-warn-tick', h('input', { type: 'checkbox', onchange: e => { t.on = e.target.checked; } }), h('span', t.label));
       const r = await ui.modal({ title: 'Before I go on – this step needs your say', wide: true,
         body: h('div.chat-warn',
           h('p', h('b', US.say(w.title))), w.detail ? h('p.pre', US.say(w.detail)) : null,
-          h('div.field-label', 'What could happen'), h('ul.chat-list.no', w.reasons.map(x => h('li', US.say(x.text)))),
+          h('div.field-label', 'What could happen'), h('ul.chat-list.no', w.reasons.map(x => h('li', US.say(x.text), x.more ? h('div.field-hint', US.say(x.more)) : null))),
+          ticks.length ? h('div', ticks.map(t => t.el), h('div.field-hint', 'Each clip’s licence still shows on the card of clips to download. Change this in the settings at the top of the chat › Working on its own.')) : null,
           h('div.field-label', 'What has happened so far'), w.sofar && w.sofar.length ? h('ol.agent-plan-list', w.sofar.map(x => h('li', US.say(x)))) : h('p', 'Nothing has been changed yet for this request.'),
           h('p.field-hint', 'Continue runs this step. Change course leaves it undone and pauses the plan, so you can say in the chat what you’d like instead.')),
         buttons: [{ label: 'Change course', value: 'change', kind: 'secondary' }, { label: 'Continue', value: 'continue', kind: 'danger' }] });
+      if (r === 'continue') for (const t of ticks) if (t.on) US.settings.set(t.key, true);
       return r === 'continue' ? 'continue' : 'change';
     }
     /** At a limit: say what's been spent and let the editor decide. -> 'more' | 'free' | 'stop' */

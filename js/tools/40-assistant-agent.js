@@ -9,7 +9,7 @@
    - Putting clips into a sequence at given times on a given track, on a copy (place): B-roll over a string-out, a
      cover for each jump cut, music under a cut.
    - Waiting and coming back: wait for a job, files in a folder, clips in a bin or a number of seconds (wait); and set
-     itself a follow-up – “check again in 30 minutes” (later) – with the caps in US.chat.FOLLOW.
+     itself a follow-up – “check again in 30 minutes” (later) – with the caps the editor sets (US.chat.alone()).
    Each is a typed operation with checked arguments; nothing here runs text from the AI as code. Registered in
    US.chatTools (40-assistant-chat.js lists them to the AI and runs them through the same approval, warning, journal
    and Undo as everything else). Pure parts first (unit-tested). */
@@ -22,7 +22,7 @@
   const arr = x => (Array.isArray(x) ? x : x == null || x === '' ? [] : [x]);
   const B = () => US.brollFinder;
   const MEDIA = /\.(mp4|mov|mxf|m4v|avi|mkv|mpg|mpeg|mts|m2ts|r3d|braw|wav|bwf|mp3|aif|aiff|m4a|aac|flac|jpe?g|png|tiff?|psd|gif|heic|webp)$/i;
-  const LIMITS = { bigDownload: 2 * 1024 * 1024 * 1024, manyDownloads: 20, importMax: 500, waitMaxMin: 30, waitDefaultMin: 10, waitEvery: 5, placeMax: 80, moveMany: 150 };
+  const LIMITS = { bigDownload: 5 * 1024 * 1024 * 1024, manyDownloads: 40, importMax: 500, waitMaxMin: 30, waitDefaultMin: 10, waitEvery: 5, placeMax: 80, moveMany: 150 };
   const mb = b => (b >= 1024 * 1024 * 1024 ? `${(b / 1024 / 1024 / 1024).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1024 / 1024))} MB`);
 
   /* ---------- pure ---------- */
@@ -53,12 +53,29 @@
     for (const xs of by.values()) out.push(...xs.map((x, i) => ({ x, i, s: score(x.clip) })).sort((a, b) => b.s - a.s || a.i - b.i).slice(0, Math.max(1, n)).sort((a, b) => a.i - b.i).map(y => y.x));
     return out;
   }
-  /** Why a download should stop and warn even with Always proceed: [{id, text}] ([] = it needn't). */
-  function downloadReasons(picks, size = '1080') {
+  // the editor's own choices about download warnings (Ask settings › Working on its own; per computer, askAlone.*)
+  const aset = (k, d) => { try { const v = US.settings.get('askAlone.' + k, d); return v == null ? d : v; } catch (e) { return d; } };
+  const GB = [2, 5, 20, 0], CLIPS = [20, 40, 100, 0], LICENCE = ['always', 'chat', 'never'];
+  /** {licence: 'always'|'chat'|'never', noYouTube (don't warn about YouTube's standard licence), bytes, clips} – 0 = no limit */
+  function downloadRules() {
+    const gb = +aset('bigGB', 5), n = +aset('manyClips', 40), l = String(aset('licenceWarn', 'chat'));
+    return { licence: LICENCE.includes(l) ? l : 'chat', noYouTube: !!aset('noYouTubeWarn', false), bytes: (GB.includes(gb) ? gb : 5) * 1024 * 1024 * 1024, clips: CLIPS.includes(n) ? n : 40 };
+  }
+  const isYouTubeStd = c => String(c.source || c.sourceName || '').toLowerCase() === 'youtube' && !(c.licence && c.licence.free);
+  /**
+   * Why a download should stop and warn even with Always proceed: [{id, text, dontAsk}] ([] = it needn't).
+   * Footage that isn't free to use warns as the editor chose: every time, once per chat (the default: chat._licenceTold
+   * is set once it has), or never – and not at all for YouTube's standard licence once they ticked “don't warn me
+   * again”. Each clip's licence is on the picks card either way. A very large download always warns.
+   */
+  function downloadReasons(picks, size = '1080', chat = null, rules = downloadRules()) {
     const out = [], notFree = picks.filter(p => !(p.clip.licence && p.clip.licence.free)), bytes = picks.reduce((n, p) => n + sizeOf(p.clip, size), 0);
-    if (notFree.length) out.push({ id: 'licence', text: `${notFree.length === picks.length ? (picks.length === 1 ? 'This clip is' : `All ${picks.length} clips are`) : `${notFree.length} of the ${picks.length} clips ${notFree.length === 1 ? 'is' : 'are'}`} not free to use (${[...new Set(notFree.map(p => (p.clip.licence && (p.clip.licence.label || p.clip.licence.name)) || `${p.clip.sourceName}’s standard licence`))].slice(0, 3).join(', ')}): you need the owner’s permission to use ${notFree.length === 1 ? 'it' : 'them'} in a film.` });
-    if (bytes > LIMITS.bigDownload) out.push({ id: 'download', text: `It is a large download – about ${mb(bytes)}.` });
-    else if (picks.length > LIMITS.manyDownloads) out.push({ id: 'download', text: `It downloads ${picks.length} clips in one go (about ${mb(bytes)}).` });
+    const onlyYT = notFree.length > 0 && notFree.every(p => isYouTubeStd(p.clip));
+    const tell = notFree.length && rules.licence !== 'never' && !(onlyYT && rules.noYouTube) && !(rules.licence === 'chat' && chat && chat._licenceTold);
+    if (tell) out.push({ dontAsk: onlyYT ? { key: 'askAlone.noYouTubeWarn', label: 'Don’t warn me again about YouTube’s standard licence' } : null, told: true,
+      more: onlyYT ? 'YouTube’s standard licence means the video belongs to whoever uploaded it: anyone may watch it there, but nobody else may copy it into their own film without that person’s say-so. Videos marked Creative Commons are the ones that are free to use.' : 'A clip that isn’t free to use belongs to someone: you may look at it, but using it in a film needs their permission (or a licence you pay for).', id: 'licence', text: `${notFree.length === picks.length ? (picks.length === 1 ? 'This clip is' : `All ${picks.length} clips are`) : `${notFree.length} of the ${picks.length} clips ${notFree.length === 1 ? 'is' : 'are'}`} not free to use (${[...new Set(notFree.map(p => (p.clip.licence && (p.clip.licence.label || p.clip.licence.name)) || `${p.clip.sourceName}’s standard licence`))].slice(0, 3).join(', ')}): you need the owner’s permission to use ${notFree.length === 1 ? 'it' : 'them'} in a film.` });
+    if (rules.bytes > 0 && bytes > rules.bytes) out.push({ id: 'download', text: `It is a large download – about ${mb(bytes)}.` });
+    else if (rules.clips > 0 && picks.length > rules.clips) out.push({ id: 'download', text: `It downloads ${picks.length} clips in one go (about ${mb(bytes)}).` });
     return out;
   }
   /** "V2" / "a1" / 3 -> {kind: 'video'|'audio', index (0-based)} or null. */
@@ -68,7 +85,7 @@
   }
   /** When a follow-up is for: {minutes | seconds | at: "HH:MM"} -> ms from `now`, or 0 when it can't be read. */
   function delayOf(a, now = Date.now()) {
-    if (+a.seconds > 0 || +a.minutes > 0 || +a.hours > 0) return Math.round(((+a.hours || 0) * 3600 + (+a.minutes || 0) * 60 + (+a.seconds || 0)) * 1000);
+    if (+a.seconds > 0 || +a.minutes > 0 || +a.hours > 0 || +a.days > 0) return Math.round(((+a.days || 0) * 86400 + (+a.hours || 0) * 3600 + (+a.minutes || 0) * 60 + (+a.seconds || 0)) * 1000);
     const m = /^\s*(\d{1,2})[:.](\d{2})\s*(am|pm)?\s*$/i.exec(String(a.at || ''));
     if (!m) return 0;
     let hh = +m[1]; const mm = +m[2];
@@ -78,7 +95,7 @@
     let t = d.getTime(); if (t <= now) t += 24 * 3600 * 1000;
     return t - now;
   }
-  const inWords = ms => (ms >= 90 * 60000 ? `${Math.round(ms / 360000) / 10} hours` : ms >= 90000 ? `${Math.round(ms / 60000)} minutes` : `${Math.max(1, Math.round(ms / 1000))} seconds`);
+  const inWords = ms => (ms >= 36 * 3600000 ? `${Math.round(ms / 8640000) / 10} days` : ms >= 90 * 60000 ? `${Math.round(ms / 360000) / 10} hours` : ms >= 90000 ? `${Math.round(ms / 60000)} minutes` : `${Math.max(1, Math.round(ms / 1000))} seconds`);
   /** The media files in a folder, newest first: [{file, name, size, at}] (sub-folders too when deep). */
   function mediaIn(dir, { deep = false, max = 2000 } = {}) {
     const out = [];
@@ -183,7 +200,7 @@
       const bytes = picks.reduce((n, p) => n + sizeOf(p.clip, size), 0);
       return {
         state: { picks, size, folder, bin: String(a.bin || '').trim(), unknown },
-        info: { extra: downloadReasons(picks, size), thenCard: true },
+        info: { extra: (() => { const why = downloadReasons(picks, size, x.chat); if (why.some(r => r.told)) x.chat._licenceTold = true; return why; })(), thenCard: true },
         card: { kind: 'picks', always: false,
           items: picks.map(p => ({ id: p.id, label: p.clip.title || p.clip.id, sub: `${p.clip.sourceName}${p.clip.duration ? ` · ${fmtT(p.clip.duration)}` : ''}${p.clip.width && p.clip.height ? ` · ${p.clip.width}×${p.clip.height}` : ''} · about ${mb(sizeOf(p.clip, size))} · ${licenceWords(p.clip)}`, thumb: p.clip.thumb || '', link: p.clip.page || '', warn: !(p.clip.licence && p.clip.licence.free) })),
           detail: `${US.plural(picks.length, 'clip')}, about ${mb(bytes)} in all, into ${folder} (a folder for each search, with a list of sources and licences).${a.bin ? `\nThen into the bin “${String(a.bin).trim()}”.` : '\nNot added to the project (no bin was asked for).'}\nUntick any you don’t want.` }
@@ -218,7 +235,11 @@
       const links = US.youtube.parseLinks ? US.youtube.parseLinks(arr(a.links).join('\n')) : arr(a.links).filter(l => /^https?:\/\//i.test(l));
       if (!links.length) return { error: 'ERROR: give "links" – web addresses of the videos.' };
       const y = US.settings.get('youtube', {}) || {}, folder = a.folder && path.isAbsolute(String(a.folder)) ? String(a.folder) : (y.folder || (B() ? path.join(path.dirname(B().defaultFolder()), 'Downloads') : ''));
-      return { state: { links, folder, bin: String(a.bin || '').trim() }, info: { extra: [{ id: 'licence', text: 'Videos from the web usually belong to someone: you need the owner’s permission to use them in a film.' }], thenCard: false },
+      // the same choice as for B-roll: every time, once per chat, or never – and YouTube's own tick box
+      const rules = downloadRules(), allYT = links.every(l => /(^|\.)(youtube\.com|youtu\.be)\//i.test(String(l).replace(/^https?:\/\//i, '')));
+      const tell = rules.licence !== 'never' && !(allYT && rules.noYouTube) && !(rules.licence === 'chat' && x.chat._licenceTold);
+      if (tell) x.chat._licenceTold = true;
+      return { state: { links, folder, bin: String(a.bin || '').trim() }, info: { extra: tell ? [{ id: 'licence', text: 'Videos from the web usually belong to someone: you need the owner’s permission to use them in a film.', more: 'A video’s uploader owns it unless it says otherwise (Creative Commons, public domain). Watching it is fine; putting it in your film needs their say-so.', dontAsk: allYT ? { key: 'askAlone.noYouTubeWarn', label: 'Don’t warn me again about YouTube’s standard licence' } : null }] : [], thenCard: false },
         card: { detail: `${links.slice(0, 8).join('\n')}${links.length > 8 ? `\n…and ${links.length - 8} more` : ''}\nInto ${folder || 'the Download tab’s folder'}.${a.bin ? ` Then into the bin “${String(a.bin).trim()}”.` : ''}` } };
     },
     run: async (a, x) => {
@@ -458,7 +479,7 @@
 
   T.later = {
     hands: false,
-    desc: 'Come back to this by yourself later – “check again in 30 minutes”, “start at 6 pm”: args {"minutes":30 (or "seconds", "hours", or "at":"18:00"),"then":"what you will do then, in full – you will be told exactly this"}. After calling it, call finish and say when you will be back. When the time comes you carry on in this chat by yourself, even if the editor is on another tab; they see a countdown and can cancel. Limits: a few follow-ups a chat, at most a day ahead; while on your own nothing risky runs (it waits for the editor) and spending is capped.',
+    desc: 'Come back to this by yourself later – “check again in 30 minutes”, “start at 6 pm”: args {"minutes":30 (or "seconds", "hours", "days", or "at":"18:00"),"then":"what you will do then, in full – you will be told exactly this"}. After calling it, call finish and say when you will be back. When the time comes you carry on in this chat by yourself, even if the editor is on another tab; they see a countdown and can cancel. Limits the editor sets (how many follow-ups a chat, how long and how much AI on your own); at most 7 days ahead; while on your own nothing risky runs (it waits for the editor) and spending is capped.',
     risk: 'read', title: a => `Come back ${a.at ? `at ${a.at}` : `in ${inWords(delayOf(a))}`}`,
     run: async (a, x) => {
       const ms = delayOf(a, US.chat.clock.now());
@@ -559,5 +580,5 @@
     try { const r = await US.host.call('askFind', { idsOnly: true }); if (r && Array.isArray(r.ids)) chat._seen = new Set(r.ids); } catch (e) { /* “what’s new” goes by file dates then */ }
     chat._seeing = false;
   }
-  US.chatAgent = { EDITOR, LIMITS, MEDIA, licenceWords, sizeOf, brollRow, bestOf, downloadReasons, trackOf, delayOf, inWords, mediaIn, remember, recall, knownFolders, mayRead, seeProject, tools: T };
+  US.chatAgent = { downloadRules, EDITOR, LIMITS, MEDIA, licenceWords, sizeOf, brollRow, bestOf, downloadReasons, trackOf, delayOf, inWords, mediaIn, remember, recall, knownFolders, mayRead, seeProject, tools: T };
 })();

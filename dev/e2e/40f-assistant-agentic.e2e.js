@@ -23,6 +23,9 @@ B.search = async (job, o) => { web.searched.push(o.requests.slice()); return { r
 B.net.download = async (url, file, progress) => { web.downloaded.push(url); fs.copyFileSync(T.media('concert', url.replace('e2e://', '')), file); progress && progress(1); };
 B.defaultFolder = () => ROOT;
 US.settings.set('brollfinder', {});
+// the editor's own choices about warnings are put aside for the test (the defaults: warn once per chat) and put back after
+const ALONE_KEYS = ['followUps', 'minutes', 'spend', 'steps', 'licenceWarn', 'noYouTubeWarn', 'bigGB', 'manyClips'], wasAlone = ALONE_KEYS.map(k => US.settings.get('askAlone.' + k, undefined));
+for (const k of ALONE_KEYS) if (US.settings.get('askAlone.' + k, undefined) !== undefined) US.settings.set('askAlone.' + k, undefined);
 US.tools.open = (id, args) => { opened.push(id); };
 C._waitEvery = 500;
 US.ai = Object.assign({}, was.ai, { available: () => true, label: () => 'Claude', provider: () => 'claude',
@@ -53,6 +56,7 @@ try {
   const pick = cards.find(c => c.items);
   T.assert(pick && pick.items.length === 3 && pick.items[2].warn === true && /into the bin/.test(pick.detail), 'then the card with the three picks to untick: ' + JSON.stringify(pick && pick.items.map(i => i.label)));
   T.assert(web.downloaded.length === 2, 'only the two ticked were downloaded: ' + JSON.stringify(web.downloaded));
+  T.assert(warned[0].reasons.find(r => r.id === 'licence').more && a._licenceTold === true && !A.downloadReasons([{ clip: clipOf(SRC[2], 2, STD) }], '1080', a).length, 'the warning says what the licence means, and is given once per chat');
   const dir = path.join(ROOT, 'big boats'), files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
   T.assert(files.filter(f => /\.mp4$/i.test(f)).length === 2 && files.includes(B.LIST_NAME), 'in a folder named after the search, with the list of sources and licences: ' + JSON.stringify(files));
   const bins = (await US.host.call('askBins', { filter: BIN })).bins;
@@ -106,7 +110,7 @@ try {
   T.assert(ld.some(i => i.k === 'paused' && /^Waiting for you before/.test(i.text)) && (await US.host.call('listSequences')).length === before, 'it waited for the editor: ' + say(ld));
   T.assert(!US.jobs.current, 'the editor is free again');
 } finally {
-  US.ai = was.ai; B.search = was.search; B.net.download = was.download; B.defaultFolder = was.folder; US.tools.open = was.open; US.settings.set('brollfinder', was.settings); C._waitEvery = was.tick;
+  US.ai = was.ai; B.search = was.search; B.net.download = was.download; B.defaultFolder = was.folder; US.tools.open = was.open; US.settings.set('brollfinder', was.settings); ALONE_KEYS.forEach((k, i) => { if (wasAlone[i] !== undefined) US.settings.set('askAlone.' + k, wasAlone[i]); }); C._waitEvery = was.tick;
   for (const s of await seqsNamed(/^Ask . Test . Big boats/)) await US.host.call('deleteSequence', { seqId: s.id }).catch(() => {});
   await US.host.call('askRemoveBins', { paths: ['Test – Ask agent / Empty one', 'Test – Ask agent', 'JMG Ultra Studio / Ask'] }).catch(() => {});
 }

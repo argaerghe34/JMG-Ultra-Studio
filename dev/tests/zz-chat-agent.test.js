@@ -23,8 +23,28 @@ test('the pure parts: a licence in plain words, the best picks, why a download w
   assert.deepStrictEqual(A.downloadReasons(list.slice(1, 3)), [], 'free clips, small: no warning');
   const why = A.downloadReasons(list.slice(0, 2));
   assert.ok(why.length === 1 && why[0].id === 'licence' && /1 of the 2 clips is not free to use \(Standard YouTube licence\): you need the owner’s permission/.test(why[0].text));
-  assert.deepStrictEqual(A.downloadReasons([{ clip: mk('big', { files: [{ url: 'u', ext: 'mp4', size: 3 * 1024 * 1024 * 1024, width: 1920, height: 1080 }] }) }]).map(r => r.id), ['download']);
-  assert.deepStrictEqual(A.downloadReasons(Array.from({ length: 21 }, (_, i) => ({ clip: mk('n' + i) }))).map(r => r.id), ['download']);
+  const big = gb => [{ clip: mk('big', { files: [{ url: 'u', ext: 'mp4', size: gb * 1024 * 1024 * 1024, width: 1920, height: 1080 }] }) }], lots = n => Array.from({ length: n }, (_, i) => ({ clip: mk('n' + i) }));
+  assert.deepStrictEqual([A.downloadReasons(big(3)), A.downloadReasons(big(6)).map(r => r.id), A.downloadReasons(lots(40)), A.downloadReasons(lots(41)).map(r => r.id)], [[], ['download'], [], ['download']], 'a large download warns: over 5 GB or 40 clips unless set otherwise');
+  // the editor's own choices (Ask settings › Working on its own): sizes, and how often footage that isn't free to use warns
+  const ytStd = [{ clip: mk('y', { source: 'youtube', sourceName: 'YouTube', licence: STD }) }], other = [{ clip: mk('o', { licence: STD }) }];
+  const chatA = C.newChat(), R = o => Object.assign({ licence: 'chat', noYouTube: false, bytes: 5 * 1024 ** 3, clips: 40 }, o);
+  const first = A.downloadReasons(ytStd, '1080', chatA);
+  assert.ok(first.length === 1 && first[0].told && /belongs to whoever uploaded it/.test(first[0].more) && first[0].dontAsk.key === 'askAlone.noYouTubeWarn' && /Don’t warn me again about YouTube’s standard licence/.test(first[0].dontAsk.label));
+  chatA._licenceTold = true;
+  assert.deepStrictEqual(A.downloadReasons(ytStd, '1080', chatA), [], 'once per chat (the default): not again in the same chat');
+  assert.strictEqual(A.downloadReasons(ytStd, '1080', C.newChat()).length, 1, 'but in the next chat');
+  assert.strictEqual(A.downloadReasons(ytStd, '1080', chatA, R({ licence: 'always' })).length, 1, 'every time, when chosen');
+  assert.deepStrictEqual(A.downloadReasons(ytStd, '1080', C.newChat(), R({ licence: 'never' })), []);
+  assert.deepStrictEqual([A.downloadReasons(ytStd, '1080', C.newChat(), R({ noYouTube: true })), A.downloadReasons(other, '1080', C.newChat(), R({ noYouTube: true })).map(r => [r.id, r.dontAsk])], [[], [['licence', null]]], '“don’t warn me again” is about YouTube’s standard licence only');
+  assert.deepStrictEqual([A.downloadReasons(big(3), '1080', null, R({ bytes: 2 * 1024 ** 3 })).map(r => r.id), A.downloadReasons(big(30), '1080', null, R({ bytes: 0 })), A.downloadReasons(lots(21), '1080', null, R({ clips: 20 })).map(r => r.id), A.downloadReasons(lots(500), '1080', null, R({ clips: 0 }))], [['download'], [], ['download'], []]);
+  const keep = US.settings.get('askAlone', undefined);
+  try {
+    assert.deepStrictEqual(A.downloadRules(), { licence: 'chat', noYouTube: false, bytes: 5 * 1024 ** 3, clips: 40 }, 'the defaults');
+    US.settings.set('askAlone.licenceWarn', 'always'); US.settings.set('askAlone.bigGB', 20); US.settings.set('askAlone.manyClips', 0); US.settings.set('askAlone.noYouTubeWarn', true);
+    assert.deepStrictEqual(A.downloadRules(), { licence: 'always', noYouTube: true, bytes: 20 * 1024 ** 3, clips: 0 });
+    US.settings.set('askAlone.licenceWarn', 'whatever'); US.settings.set('askAlone.bigGB', 7);
+    assert.deepStrictEqual([A.downloadRules().licence, A.downloadRules().bytes], ['chat', 5 * 1024 ** 3], 'a value that isn’t one of the choices falls back to the default');
+  } finally { for (const k of ['licenceWarn', 'bigGB', 'manyClips', 'noYouTubeWarn']) US.settings.set('askAlone.' + k, undefined); }
   assert.strictEqual(A.sizeOf(mk('g', { files: [], duration: 10 })), Math.round(10 * 1.2 * 1024 * 1024), 'a size the site doesn’t give is guessed from the length');
   assert.deepStrictEqual([A.trackOf('V2'), A.trackOf('a1'), A.trackOf(''), A.trackOf('V0'), A.trackOf('B2')], [{ kind: 'video', index: 1 }, { kind: 'audio', index: 0 }, { kind: 'video', index: 1 }, null, null]);
   const noon = new Date(2026, 10, 19, 12, 0, 0).getTime();
@@ -147,6 +167,24 @@ test('the user’s own case – “a 30-second select reel of big boats, B-roll 
     // it waited (and gave up plainly: the bin has 2, it asked for 3) instead of telling the editor to come back
     assert.ok(log._lines.some(l => /^Waiting for 3 clips in the bin “Big boats” \(checks every \d+ s\)$/.test(l)), log._lines.join(' | '));
   } finally { x.restore(); }
+});
+
+test('footage that isn’t free to use: the warning comes once per chat – after that the card still marks each clip that needs permission; “every time” and “never” as the editor chooses; the tick box for YouTube’s standard licence', async () => {
+  const yt = n => mk('y' + n, { source: 'youtube', sourceName: 'YouTube', licence: STD, title: 'Ship ' + n });
+  const script = () => [T('broll.search', { requests: ['boats'], freeOnly: false }), T('broll.download', { ids: ['b1'] }), T('broll.download', { ids: ['b2'] }), T('finish', { reply: 'ok' })];
+  const go = async (set = {}) => {
+    for (const [k, v] of Object.entries(set)) US.settings.set('askAlone.' + k, v);
+    const x = setup(script()); x.web.found = { boats: [yt(1), yt(2)] };
+    try { const log = []; await C.send(C.newChat(), 'get boats from YouTube', hooksFor(log), { mode: 'ask' }); return { warns: log.filter(i => i.k === 'warn?').map(i => i.w), cards: log.filter(i => i.k === 'approve?').map(i => i.card).filter(c => c.items) }; }
+    finally { x.restore(); for (const k of Object.keys(set)) US.settings.set('askAlone.' + k, undefined); }
+  };
+  let r = await go();
+  assert.deepStrictEqual([r.warns.length, r.cards.length, r.cards.map(c => c.items[0].warn)], [1, 2, [true, true]], 'once per chat: one pop-up, both cards mark the clip');
+  const why = r.warns[0].reasons.find(q => q.id === 'licence');
+  assert.ok(/not free to use \(Standard YouTube licence\): you need the owner’s permission/.test(why.text) && /belongs to whoever uploaded it/.test(why.more) && why.dontAsk && why.dontAsk.key === 'askAlone.noYouTubeWarn');
+  r = await go({ licenceWarn: 'always' }); assert.strictEqual(r.warns.length, 2);
+  r = await go({ licenceWarn: 'never' }); assert.deepStrictEqual([r.warns.length, r.cards.length], [0, 2]);
+  r = await go({ noYouTubeWarn: true }); assert.deepStrictEqual([r.warns.length, r.cards.map(c => /NOT free to use/.test(c.items[0].sub))], [0, [true, true]], 'ticked “don’t warn me again”: no pop-up, the licence still plain on the card');
 });
 
 test('the same case carried through: the bin fills, the reel is built on a new sequence, the plan is approved once, and Undo all takes back the sequence and the bin it can', async () => {
@@ -353,12 +391,12 @@ test('“check again in 30 minutes”: the chat sets itself a follow-up, says wh
   } finally { x.restore(); clock.restore(); }
 });
 
-test('the caps on follow-ups: a few a chat, a day ahead at most, none in the past; it never fires while the chat or another job is busy (it tries again, then gives up); cancelled ones don’t fire', async () => {
+test('the caps on follow-ups – the editor’s to set (20 a chat, 4 hours, 40 steps unless changed; 0 = no limit), 7 days ahead at most, none in the past; it never fires while the chat or another job is busy (it tries again, then gives up); cancelled ones don’t fire', async () => {
   const clock = fakeClock(), x = setup([]);
   try {
     const chat = C.newChat(), fired = [];
     chat._resume = async (c, f) => { fired.push(f.id); };
-    assert.ok(/Say in "then"/.test(C.schedule(chat, { inMs: 5000 }).error) && /already passed/.test(C.schedule(chat, { inMs: 10, text: 'x' }).error) && /at most a day ahead/.test(C.schedule(chat, { inMs: 25 * 3600000, text: 'x' }).error));
+    assert.ok(/Say in "then"/.test(C.schedule(chat, { inMs: 5000 }).error) && /already passed/.test(C.schedule(chat, { inMs: 10, text: 'x' }).error) && /at most 7 days ahead/.test(C.schedule(chat, { inMs: 8 * 24 * 3600000, text: 'x' }).error) && !C.schedule(C.newChat(), { inMs: 6 * 24 * 3600000, text: 'next week' }).error);
     const a = C.schedule(chat, { inMs: 60000, text: 'first' }), b = C.schedule(chat, { inMs: 120000, text: 'second' });
     assert.strictEqual(C.cancelFollowUp(chat, b.id), true);
     // busy: the chat itself is working, then another job is running
@@ -382,12 +420,28 @@ test('the caps on follow-ups: a few a chat, a day ahead at most, none in the pas
     assert.strictEqual(c.state, 'missed');
     chat.status = 'idle';
     // the most a chat may set, and none once it has used its time alone
-    for (let i = 0; i < 10; i++) C.schedule(chat, { inMs: 5000, text: 'more ' + i });
-    assert.strictEqual(chat.followups.filter(f => f.state !== 'cancelled').length, C.FOLLOW.perChat);
-    assert.ok(/already set 6 follow-ups, the most it may/.test(C.schedule(chat, { inMs: 5000, text: 'x' }).error));
-    const lone = C.newChat(); lone.unattendedMs = C.FOLLOW.unattendedMs;
+    assert.deepStrictEqual(C.alone({ spend: 1 }), { perChat: 20, ms: 4 * 3600000, steps: 40, spend: 1 }, 'the defaults: 20 follow-ups, 4 hours, 40 steps, the costly-step amount');
+    for (let i = 0; i < 30; i++) C.schedule(chat, { inMs: 5000, text: 'more ' + i });
+    assert.strictEqual(chat.followups.filter(f => f.state !== 'cancelled').length, 20);
+    assert.ok(/already set 20 follow-ups, the most it may \(the editor can raise that in Ask settings › Working on its own\)/.test(C.schedule(chat, { inMs: 5000, text: 'x' }).error));
+    const lone = C.newChat(); lone.unattendedMs = 4 * 3600000;
     assert.ok(/used all the time it may work on its own/.test(C.schedule(lone, { inMs: 5000, text: 'x' }).error));
-    assert.deepStrictEqual([C.FOLLOW.perChat, C.FOLLOW.maxMs, C.FOLLOW.steps, C.FOLLOW.unattendedMs], [6, 86400000, 15, 1800000]);
+    assert.ok(/may set 20 follow-ups \(20 so far\), each up to 7 days ahead; work 4 hours in all; take 40 steps a run; and spend about \$1 of AI a run\. Nothing risky ever runs without you/.test(C.aloneLine({ spend: 1 }, chat)), C.aloneLine({ spend: 1 }, chat));
+    // the editor's choices: fewer, more, or no limit at all
+    try {
+      US.settings.set('askAlone.followUps', 6); US.settings.set('askAlone.minutes', 30); US.settings.set('askAlone.steps', 15); US.settings.set('askAlone.spend', 5);
+      assert.deepStrictEqual(C.alone({ spend: 1 }), { perChat: 6, ms: 1800000, steps: 15, spend: 5 });
+      const few = C.newChat(); for (let i = 0; i < 9; i++) C.schedule(few, { inMs: 5000, text: 'f' + i });
+      assert.strictEqual(few.followups.length, 6);
+      US.settings.set('askAlone.followUps', 0); US.settings.set('askAlone.minutes', 0); US.settings.set('askAlone.spend', 0);
+      assert.deepStrictEqual(C.alone({ spend: 1 }), { perChat: 0, ms: 0, steps: 15, spend: 0 });
+      const free = C.newChat(); free.unattendedMs = 99 * 3600000; for (let i = 0; i < 60; i++) C.schedule(free, { inMs: 5000, text: 'f' + i });
+      assert.strictEqual(free.followups.length, 60, 'no limit');
+      assert.ok(/any number of follow-ups, each up to 7 days ahead; work as long as it needs.*spend without a limit on AI a run\. Nothing risky ever runs without you/.test(C.aloneLine({ spend: 1 })), C.aloneLine({ spend: 1 }));
+      US.settings.set('askAlone.followUps', 7); US.settings.set('askAlone.steps', 1000);
+      assert.deepStrictEqual([C.alone().perChat, C.alone().steps], [20, 40], 'a value that isn’t one of the choices falls back to the default');
+    } finally { for (const k of ['followUps', 'minutes', 'steps', 'spend']) US.settings.set('askAlone.' + k, undefined); }
+    assert.strictEqual(C.FOLLOW.maxMs, 7 * 24 * 3600000);
   } finally { x.restore(); clock.restore(); }
 });
 
@@ -412,11 +466,20 @@ test('on its own it is careful: a risky step doesn’t run – the plan waits fo
     assert.deepStrictEqual([asked, x.ai.length], [0, 3], 'stopped at $1 without asking');
     assert.ok(/Stopped at the spending limit/.test(log[log.length - 1].text));
   } finally { x.restore(); }
+  // steps: 40 a run unless set otherwise; and no spending limit only when the editor chose that
+  x = setup(Array.from({ length: 60 }, () => T('bins', {}, '', { usd: 0.3 })));
+  try {
+    US.settings.set('askAlone.spend', 0);
+    const log = [], chat = C.newChat();
+    await C.send(chat, 'keep looking', hooksFor(log), { mode: 'never', unattended: true, maxSteps: 25, budget: 2, limits: { spend: 1 } });
+    assert.strictEqual(x.ai.length, 40, '40 steps on its own, and $12 spent without stopping: no limit was chosen');
+    assert.ok(log.find(i => i.k === 'me').auto && chat.trace.some(t => /Working on its own/.test(t.text) && /take 40 steps a run; and spend without a limit/.test(t.detail)), 'behind the scenes says what the limits are');
+  } finally { x.restore(); US.settings.set('askAlone.spend', undefined); }
   x = setup(Array.from({ length: 30 }, () => T('bins', {}, '', { usd: 0 })));
-  try { const log = []; await C.send(C.newChat(), 'keep looking', hooksFor(log), { mode: 'never', unattended: true, maxSteps: 25, budget: 0 }); assert.strictEqual(x.ai.length, C.FOLLOW.steps, 'at most 15 steps on its own'); } finally { x.restore(); }
-  // time: a chat that has used its half hour alone stops at once
+  try { US.settings.set('askAlone.steps', 15); const log = []; await C.send(C.newChat(), 'keep looking', hooksFor(log), { mode: 'never', unattended: true }); assert.strictEqual(x.ai.length, 15, '15 when the editor set that'); } finally { x.restore(); US.settings.set('askAlone.steps', undefined); }
+  // time: a chat that has used its four hours alone stops at once
   x = setup([T('bins', {})]);
-  try { const log = [], chat = C.newChat(); chat.unattendedMs = C.FOLLOW.unattendedMs; await C.send(chat, 'more', hooksFor(log), { mode: 'never', unattended: true }); assert.ok(x.ai.length === 0 && /worked on its own for 30 minutes in all/.test(log[log.length - 1].text)); } finally { x.restore(); clock.restore(); }
+  try { const log = [], chat = C.newChat(); chat.unattendedMs = 4 * 3600000; await C.send(chat, 'more', hooksFor(log), { mode: 'never', unattended: true }); assert.ok(x.ai.length === 0 && /worked on its own for 4 hours in all/.test(log[log.length - 1].text)); } finally { x.restore(); clock.restore(); }
 });
 
 test('after the panel is loaded again: follow-ups are kept with the chat and armed again; one whose time passed while the panel was closed is not run by itself – it is “due” until the editor says', async () => {

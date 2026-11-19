@@ -172,3 +172,8 @@
 .chat-head .chat-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .chat-head .chat-tabs::-webkit-scrollbar { display: none; }
 .chat-head .chat-tab { flex: none; }
+/* the settings for working on its own; a clip that needs permission; the tick box in a warning */
+.chat-alone .section-body { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.chat-alone select.input { width: 100%; }
+.chat-pick-tag { margin-left: 6px; }
+.chat-warn-tick { gap: 8px; align-items: center; cursor: pointer; margin-top: 4px; }
