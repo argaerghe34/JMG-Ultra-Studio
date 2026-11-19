@@ -17,7 +17,7 @@
   const hexOf = th => hexOfLabel(th ? th.label : null);
 
   /* ================= the pieces without a screen (unit-tested): US.proView ================= */
-  const MAX_SEARCHES = 200, ROW_H = 28, FLEX_MIN = 160, TICK_W = 28, GAP = 10, PAD = 20;
+  const MAX_SEARCHES = 200, ROW_H = 28, FLEX_MIN = 160, TICK_W = 28, MENU_W = 22, GAP = 10, PAD = 20;
   const normQ = q => String(q || '').trim().toLowerCase();
 
   /** Pro View's own part of the project's Story. */
@@ -96,6 +96,9 @@
     { id: 'len', label: 'Length', w: 60, min: 36 }
   ];
   const colOf = id => COLS.find(c => c.id === id);
+  /** Every column can be hidden but the Line itself (“Used” is shown by its own switch). */
+  const canHide = id => id !== 'text' && !!colOf(id);
+  function setHidden(lay, id, on) { if (!canHide(id)) return lay; lay.hidden = (lay.hidden || []).filter(x => x !== id); if (on) lay.hidden.push(id); return lay; }
   /** The saved layout made safe: unknown columns dropped, new ones put where they'd be by default. */
   function layout(saved) {
     const s = saved && typeof saved === 'object' ? saved : {};
@@ -103,7 +106,9 @@
     COLS.forEach((c, i) => { if (!order.includes(c.id)) order.splice(Math.min(i, order.length), 0, c.id); });
     const widths = {};
     for (const c of COLS) { const w = Number(s.widths && s.widths[c.id]); if (w > 0) widths[c.id] = Math.max(c.min, Math.min(1600, Math.round(w))); }
-    return { order, widths };
+    // columns switched off in the Columns menu (the tick box isn't a column here and the Line always shows)
+    const hidden = (Array.isArray(s.hidden) ? s.hidden : []).filter((id, i, a) => colOf(id) && canHide(id) && a.indexOf(id) === i);
+    return { order, widths, hidden };
   }
   /** Move a column to sit before another (before = null: to the end). -> a new order */
   function moveCol(order, id, before) {
@@ -114,10 +119,10 @@
   }
   function setWidth(lay, id, px) { const c = colOf(id); if (!c) return lay; lay.widths[id] = Math.max(c.min, Math.min(1600, Math.round(px))); return lay; }
   const widthOf = (lay, id) => lay.widths[id] || colOf(id).w;
-  const visible = (lay, { used = true } = {}) => lay.order.filter(id => used || id !== 'used');
+  const visible = (lay, { used = true } = {}) => lay.order.filter(id => (used || id !== 'used') && !(lay.hidden || []).includes(id));
   /** grid-template-columns for a row: the tick box, then the columns in order. */
-  function template(lay, o) { return [TICK_W + 'px'].concat(visible(lay, o).map(id => { const w = widthOf(lay, id); return w ? w + 'px' : `minmax(${FLEX_MIN}px, 1fr)`; })).join(' '); }
-  function minWidth(lay, o) { const v = visible(lay, o); return PAD + TICK_W + v.reduce((n, id) => n + (widthOf(lay, id) || FLEX_MIN), 0) + GAP * v.length; }
+  function template(lay, o) { return [TICK_W + 'px'].concat(visible(lay, o).map(id => { const w = widthOf(lay, id); return w ? w + 'px' : `minmax(${FLEX_MIN}px, 1fr)`; }), [MENU_W + 'px']).join(' '); }
+  function minWidth(lay, o) { const v = visible(lay, o); return PAD + TICK_W + MENU_W + v.reduce((n, id) => n + (widthOf(lay, id) || FLEX_MIN), 0) + GAP * (v.length + 1); }
   /** Which rows to draw: those on screen and a few either side. -> {from, to} (to not included) */
   function windowOf(scrollTop, viewH, n, rowH = ROW_H, over = 8) {
     const from = Math.max(0, Math.min(n, Math.floor((scrollTop || 0) / rowH) - over));
@@ -227,7 +232,7 @@
   };
   const kindOf = source => (/^(find|q|m):/.exec(String(source)) || [0, 'theme'])[1];
 
-  US.proView = { data, remember, adopt, entryOf, setArchived, forget, searches, countOf, isStar, setStar, sortRows, range, COLS, layout, moveCol, setWidth, template, minWidth, visible, windowOf, noSpeech,
+  US.proView = { data, remember, adopt, entryOf, setArchived, forget, searches, countOf, isStar, setStar, sortRows, range, COLS, layout, moveCol, setWidth, setHidden, canHide, template, minWidth, visible, windowOf, noSpeech,
     themeIndex, groups, rowsFor, describeBasic, hay, SORT_KEYS, kindOf, ROW_H };
 
   /* ================= the tab ================= */
@@ -261,7 +266,7 @@
       const bar = h('div.pv-bar.hidden');
       const opts = h('div.pv-opts');
       const empty = h('div');
-      const keys = h('div.sl-keys', 'Keys: ', h('span.kbd', 'J'), h('span.kbd', 'K'), ' move · ', h('span.kbd', 'space'), ' play · ', h('span.kbd', 'X'), ' tick · ', h('span.kbd', '↵'), ' at the playhead · ', h('span.kbd', '/'), ` filter · shift- or ${mod}-click ticks several · drag a column’s edge to resize it, its title to move it`);
+      const keys = h('div.sl-keys', 'Keys: ', h('span.kbd', 'J'), h('span.kbd', 'K'), ' move · ', h('span.kbd', 'space'), ' play · ', h('span.kbd', 'X'), ' tick · ', h('span.kbd', '↵'), ' at the playhead · ', h('span.kbd', '/'), ` filter · shift- or ${mod}-click ticks several · drag a column’s edge to resize it, its title to move it, right-click it to hide it`);
       const tools = h('div.sl-tools', listBtn, find, picky.el || picky, summary);
       v.body.append(tools, opts, bar, empty, body, keys);
       find.addEventListener('input', () => { query = find.value.trim().toLowerCase(); draw(); });
@@ -375,8 +380,8 @@
           ui.toggle({ label: 'Mark lines already in the open sequence', hint: 'A tick in a “Used” column. Story compares the clips in the sequence with the transcripts: a line counts as used when any part of it is in the sequence, on any track.', value: showUsed, onChange: x => { showUsed = x; set('used', x); if (x && !usedNow()) checkUsed(); else draw(); } }),
           ui.toggle({ label: 'Hide used lines', hint: 'Leaves only what isn’t in the open sequence yet.', value: hideUsed, onChange: x => { hideUsed = x; set('hideUsed', x); if (x && !usedNow()) checkUsed(); else draw(); } }),
           h('div.row', h('span.field-hint.grow', status), ui.button(fresh ? 'Check again' : 'Check now', { small: true, icon: 'refresh', disabled: !seq, title: 'Read the open sequence again (after you’ve cut in it)', onClick: () => checkUsed() })),
-          h('div.row', h('span.field-hint.grow', 'Columns: drag the edge of a column’s title to make it wider or narrower; press and drag a title to move the column. Kept on this computer.'),
-            ui.button('Reset the columns', { small: true, kind: 'ghost', onClick: () => { lay = P.layout(null); set('cols', null); drawHead(); drawRows(true); } }))
+          h('div.row', h('span.field-hint.grow', 'Columns: drag the edge of a column’s title to make it wider or narrower; press and drag a title to move the column; hide or show columns with the cog at the end of the titles, or right-click a title. Kept on this computer.'),
+            ui.button('Reset the columns', { small: true, kind: 'ghost', title: 'Every column back, in its first order and width', onClick: () => { lay = P.layout(null); set('cols', null); drawHead(); drawRows(true); } }))
         ], { open: !!wasOpen, hint: showUsed || hideUsed ? (hideUsed ? 'used lines hidden' : 'used lines marked') : '' }));
       }
       /** Which lines are in the open sequence (Story's own timeline reading – the one “Not already in my cut” uses). */
@@ -408,10 +413,34 @@
           btn.addEventListener('pointerdown', e => startMove(e, id, th));
           btn.addEventListener('click', () => { if (moved) { moved = false; return; } sort = { key: id, dir: sort.key === id ? -sort.dir : 1 }; draw(); });
           grip.addEventListener('pointerdown', e => startResize(e, id, th));
+          th.addEventListener('contextmenu', e => { e.preventDefault(); colMenu({ col: id, x: e.clientX }); });
           headEl.appendChild(th);
         }
+        // the Columns menu, at the right-hand end of the titles (it stays in view when the table is scrolled sideways)
+        headEl.appendChild(h('button.icon-btn.pv-colbtn', { title: 'Columns – choose which ones show', 'aria-label': 'Columns', 'aria-haspopup': 'true', onclick: e => { e.stopPropagation(); if (menuEl) closeMenu(); else colMenu({}); } }, US.icon('gear', 13)));
       }
-      let moved = false;
+      let moved = false, menuEl = null;
+      function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; document.removeEventListener('pointerdown', menuAway, true); document.removeEventListener('keydown', menuKey, true); } }
+      function menuAway(e) { if (menuEl && !menuEl.contains(e.target) && !(e.target.closest && e.target.closest('.pv-colbtn'))) closeMenu(); }
+      function menuKey(e) { if (e.key === 'Escape') { closeMenu(); table.focus({ preventScroll: true }); } }
+      /** Which columns show: a tick box each (from the button at the end of the titles, or a right-click on a title – then with “Hide this column”). */
+      function colMenu({ col = null, x = null }) {
+        closeMenu();
+        const mid = table.parentNode, box = mid.getBoundingClientRect();
+        const hide = (id, on) => { if (id === 'used') { showUsed = !on; set('used', showUsed); } else { P.setHidden(lay, id, on); set('cols', lay); } };
+        const again = () => { if (showUsed && !usedNow()) checkUsed(); else draw(); colMenu({ col, x }); };
+        const c0 = col && P.COLS.find(c => c.id === col);
+        menuEl = h('div.pv-colmenu', { role: 'menu', 'aria-label': 'Columns' },
+          c0 && col !== 'text' ? h('button.pv-colhide', { role: 'menuitem', dataset: { hide: col }, onclick: () => { hide(col, true); closeMenu(); if (col === 'used') drawOpts(); draw(); } }, `Hide “${c0.title || c0.label}”`) : null,
+          h('div.sl-h', 'Columns'),
+          lay.order.map(id => { const c = P.COLS.find(k => k.id === id), fixed = !P.canHide(id), on = id === 'used' ? showUsed : !lay.hidden.includes(id);
+            return h('label.pv-colopt' + (fixed ? '.fixed' : ''), { title: fixed ? 'The line itself always shows' : id === 'used' ? 'Marks the lines already in the open sequence' : '' },
+              h('input', { type: 'checkbox', checked: on, disabled: fixed, dataset: { colshow: id }, onchange: e => { hide(id, !e.target.checked); if (id === 'used') drawOpts(); again(); } }), h('span', c.title && c.id === 'star' ? 'Star' : c.label)); }),
+          h('button.pv-colhide', { role: 'menuitem', dataset: { colreset: '1' }, onclick: () => { lay = P.layout(null); set('cols', null); closeMenu(); draw(); } }, 'Reset the columns'));
+        mid.appendChild(menuEl);
+        if (x != null) menuEl.style.left = Math.max(4, Math.min(x - box.left, box.width - 190)) + 'px'; else menuEl.style.right = '4px';
+        document.addEventListener('pointerdown', menuAway, true); document.addEventListener('keydown', menuKey, true);
+      }
       /** Drag a column's edge: its width follows the pointer; saved when you let go. */
       function startResize(e, id, th) {
         if (e.button) return;

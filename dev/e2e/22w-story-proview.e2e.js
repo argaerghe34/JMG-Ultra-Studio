@@ -1,7 +1,8 @@
 // Story › Pro View (was Lines) in the real editor: a stand-in transcript at Ruth's interview times, a theme, a Find
 // search, questions and moments. The tab opens on what Themes / Find pass it; the list has a group for each; ticking
 // lines and adding them at the end of the open sequence places them (nothing already there moves); “used” then marks
-// exactly those lines and “Hide used lines” leaves the rest; sorting, a column moved and resized, the list hidden.
+// exactly those lines and “Hide used lines” leaves the rest; sorting, a column moved, resized and hidden (the
+// Columns menu and a right-click on a title), the list hidden.
 if (!US.story || !US.proView) throw new Error('Story (Pro View) is not loaded in the panel');
 const S = US.story, P = US.proView;
 const fs = require('fs');
@@ -116,6 +117,22 @@ try {
   const kept = US.settings.get('proview.cols');
   T.assert(kept && kept.widths.who === Math.round(whoW + 40) && kept.order.indexOf('len') < kept.order.indexOf('who'), 'kept on this computer: ' + JSON.stringify(kept));
   if (US.settings.get('proview.listHidden')) { $('.pv-listbtn', tool).click(); await W(100); }
+  // hide a column from the Columns menu, another by right-clicking its title; Reset brings them back
+  const colsNow = () => $$('.pv-th', tool).map(x => x.dataset.col);
+  $('.pv-colbtn', tool).click(); await W(100);
+  T.assert($('.pv-colmenu', tool) && $('.pv-colmenu [data-colshow="text"]', tool).disabled && !$('.pv-colmenu [data-hide]', tool), 'the Columns menu: the Line can’t be hidden');
+  $('.pv-colmenu [data-colshow="who"]', tool).click(); await W(150);
+  T.assert(!colsNow().includes('who') && !$('.pv-rows .sl-who', tool) && US.settings.get('proview.cols').hidden.join() === 'who', 'Who hidden: ' + colsNow().join());
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await W(50);
+  T.assert(!$('.pv-colmenu', tool), 'Esc closes the menu');
+  $('.pv-th[data-col="len"]', tool).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 400, clientY: 10 })); await W(100);
+  $('.pv-colmenu [data-hide="len"]', tool).click(); await W(150);
+  T.assert(!colsNow().includes('len') && !$('.pv-colmenu', tool) && US.settings.get('proview.cols').hidden.slice().sort().join() === 'len,who', 'Length hidden by right-click: ' + colsNow().join());
+  $('.pv-colbtn', tool).click(); await W(100);
+  $('.pv-colmenu [data-colshow="who"]', tool).click(); await W(150);
+  T.assert(colsNow().includes('who') && US.settings.get('proview.cols').widths.who === Math.round(whoW + 40), 'Who shown again at its width');
+  $('.pv-colmenu [data-colreset]', tool).click(); await W(150);
+  T.assert(['star', 'who', 'time', 'text', 'theme', 'len'].every(c => colsNow().includes(c)) && !$('.pv-colmenu', tool), 'Reset the columns: ' + colsNow().join());
   const tw2 = $('.pv-table', tool).getBoundingClientRect().width;
   $('.pv-listbtn', tool).click(); await W(100);
   T.assert($('.pv-table', tool).getBoundingClientRect().width > tw2 && US.settings.get('proview.listHidden') === true, 'the list hidden: the table is wider');

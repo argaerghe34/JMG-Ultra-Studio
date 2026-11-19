@@ -195,12 +195,34 @@ test('columns: order and widths are kept, made safe, moved and resized', () => {
   assert.deepStrictEqual(P.moveCol(def.order, 'star', null), ['used', 'who', 'time', 'text', 'theme', 'len', 'star']);
   assert.deepStrictEqual(P.moveCol(def.order, 'who', 'who'), def.order);
   assert.deepStrictEqual(P.moveCol(def.order, 'nope', 'who'), def.order);
-  assert.strictEqual(P.template(def, { used: false }), '28px 30px 110px 58px minmax(160px, 1fr) 140px 60px');
-  assert.strictEqual(P.template(def, { used: true }).split(' ').length, 9, 'the Used column only when it is switched on');
+  assert.strictEqual(P.template(def, { used: false }), '28px 30px 110px 58px minmax(160px, 1fr) 140px 60px 22px', 'the tick box, the columns, then room for the Columns button');
+  assert.strictEqual(P.template(def, { used: true }).split(' ').length, 10, 'the Used column only when it is switched on');
   P.setWidth(def, 'who', 200.6); P.setWidth(def, 'text', 300); P.setWidth(def, 'star', 1);
-  assert.strictEqual(P.template(def, { used: false }), '28px 24px 201px 58px 300px 140px 60px');
+  assert.strictEqual(P.template(def, { used: false }), '28px 24px 201px 58px 300px 140px 60px 22px');
   assert.ok(P.minWidth(def, { used: false }) > 800);
   assert.deepStrictEqual(P.layout(JSON.parse(JSON.stringify(def))), def, 'what is saved comes back the same');
+});
+
+test('columns can be hidden and shown again (not the Line); kept with the widths and order; Reset brings them all back', () => {
+  const lay = P.layout(null);
+  assert.deepStrictEqual(lay.hidden, []);
+  P.setHidden(lay, 'who', true); P.setHidden(lay, 'len', true); P.setHidden(lay, 'who', true);
+  assert.deepStrictEqual(lay.hidden, ['len', 'who']);
+  assert.deepStrictEqual(P.visible(lay, { used: false }), ['star', 'time', 'text', 'theme']);
+  assert.strictEqual(P.template(lay, { used: false }), '28px 30px 58px minmax(160px, 1fr) 140px 22px');
+  assert.ok(P.minWidth(lay, { used: false }) < P.minWidth(P.layout(null), { used: false }));
+  P.setHidden(lay, 'text', true); P.setHidden(lay, 'nonsense', true);
+  assert.deepStrictEqual(lay.hidden, ['len', 'who'], 'the Line can’t be hidden');
+  assert.ok(!P.canHide('text') && P.canHide('who') && P.canHide('star') && !P.canHide('tick'));
+  // order and widths are untouched by hiding, and it all comes back from the settings
+  P.setWidth(lay, 'who', 180); lay.order = P.moveCol(lay.order, 'len', 'who');
+  const back = P.layout(JSON.parse(JSON.stringify(lay)));
+  assert.deepStrictEqual(back, lay);
+  P.setHidden(back, 'who', false);
+  assert.deepStrictEqual(P.visible(back, { used: false }), ['star', 'who', 'time', 'text', 'theme']);
+  assert.strictEqual(P.template(back, { used: false }).split(' ')[2], '180px', 'shown again at the width it had');
+  assert.deepStrictEqual(P.layout({ hidden: ['text', 'who', 'who', 'x'] }).hidden, ['who'], 'a saved list is made safe');
+  assert.deepStrictEqual(P.layout(null).hidden, [], 'Reset the columns');
 });
 
 test('thousands of lines: only the rows on screen (and a few either side) are drawn', () => {

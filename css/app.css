@@ -571,3 +571,11 @@ body.pv-dragging, body.pv-dragging * { cursor: grabbing !important; user-select:
   .pv .pv-item > .sl-theme { width: 100%; }
   .pv .sl-tname { overflow: hidden; }
 }
+/* Pro View: the Columns menu (show / hide columns) */
+.pv .sl-mid { position: relative; }
+.pv-colbtn { position: sticky; right: 0; justify-self: end; padding: 3px; background: var(--bg); }
+.pv-colmenu { position: absolute; top: 28px; z-index: 5; min-width: 170px; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); font-size: 12px; }
+.pv-colopt { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--radius-s); cursor: pointer; }
+.pv-colopt:hover { background: var(--surface-3); } .pv-colopt.fixed { color: var(--text-3); cursor: default; } .pv-colopt input { margin: 0; }
+.pv-colhide { background: none; border: 0; text-align: left; padding: 5px 6px; border-radius: var(--radius-s); color: var(--text); cursor: pointer; font-size: 12px; }
+.pv-colhide:hover { background: var(--surface-3); }
