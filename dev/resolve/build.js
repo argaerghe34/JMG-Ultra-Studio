@@ -51,6 +51,7 @@ node('dev/docs/make-guide.js');
 fs.mkdirSync(path.join(PLUG, 'docs'));
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(PLUG, 'docs', 'guide.html'));
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'whats-new.md'), path.join(PLUG, 'docs', 'whats-new.md')); // Home › What's new reads it
+fs.copyFileSync(path.join(ROOT, 'QUICKSTART.md'), path.join(PLUG, 'docs', 'QUICKSTART.md')); // Settings › Quick start reads it
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(OUT, 'Read me first.html'));
 const INST = path.join(ROOT, 'dev', 'resolve', 'installer');
 for (const f of fs.readdirSync(INST)) if (/\.(command|bat|html)$/.test(f)) {
@@ -60,7 +61,7 @@ for (const f of fs.readdirSync(INST)) if (/\.(command|bat|html)$/.test(f)) {
 }
 
 /* ---------- sanity: everything the plugin and the panel point at is there, and nothing that shouldn't be ---------- */
-const must = ['manifest.xml', 'package.json', 'main.js', 'preload.js', 'index.html', 'CSXS/manifest.xml', 'css/app.css', 'assets/icon-dark.png', 'resolve/host/index.js', 'resolve/host/base.js', 'js/core/platform.js', 'docs/guide.html'];
+const must = ['manifest.xml', 'package.json', 'main.js', 'preload.js', 'index.html', 'CSXS/manifest.xml', 'css/app.css', 'assets/icon-dark.png', 'resolve/host/index.js', 'resolve/host/base.js', 'js/core/platform.js', 'docs/guide.html', 'docs/QUICKSTART.md'];
 for (const f of must) if (!fs.existsSync(path.join(PLUG, f))) die('Missing ' + f);
 const manifest = fs.readFileSync(path.join(PLUG, 'manifest.xml'), 'utf8');
 if (!manifest.includes(`<Id>${PLUGIN_ID}</Id>`) || !manifest.includes(`<Version>${VER}</Version>`) || !manifest.includes('<FilePath>main.js</FilePath>')) die('manifest.xml lost its id, version or main.js');

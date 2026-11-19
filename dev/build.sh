@@ -26,9 +26,10 @@ node dev/docs/make-guide.js > /dev/null
 cp "dev/docs/Read me first.html" "$OUT/"
 mkdir -p "$EXT/docs" && cp "dev/docs/Read me first.html" "$EXT/docs/guide.html"   # Home › Guide opens it
 cp dev/docs/whats-new.md "$EXT/docs/whats-new.md"   # Home › What's new reads it
+cp QUICKSTART.md "$EXT/docs/QUICKSTART.md"   # Settings › Quick start reads it
 
 # sanity: everything index.html and the manifest point at exists
-for f in index.html jsx/host.jsx css/app.css assets/icon-dark.png; do [ -f "$EXT/$f" ] || { echo "Missing $f"; exit 1; }; done
+for f in index.html jsx/host.jsx css/app.css assets/icon-dark.png docs/QUICKSTART.md; do [ -f "$EXT/$f" ] || { echo "Missing $f"; exit 1; }; done
 grep -q 'enable-nodejs' "$EXT/CSXS/manifest.xml"
 
 # no macOS metadata: Windows would unzip "._x.jsx" files as real (broken) scripts

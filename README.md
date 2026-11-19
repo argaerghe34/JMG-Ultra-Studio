@@ -1,5 +1,16 @@
 # JMG Ultra Studio
 
+## Quick start
+
+1. Download the newest zip from **Releases** (on the right): `JMG-Ultra-Studio-<version>.zip` for Premiere Pro, `JMG-Ultra-Studio-Resolve-<version>.zip` for DaVinci Resolve Studio.
+2. Unzip it and double-click **Install on Mac.command** or **Install on Windows.bat**.
+3. Open the panel: Premiere › **Window › Extensions › JMG Ultra Studio**; Resolve › **Workspace › Workflow Integrations › JMG Ultra Studio**. On **Home**, press **Check my setup**.
+4. Then try **Story** with an interview, **Edit › Silence Cut** and **Ask**.
+
+The whole five-minute guide: **[QUICKSTART.md](QUICKSTART.md)** – it's also in the panel, at **Settings › Quick start**.
+
+## About
+
 A panel for Adobe Premiere Pro (2025 and later, Mac and Windows) and DaVinci Resolve Studio (19.1 and later, Mac and Windows) that helps you go from footage and interviews to a finished edit: **Story** (themes, lines and narratives from interviews), **Selects**, **Colour**, **B-roll**, **Camera Switch**, **Silence Cut**, **Beats**, **Songs**, **Sound Check**, **Final Check**, **Safe Zones**, **Deliver** and an **Assistant**.
 
 Both editors share one panel. New features land in Premiere first and follow in Resolve, so for a short while the two

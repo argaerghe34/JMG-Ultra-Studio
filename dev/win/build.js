@@ -32,9 +32,10 @@ fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(
 fs.mkdirSync(path.join(EXT, 'docs'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'Read me first.html'), path.join(EXT, 'docs', 'guide.html')); // Home › Guide opens it
 fs.copyFileSync(path.join(ROOT, 'dev', 'docs', 'whats-new.md'), path.join(EXT, 'docs', 'whats-new.md')); // Home › What's new reads it
+fs.copyFileSync(path.join(ROOT, 'QUICKSTART.md'), path.join(EXT, 'docs', 'QUICKSTART.md')); // Settings › Quick start reads it
 
 // sanity: everything index.html and the manifest point at exists
-for (const f of ['index.html', 'jsx/host.jsx', 'css/app.css', 'assets/icon-dark.png']) if (!fs.existsSync(path.join(EXT, f))) die('Missing ' + f);
+for (const f of ['index.html', 'jsx/host.jsx', 'css/app.css', 'assets/icon-dark.png', 'docs/QUICKSTART.md']) if (!fs.existsSync(path.join(EXT, f))) die('Missing ' + f);
 if (!fs.readFileSync(path.join(EXT, 'CSXS', 'manifest.xml'), 'utf8').includes('enable-nodejs')) die('manifest lost --enable-nodejs');
 if (!fs.readFileSync(path.join(OUT, 'Read me first.html'), 'utf8').includes(`version ${VER}`)) die(`Read me first.html doesn't say version ${VER}`);
 

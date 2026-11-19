@@ -1,0 +1,9 @@
+/* Quick start (js/tools/03-quickstart.js): the guide's headings, paragraphs and lists inside the modal. */
+.quickstart { display: flex; flex-direction: column; gap: 6px; }
+.quickstart .card-title { margin-top: 10px; color: var(--text); }
+.quickstart .card-title:first-child { margin-top: 0; }
+.quickstart p { margin: 0; }
+.quickstart ul, .quickstart ol { margin: 0; padding-left: 20px; }
+.quickstart li { margin: 3px 0; }
+.quickstart b { color: var(--text); }
+.quickstart a { color: var(--accent); }
