@@ -9,21 +9,19 @@
   US.TOURS = {
     overview: { title: 'Ultra Studio in a minute', steps: [
       { tool: 'home', target: '@rail:home', title: 'Home', text: 'Where this project stands, what’s new, and Check my setup – a real test that everything works on this computer.', tip: 'Start here when something seems wrong: Check my setup says what to fix.' },
-      { target: '@rail:bring', title: 'Bring in', text: 'Get material into the project: download videos from YouTube, Vimeo and many other sites straight into a bin.' },
-      { target: '@rail:story', title: 'Story – the heart of Ultra Studio', text: 'From interviews to a cut, step by step: read the transcripts, find the themes and the lines you need, build a sequence or a narrative, and share the documents.', tip: 'Lines (every theme and line in one table – great on a wide panel), Story wiki, Word cloud and Producer are tabs inside Story.' },
-      { target: '@rail:cut', title: 'Cut', text: 'Tools that make the edit faster: Silence Cut takes the pauses out, Beat Cut cuts to the music. They always work on a copy.' },
-      { target: '@rail:finish', title: 'Finish', text: 'Polish and check before export: one-click effects, every marker in one list, social safe zones and Final Check for black gaps and flash frames.' },
-      { target: '@rail:deliver', title: 'Deliver', text: 'Every export in one go – the master, vertical and square versions, render ranges, YouTube chapters, the episode text, and timelines to and from other editors.' },
-      { target: '@rail:ask', title: 'Ask', text: 'Say what you want in plain English – run a tool, or ask anything about your interviews.', tip: 'Only text is ever sent to the AI: your request or transcript lines, never footage.' },
-      { target: '@rail:advanced', title: 'Advanced', text: 'Tools for particular jobs – Selects, Subclip Maker, MC Selects, Take Sets, Song Splitter, Podcast – and the ones still in development.' },
+      { target: '@rail:story', title: 'Story – the heart of Ultra Studio', text: 'From interviews to a cut, step by step: read the transcripts, find the themes and the lines you need, build a sequence or a narrative, and share the documents.', tip: 'Every theme and line in one table (great on a wide panel), Story wiki and Word cloud are tabs inside Story.' },
+      { target: '@rail:cut', title: 'Edit', text: 'Everything for the edit itself: one-click effects, every marker in one list, social safe zones, Silence Cut for the pauses, Beat Cut for the music, and Producer for a second opinion. Tools that change a sequence work on a copy.' },
+      { target: '@rail:deliver', title: 'Deliver', text: 'Final Check first – black gaps, flash frames, offline media – then every export in one go: the master, vertical and square versions, render ranges, YouTube chapters, the episode text, and timelines to and from other editors.' },
+      { target: '@rail:advanced', title: 'Advanced', text: 'Tools for particular jobs – Selects, Subclip Maker, MC Selects, Take Sets, Podcast, mVFX and Download (videos from online links) – and the ones still in development.', tip: 'Use one a lot? Press the ☆ beside its title: it gets a button of its own on the sidebar. Any tab can be starred, and the sidebar dragged into your own order.' },
+      { target: '@rail:ask', title: 'Ask – the AI', text: 'Say what you want in plain English – run a tool, or ask anything about your interviews. It’s always at the bottom of the sidebar.', tip: 'What the AI may be sent is yours to choose, project by project: Settings › AI.' },
       { target: '@search', title: 'Search everything', text: 'Find any tool, action, setting or line from your interviews. Type a few letters and press Return.', tip: 'Shortcut: ⌘K (Ctrl+K on Windows) while the panel is active.' },
       { target: '@ai', title: 'AI – optional', text: 'Shows the AI in use, or “No AI”. Everything works without it; with it, Story’s themes and Ask get smarter. Click it to add a key.' },
       { target: '@status', title: 'What’s happening', text: 'Every job shows here with its progress and time left, and a Stop button. Click it for the activity log.' },
-      { target: '@settings', title: 'Settings, and this tour again', text: 'AI keys, markers, where files go – and Layout › Classic rail if you prefer one rail button per tool. Take this tour again from here.', tip: 'Every tab has its own short tour: the ? at the top of the tab.' }
+      { target: '@settings', title: 'Settings, and this tour again', text: 'Updates, AI keys, the sidebar’s order, markers, where files go – and Layout › Classic rail if you prefer one rail button per tool. Take this tour again from here.', tip: 'Every tab has its own short tour: the ? at the top of the tab. Settings › Take the tour › Full guide walks through every tab.' }
     ] },
 
     home: [
-      { target: '[data-section="next"]', title: 'Where you are, and what’s next', text: 'The five stages of the edit, ticked as you go, and one suggested next step for this project. Click a stage to go there.', tip: 'Below it: the last things you ran, to pick up where you left off.' },
+      { target: '[data-section="next"]', title: 'Where you are, and what’s next', text: 'The stages of the edit – Story, Edit, Deliver – ticked as you go, and one suggested next step for this project. Click a stage to go there.', tip: 'Below it: the last things you ran, to pick up where you left off.' },
       { target: 'text:Check my setup', title: 'Check my setup', text: 'A real end-to-end test: it talks to Premiere, reads a clip and checks each tool has what it needs.', tip: 'Copy the report and send it if you ever need help.' },
       { target: '.featured-card', title: 'Story at a glance', text: 'How far this project has got – interviews read, lines, themes, narratives – with one click to each step.' },
       { target: 'text:Overnight prep', title: 'Overnight prep', text: 'Leave the computer working: transcripts, themes, moments and the interview log, with a report here in the morning.' }
@@ -93,7 +91,7 @@
       { target: '@head', title: 'Ask', text: 'Say what you want in plain English: “cut the silences”, “markers on every beat”, or a question about your interviews.', tip: 'Anything that changes the project is shown as a plan first – nothing runs until you press Run.' }
     ],
     advanced: [
-      { target: '.tiles', title: 'Tools for particular jobs', text: 'Selects, Subclip Maker, MC Selects, Take Sets, Song Splitter and Podcast. Each opens here and has a link back.' },
+      { target: '.tiles', title: 'Tools for particular jobs', text: 'Selects, Subclip Maker, MC Selects, Take Sets, Podcast, mVFX and Download. Each opens here and has a link back.', tip: 'The ☆ beside a tool’s title puts it on the sidebar.' },
       { target: 'text:In development', title: 'In development', text: 'Tools still being made. Parts may not work yet – try them on a copy.' }
     ],
     selects: [
@@ -111,7 +109,7 @@
       { target: 'text:Find the takes', title: 'Take Sets', text: 'Retakes grouped by what they say; the best take of each is kept and the rest cut from a copy.' }
     ],
     songs: [
-      { target: '@head', title: 'Song Splitter', text: 'Splits a concert or event into songs, applause and talk.' },
+      { target: '@head', title: 'Song Splitter (in development)', text: 'Splits a concert or event into songs, applause and talk.' },
       { target: 'text:Find the songs', title: 'Find the songs', text: 'Then markers, subclips or a sequence per song.' }
     ],
     podcast: [
@@ -131,16 +129,19 @@
       { target: 'text:Check the sound', title: 'Sound Check (in development)', text: 'Checks the loudness, fixes it and ducks the music under speech – on a copy.' }
     ],
     mvfx: [
-      { target: '.mvfx-grid', title: 'mVFX (in development)', text: 'Documentary titles – names, dates, quotes and credits – placed as one clip at the playhead.' },
+      { target: '.mvfx-grid', title: 'mVFX', text: 'Documentary titles – names, dates, quotes and credits – placed as one clip at the playhead.' },
       { target: 'text:Colours and fonts', title: 'Your look', text: 'Colours and fonts for the whole pack.' }
     ],
     memorybox: [
       { target: 'text:Connect', title: 'Memory Box (in development)', text: 'Bring a family’s photos and videos from Memory Box into one bin, in story order, each with its story, people, date and place.' }
     ],
     settings: [
-      { target: 'text:AI (optional)', title: 'AI is optional', text: 'Choose Claude, Gemini, AI on this computer, or none. Only text is ever sent – never footage.' },
-      { target: 'text:Layout', title: 'Layout', text: 'Classic rail brings back one rail button per tool.' },
-      { target: 'text:What was sent to AI', title: 'What was sent to AI', text: 'Every request’s exact text, so you can always see what left this computer.' }
+      { target: 'text:Updates', title: 'Updates', text: 'One button checks for a newer version and installs it. Your settings and Story work are kept.' },
+      { target: 'text:AI (optional)', title: 'AI is optional', text: 'Choose Claude, Gemini, AI on this computer, or none. The keys, models, footage and cost each open from their own line.' },
+      { target: 'text:What was sent to AI', title: 'What was sent to AI', text: 'Every request’s exact text, so you can always see what left this computer. Open “Show the requests” for the list.' },
+      { target: 'text:Take the tour', title: 'Two tours', text: 'The one-minute tour, the full guide to every tab, or a short tour of one tab.' },
+      { target: 'text:Sidebar', title: 'Your sidebar', text: 'Put the sidebar in your own order with Up and Down (or drag the buttons themselves), and add any tab to it.', tip: 'The order and your starred tabs are kept on this computer, through updates.' },
+      { target: 'text:Layout', title: 'Layout', text: 'Classic rail brings back one rail button per tool.' }
     ]
   };
 })();
