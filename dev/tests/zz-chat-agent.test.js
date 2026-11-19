@@ -74,6 +74,15 @@ function setup(answers, { clips = [] } = {}) {
     if (fn === 'deleteSequence') { P.seqs = P.seqs.filter(x => x.id !== a.seqId); return true; }
     if (fn === 'askRemoveBins') { const removed = [], kept = []; for (const p of a.paths) { if (P.items.some(i => i.bin === p || i.bin.startsWith(p + ' / '))) kept.push({ path: p, why: 'not empty' }); else { P.bins = P.bins.filter(b => b !== p); removed.push(p); } } return { removed, kept }; }
     if (fn === 'openSequence') { P.open = { id: a.seqId, name: nameOf(a.seqId) }; return true; }
+    if (fn === 'seqSet') { const q = P.seqs.find(z => z.id === a.seqId), was = { name: q.name }, done = []; if (a.name) { q.name = a.name; if (P.open.id === q.id) P.open = { id: q.id, name: q.name }; done.push('name'); } if (a.outPoint != null) done.push('out'); if (a.inPoint != null) done.push('in'); return { done, failed: [], was }; }
+    if (fn === 'trackSet') { P.tracks = P.tracks || {}; const t = (P.tracks[a.seqId] = P.tracks[a.seqId] || { video: 1, audio: 1, set: [] }); if (a.add) t[a.kind] += a.add; if (a.index != null) t.set.push([a.kind, a.index, a.name, a.locked, a.muted]); return { done: a.add ? ['added ' + a.add] : ['name', 'locked'], failed: a.locked ? [] : [], video: t.video, audio: t.audio }; }
+    if (fn === 'extractRanges') { P.extracted = [a.seqId, a.ranges]; return { cuts: a.ranges.length, removed: 3, duration: 37 }; }
+    if (fn === 'addSequenceMarkers') { P.marks = P.marks || {}; const g = a.markers.map((m, i) => 'g' + ((P.marks[a.seqId] || []).length + i + 1)); P.marks[a.seqId] = (P.marks[a.seqId] || []).concat(g); return g; }
+    if (fn === 'removeSequenceMarkers') { P.marks[a.seqId] = (P.marks[a.seqId] || []).filter(g => !a.guids.includes(g)); return a.guids.length; }
+    if (fn === 'updateMarkers') return { done: a.markers.length, guids: {} };
+    if (fn === 'setPlayhead' || fn === 'selectClips') return fn === 'selectClips' ? a.targets.length : true;
+    if (fn === 'exportFrame') return a.outBase + '.png';
+    if (fn === 'sequenceInfo' && a.clips === false) return { id: a.seqId, name: nameOf(a.seqId), fps: 25, width: 1920, height: 1080, duration: 40, inPoint: -1, outPoint: -1, playhead: 3, video: [{ index: 0, name: 'Video 1', muted: false, locked: false }, { index: 1, name: 'B-roll', muted: true, locked: true }], audio: [{ index: 0, name: 'Audio 1' }], markers: ((P.marks || {})[a.seqId] || []).map((g, i) => ({ guid: g, start: i + 1, end: i + 1, color: 1, name: 'M' + g, comment: '' })) };
     if (fn === 'editRead' || fn === 'sequenceInfo') return { id: a.seqId, name: nameOf(a.seqId), fps: 25, duration: 40, markers: [], video: [{ index: 0, clips: [{ start: 0, end: 20, in: 0, out: 20, name: 'RUTH.MP4', path: '/m/RUTH.MP4', itemId: 'r', effects: [] }, { start: 20, end: 40, in: 30, out: 50, name: 'RUTH.MP4', path: '/m/RUTH.MP4', itemId: 'r', effects: [] }] }], audio: [] };
     if (fn === 'editProject') return { bins: P.bins.slice(), sequences: P.seqs.map(x => ({ id: x.id, name: x.name, bin: '', duration: 40, video: 1, audio: 1 })), clips: [] };
     return {};
@@ -249,6 +258,36 @@ test('one approval for a whole plan: yes covers every step of that request only;
   x = setup([T('broll.search', { requests: ['boats'], freeOnly: false }, '', { understood: 'x', plan: ['a', 'b', 'c'] }), T('broll.download', { ids: ['b1'] }), T('finish', { reply: 'ok' })]);
   x.web.found = { boats: [mk('y', { licence: STD })] };
   try { const log = []; await C.send(C.newChat(), 'get it', hooksFor(log, { planApprove: async () => ({ ok: true }) }), { mode: 'ask' }); assert.deepStrictEqual(log.filter(i => /\?$/.test(i.k)).map(i => i.k), ['plan?', 'warn?'], 'the warning is not covered by the plan’s yes'); } finally { x.restore(); }
+});
+
+test('the editor itself, by typed commands: a sequence’s settings, a copy, a new name (given back by Undo), In/Out; tracks and extracting on a copy; markers listed, added, changed, removed (the editor’s own only after a warning); the playhead, the selection, a frame – and an unknown command is refused', async () => {
+  const E = (d, more = {}) => T('editor', Object.assign({ do: d }, more));
+  const x = setup([E('sequence.settings'), E('sequence.duplicate', { name: 'String-out v2' }), E('sequence.rename', { name: 'Rough cut' }), E('sequence.inout', { in: 2, out: 30 }),
+    E('track.add', { kind: 'video', count: 2 }), E('track.set', { track: 'V2', name: 'B-roll', locked: true }), E('sequence.extract', { ranges: [[5, 6], [9, 8], [12, 14]] }),
+    E('marker.add', { sequence: 'Rough cut', markers: [{ at: 4, name: 'Check' }, { at: 9, end: 11, name: 'Slow', color: 1 }] }), E('marker.list', { sequence: 'Rough cut' }), E('marker.change', { sequence: 'Rough cut', markers: [{ id: 'g2', name: 'Fixed' }] }), E('marker.remove', { sequence: 'Rough cut', ids: ['g3'] }), E('marker.remove', { sequence: 'Rough cut', ids: ['g0'] }),
+    E('playhead', { at: 12 }), E('select', { clips: [{ track: 'V1', at: 0 }, { track: 'Q', at: 1 }] }), E('frame', { at: 3 }), E('format.disk'), E('track.set', { track: 'V1' }), T('finish', { reply: 'Done.' })]);
+  try {
+    x.P.marks = { mine: ['g0'] };
+    const log = [], chat = C.newChat();
+    await C.send(chat, 'work the editor', hooksFor(log), { mode: 'never' });
+    const r = i => x.res(i).replace(/^RESULT of editor:\n/, '');
+    assert.ok(/^SEQUENCE “String-out” \(id mine\): 1920×1080, 25 fps, 0:40 \(40 s\); video tracks 2 \(V1, V2 “B-roll” off locked\); audio tracks 1 \(A1\); In not set, Out not set; playhead 0:03; 1 markers\.$/.test(r(0)), r(0));
+    assert.ok(/A copy “String-out v2” \(id copy1\)/.test(r(1)) && /“String-out” is now called “Rough cut”\./.test(r(2)) && /Set on “Rough cut”: out, in\./.test(r(3)), [r(1), r(2), r(3)].join(' | '));
+    assert.ok(/added 2 on the copy “Rough cut – Ask”, now your working sequence \(the editor’s “Rough cut” is unchanged\): there are 3 video and 1 audio tracks now\./.test(r(4)), r(4));
+    assert.ok(/^V2: name, locked\.$/.test(r(5)) && x.host.filter(h => h[0] === 'cloneSequence').length === 2, 'the second track change uses the same copy: ' + r(5));
+    assert.deepStrictEqual(x.P.extracted, ['copy2', [[5, 6], [12, 14]]], 'ranges checked; taken out of the copy, never the editor’s sequence');
+    assert.ok(/2 markers added to “Rough cut”: g2 at 0:04; g3 at 0:09\./.test(r(7)) && /3 markers on “Rough cut”/.test(r(8)) && /g2\t2\t2\t1\tMg2/.test(r(8)) && /1 of 1 markers changed/.test(r(9)) && /1 markers removed/.test(r(10)), [r(7), r(8)].join(' | '));
+    // removing a marker it added: no warning; the editor's own: a warning first (mode “don't ask” notwithstanding)
+    const warns = log.filter(i => i.k === 'warn?').map(i => i.w.reasons.map(q => q.id + ':' + q.text).join());
+    assert.ok(warns.length === 1 && /^deletes:It removes 1 marker of yours from “Rough cut”/.test(warns[0]), JSON.stringify(warns));
+    assert.ok(/The playhead is at 0:12/.test(r(12)) && /1 of 1 clips are selected/.test(r(13)) && /The frame at 0:03 of “[^”]+” is saved: .*Frames.*\.png$/.test(r(14)), [r(12), r(13), r(14)].join(' | '));
+    assert.ok(/there is no editor command “format\.disk”/.test(r(15)) && /give "name", "locked" or "off"/.test(r(16)));
+    // Undo: the copies go, its remaining marker comes off, the name is given back; In/Out and the frame are said to stay
+    const plan = C.undoPlan(chat);
+    assert.ok(plan.can.some(c => /Give the sequence “Rough cut” its name “String-out” back/.test(c.text)) && plan.can.some(c => /Take 1 marker off “Rough cut”/.test(c.text)) && plan.cant.some(c => /In and Out of “Rough cut” were changed/.test(c.text)) && plan.cant.some(c => /The picture “[^”]+” stays on the disk/.test(c.text)), JSON.stringify([plan.can.map(c => c.text), plan.cant.map(c => c.text)]));
+    await C.undo(chat);
+    assert.deepStrictEqual([x.P.seqs.map(q => q.name), x.P.marks.mine], [['String-out'], []]);
+  } finally { x.restore(); }
 });
 
 test('waiting: for a job to finish, files to arrive in a folder, a number of seconds – shown in the working row, Stop always works, and it gives up plainly', async () => {

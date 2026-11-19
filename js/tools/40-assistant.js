@@ -672,7 +672,7 @@
 
   US.tools.register({
     id: 'assistant', name: 'Assistant', short: 'Ask', icon: 'ask', order: 40,
-    hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips', 'listSequences', 'listBins', 'deleteSequence', 'removeSequenceMarkers', 'removeClipMarkers', 'askBins', 'askFind', 'ensureBin', 'importFiles', 'itemsInfo', 'askStamp', 'askRemoveBins', 'dictateTranscribe'],
+    hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips', 'listSequences', 'listBins', 'deleteSequence', 'removeSequenceMarkers', 'removeClipMarkers', 'askBins', 'askFind', 'ensureBin', 'importFiles', 'itemsInfo', 'seqSet', 'trackSet', 'selectClips', 'extractRanges', 'updateMarkers', 'addSequenceMarkers', 'setPlayhead', 'exportFrame', 'newSequence', 'askStamp', 'askRemoveBins', 'dictateTranscribe'],
     blurb: 'Say what you want in plain English – it reads your project, asks when it isn’t sure, shows what it will do and does it.',
     create() {
       const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'One chat for everything: run a tool, change a sequence or the project, ask about your interviews or how to do something. It says what it understood and what it will do, and asks before it changes anything.',
