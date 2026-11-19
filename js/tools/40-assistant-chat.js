@@ -466,7 +466,8 @@
     const a = st.args || {}, ed = E(), tool = st.tool;
     const note = text => { hooks.event({ k: 'result', text }); return text; };
     const title = describeCall(tool, a);
-    const withHands = fn => { chat.status = 'working'; hooks.status(); return hands(chat, title, fn, t => { chat.status = 'waiting'; chat.waitingFor = t; hooks.status(); }, () => { if (chat.status !== 'working') { chat.status = 'working'; hooks.status(); } }); };
+    // (the first step in the editor also notes which clips the project has, so “what is new” can be told later)
+    const withHands = fn0 => { const fn = async job => { if (!chat._seen && US.chatAgent && US.chatAgent.seeProject) await US.chatAgent.seeProject(chat); return fn0(job); }; chat.status = 'working'; hooks.status(); return hands(chat, title, fn, t => { chat.status = 'waiting'; chat.waitingFor = t; hooks.status(); }, () => { if (chat.status !== 'working') { chat.status = 'working'; hooks.status(); } }); };
     const approve = async (risk, card) => {
       if (!asksFirst(risk, opts.mode, chat.always)) return { ok: true };
       // the editor said yes to the whole plan of this request: its steps run without a card each (stills leaving still ask)
@@ -834,8 +835,6 @@
       chat.pendingResult = '';
     }
     const startSteps = chat.steps, startSpent = chat.spent, usd = x => (US.ai.fmtUSD ? US.ai.fmtUSD(x) : '$' + x.toFixed(2));
-    // which clips the project has as the chat starts, so “what is new” can be told later
-    if (chat.requests === 1 && US.chatAgent && US.chatAgent.seeProject) await US.chatAgent.seeProject(chat);
     let fresh = true, done = false, stepsAllowed = o.maxSteps, moneyAllowed = o.budget, stepNo = 0, planLen = 0, changed = false, tokIn = 0, tokOut = 0;
     tr({ kind: 'read', text: 'Read your request and where things stand', detail: `${now()}\n${chat.requests === 1 ? 'Sent once and then read from the cache: what the project, the open sequence and the interviews are (as text).' : 'The conversation so far goes with it (older tool results shortened).'}` });
     // the chat keeps its own account (and asks at its limit), so single requests don't each stop to ask; the monthly limit still holds

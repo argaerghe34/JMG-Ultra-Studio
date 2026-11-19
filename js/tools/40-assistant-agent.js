@@ -327,7 +327,10 @@
     run: async (a, x) => {
       const { items, bin, missing } = x.state;
       await US.host.call('moveItems', { ids: items.map(i => i.id), binPath: bin });
-      x.journal({ kind: 'items', undo: [{ op: 'move', items: items.map(i => ({ id: i.id, bin: i.bin && i.bin !== '(Project root)' ? i.bin : '' })).filter(i => i.bin) }] });
+      // Undo puts each back in the bin it came from; a clip that was in no bin can't be sent back to “no bin” from a script – said plainly
+      const back = items.map(i => ({ id: i.id, bin: i.bin && i.bin !== '(Project root)' ? i.bin : '' })).filter(i => i.bin), loose = items.length - back.length;
+      if (back.length) x.journal({ kind: 'items', undo: [{ op: 'move', items: back }] });
+      if (loose) x.journal({ kind: 'cant', text: `${US.plural(loose, 'clip')} that ${loose === 1 ? 'was' : 'were'} in no bin ${loose === 1 ? 'stays' : 'stay'} in “${bin.split('/').join(' / ')}” (drag ${loose === 1 ? 'it' : 'them'} out by hand)` });
       for (const i of items) i.bin = bin.split('/').join(' / ');
       x.note(`${US.plural(items.length, 'clip')} moved to “${bin}”`);
       return `${items.length} clips are in the bin “${bin.split('/').join(' / ')}” now.${missing.length ? ` Not known, left out: ${missing.join(', ')}.` : ''}`;
