@@ -44,7 +44,7 @@ try {
     return { title: 'An open door', logline: 'Ruth on the home she grew up in.', beats: pick.map((id, i) => ({ lineId: id, purpose: ['Who she is', 'What was handed down', 'Faith at home', 'What it all meant'][i], dropStartWords: i === 2 ? 2 : 0, dropEndWords: 0 })) };
   } });
   const r = await T.action('story.narrative', { brief: 'Make a 30-second video about family', useAI: true });
-  T.assert(/Length: 30 seconds/.test(sent) && !/\.mp4|\/Users\//.test(sent), 'only the brief and line text were sent');
+  T.assert(/Length: 30 seconds/.test(sent) && !/\/Users\/|[A-Za-z]:\\/.test(sent), 'only text was sent: the brief, line text and (from 19 Nov) what was seen and heard – clip names, never file paths');
   const col = st.wall.columns.find(c => c.id === r.column.id);
   T.assert(col && col.name === 'Narrative · 30 s · family' && col.narrative.by === 'ai' && col.narrative.title === 'An open door', 'narrative: ' + (col && col.name));
   T.assert(col.cards.length === 4 && col.cards[2].trim && col.cards[2].trim.dropStart === 2, 'four beats, the third trimmed: ' + JSON.stringify(col.cards.map(k => k.trim || null)));
