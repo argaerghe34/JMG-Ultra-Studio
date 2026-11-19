@@ -286,7 +286,7 @@ test('background first: it only works when the computer is calm, stops between r
       const w = await U.analyse(it2, { only: ['listening'] });
       assert.deepStrictEqual([w.skipped, U.peek(it2.path).listening.waiting], ['sound', 'render']);
       U.queue.items = [it2]; U.queue.listed = true; U.queue.project = '/p/Slices film.prproj';
-      assert.strictEqual(U.backlog().waitsForRender, 1);
+      const b = U.backlog(); assert.ok(b.todo.length === 1 && b.todo[0].need.retry && b.waitsForRender === 0, 'tried once more this session (ffmpeg may be there now) before it waits: ' + JSON.stringify(b.todo[0] && b.todo[0].need));
     } finally { R2.restore(); }
   } finally { R.restore(); T.undo(); US.ctx = CTX0; }
 });
@@ -415,4 +415,27 @@ test('Ask’s calls: where() for the footage warning, describe({item, from, to, 
     U.setRoute('off');
     assert.deepStrictEqual(U.where().where, 'off');
   } finally { R.restore(); T.undo(); U.setRoute('local'); US.ctx = CTX0; }
+});
+
+test('a clip with no sound track is listened to once and noted as such – not left waiting for a render (seen in Premiere, 19 Nov); pause() and forget() for the e2e test', async () => {
+  project('Silent film');
+  const keep = U.routes.sound, item = { id: 'n1', path: tmp('VID-0000.mp4'), name: 'VID-0000.mp4', duration: 5 };
+  U.routes.sound = async () => { const e = new Error('can’t read VID-0000.mp4 (ffmpeg: ffmpeg gave no sound: Stream map \'\' matches no streams.)'); e.code = 'NOT_FROM_FILES'; throw e; };
+  try {
+    const r = await U.analyse(item, { only: ['listening'] });
+    const rec = U.peek(item.path);
+    assert.deepStrictEqual([r.did.listening, r.skipped, rec.listening.done, rec.listening.noTrack, rec.sound.label], [true, '', true, true, 'no sound track']);
+    assert.deepStrictEqual(U.needs(rec).listening, false, 'nothing left to do');
+    // forget() takes everything kept about a clip away, unforget() puts it back
+    const saved = U.forget(item.path);
+    assert.strictEqual(U.peek(item.path), null);
+    U.unforget(saved); U.reset();
+    assert.strictEqual(U.peek(item.path).sound.label, 'no sound track');
+    assert.ok(U.kept().some(k => k.name === 'VID-0000.mp4' && /built-in/.test(k.heard)));
+    // pause(): the background does nothing until released
+    const release = await U.pause();
+    U.queue.items = [item]; U.queue.listed = true; U.queue.project = '/p/Silent film.prproj';
+    assert.strictEqual(await U.tick(), false);
+    release();
+  } finally { U.routes.sound = keep; US.ctx = CTX0; }
 });

@@ -14,17 +14,21 @@ const clips = F.describable(await F.listClips(null, { binId: bin.id }));
 T.assert(clips.length === 2 && clips.every(c => c.path && c.duration > 1), 'the two clips are listed: ' + JSON.stringify(clips.map(c => [c.name, c.duration])));
 const encoders = () => require('child_process').execSync(process.platform === 'win32' ? 'tasklist' : 'ps -axo comm').toString().split('\n').filter(l => /Media Encoder/i.test(l)).length;
 const encodersBefore = encoders();
-for (let i = 0; i < 100 && (US.jobs.current || U.queue.running); i++) await T.sleep(200);
+for (let i = 0; i < 100 && US.jobs.current; i++) await T.sleep(200);
+// the background queue may have been at work since the panel opened: hold it (after the request in hand), and say what it had kept
+const release = await U.pause();
+const before = U.kept().filter(r => clips.some(c => c.path === r.path));
 
-// what is put back at the end
-const keyOf = U._pure.keyOf, files = clips.map(c => US.cache.file('understand', keyOf(c.path)));
-const was = files.map(f => (fs.existsSync(f) ? fs.readFileSync(f) : null));
+// what is put back at the end: each clip's record (cache, the project's Footage.json copy and index), and the project's choice
 const store = US.projectStore(US.ctx.project.path || US.ctx.project.name);
 const keep = { route: store.get('understand.route'), index: store.get('understand.index'), media: US.ai.mediaOn(), background: US.settings.get('understand.background'), routes: Object.assign({}, U.routes) };
 const log = [];
 try {
   US.settings.set('understand.background', false);   // the test does the work itself, so nothing races it
-  files.forEach(f => { try { fs.unlinkSync(f); } catch (e) { /* not there */ } }); U.reset();
+  U.reset();
+  const saved = clips.map(c => U.forget(c.path));
+  keep.saved = saved;
+  if (before.length) log.push('kept before the test (by the background): ' + before.map(r => `${r.name} – seen: ${r.seen}; heard: ${r.heard}${r.sounds.length ? ' (' + r.sounds.join(', ') + ')' : ''}`).join(' / '));
   U.setRoute('local');
 
   // 1. Settings has the section, with sizes before any download, and nothing is on the computer that wasn't asked for
@@ -39,7 +43,8 @@ try {
   log.push(`vision: ${P.vision.kind}${P.vision.label ? ' (' + P.vision.label + ')' : ''}; listening: ${P.listening.label}${P.listenModel ? ' + ' + P.listenModel.label : ''}`);
 
   // 2. nothing known yet: null, not something made up
-  T.assert((await U.forClip(clips[0].path)) === null || (await U.forClip(clips[0].path)).fromLook, 'nothing is known about a clip before it is looked at');
+  const none = await U.forClip(clips[0].path);
+  T.assert(none === null || none.fromLook, 'nothing is known about a clip before it is looked at (after forgetting it): ' + JSON.stringify(none && { vision: none.vision, listening: none.listening }));
   T.assert(typeof (await U.context({ paths: [clips[0].path] })) === 'string', 'the digest is a string even when empty');
   T.assert(Array.isArray(await U.search('people laughing')), 'search answers with a list');
 
@@ -95,7 +100,7 @@ try {
 
   // 7. a real model, when there is one on this computer: it really describes the test clips
   if (P.vision.kind === 'helper' || P.vision.kind === 'own') {
-    files.forEach(f => { try { fs.unlinkSync(f); } catch (e) { /* not there */ } }); U.reset();
+    clips.forEach(c => U.forget(c.path)); U.reset();
     const t0 = Date.now();
     const r = await U.analyse(clips[0], { only: ['vision'], job: US.jobs.testJob('understand') });
     const rec = U.peek(clips[0].path);
@@ -104,10 +109,11 @@ try {
   } else log.push('no real model here, so the real describe was not run (download one in Settings › Vision & listening models to test it)');
 } finally {
   Object.assign(U.routes, keep.routes);
-  files.forEach((f, i) => { try { if (was[i]) fs.writeFileSync(f, was[i]); else fs.unlinkSync(f); } catch (e) { /* gone */ } });
+  U.reset();
+  (keep.saved || []).forEach(s => U.unforget(s));
   store.set('understand.route', keep.route); store.set('understand.index', keep.index);
   US.ai.setMedia(keep.media);
   US.settings.set('understand.background', keep.background);
-  U.reset(); M.stop();
+  U.reset(); M.stop(); release();
 }
 return log.join(' | ');
