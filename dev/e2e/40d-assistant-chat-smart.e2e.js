@@ -36,6 +36,8 @@ async function talk(key, chat, text, opts, answers = {}) {
   const ev = [], cards = [], asked = [], h0 = hostLog.length, t0 = Date.now(), spent0 = chat.spent || 0, turns0 = chat.turns.length;
   const hooks = { event: e => ev.push(e), status() {},
     approve: async card => { cards.push({ risk: card.risk, title: card.title, detail: card.detail, dropped: card.dropped || [], steps: (card.steps || []).map(s => US.editAsk.describe(s)) }); return { ok: true }; },
+    // a risky step (the editor's own sequence itself, a lot at once…) stops at the warning instead of a card: counted the same way
+    warn: async w => { cards.push({ risk: w.risk, title: w.title, detail: w.detail, dropped: [], steps: [], warned: w.reasons.map(r => r.id) }); return 'continue'; },
     choose: async q => { const pick = (answers.choose && answers.choose(q)) || (q.options || [])[0] || 'you decide'; asked.push({ question: q.question, options: q.options || [], answered: pick }); return pick; },
     limit: async () => 'stop' };
   let error = '';
@@ -43,6 +45,7 @@ async function talk(key, chat, text, opts, answers = {}) {
   const end = ev.filter(e => e.k === 'end').pop(), steps = ev.filter(e => e.k === 'step');
   const r = { key, ev, cards, asked, end, steps, error, tools: steps.map(s => s.tool), warns: ev.filter(e => e.k === 'warn').map(e => e.text), host: hostLog.slice(h0), seconds: Math.round((Date.now() - t0) / 1000), cost: (chat.spent || 0) - spent0 };
   for (const v of chat.versions || []) if (!made.includes(v.seqId)) made.push(v.seqId);
+  for (const j of chat.journal || []) { if (j.kind === 'seq' && !made.includes(j.seqId)) made.push(j.seqId); if (j.backupId && !made.includes(j.backupId)) made.push(j.backupId); }   // and the copies kept from before a change in place
   // the report: the conversation as the editor saw it, then what the AI was told after each step
   report.push(`## ${key}`, '', `**Asked** (${opts.mode}): ${text}`, '', `**Understood:** ${(ev.find(e => e.k === 'understood') || {}).text || '—'}`, `**Plan:** ${((ev.find(e => e.k === 'plan') || {}).plan || []).join(' → ') || '—'}`, '');
   for (const e of ev) {
