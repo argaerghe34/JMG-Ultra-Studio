@@ -10,7 +10,7 @@
 const C = US.chat, A = US.chatAgent, B = US.brollFinder; T.assert(C && A && B && US.chatTools && US.chatTools['broll.download'] && C.schedule, 'the tools for working on its own are loaded');
 const fs = require('fs'), os = require('os'), path = require('path');
 // a fresh folder each run: files left by an earlier run count as "already there", not as downloaded
-const ROOT = path.join(os.tmpdir(), 'jmg-ultra-studio-e2e-big-boats-' + Date.now().toString(36)),BIN = 'Test – Big boats', EMPTY = 'Test – Ask agent/Empty one';
+const ROOT = path.join(os.tmpdir(), 'jmg-ultra-studio-e2e-big-boats-' + Date.now().toString(36)),BIN = 'Test – Big boats', EMPTY = 'Test – Ask agent/Empty one ' + Date.now().toString(36);   // a new empty bin each run (an earlier run's would already hold clips)
 fs.mkdirSync(ROOT, { recursive: true });
 const SRC = ['C001_sharp_static.mp4', 'C002_blurry.mp4', 'C003_dark.mp4'];
 const clipOf = (f, i, licence) => ({ key: 'e2e:' + f, source: 'pexels', sourceName: 'Pexels', id: 'e2e' + i, title: ['Container ship at sea', 'Harbour cranes', 'Ferry in fog'][i], page: 'https://example.test/' + f, author: 'Test', authorUrl: '', thumb: '', preview: '', duration: 8, width: 1920, height: 1080, licence, files: [{ url: 'e2e://' + f, ext: 'mp4', width: 1920, height: 1080, size: 3 * 1024 * 1024 }] });
@@ -79,10 +79,10 @@ try {
   await C.send(b, 'where did the boat clips go? put one in an empty bin', { event: it => lb.push(it) }, { mode: 'never' });
   const rb = sent.slice(n0 + 1).map(r => r.turns[r.turns.length - 1].user);
   T.assert(lb.some(i => i.k === 'end'), 'finished: ' + say(lb));
-  T.assert(new RegExp(BIN).test(rb[0]) && /\t[2-9]\t/.test(rb[0]), 'bins: found by name with its count: ' + rb[0]);
+  T.assert(new RegExp(BIN).test(rb[0]) && /\t([2-9]|\d{2,})\t/.test(rb[0]), 'bins: found by name with its count: ' + rb[0]);
   T.assert(/f1\t/.test(rb[1]) && /big boats\//.test(rb[1]), 'find: by the folder the files are in: ' + rb[1].slice(0, 300));
   T.assert(/new clips|Nothing new/.test(rb[2]), 'recent answered: ' + rb[2].slice(0, 200));
-  const eb = (await US.host.call('askBins', { filter: 'Empty one' })).bins;
+  const eb = (await US.host.call('askBins', { filter: EMPTY.split('/').pop() })).bins;   // this run's bin only
   T.assert(eb.length === 1 && eb[0].clips === 1, 'the empty bin was made and one clip moved into it: ' + JSON.stringify(eb) + ' · ' + rb[4]);
   await C.undo(b, { confirm: async () => 'keep' });
   const eb2 = (await US.host.call('askBins', { filter: 'Empty one' })).bins;
