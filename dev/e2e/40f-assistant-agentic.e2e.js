@@ -9,7 +9,8 @@
 // 4. On its own, a risky step waits for the editor instead of running.
 const C = US.chat, A = US.chatAgent, B = US.brollFinder; T.assert(C && A && B && US.chatTools && US.chatTools['broll.download'] && C.schedule, 'the tools for working on its own are loaded');
 const fs = require('fs'), os = require('os'), path = require('path');
-const ROOT = path.join(os.tmpdir(), 'jmg-ultra-studio-e2e-big-boats'), BIN = 'Test – Big boats', EMPTY = 'Test – Ask agent/Empty one';
+// a fresh folder each run: files left by an earlier run count as "already there", not as downloaded
+const ROOT = path.join(os.tmpdir(), 'jmg-ultra-studio-e2e-big-boats-' + Date.now().toString(36)),BIN = 'Test – Big boats', EMPTY = 'Test – Ask agent/Empty one';
 fs.mkdirSync(ROOT, { recursive: true });
 const SRC = ['C001_sharp_static.mp4', 'C002_blurry.mp4', 'C003_dark.mp4'];
 const clipOf = (f, i, licence) => ({ key: 'e2e:' + f, source: 'pexels', sourceName: 'Pexels', id: 'e2e' + i, title: ['Container ship at sea', 'Harbour cranes', 'Ferry in fog'][i], page: 'https://example.test/' + f, author: 'Test', authorUrl: '', thumb: '', preview: '', duration: 8, width: 1920, height: 1080, licence, files: [{ url: 'e2e://' + f, ext: 'mp4', width: 1920, height: 1080, size: 3 * 1024 * 1024 }] });
