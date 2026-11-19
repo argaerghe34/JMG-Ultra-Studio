@@ -1,3 +1,52 @@
+## What's new in 1.3.40
+
+Tested in real Premiere Pro 2027 on the Mac. **Not yet tested in DaVinci Resolve or on Windows.**
+
+**Seeing and hearing the footage**
+- Ultra Studio can now look at and listen to your footage, not only read transcripts. It keeps a record per clip: what's in each shot, shot size, setting, people, moments the transcript misses, and sounds such as applause, music, wind and noise.
+- **Settings › Vision & listening models:** choose the models, download them inside the app (size shown first), delete them, and switch on automatic model updates (off to start with).
+- **On this computer or Cloud, per project.** Each choice shows its pros and cons and an estimate of time and cost for the open project. Cloud is off until you pick it and asks first. A project set to "nothing leaves this computer" sends nothing.
+- It works in the background while the computer is calm, and never starts Media Encoder. Heavy work is held, with **Do it in Overnight prep** or **Run now anyway**.
+- Ask, Producer and Story's narrative cut are told what was seen and heard. **Selects** shows what's in each select, adds sound filters and a search box.
+
+**Ask works on its own**
+- **Always proceed**, **Undo all** and **Undo this reply**, a working row that shows what it's doing, and **Behind the scenes** on every reply (plan, steps, model, tokens, cost).
+- A **warning** before anything risky, even with Always proceed on: edits in place, deletes, many clips, heavy work, things that can't be undone, costly steps, footage leaving the computer.
+- Questions are answered in the one chat box, with suggested answers as buttons. The top bar stays in view. A **microphone** button records a request (speech-to-text needs a listening model).
+- Ask runs tools **in the background** instead of opening their tabs: B-roll from the web start to finish (it shows its picks to untick before downloading), Subclip Maker, mVFX, Download and the rest.
+- It finds its way round a big project (bins, clips, what's new), makes bins, moves clips and imports folders.
+- It can **wait** for a job, a download or a bin, and **come back by itself** ("check again in 30 minutes") – a chip with a countdown and Cancel.
+- Long requests run as **one plan with one approval**. Eight whole jobs are offered in an empty chat.
+- More of Premiere itself: new sequences, place, trim, move, razor, effect settings with keyframes, transitions, tracks, markers, In/Out, playhead, save a frame.
+- **Ask settings › Working on its own** sets the limits (follow-ups, time, spend, steps) and when the download warning shows.
+- **Producer** now runs on the same engine, with "Talk to the producer".
+
+**A simpler sidebar**
+- Home, Story, **Edit** (Quick effects, Markers, Safe Zones, Silence Cut, Beat Cut, Producer), Deliver (Final Check first), Advanced, and **Ask** at the bottom. The Finish tab is gone; nothing was removed.
+- **Star any tab** to pin it to the sidebar, and **drag to reorder**. Kept per computer through updates.
+- **Download** (was Bring in) is in Advanced. **mVFX** is out of In development. **Song Splitter** has moved into In development.
+
+**Story › Pro View** (was Lines)
+- Find searches, questions and moments beside themes, with a search history you can archive.
+- Sort by any column, tick lines and add them to a sequence in one go, mark or hide lines already used.
+- Resize, move and hide columns. **Open in Pro View** from Themes and Find.
+
+**mVFX**
+- Titles land where the preview shows them (they were going off-screen).
+- Film grain and dust and scratches move like real film. Every preset has a moving preview.
+- A bar with the chosen preset and its button stays in view; double-click or + adds a preset; picture presets drag onto the timeline.
+- In Premiere 2027, titles go on as drawn clips with your words: scripts can't set editable title text in this version.
+- The "null" texts are gone.
+
+**New tools in Advanced**
+- **B-roll finder:** type what you need, see options from Pexels, Pixabay, Wikimedia Commons and YouTube with previews and licences, choose shape and size, and download only the ticked ones into a folder named after the search. Pexels and Pixabay need a free key each.
+- **Auto Sync:** lines up cameras and recorders by sound or timecode into a new sequence, and reports what couldn't be placed.
+
+**Settings and help**
+- Updates are at the top. The long AI sections fold away. The "null" above Refresh is fixed.
+- **Quick start**: a short guide in Settings, at the top of the GitHub page and first in "Read me first".
+- **Take the tour › Full guide** walks through everything.
+
 ## What's new in 1.3.39
 
 **New: Deliver › Other editors**
