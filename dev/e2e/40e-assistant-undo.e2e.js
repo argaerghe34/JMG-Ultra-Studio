@@ -92,7 +92,16 @@ try {
   T.assert(wc.length === 2 && before.length === 1, 'Continue: a copy from before the change is kept: ' + JSON.stringify(before.map(s => s.name)));
   T.assert((await US.host.call('sequenceInfo', { seqId: seq.id })).markers.some(m => m.name === 'In place'), 'and the sequence itself was changed');
   const pc = C.undoPlan(c);
-  T.assert(!pc.can.length && pc.cant.length === 1 && /can’t be put back from here/.test(pc.cant[0].text), 'Undo says plainly that it can’t put the sequence itself back: ' + JSON.stringify(pc));
+  // the marker it added in place is found by comparing before and after, so it can be taken off; the change to the
+  // sequence itself as a whole is listed as what Undo can't do, naming the copy kept from before
+  T.assert(pc.cant.length === 1 && pc.cant[0].entry.kind === 'inplace' && /can’t be put back from here/.test(pc.cant[0].text) && /before Ask/.test(pc.cant[0].text), 'Undo says plainly that it can’t put the sequence itself back: ' + JSON.stringify(pc));
+  T.assert(pc.can.every(x => x.entry.kind === 'markers' && x.entry.seqId === seq.id) && !pc.can.some(x => x.entry.kind === 'seq'), 'only its marker is offered – never the editor’s sequence or the copy from before: ' + JSON.stringify(pc.can.map(x => x.text)));
+  if (pc.can.length) {
+    const rc = await C.undo(c, { confirm: async () => 'keep' });
+    const left = (await US.host.call('sequenceInfo', { seqId: seq.id })).markers.map(m => m.name);
+    T.assert(!rc.failed.length && !left.includes('In place') && left.includes('The editor’s own'), 'Undo took its marker off and left the editor’s: ' + JSON.stringify([rc, left]));
+    T.assert((await seqsNamed(/before Ask$/)).length === 1, 'the copy from before is kept');
+  }
   out.cant = pc.cant[0].text;
 
   /* 4 – Producer on the same engine */
