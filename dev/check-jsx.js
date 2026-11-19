@@ -3,7 +3,9 @@
 const acorn = require('acorn'), fs = require('fs'), path = require('path');
 const root = path.join(__dirname, '..');
 const RESERVED = new Set(('break case catch continue default delete do else finally for function if in instanceof new return switch this throw try typeof var void while with ' +
-  'class const enum export extends import super null true false').split(' '));
+  'class const enum export extends import super null true false ' +
+  // ES3's "future reserved" words: ExtendScript refuses them too (a {native: …} key stopped nle.jsx loading, 19 Nov 2026)
+  'abstract boolean byte char debugger double final float goto implements int interface long native package private protected public short static synchronized throws transient volatile').split(' '));
 let bad = 0;
 
 function walkAst(node, fn) {
