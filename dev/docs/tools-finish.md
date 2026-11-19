@@ -93,6 +93,14 @@ A pad of buttons: click one and it goes on the clips selected in the Timeline �
 ### mVFX – a documentary titles pack
 Twelve groups of presets, each with a painted thumbnail and a live preview (press **Play** to watch the whole thing at its real speed). Click one, type the words, press the big button.
 
+**Adding one, four ways:** the button in the **bar that stays at the bottom** of the tab (it names the chosen preset), the **+** on a tile, a **double-click** on a tile, or **dragging a tile out to the editor**. A dragged picture (vignette, letterbox, film gate, paper, scan lines, flicker, the light leaks, the backgrounds) lands where you drop it, and then gets its blend mode, fade and length; everything else goes at the playhead – or, for movements, looks and transitions, on the selected clips (the clip under the playhead when nothing is selected) – because an editor doesn't tell a panel where a drop lands. The tab says which it did.
+
+**Every tile plays** what it does (only while it's on screen and the tab is open).
+
+**Film grain and Dust & scratches move** (Premiere): every frame is different – grain new on each frame; specks and hairs for a frame or two, scratches for a moment, the whole layer weaving a little like film in the gate. The frames are drawn once per sequence size and frame rate (a second or two), kept in the project's JMG Ultra Studio › mVFX folder, and added as one clip with its blend mode set and its opacity as the **Strength**. In Resolve they are Fusion generators, which move by themselves.
+
+**Text you can change in Premiere's Properties panel:** every **Plain text** preset (tiles marked *Editable text*), and any animated title with **Words as text layers** switched on (tiles marked *Editable text: optional*): each piece of text becomes Premiere's own text layer in the same place, face, size and colour, its lines and pen strokes stay animated underneath, and the letters fade in together instead of one by one. Titles made of more than eight separate pieces of text (calendar, long credits) stay one drawn clip.
+
 The first five groups are **animated**: small serif capitals with wide spacing that arrive letter by letter, soft at first, hold, and leave the same way; hairlines and ticks that draw on; digits that roll into place; pen strokes.
 - **Names** (Inline, Stacked, Ruled, Centred, Signed, Place & date): who is speaking, where and when. The name fields offer the people Story knows from the transcripts.
 - **Titles** (Film title, Chapter, Time passes, Scrawled heading, Closing line, Series card, Three facts).

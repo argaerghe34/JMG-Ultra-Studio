@@ -1,4 +1,5 @@
 // mVFX in the real editor: three clips in a fresh sequence, then – a lower third at 1 s (Premiere: a PNG rule + two
+// Basic Title text layers that really show in the exported frame, where the preview draws them;
 // Basic Title text layers on mVFX tracks, the words read back; Resolve: our Fusion title inserted from the Effects
 // Library, or a plain “install and restart” note the first time), a film-grain overlay, a held frame with the
 // spotlight look, a camera move (Premiere: keyframes; Resolve: a still punch-in), the Warm archive look (Premiere:
@@ -62,9 +63,29 @@ T.assert(role.ranges.length === 1 && role.ranges[0].name === 'NURSE', 'the role 
 let info = await read();
 const art = info.video.find(t => /^mVFX 1$/i.test(t.name));
 T.assert(art && art.clips.length === 1 && Math.abs(art.clips[0].start - 1) < 0.05 && /\.png$/i.test(art.clips[0].path || ''), 'the rule as a PNG on mVFX 1: ' + JSON.stringify(art && art.clips));
+// …and the title is really IN the picture (it used to be placed thousands of pixels outside it): the same title again
+// past the end of the clips, where the frame is otherwise black – what Premiere shows there against the panel's own drawing
+{
+  const path = require('path'), sz = await US.host.call('sequenceInfo', { seqId: seq.id, clips: false }), W = sz.width, H = sz.height, hair = P.byId('hairline'), hv = v(hair, { name: 'Mira Haddad', role: 'Nurse' });
+  const far = await M.apply(hair, hv, { at: 14 }, job);
+  T.assert(far.result.placed === 3, 'the title again at 14 s: ' + far.summary);
+  const file = await US.host.call('exportFrame', { seqId: seq.id, seconds: 14 + 3, outBase: path.join(M.artDir(), 'e2e-plain-title') });
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d', { willReadFrequently: true });
+  const box = { x: 0, y: Math.round(H * 0.66), w: Math.round(W * 0.7), h: Math.round(H * 0.3) };   // where Hairline sits
+  const stats = () => { const d = ctx.getImageData(box.x, box.y, box.w, box.h).data; let n = 0, sx = 0, sy = 0; for (let i = 0; i < d.length; i += 4) if ((d[i] * 2 + d[i + 1] * 3 + d[i + 2]) / 6 > 96) { n++; sx += (i / 4) % box.w; sy += Math.floor(i / 4 / box.w); } return { n, x: n ? sx / n / W : 0, y: n ? (box.y + sy / n) / H : 0 }; };
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); P.paint(ctx, W, H, hair, hv, { t: 1 }); const mine = stats();
+  const img = new Image(); await new Promise((ok, no) => { img.onload = ok; img.onerror = () => no(new Error('frame not readable: ' + file)); img.src = T.fileUrl(file) + '?' + Date.now(); });
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.drawImage(img, 0, 0, W, H); const shown = stats();
+  notes.push(`plain title in the picture: Premiere shows ${shown.n} bright px centred ${(shown.x * 100).toFixed(1)}%, ${(shown.y * 100).toFixed(1)}% · the panel draws ${mine.n} centred ${(mine.x * 100).toFixed(1)}%, ${(mine.y * 100).toFixed(1)}% · log ${JSON.stringify(far.result.log)} (${file})`);
+  T.assert(mine.n > 300, 'the panel draws the title: ' + mine.n);
+  T.assert(shown.n > mine.n * 0.3, `the title shows in Premiere’s picture where a lower third sits: ${shown.n} bright pixels against the panel’s ${mine.n} (${file})`);
+  T.assert(Math.abs(shown.x - mine.x) < 0.06 && Math.abs(shown.y - mine.y) < 0.06, `and it sits where the preview shows it: ${JSON.stringify(shown)} against ${JSON.stringify(mine)}`);
+  const sel = await US.host.call('renderRanges', { seqId: seq.id, track: 'mVFX 2', kinds: 'text' });
+  T.assert(sel.ranges.some(r => r.name === 'Mira Haddad' && Math.abs(r.start - 14) < 0.05), 'its words read back at 14 s: ' + JSON.stringify(sel.ranges));
+}
 // an overlay
 const g = await M.apply(P.byId('grain'), v(P.byId('grain')), { at: 2 }, job);
-T.assert(g.result.placed === 1, 'grain placed: ' + g.summary); notes.push('grain: ' + g.summary);
+T.assert(g.result.placed === 1 && g.result.moving && g.result.frames >= 100, 'grain placed as a moving clip: ' + g.summary + ' ' + JSON.stringify({ frames: g.result.frames, log: g.result.log })); notes.push('grain: ' + g.summary);
 // a held frame with its look
 const fr = await M.apply(P.byId('frzspot'), v(P.byId('frzspot')), { at: 3 }, job);
 T.assert(fs.existsSync(fr.result.path) && Math.abs(fr.result.start - 3) < 0.05 && Math.abs(fr.result.end - 6) < 0.1, 'the frame held for 3 s: ' + JSON.stringify(fr.result));

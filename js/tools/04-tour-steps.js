@@ -131,7 +131,8 @@
       { target: 'text:Check the sound', title: 'Sound Check (in development)', text: 'Checks the loudness, fixes it and ducks the music under speech – on a copy.' }
     ],
     mvfx: [
-      { target: '.mvfx-grid', title: 'mVFX (in development)', text: 'Documentary titles – names, dates, quotes and credits – placed as one clip at the playhead.' },
+      { target: '.mvfx-grid', title: 'mVFX', text: 'Documentary titles, moving film grain and dust, overlays, camera moves and looks. Every tile plays what it does. Click one to choose it; double-click it, press its +, or drag it to the editor to add it.' },
+      { target: '.mvfx-bar', title: 'Always in reach', text: 'The chosen preset and its button stay here while you scroll through the settings.' },
       { target: 'text:Colours and fonts', title: 'Your look', text: 'Colours and fonts for the whole pack.' }
     ],
     memorybox: [
