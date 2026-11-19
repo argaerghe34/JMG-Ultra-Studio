@@ -1,0 +1,14 @@
+TITLE: Promo v3
+FCM: NON-DROP FRAME
+
+001  AX       AA/V  C        10:00:05:00 10:00:09:00 01:00:00:00 01:00:04:00  
+* FROM CLIP NAME: A001_C003.mov
+* SOURCE FILE: /Volumes/Media/A001_C003.mov
+
+002  AX       V     C        00:00:12:10 00:00:14:10 01:00:04:00 01:00:06:00  
+* FROM CLIP NAME: drone_02.mp4
+|C:ResolveColorBlue |M:Logo here |D:1
+
+003  AX       V     D    012 00:00:30:00 00:00:33:00 01:00:06:00 01:00:09:00  
+* FROM CLIP NAME: drone_03.mp4
+* SOURCE FILE: /Volumes/Media/drone_03.mp4

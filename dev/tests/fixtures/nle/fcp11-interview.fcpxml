@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+
+<fcpxml version="1.13">
+    <resources>
+        <format id="r1" name="FFVideoFormat1080p2398" frameDuration="1001/24000s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)"/>
+        <asset id="r2" name="A001_interview" uid="0F3A" start="18018/5s" duration="1001/20s" hasVideo="1" format="r1" hasAudio="1" videoSources="1" audioSources="1" audioChannels="2" audioRate="48000">
+            <media-rep kind="original-media" sig="0F3A" src="file:///Volumes/Shoot%20Day%201/A001_interview.mov"/>
+        </asset>
+        <asset id="r3" name="B002_hands" start="0s" duration="240240/24000s" hasVideo="1" format="r1" hasAudio="0" videoSources="1">
+            <media-rep kind="original-media" src="file:///Volumes/Shoot%20Day%201/B002_hands.mov"/>
+        </asset>
+        <asset id="r4" name="Music bed" start="0s" duration="1440000/24000s" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000">
+            <media-rep kind="original-media" src="file:///Users/editor/Music/Music%20bed.wav"/>
+        </asset>
+        <asset id="r5" name="C001_wide" start="0s" duration="480480/24000s" hasVideo="1" format="r1" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000">
+            <media-rep kind="original-media" src="file:///Volumes/Shoot%20Day%201/C001_wide.mov"/>
+        </asset>
+        <asset id="r6" name="C002_close" start="0s" duration="480480/24000s" hasVideo="1" format="r1" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000">
+            <media-rep kind="original-media" src="file:///Volumes/Shoot%20Day%201/C002_close.mov"/>
+        </asset>
+        <effect id="r7" name="Basic Title" uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"/>
+        <effect id="r8" name="Gaussian Blur" uid="FFGaussianBlur"/>
+        <media id="r9" name="Panel multicam">
+            <multicam format="r1" tcStart="0s" tcFormat="NDF">
+                <mc-angle name="Wide" angleID="aWide">
+                    <asset-clip ref="r5" offset="0s" name="C001_wide" duration="480480/24000s" format="r1" tcFormat="NDF"/>
+                </mc-angle>
+                <mc-angle name="Close" angleID="aClose">
+                    <asset-clip ref="r6" offset="0s" name="C002_close" duration="480480/24000s" format="r1" tcFormat="NDF"/>
+                </mc-angle>
+            </multicam>
+        </media>
+    </resources>
+    <library location="file:///Users/editor/Movies/Doc.fcpbundle/">
+        <event name="Day 1" uid="E1">
+            <project name="Interview cut" uid="P1" modDate="2026-11-17 21:04:10 +0000">
+                <sequence format="r1" duration="3003/200s" tcStart="18018/5s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+                    <spine>
+                        <asset-clip ref="r2" offset="18018/5s" name="Anna – intro" start="29029/8s" duration="120120/24000s" format="r1" tcFormat="NDF">
+                            <adjust-volume amount="-3dB"/>
+                            <asset-clip ref="r3" lane="1" offset="3630627/1000s" name="Hands" start="1001/500s" duration="48048/24000s" format="r1" tcFormat="NDF">
+                                <filter-video ref="r8" name="Gaussian Blur"/>
+                            </asset-clip>
+                            <asset-clip ref="r4" lane="-1" offset="29029/8s" name="Music bed" duration="240240/24000s" audioRole="music">
+                                <adjust-volume amount="-12dB"/>
+                            </asset-clip>
+                            <marker start="1814813/500s" duration="1001/24000s" value="Good line" note="use in trailer"/>
+                            <chapter-marker start="29029/8s" duration="1001/24000s" value="Intro" posterOffset="0s"/>
+                            <keyword start="29029/8s" duration="120120/24000s" value="Label: Iris"/>
+                        </asset-clip>
+                        <transition name="Cross Dissolve" offset="7216209/2000s" duration="24024/24000s"/>
+                        <title ref="r7" offset="721721/200s" name="Lower third" start="18018/5s" duration="48048/24000s">
+                            <text><text-style ref="ts1">Anna Smith</text-style></text>
+                            <text-style-def id="ts1"><text-style font="Helvetica" fontSize="63"/></text-style-def>
+                        </title>
+                        <mc-clip ref="r9" offset="3610607/1000s" name="Panel multicam" start="24024/24000s" duration="72072/24000s">
+                            <mc-source angleID="aClose" srcEnable="video"/>
+                            <mc-source angleID="aWide" srcEnable="audio"/>
+                            <marker start="48048/24000s" duration="1001/24000s" value="Laugh" completed="0"/>
+                        </mc-clip>
+                        <gap name="Gap" offset="361361/100s" start="3600s" duration="120120/24000s"/>
+                    </spine>
+                </sequence>
+            </project>
+        </event>
+    </library>
+</fcpxml>
