@@ -160,7 +160,8 @@ test('the same case carried through: the bin fills, the reel is built on a new s
     const log = [], chat = C.newChat();
     await C.send(chat, 'a 30-second select reel of big boats with B-roll from the web', hooksFor(log, { planApprove: async () => ({ ok: true }) }), { mode: 'ask' });
     assert.strictEqual(log.filter(i => i.k === 'plan?').length, 1, 'the whole plan is approved once');
-    assert.ok(!log.some(i => i.k === 'approve?') && !log.some(i => i.k === 'warn?'), 'free clips, a small download, everything new: no card and no warning after that');
+    assert.deepStrictEqual(log.filter(i => i.k === 'approve?').map(i => (i.card.items || []).length), [3], 'the plan’s yes covers the steps – but the clips to download are still shown to untick');
+    assert.ok(!log.some(i => i.k === 'warn?'), 'free clips and a small download: no warning');
     assert.ok(fs.existsSync(path.join(WORK, 'JMG Ultra Studio', 'B-roll', 'big ships at sea', 'big boats')), 'the folder asked for, with a folder for the search inside');
     assert.ok(/The bin “Big boats” has 3 clips\./.test(x.res(2)));
     assert.ok(/3 placed in “Ask – Big boats – selects” \(a new sequence, 0:30 long, now your working sequence\)/.test(x.res(3)) && /NOT placed: f9: not a clip you have been shown/.test(x.res(3)), x.res(3));
@@ -257,7 +258,7 @@ test('one approval for a whole plan: yes covers every step of that request only;
   } finally { x.restore(); }
   x = setup([T('broll.search', { requests: ['boats'], freeOnly: false }, '', { understood: 'x', plan: ['a', 'b', 'c'] }), T('broll.download', { ids: ['b1'] }), T('finish', { reply: 'ok' })]);
   x.web.found = { boats: [mk('y', { licence: STD })] };
-  try { const log = []; await C.send(C.newChat(), 'get it', hooksFor(log, { planApprove: async () => ({ ok: true }) }), { mode: 'ask' }); assert.deepStrictEqual(log.filter(i => /\?$/.test(i.k)).map(i => i.k), ['plan?', 'warn?'], 'the warning is not covered by the plan’s yes'); } finally { x.restore(); }
+  try { const log = []; await C.send(C.newChat(), 'get it', hooksFor(log, { planApprove: async () => ({ ok: true }) }), { mode: 'ask' }); assert.deepStrictEqual(log.filter(i => /\?$/.test(i.k)).map(i => i.k), ['plan?', 'warn?', 'approve?'], 'the warning is not covered by the plan’s yes, and the picks are still shown'); } finally { x.restore(); }
 });
 
 test('the editor itself, by typed commands: a sequence’s settings, a copy, a new name (given back by Undo), In/Out; tracks and extracting on a copy; markers listed, added, changed, removed (the editor’s own only after a warning); the playhead, the selection, a frame – and an unknown command is refused', async () => {

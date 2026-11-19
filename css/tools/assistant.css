@@ -168,3 +168,7 @@
 .rail-btn .chat-done-dot { position: absolute; top: 5px; left: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rail-btn.chat-busy::after { animation: none; border-top-color: var(--accent-hi); } }
+/* many chats: one row that scrolls sideways, so the pinned top stays thin */
+.chat-head .chat-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.chat-head .chat-tabs::-webkit-scrollbar { display: none; }
+.chat-head .chat-tab { flex: none; }

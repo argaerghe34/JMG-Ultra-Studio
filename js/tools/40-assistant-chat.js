@@ -472,7 +472,8 @@
     const approve = async (risk, card) => {
       if (!asksFirst(risk, opts.mode, chat.always)) return { ok: true };
       // the editor said yes to the whole plan of this request: its steps run without a card each (stills leaving still ask)
-      if (chat.planOk === chat.requests && risk !== 'sees' && !card.always) return { ok: true, steps: card.steps };
+      // (a card with things to untick – clips to download – is still shown: card.always === false)
+      if (chat.planOk === chat.requests && risk !== 'sees' && card.always !== false) return { ok: true, steps: card.steps };
       // nobody may be there (a follow-up it set itself): the card waits for them, and says so
       if (opts.unattended) trace('ask', 'This step needs your say – waiting for you');
       chat.status = 'asking'; hooks.status();
@@ -497,7 +498,7 @@
       if (r !== 'continue') { trace('risk', 'You chose to change course – the step did not run'); throw { pause: true, title }; }
       trace('risk', 'You chose to continue');
       // a step with things to untick (clips to download) still shows its card after the warning, unless nothing is asked
-      if (info.thenCard && asksFirst(risk, opts.mode, chat.always) && chat.planOk !== chat.requests) return approve(risk, card);
+      if (info.thenCard && asksFirst(risk, opts.mode, chat.always)) return approve(risk, card);
       return { ok: true, steps: card.steps };
     };
     const journal = entry => journalAdd(chat, Object.assign({ step: title }, entry), hooks);

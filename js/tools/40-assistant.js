@@ -559,7 +559,9 @@
       // a built-in command, word for word: free and instant, with or without AI (in a new chat; a conversation goes to the AI)
       const off = matchOffline(text), fresh = !c.context;
       const own = s => s.action !== 'story.ask' && s.action !== 'edit.ask';
-      if (off.steps.length === 1 && own(off.steps[0]) && (!aiOn() || (fresh && quick(text)))) { note(c, text); showPlan(c, { reply: 'Here’s what I’ll do:', steps: off.steps }); return; }
+      // with AI, a request the chat can now do itself (find and download B-roll, download links) isn't answered by just opening that tab
+      const opensOnly = st => st.action === 'brollfinder.find' || st.action === 'youtube.open';
+      if (off.steps.length === 1 && own(off.steps[0]) && (!aiOn() || (fresh && quick(text) && !opensOnly(off.steps[0])))) { note(c, text); showPlan(c, { reply: 'Here’s what I’ll do:', steps: off.steps }); return; }
       if (!aiOn()) {
         note(c, text);
         if (off.steps.length === 1 && !own(off.steps[0])) { bubble(c, 'bot', h('div', 'That one needs AI – it has to read your project or interviews and work it out.'), h('div.field-hint', 'Add a Claude or Gemini key (or a local model) in Settings.'), ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings') })); return; }
