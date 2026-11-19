@@ -2227,6 +2227,19 @@
       else ui.toast({ type: notes ? 'warn' : 'ok', title: `${US.plural(clips.length, 'line')} ${r.mode === 'insert' ? 'inserted' : 'placed'} at ${US.fmtDur(r.start)}`, text: `The playhead is now after them.${notes ? ' ' + notes : ''}`, timeout: notes ? 10000 : 3000 });
     } catch (err) { ui.showError(err); }
   }
+  /** Pro View: lines after the last clip of the open sequence (same pieces, handles and colours as at the playhead;
+      nothing is there, so nothing is overwritten or moved). */
+  async function placeAtEnd(lines, { labelOf = labelOfLine } = {}) {
+    try {
+      if (!lines.length) return;
+      if (!US.ctx.sequence) throw new US.UserError('NO_SEQUENCE');
+      const clips = await placeClipsFor(placePieces(lines, labelOf));
+      const info = await US.host.call('sequenceInfo', { seqId: US.ctx.sequence.id, clips: false });
+      const at = Number(info.duration) || 0;
+      await US.host.call('storyPlace', { seqId: info.id, cursor: at, method: 'relabel', clips: clips.map(c => ({ id: c.id, in: c.in, out: c.out, label: c.label })) });
+      ui.toast({ type: 'ok', title: `${US.plural(clips.length, 'line')} added at the end of “${info.name}”`, text: `From ${US.fmtDur(at)}.`, timeout: 3000 });
+    } catch (err) { ui.showError(err); }
+  }
   /** A line in the Source Monitor with its In and Out set (Resolve: selected in the Media Pool with them marked). */
   async function openInSource(l) {
     try {
@@ -2234,6 +2247,10 @@
       const r = await US.host.call('storySourceRange', c);
       if (!r.opened) ui.toast({ type: 'info', title: 'Selected in the Media Pool with In and Out marked', text: 'Resolve can’t open clips in the Source Viewer by script: double-click it to open the line there.', timeout: 5000 });
     } catch (err) { ui.showError(err); }
+  }
+  /** The obvious next step from Themes and Find: the same lines in Pro View's table (22-story-lines.js). */
+  function proViewButton(source, { small = true, kind = 'secondary' } = {}) {
+    return ui.button('Open in Pro View', { small, kind, icon: 'log', title: 'See these lines in one table – sort, tick several, add them to a sequence', onClick: () => US.tools.open('storylines', typeof source === 'function' ? source() : source) });
   }
   /** The two buttons on a line: Source Monitor with In/Out, and at the playhead. lines() -> the lines to place. */
   function placeButtons(l, lines = () => [l], labelOf = labelOfLine) {
@@ -2905,6 +2922,8 @@
         const f = Object.assign({ recent: [] }, state.finds);
         f.last = e;
         f.recent = [e].concat((f.recent || []).filter(x => !(x.mode === e.mode && normQ(x.q) === normQ(q)))).slice(0, 12);
+        // Pro View (22-story-lines.js) keeps every search, with what it found – not only the last 12
+        if (US.proView) US.proView.remember(state, e, moreMode ? null : results.map(r => r.line.id));
         state.finds = f; save();
       }
       function openFind(e) {
@@ -3008,6 +3027,7 @@
         const idx = Q().indexOf(state.transcripts), total = saved.results.reduce((k, r) => k + r.answers.length, 0);
         box.appendChild(h('div.story-moments-bar',
           h('div.row', h('span.field-hint.grow', `${US.plural(total, 'answer')} to ${US.plural(saved.results.length, 'question')}${saved.missing ? ' · ' + saved.missing : ''}`),
+            proViewButton({ source: 'q:all' }),   // Pro View: the answers, a group per question
             ui.button('Save as Word', { small: true, icon: 'note', title: 'A document with a heading per question and every answer under it, with source timecodes', onClick: () => US.jobs.run({ title: 'Saving the answers', tool: 'story' }, async job => { const r = await exportBoard(job, 'docx', { source: 'questions', asked: qAsked }); openFile(r.file); return r; }) }),
             ui.button('Build the answers', { small: true, kind: 'primary', icon: 'film', title: 'A new sequence: each question’s answers together, best first, in the question’s colour, with a marker on each answer', onClick: () => US.jobs.run({ title: 'Building the answers', tool: 'story' }, job => buildAnswers(job, { asked: qAsked })) })),
           ui.toggle({ label: 'Start each answer with the question being asked', hint: 'When the interviewer is heard asking it.', value: qAsked, onChange: x => { qAsked = x; US.settings.set('story.qAsked', x); render(); } }),
@@ -3071,6 +3091,7 @@
         const marked = momSeq && state.momentMarkers && state.momentMarkers[momSeq];
         box.appendChild(h('div.story-moments-bar',
           h('div.row', h('span.field-hint.grow', `${US.plural(shown.length, 'moment')} shown${list.length > kept.length ? ` · ${list.length - kept.length} more at a less picky setting` : ''}`), selectAllToggle(shown.slice(0, 300).map(m => m.lineId)),
+            proViewButton(() => ({ source: 'm:' + momentType })),   // Pro View: the moments, by type
             BOARD ? ui.button('Add to board', { small: true, icon: 'story', title: 'A board group per type: Moments · Bloopers, Moments · Funny…', onClick: () => { const n = addMomentsToBoard(shown); ui.toast({ type: 'ok', title: n ? `${US.plural(n, 'moment')} added to the board` : 'They’re all on the board already', action: n ? { label: 'Open board', fn: () => show('wall') } : null }); } })
               : ui.button('Make themes of these', { small: true, icon: 'story', title: 'A theme per type – “Moments · Funny”, “Moments · Bloopers”… – each in its type’s colour, to build, put in bins or share', onClick: () => { const r = momentsTheme(shown, momentType); ui.toast({ type: 'ok', title: r.added ? `${US.plural(r.added, 'moment')} in ${r.themes.length === 1 ? `the theme “${r.theme.name}”` : `${r.themes.length} themes (one per type)`}` : 'They’re all in their themes already', action: { label: 'Open Themes', fn: () => show('themes') } }); } }),
             ui.button('Build these moments', { small: true, kind: 'primary', icon: 'film', title: 'A new sequence, grouped by type, each type in its own colour and every clip labelled', onClick: () => US.jobs.run({ title: 'Building the moments', tool: 'story' }, job => buildMoments(job, shown, { colour: momColours, labels: momLabels, name: `Story – moments${momentType === 'all' ? '' : ' – ' + M.TYPES[momentType].plural.toLowerCase()}` })) })),
@@ -3095,7 +3116,8 @@
         US.clear(list);
         if (!lastQuery.trim()) { list.appendChild(h('div.field-hint', `Search ${US.plural(scopeLines().length, 'line')} (${scopeLabel().replace(/^All /, 'all ')}). Tick lines to add them to a theme or build them. “Find more” looks for anything on a topic that isn’t in a theme yet.`)); return; }
         if (!results.length) { list.appendChild(ui.empty({ icon: 'target', title: 'Nothing found', text: 'Try a shorter or different word, or “Find more”.' })); return; }
-        list.appendChild(h('div.row.story-select-row', h('span.field-hint.grow', `${US.plural(results.length, 'line')} · best first`), selectAllToggle(results.map(r => r.line.id))));
+        list.appendChild(h('div.row.story-select-row', h('span.field-hint.grow', `${US.plural(results.length, 'line')} · best first`), selectAllToggle(results.map(r => r.line.id)),
+          proViewButton(() => ({ find: { q: lastQuery, mode: 'search' } }), { kind: 'primary' })));   // Pro View on this search
         const p = picked();
         for (const r of results) list.appendChild(lineRow(r.line, { hits: r.hits, checked: p.has(r.line.id), onCheck: on => { togglePick(r.line.id, on); } }));
       }
@@ -3110,7 +3132,8 @@
           const k = keep(), p = picked();
           const rows = moreResults.filter(r => k.has(r.line.id));
           if (!rows.length) { box.appendChild(ui.empty({ icon: 'target', title: moreResults.length ? 'Nothing at this setting' : 'Nothing new found', text: moreResults.length ? 'Choose a less picky setting above.' : 'Everything on this topic is already selected – or try other words.' })); return; }
-          box.appendChild(h('div.row.story-select-row', h('span.grow'), selectAllToggle(rows.map(r => r.line.id))));
+          box.appendChild(h('div.row.story-select-row', h('span.grow'), selectAllToggle(rows.map(r => r.line.id)),
+            proViewButton(() => ({ find: { q: moreTopic, mode: 'more' } }), { kind: 'primary' })));   // Pro View on this Find more
           for (const r of rows) box.appendChild(lineRow(r.line, { reasons: r.reasons, checked: p.has(r.line.id), onCheck: on => togglePick(r.line.id, on) }));
         };
         list.append(h('div.field-hint', `Find more: “${moreTopic}” – ${US.plural(moreResults.length, 'new line')}. ${moreInfo}`),
@@ -3251,6 +3274,7 @@
         el.appendChild(h('div.row',
           h('span.field-hint.grow', `${US.plural(themes.length, 'theme')} · tick two or more to merge`),
           ui.button('Merge ticked', { small: true, onClick: mergeThemes }),
+          proViewButton({ source: 'all' }, { kind: 'primary' }),   // Pro View: every theme's lines in one table
           BOARD ? ui.button('Arrange on the board', { small: true, kind: 'primary', icon: 'story', title: 'Put every theme on the post-it board, ready to sort and arrange', onClick: async () => { if (state.wall.columns.length && !(await ui.confirm({ title: 'Replace the board?', text: 'The board is rebuilt from these themes (as chosen by How picky). Notes, order and idea cards on it are lost.', ok: 'Replace' }))) return; fillWallFromThemes(); show('wall'); } }) : null));
         // how picky (project setting; a theme can have its own in its ⋯ menu)
         const named = themes.filter(t => t.name !== 'Other');
@@ -3287,7 +3311,8 @@
             lines.length ? null : h('div.field-hint', all.length ? 'No lines at this setting – try a less picky one.' : 'No lines yet – press “Find more” to look for some.'),
             h('div.row',
               lines.length > 2 || isOpen ? ui.button(isOpen ? 'Show less' : `Show all ${lines.length}`, { small: true, kind: 'ghost', onClick: () => { isOpen ? openThemes.delete(th.id) : openThemes.add(th.id); render(); } }) : null,
-              ui.button('Find more', { small: true, kind: 'ghost', icon: 'target', title: 'Look for more lines on this theme that aren’t selected yet', onClick: () => startFindMore({ topic: th.query || th.name, theme: th }) })),
+              ui.button('Find more', { small: true, kind: 'ghost', icon: 'target', title: 'Look for more lines on this theme that aren’t selected yet', onClick: () => startFindMore({ topic: th.query || th.name, theme: th }) }),
+              proViewButton({ source: 'theme:' + th.id })),   // Pro View on this theme
             more));
         }
         // one more theme later, without reading everything again
@@ -4574,7 +4599,7 @@
   US.story = {
     sequenceRange, setMulticamScope,
     /** for other tabs (Word cloud): play a line, who said it, which interview, and the lines to work on */
-    readReference, matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), dragLines: (e, lines) => dragLines(e, lines), placeAtPlayhead: lines => placeAtPlayhead(lines), openInSource: l => openInSource(l), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
+    readReference, matchScript, buildScript, cueLine: (l, at) => cueLine(l, at), dragLines: (e, lines, o) => dragLines(e, lines, o), placeAtPlayhead: (lines, o) => placeAtPlayhead(lines, o), openInSource: l => openInSource(l), lineOf: id => lineById.get(id), interviewOf: id => clipOfLine.get(id), speakerName: s => speakerName(s), isInterviewer: l => isInterviewer(l), linesInScope: job => linesInScope(job), newThemeFrom: (name, ids) => newThemeFrom(name, ids),
     scoreBeats, boardGroups, findClips, buildClips, finishSocial, applyBites, biteRules, fitToLength, parseLength, groupsLength, glossary: () => (loadState(), state.glossary || []),
     /** Open Story at a section: transcripts, find, themes, board, narrative, timeline, moments, highlights */
     open(section) { US.tools.open('story', Object.assign({}, SECTIONS[section] || { tab: 'transcripts' })); },
@@ -4594,6 +4619,9 @@
     findMoments, momentsPlan, pickMoments, addMomentsToBoard, momentsTheme, buildMoments, themeGroups, BOARD, markMoments, removeMomentMarkers,
     askInterviews, askCut, askLeaveOut, askSpans, buildAsk, markAsk, removeAskMarkers, askThemes, askText, askCard: (...a) => askCard(...a), asks: () => (loadState(), state.asks || []),
     findAnswers, buildAnswers, answerSpans, scopeTranscripts: (...a) => scopeTranscripts(...a), contextInfo: () => contextInfo(), contextLine: () => contextLine(),
+    /** for Pro View (22-story-lines.js): Find’s own search, placing and its options */
+    search: (q, o) => T.search(q, scopeLines(), Object.assign({ limit: 200 }, o)), placeAtEnd: (lines, o) => placeAtEnd(lines, o),
+    placeOpts: () => placeOpts(), placeOptionsSection: () => placeOptionsSection(), questionLabel, orderToggle: (...a) => orderToggle(...a),
     /** tests only: use a state object without a project */
     _useState(s) { session = null; clearTimeout(sharedTimer); sharedTimer = null; state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }
   };

@@ -42,10 +42,12 @@
       { target: 'text:5 Share', title: '5 · Share', text: 'The interview log and paper edit for your director or client, and a transcript of any sequence.' }
     ],
     storylines: [
-      { target: '.sl-themes', title: 'Themes', text: 'Pick a theme – or All lines, or the lines in no theme yet. The number is how many lines it has at the pickiness chosen above.' },
-      { target: '.sl-table', title: 'Every line in one table', text: `Who, when, the line, its theme, ★ for a strong complete line, and its length. Click a column to sort; shift- or ${US.fsx && US.fsx.isWin ? 'Ctrl' : '⌘'}-click to pick several.`, tip: 'Keys: J and K move, space plays, Return puts the lines at the playhead, / filters.' },
-      { target: '.sl-insp', title: 'The line you picked', text: 'Read it in full, play it, open it in the Source Monitor, put it at the playhead, or find more like it. With several picked: put them all at the playhead, or make a new theme from them.' },
-      { target: '.sl-find', title: 'Filter', text: 'Type a word, a speaker or a theme to narrow the table.', tip: 'Widen or undock the panel to see the themes, the table and the line side by side.' }
+      { target: '.pv-list', title: 'What the table shows', text: 'A group each for your themes, the searches you made in Find, the answers to your interview questions and the moments Story found – questions and moments appear once you’ve used them. Click a group’s title to fold it away.', tip: 'Hide a search with the eye beside it: it goes to Archived at the bottom, and comes back from there.' },
+      { target: '.pv-listbtn', title: 'Hide the list', text: 'Folds the whole list away so the table gets the full width. Pro View remembers it.' },
+      { target: '.pv-table', title: 'Every line in one table', text: `A tick box, ★, who, when, the line, its theme and its length. Click a column’s title to sort by it and again to reverse; drag the edge of a title to change the width, or press and drag the title to move the column. Tick lines (shift- or ${US.fsx && US.fsx.isWin ? 'Ctrl' : '⌘'}-click for several) to add them to a sequence in one go, or to star them.`, tip: 'Keys: J and K move, space plays, X ticks, Return puts the lines at the playhead, / filters.' },
+      { target: '.sl-insp', title: 'The line you picked', text: 'Read it in full, play it, open it in the Source Monitor, put it at the playhead, star it, or find more like it. A moment where nothing is said shows what happens in it instead.' },
+      { target: '.pv-opts', title: 'Used lines and columns', text: 'Mark the lines that are already in the open sequence, or hide them so you only see what’s left. Reset the columns here too.' },
+      { target: '.sl-find', title: 'Filter', text: 'Type a word, a speaker or a theme to narrow the table.', tip: 'Widen or undock the panel to see the list, the table and the line side by side.' }
     ],
     wiki: [
       { target: '@head', title: 'Story wiki', text: 'A quick reference made from every interview: an overview, each interview in brief, and the people, places and dates – each fact with the line that says it.', tip: 'It needs AI. Without it, Story › Find searches the same transcripts.' }
