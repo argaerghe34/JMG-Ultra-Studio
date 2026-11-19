@@ -248,6 +248,37 @@ module.exports = (R, fns) => {
       return { removed, kept };
     },
 
+    /* ---------- Ask: finding its way round a big project (as jsx/tools/edit.jsx) ---------- */
+    /** a: {filter, offset, limit} -> {total, bins:[{id, path, clips, bins}]} */
+    askBins(a) {
+      a = a || {};
+      const f = String(a.filter || '').toLowerCase(), off = +a.offset || 0, lim = +a.limit || 200;
+      const all = R.index().folders.filter(x => x.parts.length).map(x => ({ id: x.id, path: R.binPath(x.parts), clips: R.list(x.folder.GetClipList()).length, bins: R.list(x.folder.GetSubFolderList()).length })).filter(b => !f || b.path.toLowerCase().includes(f));
+      return { total: all.length, bins: all.slice(off, off + lim) };
+    },
+    /** a: {name, path, bin, kinds, offset, limit, idsOnly} -> {total, items:[{id, name, bin, path, kind}]} or {total, ids} */
+    askFind(a) {
+      a = a || {};
+      const idx = R.index(), has = (t, part) => !part || String(t).toLowerCase().includes(String(part).toLowerCase());
+      if (a.idsOnly) { const ids = idx.clips.map(c => c.id); return { total: ids.length, ids }; }
+      const off = +a.offset || 0, lim = +a.limit || 300, kinds = Array.isArray(a.kinds) && a.kinds.length ? a.kinds : null, items = [];
+      let total = 0;
+      for (const c of idx.clips) {
+        if (R.isSubtitle(c.item)) continue;
+        const name = String(tryCall(() => c.item.GetName(), ''));
+        if (!has(name, a.name)) continue;
+        const bin = R.binPath(c.parts);
+        if (!has(bin, a.bin)) continue;
+        const file = String(R.prop(c.item, 'File Path') || '');
+        if (a.path && !has(file.replace(/\\/g, '/'), String(a.path).replace(/\\/g, '/'))) continue;
+        const kind = R.quickKind(c.item);
+        if (kinds && !kinds.includes(kind)) continue;
+        total++;
+        if (total > off && items.length < lim) items.push({ id: c.id, name, bin, path: file, kind });
+      }
+      return { total, items };
+    },
+
     /**
      * Ask › dictation: the words in a short recording, by Resolve's own transcription on this computer (21.1+). The
      * file goes into JMG Ultra Studio/.dictation, is transcribed, read and taken out again (the bin too).

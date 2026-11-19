@@ -13,6 +13,18 @@
     { id: 'starter-podcast', name: 'Podcast episode', starter: true, steps: [{ action: 'podcast.switch', params: {} }, { action: 'silence.cut', params: { fillers: true, pauses: false } }, { action: 'deliver.text', params: {} }] },
     { id: 'starter-deliver', name: 'Check and deliver', starter: true, steps: [{ action: 'check.run', params: {} }, { action: 'safezones.hide', params: {} }, { action: 'deliver.pack', params: {} }] }
   ];
+  // whole jobs Ask does by itself, several tools in a row (dev/docs/ask-chains.md has the full list and what each needs).
+  // Shown as “Try a whole job” in an empty chat: the request goes in the box with the [part to change] selected.
+  const CHAINS = [
+    { id: 'broll-reel', name: 'Select reel from web B-roll', ask: 'On a new sequence, make me a 30-second select reel of the best moments of [big boats], with B-roll from the web', steps: ['search B-roll', 'choose and download', 'make a bin and bring it in', 'build the sequence', 'check its length'] },
+    { id: 'promo', name: 'Promo from the interviews', ask: 'Make a 60-second promo from the interviews about [why they came], then check it', steps: ['ask the interviews', 'build the sequence', 'read it back', 'Final Check'] },
+    { id: 'tidy-finish', name: 'Tighten and finish', ask: 'Cut the silences, add lower thirds with each speaker’s name the first time they talk, add safe zones and run Final Check', steps: ['cut the silences (a copy)', 'lower thirds', 'safe zones', 'Final Check'] },
+    { id: 'cover-cuts', name: 'Cover the jump cuts', ask: 'Cover the jump cuts in this sequence with B-roll from the bin [B-roll]', steps: ['read the sequence', 'find the clips', 'place them over the cuts on V2 (a copy)', 'read it back'] },
+    { id: 'tidy-new', name: 'Tidy what’s new', ask: 'Find what’s new in the project and put it in bins by subject', steps: ['what is new', 'make the bins', 'move the clips'] },
+    { id: 'bring-folder', name: 'Bring in a folder', ask: 'Bring the folder [paste the folder’s path] into a bin called [B-roll] and tell me what’s in it', steps: ['look in the folder', 'import into the bin', 'report'] },
+    { id: 'check-later', name: 'Check again later', ask: 'Check in [30] minutes whether the download has finished, then bring the new files into the bin [B-roll]', steps: ['set a follow-up', 'look in the folder', 'import'] },
+    { id: 'verticals', name: 'Vertical cut with captions', ask: 'Make a vertical version of this sequence with captions and check it', steps: ['vertical copy', 'captions', 'Final Check'] }
+  ];
   const mine = () => { const r = US.settings.get('recipes', []); return Array.isArray(r) ? r : []; };
   /** Every recipe: yours (newest first), then the starters whose actions exist here. */
   function list() {
@@ -83,5 +95,5 @@
     }
   });
 
-  US.recipes = { STARTERS, list, save, remove, rename, describe, run, cleanStep };
+  US.recipes = { CHAINS, STARTERS, list, save, remove, rename, describe, run, cleanStep };
 })();

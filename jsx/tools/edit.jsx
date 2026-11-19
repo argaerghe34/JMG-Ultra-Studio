@@ -299,4 +299,54 @@
     fn.dictateTranscribe = function (a) {
         return { unsupported: true, why: 'Premiere can’t be asked to transcribe from a panel.' };
     };
+    /* ---------- Ask: finding its way round a big project (bins with counts, clips by name, file or bin) ---------- */
+    function askKind(c) {
+        var isSeq = false; try { isSeq = c.isSequence(); } catch (e) { }
+        if (isSeq) return 'sequence';
+        var p = ''; try { p = c.getMediaPath() || ''; } catch (e2) { }
+        if (!p) return 'other';
+        if (/\.(wav|bwf|mp3|aiff?|m4a|aac|flac|ogg|wma|caf)$/i.test(p)) return 'audio';
+        if (/\.(jpe?g|png|tiff?|psd|ai|bmp|gif|heic|webp|dng|exr|tga)$/i.test(p)) return 'still';
+        return 'video';
+    }
+    function has(text, part) { return !part || String(text).toLowerCase().indexOf(String(part).toLowerCase()) >= 0; }
+    /**
+     * The project's bins with how much is in each. a: {filter (part of the path), offset, limit}
+     * -> {total, bins:[{id, path, clips, bins}]} (clips and bins: directly inside it)
+     */
+    fn.askBins = function (a) {
+        var all = [], off = Number(a.offset) || 0, lim = Number(a.limit) || 200, out = [], i;
+        U.walk(U.project().rootItem, function (c) {
+            if (c.type !== 2) return;
+            var path = U.binPath(c);
+            if (!has(path, a.filter)) return;
+            var n = 0, b = 0;
+            try { for (var k = 0; k < c.children.numItems; k++) { if (c.children[k].type === 2) b++; else n++; } } catch (e) { }
+            all.push({ id: c.nodeId, path: path, clips: n, bins: b });
+        });
+        for (i = off; i < all.length && out.length < lim; i++) out.push(all[i]);
+        return { total: all.length, bins: out };
+    };
+    /**
+     * Clips by part of their name, of their file's path, or of their bin's path. a: {name, path, bin, kinds:['video'…],
+     * offset, limit, idsOnly} -> {total, items:[{id, name, bin, path, kind}]} or, with idsOnly, {total, ids:[…]}
+     */
+    fn.askFind = function (a) {
+        var off = Number(a.offset) || 0, lim = Number(a.limit) || 300, total = 0, items = [], ids = [], kinds = a.kinds || null;
+        function wanted(k) { if (!kinds || !kinds.length) return true; for (var j = 0; j < kinds.length; j++) if (kinds[j] === k) return true; return false; }
+        U.walk(U.project().rootItem, function (c) {
+            if (c.type === 2 || c.type === 3) return;
+            if (a.idsOnly) { total++; ids.push(c.nodeId); return; }
+            if (!has(c.name, a.name)) return;
+            var bin = U.binPath(c);
+            if (!has(bin, a.bin)) return;
+            var p = ''; try { p = c.getMediaPath() || ''; } catch (e) { }
+            if (a.path && !has(p.replace(/\\/g, '/'), String(a.path).replace(/\\/g, '/'))) return;
+            var k = askKind(c);
+            if (!wanted(k)) return;
+            total++;
+            if (total > off && items.length < lim) items.push({ id: c.nodeId, name: c.name, bin: bin, path: p, kind: k });
+        });
+        return a.idsOnly ? { total: total, ids: ids } : { total: total, items: items };
+    };
 })(UStudio);

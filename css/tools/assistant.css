@@ -149,3 +149,22 @@
 .chat-mic-level { flex: none; width: 70px; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .chat-mic-level i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s linear; }
 .chat-mic-time { color: var(--text-2); }
+
+/* ---------- Ask on its own: picks to untick, follow-ups, the rail button ---------- */
+.chat-picks { display: flex; flex-direction: column; gap: 6px; }
+.chat-pick { display: flex; gap: 8px; align-items: center; cursor: pointer; padding: 4px; border: 1px solid var(--border); border-radius: 8px; }
+.chat-pick.warn { border-color: var(--warn); }
+.chat-pick-thumb { flex: none; width: 64px; height: 36px; border-radius: 4px; object-fit: cover; background: var(--surface-3); }
+.bubble.chat-card.chat-card-done .chat-pick input, .bubble.chat-card.chat-card-done .chat-pick .btn { display: none; }
+.chat-follow { display: flex; flex-direction: column; gap: 4px; }
+.chat-follow.hidden { display: none; }
+.chat-follow-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 4px 8px; border: 1px dashed var(--accent); border-radius: 10px; background: var(--surface); }
+.chat-follow-row.due { border-color: var(--warn); border-style: solid; }
+.chat-follow-clock { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--accent-hi); }
+.chat-follow-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.bubble.chat-auto { color: var(--text-2); }
+.rail-btn.chat-busy::after { content: ""; position: absolute; top: 4px; right: 9px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--accent-hi); border-top-color: transparent; animation: chat-spin 0.9s linear infinite; }
+.rail-btn.chat-needs-you::after { content: ""; position: absolute; top: 5px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.rail-btn .chat-done-dot { position: absolute; top: 5px; left: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+@keyframes chat-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rail-btn.chat-busy::after { animation: none; border-top-color: var(--accent-hi); } }

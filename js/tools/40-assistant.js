@@ -207,7 +207,7 @@
       const plan = cur ? C.undoPlan(cur) : { can: [], cant: [] };
       undoAllBtn.classList.toggle('hidden', !plan.can.length && !plan.cant.length);
       undoAllBtn.disabled = !!mine;
-      drawCost(); drawWorking(); drawAnswers(); drawSettings();
+      drawCost(); drawWorking(); drawAnswers(); drawSettings(); drawFollow(); railMark();
     }
     /** Chats kept with the project: the open ones and, under Earlier, the ones closed (the newest 30). */
     // in the project's own store (not projectSettings: that falls back to the last project's value, and chats belong to one project)
@@ -217,9 +217,11 @@
     const earlier = () => stored().closed.filter(x => !chats.some(c => c.id === x.id));
     const keep = US.debounce(() => { try { const s = stored(); store({ open: chats.filter(c => c.items.length).map(C.toStored), closed: s.closed.filter(x => !chats.some(c => c.id === x.id)).slice(0, 30) }); } catch (e) { /* a convenience */ } }, 600);
     function add() { const c = C.newChat({ model: set('model', 'auto'), always: !!set('always', false), persona: PERSONA }); chats.push(c); mount(c); return c; }
-    function mount(c) { c.logEl = h('div.chat.hidden'); c.bubbles = []; logs.appendChild(c.logEl); if (c.items.length) { for (const it of c.items) render(c, it, true); } else greet(c); }
+    function mount(c) { c._resume = (chat, f) => converse(chat, f.text, { unattended: true }); c._changed = () => { drawTabs(); keep(); }; c.logEl = h('div.chat.hidden'); c.bubbles = []; logs.appendChild(c.logEl); if (c.items.length) { for (const it of c.items) render(c, it, true); } else greet(c); }
     function show(c) { cur = c; for (const x of chats) x.logEl.classList.toggle('hidden', x !== c); drawTabs(); drawModels(); const last = c.logEl.lastChild; if (last && last.scrollIntoView) last.scrollIntoView({ block: 'end' }); setTimeout(() => input.focus(), 30); }
     function close(c) {
+      for (const f of c.followups || []) C.cancelFollowUp(c, f.id);
+      C.disarm(c);
       if (c.status !== 'idle') { C.stop(c); if (c.pending) c.pending(null); }
       chats = chats.filter(x => x !== c); c.logEl.remove();
       if (c.items.length) { try { const s = stored(); store({ open: s.open.filter(x => x.id !== c.id), closed: [C.toStored(c)].concat(s.closed.filter(x => x.id !== c.id)).slice(0, 30) }); } catch (e) { /* a convenience */ } }
@@ -246,6 +248,28 @@
       if (liveList._for !== cur || liveList.children.length > tr.length) { US.clear(liveList); liveList._for = cur; }
       for (let i = liveList.children.length; i < tr.length; i++) liveList.appendChild(traceRow(tr[i]));
     }
+
+    /* ----- follow-ups it set itself (“check again in 30 minutes”): a chip with a countdown and Cancel ----- */
+    const followBar = h('div.chat-follow.hidden');
+    const hhmm = at => { try { return new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+    const countdown = ms => { ms = Math.max(0, ms); const s0 = Math.round(ms / 1000), hh = Math.floor(s0 / 3600), mm = Math.floor((s0 % 3600) / 60), ss = s0 % 60; return hh ? `${hh} h ${mm} min` : mm ? `${mm} min ${ss < 10 ? '0' : ''}${ss} s` : `${ss} s`; };
+    function drawFollow() {
+      const fs2 = cur ? (cur.followups || []).filter(f => f.state === 'pending' || f.state === 'due' || f.state === 'running') : [];
+      US.clear(followBar);
+      followBar.classList.toggle('hidden', !fs2.length);
+      for (const f of fs2) {
+        if (f.state === 'due') followBar.appendChild(h('div.chat-follow-row.due', h('span.grow', h('b', `Was due at ${hhmm(f.at)}, while the panel was closed: `), US.say(f.text)),
+          ui.button('Run it now', { small: true, kind: 'primary', onClick: () => { C.runFollowUp(cur, f.id); drawFollow(); keep(); } }), ui.button('Skip', { small: true, kind: 'ghost', onClick: () => { C.cancelFollowUp(cur, f.id); drawFollow(); keep(); } })));
+        else followBar.appendChild(h('div.chat-follow-row', h('span.chat-follow-clock', f.state === 'running' ? 'Now' : `Back in ${countdown(f.at - C.clock.now())}`), h('span.grow.chat-follow-text', { title: f.text }, US.say(f.text)),
+          f.state === 'running' ? null : ui.button('Cancel', { small: true, kind: 'ghost', title: 'Don’t come back to this', onClick: () => { C.cancelFollowUp(cur, f.id); drawFollow(); keep(); } })));
+      }
+    }
+    setInterval(() => { if (cur && (cur.followups || []).some(f => f.state === 'pending') && followBar.isConnected) drawFollow(); }, 1000);
+    /* the Ask button on the rail: a ring while any chat works, a dot when one finished while you were elsewhere */
+    const railBtn = () => { try { return document.querySelector(TOOL === 'assistant' ? '.rail-ask, .rail-btn[data-id="assistant"]' : `.rail-btn[data-id="${TOOL}"]`); } catch (e) { return null; } };
+    const away = () => !head.isConnected || head.offsetParent === null;
+    function railMark() { const b = railBtn(); if (!b || !b.classList) return; b.classList.toggle('chat-busy', chats.some(c => c.status !== 'idle' && c.status !== 'asking')); b.classList.toggle('chat-needs-you', chats.some(c => c.status === 'asking')); }
+    function railDone(on) { const b = railBtn(); if (!b || !b.querySelector) return; const d = b.querySelector('.chat-done-dot'); if (on && !d) b.appendChild(h('span.chat-done-dot', { title: 'A chat finished while you were away' })); else if (!on && d) d.remove(); }
 
     /* ----- answers to a question: buttons just above the one chat box ----- */
     const answers = h('div.chat-answers.hidden');
@@ -317,10 +341,20 @@
       if (aiOn()) bubble(c, 'bot', h('div', 'Tell me what you want – in your own words. I read your project, sequences and interviews as text, tell you what I understood and what I’ll do, ask when I’m not sure, and ask before I change anything.'), chips(EXAMPLES),
         h('div.field-hint', `Worked out by ${US.ai.label()}. Text is sent – and a few small stills only if you’ve switched that on for this project (you’re asked each time); never video or sound. Start another chat with + while this one works.`),
         asks.length ? h('div', h('div.field-hint', 'Earlier answers from your interviews:'), h('div.chat-chips', asks.map(a => h('button.chip', { onclick: () => { bubble(c, 'me', a.request); showAsk(c, a); } }, US.storyAsk.title(a.request))))) : null,
-        recipeChips(c));
+        chainChips(), recipeChips(c));
       else bubble(c, 'bot', h('div', 'Hi! I can run any JMG Ultra Studio tool for you. Try one of these:'), chips(exampleChips()),
         h('div.field-hint', 'These work without any AI. Add a Claude or Gemini key in Settings and I’ll understand anything you ask – edits, questions about your interviews, several steps at once.'),
         ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings') }), recipeChips(c));
+    }
+    /** Whole jobs to try – several tools in a row. A chip puts the request in the box, with the part to change selected. */
+    function chainChips() {
+      const cs = (US.recipes && US.recipes.CHAINS) || [];
+      if (!cs.length) return null;
+      return h('div', h('div.field-label', 'Try a whole job'), h('div.chat-chips', cs.slice(0, 8).map(x => h('button.chip', { title: `${x.ask}\n\nSteps: ${x.steps.join(' → ')}`, onclick: () => {
+        input.value = x.ask; input.focus();
+        const a = x.ask.indexOf('['), b = x.ask.indexOf(']');
+        if (a >= 0 && b > a && input.setSelectionRange) input.setSelectionRange(a, b + 1); else submit();
+      } }, x.name))), h('div.field-hint', 'Each is several steps: I plan them all, you approve the plan once, and I work through it – on copies.'));
     }
     const goTo = (m, t, seqId) => { if (t.seqId) US.host.call('openSequence', { seqId: t.seqId }).then(() => (t.start != null ? US.host.call('setPlayhead', { seqId: t.seqId, seconds: t.start }) : null)).catch(e => ui.showError(e)); else if (m && m.kind === 'timeline' && t.start != null) US.host.call('setPlayhead', { seqId: seqId || m.seq.id, seconds: t.start }).catch(e => ui.showError(e)); else if (t.itemId) US.host.call('revealItem', { id: t.itemId }).catch(() => {}); };
     const targetName = t => (t.line ? `${t.speaker ? t.speaker + ': ' : ''}${(t.text || '').slice(0, 40)}` : t.itemId || t.sequence ? t.name : t.seqName ? `${t.seqName}: ${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)}` : `${t.kind === 'audio' ? 'A' : 'V'}${t.track + 1} ${US.fmtDur(t.start)} ${t.name || ''}`.trim());
@@ -333,18 +367,39 @@
           const more = h('div.edit-targets.hidden', s.targets.slice(0, 40).map(t => h('button.chip', { title: 'Go there', onclick: () => goTo(card.model, t) }, targetName(t))), s.targets.length > 40 ? h('span.field-hint', `…and ${s.targets.length - 40} more`) : null);
           return h('li.edit-step', h('label.row', h('input', { type: 'checkbox', checked: true, onchange: e => { on[i] = e.target.checked; } }), h('div.grow', h('b', E.describe(s)), s.why ? h('div.field-hint', s.why) : null)), h('button.btn.small.ghost', { onclick: () => more.classList.toggle('hidden') }, 'Which'), more);
         })) : null;
+        // things the step would take (clips to download): each can be unticked
+        const picks = card.items || [], onP = picks.map(() => true);
+        const picksEl = picks.length ? h('div.chat-picks', picks.map((p, i) => h('label.chat-pick' + (p.warn ? '.warn' : ''), h('input', { type: 'checkbox', checked: true, onchange: e => { onP[i] = e.target.checked; } }),
+          p.thumb ? h('img.chat-pick-thumb', { src: p.thumb, alt: '', loading: 'lazy' }) : h('span.chat-pick-thumb'), h('span.grow', h('b', US.keep(p.label)), h('div.field-hint', p.sub || '')),
+          p.link ? h('button.btn.small.ghost', { title: 'Open its page in your browser', onclick: e => { e.preventDefault(); US.app.openUrl(p.link); } }, 'Page') : null))) : null;
         const status = h('div.plan-status');
         const done = (r, text) => { c.pending = null; c.pendingKind = ''; box.classList.add('chat-card-done'); status.textContent = text; drawTabs(); res(r); };
-        const go = always => { const pick = steps.filter((x, i) => on[i]); if (steps.length && !pick.length) { status.textContent = 'Tick at least one, or press Skip.'; return; } done({ ok: true, always, steps: pick }, always ? 'Approved – I won’t stop to ask again in this chat (switch that off with the “Always proceed” chip at the top). I still warn you before anything risky.' : 'Approved.'); };
+        const go = always => { const pick = steps.filter((x, i) => on[i]); if ((steps.length && !pick.length) || (picks.length && !onP.some(Boolean))) { status.textContent = 'Tick at least one, or press Skip.'; return; } done(Object.assign({ ok: true, always, steps: pick }, picks.length ? { items: picks.filter((x, i) => onP[i]).map(x => x.id) } : {}), always ? 'Approved – I won’t stop to ask again in this chat (switch that off with the “Always proceed” chip at the top). I still warn you before anything risky.' : 'Approved.'); };
         const box = bubble(c, 'bot wide chat-card', h('div.plan',
           h('div.row', h('div.field-label.grow', 'May I?'), RISK[card.risk] ? ui.pill(RISK[card.risk][0], RISK[card.risk][1]) : null),
-          h('div', h('b', US.say(card.title))), card.detail ? h('div.field-hint.pre', US.say(card.detail)) : null, rowsEl,
+          h('div', h('b', US.say(card.title))), card.detail ? h('div.field-hint.pre', US.say(card.detail)) : null, rowsEl, picksEl,
           card.dropped && card.dropped.length ? h('div.field-hint', 'Left out: ' + card.dropped.join(' · ')) : null,
           h('div.row.chat-card-btns', ui.button('Proceed', { kind: 'primary', small: true, icon: 'play', onClick: () => go(false) }),
-            card.risk !== 'sees' ? ui.button('Always proceed', { small: true, title: 'Don’t stop to ask again in this chat. Anything risky – changing a sequence itself, deleting, a lot at once, heavy work, something that can’t be undone – still stops and warns you. Switch it off with the chip at the top.', onClick: () => go(true) }) : null,
+            card.risk !== 'sees' && card.always !== false ? ui.button('Always proceed', { small: true, title: 'Don’t stop to ask again in this chat. Anything risky – changing a sequence itself, deleting, a lot at once, heavy work, something that can’t be undone – still stops and warns you. Switch it off with the chip at the top.', onClick: () => go(true) }) : null,
             ui.button('Skip', { kind: 'ghost', small: true, onClick: () => done({ ok: false }, 'Skipped – it didn’t run.') })), status));
         c.pendingKind = 'approve';
         c.pending = v => { if (v == null) done({ ok: false }, 'Stopped.'); else if (/^(y|yes|yep|ok|okay|go|go ahead|proceed|do it|sure|fine)\b/i.test(v)) { bubble(c, 'me', v); go(false); } else { bubble(c, 'me', v); done({ ok: false, note: v }, 'Not run – I’ll go by what you said instead.'); } };
+        drawTabs();
+      });
+    }
+    /** A plan of several steps: one yes for all of it, step by step, or not at all. -> {ok} | {each} | {note} | {} */
+    function planApprove(c, p) {
+      return new Promise(res => {
+        const status = h('div.plan-status');
+        const done = (r, text) => { c.pending = null; c.pendingKind = ''; box.classList.add('chat-card-done'); status.textContent = text; drawTabs(); res(r); };
+        const box = bubble(c, 'bot wide chat-card chat-plan-card', h('div.plan',
+          h('div.field-label', 'The whole plan – may I?'), h('ol.agent-plan-list', p.plan.map(x => h('li', US.say(x)))),
+          h('div.field-hint', 'One yes covers every step of this request. I still stop and warn you before anything risky, and everything is made on copies – Undo all takes the lot back.'),
+          h('div.row.chat-card-btns', ui.button('Proceed with the plan', { kind: 'primary', small: true, icon: 'play', onClick: () => done({ ok: true }, 'Plan approved – working through it.') }),
+            ui.button('Step by step', { small: true, title: 'Ask me before each step that changes something', onClick: () => done({ each: true }, 'I’ll ask before each step.') }),
+            ui.button('Skip', { kind: 'ghost', small: true, onClick: () => done({}, 'Plan turned down – nothing ran.') })), status));
+        c.pendingKind = 'approve';
+        c.pending = v => { if (v == null) done({}, 'Stopped.'); else if (/^(y|yes|yep|ok|okay|go|go ahead|proceed|do it|sure|fine)\b/i.test(v)) { bubble(c, 'me', v); done({ ok: true }, 'Plan approved – working through it.'); } else { bubble(c, 'me', v); done({ note: v }, 'Not run – I’ll plan again by what you said.'); } };
         drawTabs();
       });
     }
@@ -445,7 +500,10 @@
     }
     const undoable = (c, turn) => { const p = C.undoPlan(c, { turn }); return p.can.length + p.cant.length; };
     function render(c, it, old = false) {
-      if (it.k === 'me') bubble(c, 'me', it.text);
+      if (it.k === 'me' && it.auto) bubble(c, 'bot agent-say chat-auto', h('span', h('b', 'Back, as planned: '), it.text));
+      else if (it.k === 'me') bubble(c, 'me', it.text);
+      else if (it.k === 'followup') bubble(c, 'bot agent-say chat-auto', h('span', h('b', `I’ll come back at ${hhmm(it.at)}: `), it.text));
+      else if (it.k === 'opened') bubble(c, 'bot agent-say', h('span.row', h('span.field-hint.grow', `Run in the background – its results are in ${it.name}.`), ui.button(`Open ${it.name}`, { small: true, kind: 'ghost', onClick: () => US.tools.open(it.tool, it.args || undefined) })));
       else if (it.k === 'understood') bubble(c, 'bot chat-understood', h('div.field-label', 'What I understand'), h('div', it.text));
       else if (it.k === 'plan') bubble(c, 'bot chat-plan', h('div.field-label', 'Plan'), h('ol.agent-plan-list', it.plan.map(p => h('li', p))));
       else if (it.k === 'say') bubble(c, 'bot agent-say', it.text);
@@ -515,12 +573,16 @@
     }
     /** A request typed in a chat that the AI doesn't handle (a built-in command): shown, and kept with the chat. */
     function note(c, text) { if (c.title === 'New chat') c.title = C.titleOf(text); const it = { k: 'me', text, at: Date.now() }; c.items.push(it); render(c, it); drawTabs(); keep(); }
-    async function converse(c, text) {
+    async function converse(c, text, extra = {}) {
+      const wasAway = away();
       try {
-        await C.send(c, text, { event: it => { render(c, it); keep(); drawCost(); }, status: () => drawTabs(), approve: card => approve(c, card), choose: q => choose(c, q), limit: l => limit(c, l), warn: w => warn(c, w), trace: () => { if (c === cur) drawWorking(); }, journal: () => { if (c === cur) drawTabs(); keep(); } },
-          { mode, maxSteps: +set('maxSteps', 25), budget, persona: PERSONA, limits: { spend: +set('riskSpend', 1) || 1 } });
+        await C.send(c, text, { event: it => { render(c, it); keep(); drawCost(); }, status: () => drawTabs(), approve: card => approve(c, card), choose: q => choose(c, q), limit: l => limit(c, l), warn: w => warn(c, w), trace: () => { if (c === cur) drawWorking(); }, journal: () => { if (c === cur) drawTabs(); keep(); }, planApprove: p => planApprove(c, p), resume: (chat, f) => converse(chat, f.text, { unattended: true }) },
+          Object.assign({ mode, maxSteps: +set('maxSteps', 25), budget, persona: PERSONA, limits: { spend: +set('riskSpend', 1) || 1 } }, extra));
       } catch (e) { ui.showError(e); }
-      finally { c.pending = null; c.pendingKind = ''; c.ask = null; drawTabs(); keep(); if (c !== cur && US.ui.toast) ui.toast({ type: 'ok', title: `“${c.title}” has finished`, timeout: 5000, action: { label: 'Show', fn: () => { US.tools.open(TOOL); show(c); } } }); }
+      finally { c.pending = null; c.pendingKind = ''; c.ask = null; drawTabs(); keep();
+        // finished while the editor was on another tab: a dot on the Ask button, and a word
+        if ((wasAway || away()) && away()) { railDone(true); if (US.ui.toast) ui.toast({ type: 'ok', title: `${PERSONA ? 'Producer' : 'Ask'}: “${c.title}” has finished`, text: extra.unattended ? 'It came back to it as planned.' : '', timeout: 8000, action: { label: 'Show', fn: () => { US.tools.open(TOOL, PERSONA ? { page: 'chat' } : undefined); show(c); } } }); }
+        else if (c !== cur && US.ui.toast) ui.toast({ type: 'ok', title: `“${c.title}” has finished`, timeout: 5000, action: { label: 'Show', fn: () => { US.tools.open(TOOL); show(c); } } }); }
     }
 
     /* ----- built-in commands: the plan, then Run ----- */
@@ -592,11 +654,11 @@
 
     /* ----- putting it together: the bar of chats and the options stay at the top; only the messages scroll ----- */
     const head = h('div.chat-head', h('div.chat-top', tabs, counter, alwaysChip, undoAllBtn), settingsSec);
-    const foot = h('div.chat-foot', working, answers, micRow, h('div.chat-bar', input, D && D.supported() ? micBtn : null, sendBtn, stopBtn), costLine);
+    const foot = h('div.chat-foot', followBar, working, answers, micRow, h('div.chat-bar', input, D && D.supported() ? micBtn : null, sendBtn, stopBtn), costLine);
     function load() {
       for (const c of chats) c.logEl.remove();
       chats = [];
-      try { for (const s of stored().open.slice(0, 8)) { const c = C.fromStored(s); chats.push(c); mount(c); } } catch (e) { chats = []; }
+      try { for (const s of stored().open.slice(0, 8)) { const c = C.fromStored(s); chats.push(c); mount(c); C.rearm(c); } } catch (e) { chats = []; }
       show(chats.length ? chats[chats.length - 1] : add());
     }
     let project = (US.ctx && US.ctx.project && (US.ctx.project.path || US.ctx.project.name)) || '';
@@ -605,18 +667,19 @@
     US.bus.on('secrets', US.debounce(() => { drawModels(); if (cur && !cur.items.length) { US.clear(cur.logEl); cur.bubbles = []; greet(cur); } }, 300));
     // another project: its own chats (ones still working carry on and stay)
     US.bus.on('context', US.debounce(() => { const p = (US.ctx && US.ctx.project && (US.ctx.project.path || US.ctx.project.name)) || ''; if (p !== project) { project = p; if (!chats.some(c => c.status !== 'idle')) load(); } }, 800));
-    return { parts: [head, logs, foot], onShow() { drawModels(); drawTabs(); setTimeout(() => input.focus(), 50); }, _chats: () => chats, _submit: submit, _show: show, _add: add, _undo: doUndo, _mic: mic };
+    return { parts: [head, logs, foot], onShow() { railDone(false); drawModels(); drawTabs(); setTimeout(() => input.focus(), 50); }, _chats: () => chats, _submit: submit, _show: show, _add: add, _undo: doUndo, _mic: mic };
   };
 
   US.tools.register({
     id: 'assistant', name: 'Assistant', short: 'Ask', icon: 'ask', order: 40,
-    hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips', 'listSequences', 'listBins', 'deleteSequence', 'removeSequenceMarkers', 'removeClipMarkers', 'askStamp', 'askRemoveBins', 'dictateTranscribe'],
+    hostFns: ['editRead', 'editSelection', 'editApply', 'editProject', 'cloneSequence', 'setLabels', 'renameItem', 'moveItems', 'binItems', 'placeClips', 'listSequences', 'listBins', 'deleteSequence', 'removeSequenceMarkers', 'removeClipMarkers', 'askBins', 'askFind', 'ensureBin', 'importFiles', 'itemsInfo', 'askStamp', 'askRemoveBins', 'dictateTranscribe'],
     blurb: 'Say what you want in plain English – it reads your project, asks when it isn’t sure, shows what it will do and does it.',
     create() {
       const v = ui.toolView({ icon: 'ask', title: 'Assistant', blurb: 'One chat for everything: run a tool, change a sequence or the project, ask about your interviews or how to do something. It says what it understood and what it will do, and asks before it changes anything.',
         help: h('div', h('p', 'Type what you want – or press the microphone and say it (your speech is turned into words on this computer). It reads your project as text (names, times, tracks, labels, effects, transcripts, and the written descriptions of your footage), tells you what it understood and its plan, and works step by step. Before a step that changes something you get a card to approve; choose how often it asks with the first menu under the chats, or press Always proceed on a card.'),
           h('p', 'Whatever you choose, it stops and warns you before anything risky: changing a sequence itself, deleting, a lot at once, long or heavy work, something that can’t be undone, a costly step, or footage leaving this computer. Change course pauses the plan so you can say what you’d like instead.'),
           h('p', 'While it works, the row above the chat box shows what it is doing; “Behind the scenes” lists every step in detail. Undo this reply takes back what one answer did; Undo all takes back everything the AI did in the chat – it says plainly what can’t be undone.'),
+          h('p', 'It works on its own where it can: it searches and downloads B-roll for you (you untick what you don’t want), finds things in a big project, makes bins, brings in folders, waits for a job to finish, and can set itself a time to come back (“check again in 30 minutes”) – you see a countdown and can cancel. On its own it never runs anything risky: it waits for you.'),
           h('p', 'Start another chat with + while one is working: they think side by side and take turns in Premiere. A dot on a chat shows it is working, or waiting for you.'),
           h('p', 'Common requests (cut the silences, add captions, check the cut…) work without any AI key.')) });
       const view = US.chatView({ key: 'assistant', tool: 'assistant' });
