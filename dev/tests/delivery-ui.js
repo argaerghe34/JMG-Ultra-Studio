@@ -57,8 +57,10 @@ const { w, US, $$, tick, boot, loadStory, errors } = require('./panel-dom');
 
     // a line that has been listened to: its pill and its corrected words; neither when switched off
     const keep = Object.assign({}, D.routes);
-    D.routes.sound = async () => ({ data: new Float32Array(16000 * 30), sr: 16000, duration: 30, how: 'ffmpeg' });
-    D.routes.listen = async (P, req) => ({ lines: Array.from(req.user[0].matchAll(/^(\S+)\t[\d.]+–[\d.]+\t/gm)).map(m => ({ id: m[1], score: 5, notes: ['warm'], energy: 'high', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [{ said: 'בעזרת השם', transliteration: 'b’ezrat Hashem', language: 'Hebrew', meaning: 'with God’s help', transcriptHad: 'bizarre a sham', kind: 'religious', confidence: 'sure' }] })), missed: [] });
+    D.routes.sound = async () => ({ data: new Float32Array(16000 * 30).map((_, i) => Math.sin(i * 0.3) * 0.2), sr: 16000, duration: 30, how: 'ffmpeg' });
+    D.routes.hearing = async () => ({ ok: true, at: 1, label: 'Test listener', detail: '' });
+    const everything = D.interviews()[0].lines.map(l => l.text).join(' ');
+    D.routes.listen = async (P, req) => (req.schema === D._pure.HEAR_SCHEMA ? { speech: true, text: everything } : { lines: Array.from(req.user[0].matchAll(/^(\S+)\t[\d.]+–[\d.]+\t/gm)).map(m => ({ id: m[1], audible: 'yes', score: 5, notes: ['warm'], energy: 'high', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [{ said: 'בעזרת השם', transliteration: 'b’ezrat Hashem', language: 'Hebrew', meaning: 'with God’s help', transcriptHad: 'bizarre a sham', kind: 'religious', confidence: 'sure' }] })), missed: [] });
     const iv = D.interviews()[0];
     await D.analyse(iv, { job: US.jobs.testJob(), plan: { on: true, where: 'local', kind: 'helper', id: 'test@1', label: 'Test listener', langs: D.settings().langs, chunkSec: 30, model: { id: 'test', name: 'Test listener', version: '1' } } });
     Object.assign(D.routes, keep);

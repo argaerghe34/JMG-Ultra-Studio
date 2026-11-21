@@ -15,7 +15,7 @@
   const money = r => (r[1] < 0.005 ? 'under 1¢' : US.ai.fmtUSD(r[0]) === US.ai.fmtUSD(r[1]) ? US.ai.fmtUSD(r[1]) : `${US.ai.fmtUSD(r[0])}–${US.ai.fmtUSD(r[1])}`);
   const dur = s => (s < 90 ? 'about a minute' : US.fmtDur(s));
   const durRange = r => (Math.abs(r[0] - r[1]) < 30 ? dur(r[1]) : `${dur(r[0])}–${dur(r[1])}`);
-  const HONEST = 'Honestly: the small models that run on this computer are weaker at Hebrew and Yiddish than the cloud models, and none of this has been tested on real footage yet. Treat a score as a first opinion and check corrected words by ear before they go in a caption.';
+  const HONEST = 'Honestly: the small models that run on this computer are weaker at Hebrew and Yiddish than the cloud models, and how well they judge delivery on real speech is still unproven – none of this has been tested on real footage yet. Treat a score as a first opinion and check corrected words by ear before they go in a caption.';
 
   /**
    * The numbers for this project's interviews, for both routes. left: only what hasn't been listened to yet.
@@ -84,7 +84,7 @@
   }
 
   /* ---------- the status line: a pill, a note, the buttons – it keeps itself up to date ---------- */
-  const COLOR = { working: 'var(--accent-hi)', 'up-to-date': 'var(--ok)', paused: 'var(--text-2)', scheduled: 'var(--warn)', 'cloud-waiting': 'var(--warn)', 'needs-consent': 'var(--warn)', 'needs-model': 'var(--text-2)', 'needs-key': 'var(--text-2)', offline: 'var(--text-2)', off: 'var(--text-3)', 'no-project': 'var(--text-3)', 'no-interviews': 'var(--text-3)' };
+  const COLOR = { working: 'var(--accent-hi)', 'up-to-date': 'var(--ok)', paused: 'var(--text-2)', scheduled: 'var(--warn)', 'cloud-waiting': 'var(--warn)', 'needs-consent': 'var(--warn)', deaf: 'var(--warn)', 'needs-model': 'var(--text-2)', 'needs-key': 'var(--text-2)', offline: 'var(--text-2)', off: 'var(--text-3)', 'no-project': 'var(--text-3)', 'no-interviews': 'var(--text-3)' };
   function chip({ after = null } = {}) {
     const el = h('div.und-chip.dlv-chip');
     let shown = false;
@@ -96,6 +96,7 @@
       el.dataset.state = st.state;
       const btns = (st.offers || []).map(o => o === 'now' ? ui.button('Listen now', { small: true, kind: 'primary', title: st.where === 'cloud' ? 'You’re shown what is sent and what it costs first' : 'On this computer – nothing leaves', onClick: () => done(listenNow()) })
         : o === 'overnight' ? ui.button('Do it in Overnight prep', { small: true, onClick: addToOvernight })
+          : o === 'recheck' ? ui.button('Check again', { small: true, kind: 'ghost', title: 'Forget the hearing check for this model: it is made again the next time it listens', onClick: () => { D().forgetHearing(); if (after) after(); } })
           : o === 'models' ? ui.button('Open the models', { small: true, onClick: () => US.tools.open('settings', { section: 'understand' }) })
             : ui.button('Open Settings', { small: true, kind: 'ghost', onClick: () => US.tools.open('settings', { section: 'delivery' }) }));
       el.append(h('div.row', ui.pill(st.text, COLOR[st.state])));
@@ -169,16 +170,18 @@
   /* ---------- a line's pill and its corrected words (Story's lists, Pro View) ---------- */
   const scoreColor = n => (n >= 4 ? 'var(--ok)' : n && n <= 2 ? 'var(--warn)' : 'var(--text-2)');
   /** “4/5 – warm, laughs” */
-  function short(e) { return e ? [e.score ? `${e.score}/5` : '', (e.notes || []).slice(0, 3).join(', ')].filter(Boolean).join(' – ') : ''; }
+  const WHY_UNHEARD = { model: 'The listener couldn’t hear this line being spoken', silent: 'The recording is silent here', words: 'Other words were heard here than the transcript has' };
+  function short(e) { if (e && e.unheard) return 'couldn’t hear'; return e ? [e.score ? `${e.score}/5` : '', (e.notes || []).slice(0, 3).join(', ')].filter(Boolean).join(' – ') : ''; }
   function titleOf(e) {
+    if (e.unheard) return `${WHY_UNHEARD[e.unheard] || WHY_UNHEARD.model} – so it has no delivery score.` + ((e.heard || []).length ? '\nHeard: ' + e.heard.map(D().heardText).join(' · ') : '');
     return ['How it’s said' + (e.score ? `: ${e.score} out of 5` : ''), (e.notes || []).join(', '), e.energy ? `${e.energy} energy` : '', e.in === false ? 'starts mid-word' : '', e.out === false ? 'ends cut off' : '', e.conf === 'unsure' ? 'the listener wasn’t sure' : '']
       .filter(Boolean).join(' · ') + ((e.heard || []).length ? '\nHeard: ' + e.heard.map(D().heardText).join(' · ') : '');
   }
   /** A small pill for a line that has been listened to (null otherwise, and when it is switched off). */
   function pill(l) {
     const e = D() ? D().forLine(l) : null;
-    if (!e || !(e.score || (e.notes || []).length)) return null;
-    const p = ui.pill(`♪ ${e.score ? e.score + '/5' : e.notes[0]}`, scoreColor(e.score));
+    if (!e || !(e.unheard || e.score || (e.notes || []).length)) return null;
+    const p = ui.pill(`♪ ${e.unheard ? 'couldn’t hear' : e.score ? e.score + '/5' : e.notes[0]}`, e.unheard ? 'var(--text-3)' : scoreColor(e.score));
     p.title = titleOf(e); p.classList.add('dlv-pill');
     return p;
   }
@@ -213,7 +216,7 @@
           ui.field('On this computer', locals.some(m => m.installed)
             ? ui.select({ options: locals.filter(m => m.installed).map(m => ({ value: m.id, label: m.name })), value: s.localModel, onChange: x => { D().setModel('local', x); draw(); } })
             : h('div.row', h('span.field-hint.grow', locals.length ? `No listening model is on this computer yet. ${locals.map(m => m.name).join(' and ')} can listen.` : 'No listening model is available for this computer.'), ui.button('Open Vision & listening models', { small: true, onClick: () => US.tools.open('settings', { section: 'understand' }) })),
-            'Any model here that can listen. Download or delete them in Settings › Vision & listening models – nothing is downloaded from this screen.'),
+            (() => { const pl = D().plan(), h = pl.deaf || (pl.kind === 'helper' ? D().hearing()[pl.id] : null); return (h ? (h.ok ? 'Hearing check passed: given a silent clip and a tone with made-up lines, it scored none of them. ' : `${D().DEAF}: it isn’t used. `) : 'The first time a model listens it gets a hearing check (a few seconds): a silent clip and a tone with made-up lines – a model that scores them is reading the transcript, and isn’t used. ') + 'A model here first writes down what it hears without seeing the transcript; a line whose words it didn’t hear gets no score. Download or delete models in Settings › Vision & listening models – nothing is downloaded from this screen.'; })()),
           ui.field('In the cloud', clouds.length ? ui.select({ options: clouds.map(m => ({ value: m.id, label: `${m.name} – $${m.in.toFixed(2)} in / $${m.out.toFixed(2)} out per million tokens` })), value: s.cloudModel, onChange: x => { D().setModel('cloud', x); draw(); } }) : h('span.field-hint', 'No cloud listening models are known.'),
             `${hasKey ? 'Uses your Gemini key.' : 'Needs a Gemini key in Settings › AI.'} Claude can’t hear, so it isn’t offered. The dearer models hear nuance better; prices read on ${US.ai.MEDIA_PRICES.date}.`)),
         h('div.und-block', h('div.und-head', 'Languages to listen for'),
@@ -230,7 +233,7 @@
     return box;
   }
 
-  US.storyDelivery = { card, pill, heardEl, short, titleOf, scoreColor, chip, confirmCloud, listenNow, addToOvernight, numbers, estimateText, offers, addTerm, create, HONEST };
+  US.storyDelivery = { card, pill, heardEl, short, titleOf, WHY_UNHEARD, scoreColor, chip, confirmCloud, listenNow, addToOvernight, numbers, estimateText, offers, addTerm, create, HONEST };
   US.settingsSections.register({ id: 'delivery', title: 'Listen to delivery', order: 36, create });
 
   /* Ask, recipes and the offline parser: “listen to the delivery of my interviews” */

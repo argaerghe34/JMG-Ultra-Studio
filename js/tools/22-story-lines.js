@@ -234,10 +234,10 @@
     theme: r => { const n = r.tag ? r.tag.name : r.themes[0] ? r.themes[0].name : ''; return n ? n.toLowerCase() : null; }, text: r => (r.l.text || r.desc || '').toLowerCase()
   };
   /** The Delivery filter: 'any', '4' (4 and up), '3' (3 and up), 'low' (2 or less), 'heard' (corrected words), 'none' (not listened to). */
-  const DELIVERY_FILTERS = [['any', 'Any delivery'], ['4', 'Said well (4–5)'], ['3', '3 and up'], ['low', 'Said badly (1–2)'], ['heard', 'With corrected words'], ['none', 'Not listened to']];
+  const DELIVERY_FILTERS = [['any', 'Any delivery'], ['4', 'Said well (4–5)'], ['3', '3 and up'], ['low', 'Said badly (1–2)'], ['heard', 'With corrected words'], ['unheard', 'Couldn’t be heard'], ['none', 'Not listened to']];
   function byDelivery(rows, f) {
     if (!f || f === 'any') return rows;
-    return rows.filter(r => { const e = r.delivery, s = e && e.score; return f === 'none' ? !e : f === 'heard' ? !!(e && (e.heard || []).length) : f === 'low' ? !!s && s <= 2 : !!s && s >= +f; });
+    return rows.filter(r => { const e = r.delivery, s = e && e.score; return f === 'none' ? !e : f === 'unheard' ? !!(e && e.unheard) : f === 'heard' ? !!(e && (e.heard || []).length) : f === 'low' ? !!s && s <= 2 : !!s && s >= +f; });
   }
   const kindOf = source => (/^(find|q|m):/.exec(String(source)) || [0, 'theme'])[1];
 
@@ -503,7 +503,7 @@
           who: () => h('span.pv-c.sl-who', US.keep(r.who)),
           time: () => h('span.pv-c.sl-tc', US.fmtDur(l.start)),
           text: () => (r.noSpeech ? h('span.pv-c.sl-text.pv-desc', { title: 'Nothing is said here – this is what happens' }, US.keep(r.described || r.desc || '')) : h('span.pv-c.sl-text', dv && (dv.heard || []).length ? h('span.dlv-mark', { title: 'The transcript got words wrong here – heard: ' + dv.heard.map(US.delivery.heardText).join(' · ') }, '◆ ') : null, US.keep(l.text))),
-          delivery: () => h('span.pv-c.pv-c-delivery', dv ? { title: US.storyDelivery.titleOf(dv) } : null, dv ? [dv.score ? h('b.dlv-score', { style: { color: US.storyDelivery.scoreColor(dv.score) } }, dv.score + '/5 ') : null, US.keep((dv.notes || []).slice(0, 3).join(', '))] : h('span.sl-dim', '–')),
+          delivery: () => h('span.pv-c.pv-c-delivery', dv ? { title: US.storyDelivery.titleOf(dv) } : null, dv ? (dv.unheard ? h('span.sl-dim', 'couldn’t hear') : [dv.score ? h('b.dlv-score', { style: { color: US.storyDelivery.scoreColor(dv.score) } }, dv.score + '/5 ') : null, US.keep((dv.notes || []).slice(0, 3).join(', '))]) : h('span.sl-dim', '–')),
           theme: () => h('span.pv-c.sl-tht', r.tag ? [h('span.sl-sw', { style: { background: hexOfLabel(r.tag.label) } }), h('span', { title: r.tag.title || '' }, US.keep(r.tag.name))]
             : th ? [h('span.sl-sw', { style: { background: hexOf(th) } }), US.keep(th.name + (r.themes.length > 1 ? ` +${r.themes.length - 1}` : ''))] : h('span.sl-dim', '–')),
           len: () => h('span.pv-c.sl-len', (l.end - l.start).toFixed(1) + ' s')
@@ -672,7 +672,7 @@
             h('dt', 'Time'), h('dd', `${US.fmtDur(l.start)} – ${US.fmtDur(l.end)} (${(l.end - l.start).toFixed(1)} s)`),
             h('dt', 'Themes'), h('dd', ths.length ? ths.map(th => h('span.sl-chip', h('span.sl-sw', { style: { background: hexOf(th) } }), US.keep(th.name))) : '–'),
             h('dt', 'Star'), h('dd', r.star ? (r.kind === 'line' && strong(l) ? '★ A strong, complete line' : '★ Starred by you') : r.kind === 'line' && strong(l) ? 'Star taken off by you' : 'No star'),
-            r.delivery ? [h('dt', 'Delivery'), h('dd', { title: 'From Listen to delivery – a first opinion; play the line to judge it yourself' }, US.keep([r.delivery.score ? `${r.delivery.score} out of 5` : '', (r.delivery.notes || []).join(', '), r.delivery.energy ? r.delivery.energy + ' energy' : '', r.delivery.in === false ? 'starts mid-word' : '', r.delivery.out === false ? 'ends cut off' : '', r.delivery.conf === 'unsure' ? 'the listener wasn’t sure' : ''].filter(Boolean).join(' · ') || '–'))] : DL() && r.ids.length ? [h('dt', 'Delivery'), h('dd', 'Not listened to yet')] : null,
+            r.delivery ? [h('dt', 'Delivery'), h('dd', { title: 'From Listen to delivery – a first opinion; play the line to judge it yourself' }, US.keep(r.delivery.unheard ? `${US.storyDelivery.WHY_UNHEARD[r.delivery.unheard] || 'Couldn’t be heard'} – no score` : [r.delivery.score ? `${r.delivery.score} out of 5` : '', (r.delivery.notes || []).join(', '), r.delivery.energy ? r.delivery.energy + ' energy' : '', r.delivery.in === false ? 'starts mid-word' : '', r.delivery.out === false ? 'ends cut off' : '', r.delivery.conf === 'unsure' ? 'the listener wasn’t sure' : ''].filter(Boolean).join(' · ') || '–'))] : DL() && r.ids.length ? [h('dt', 'Delivery'), h('dd', 'Not listened to yet')] : null,
             usedNow() ? [h('dt', 'Used'), h('dd', r.used ? ['In “', US.keep(used.name), '”'] : 'Not in the open sequence')] : null),
           can ? h('div.sl-acts',
             ui.button('Play', { kind: 'primary', small: true, icon: 'play', onClick: () => S().cueLine(l), title: 'Play it in the Source Monitor (space)' }),

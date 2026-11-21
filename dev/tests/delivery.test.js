@@ -47,14 +47,18 @@ const answerFor = req => {
   const one = { r1: { score: 4, notes: ['Confident', 'warm.'] }, r2: { score: 5, notes: ['warm', 'laughing'], heard: [{ said: HEB, transliteration: 'b’ezrat Hashem', language: 'Hebrew', meaning: 'with God’s help', transcriptHad: 'bizarre a sham', kind: 'religious', confidence: 'sure' }] },
     r3: { score: 2, notes: ['hesitant', 'stumbles', 'false start'], cleanStart: false }, r4: { score: 4, notes: ['dry'], heard: [{ said: 'a real sweetheart', transliteration: '', language: 'English', meaning: 'she means the opposite', transcriptHad: 'a real sweetheart', kind: 'sarcasm', confidence: 'fairly sure' }] },
     r5: { score: 3, notes: [] }, s1: { score: 3, notes: ['flat'], cleanEnd: false }, s2: { score: 9, notes: ['warm'], heard: [{ said: '', transliteration: '', language: '', meaning: '', transcriptHad: '', kind: 'x', confidence: 'sure' }] } };
-  return { lines: ids.map(id => Object.assign({ id, energy: 'medium', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [] }, one[id])).concat([{ id: 'made-up', score: 5, notes: [], energy: 'high', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [] }]),
+  return { lines: ids.map(id => Object.assign({ id, audible: 'yes', energy: 'medium', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [] }, one[id])).concat([{ id: 'made-up', audible: 'yes', score: 5, notes: [], energy: 'high', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [] }]),
     missed: ids.includes('r2') ? [{ afterLine: 'r2', said: 'נו', transliteration: 'nu', language: 'Yiddish', meaning: 'well then', confidence: 'fairly sure' }] : [] };
 };
 /** Stand-ins for the routes: the sound (silence, long enough) and the model. */
-function fakeRoutes({ listen = null, sound = null } = {}) {
-  const keep = Object.assign({}, D.routes), calls = { listen: [], sound: 0, plans: [] };
-  D.routes.sound = async iv => { calls.sound++; if (sound === 'fail') { const e = new Error('no'); e.code = 'NOT_FROM_FILES'; throw e; } const sr = 16000, data = new Float32Array(sr * 80); return { data, sr, duration: 80, how: 'ffmpeg' }; };
-  D.routes.listen = async (Pl, req, o) => { calls.listen.push(req); calls.plans.push(Pl); return listen ? listen(req, Pl, o) : answerFor(req); };
+const TALK = () => { const d = new Float32Array(16000 * 80); for (let i = 0; i < d.length; i++) d[i] = Math.sin(i * 0.3) * 0.2; return d; };   // sound all the way through (not silence)
+const EVERYTHING = 'We opened the bakery in nineteen sixty. And I said bizarre a sham we will manage. My mother, um, she, she never, she never stopped working. Oh sure, the landlord was a real sweetheart. And what happened then? We always managed, one way or another. She used to sing while she kneaded. נו ' + HEB;
+function fakeRoutes({ listen = null, sound = null, hear = null, hearing = null } = {}) {
+  const keep = Object.assign({}, D.routes), calls = { listen: [], hear: [], sound: 0, plans: [], hearing: 0 };
+  D.routes.sound = async iv => { calls.sound++; if (sound === 'fail') { const e = new Error('no'); e.code = 'NOT_FROM_FILES'; throw e; } const sr = 16000, data = sound || TALK(); return { data, sr, duration: data.length / sr, how: 'ffmpeg' }; };
+  // a model on this computer is first asked only what is said (no transcript): here it hears every line, unless told otherwise
+  D.routes.listen = async (Pl, req, o) => { if (req.schema === P.HEAR_SCHEMA) { calls.hear.push(req); return hear ? hear(req) : { speech: true, text: EVERYTHING }; } calls.listen.push(req); calls.plans.push(Pl); return listen ? listen(req, Pl, o) : answerFor(req); };
+  if (hearing !== 'real') D.routes.hearing = async () => { calls.hearing++; return hearing || { ok: true, at: 1, label: 'stand-in', detail: '' }; };
   return { calls, restore() { Object.assign(D.routes, keep); } };
 }
 const LOCAL = (id = 'gemma-test@1', label = 'Test listener') => ({ on: true, where: 'local', kind: 'helper', id, label, langs: P.langsOf(null), chunkSec: 30, model: { id: 'gemma-test', name: label, version: '1' } });
@@ -74,7 +78,7 @@ function tinyListener(id = 'tiny-listen', name = 'Tiny Listener') {
   const exe = path.join(M.runtime.info().dir, 'bin', 'llama-server'); fs.mkdirSync(path.dirname(exe), { recursive: true }); fs.writeFileSync(exe, '#!');
   return { undo() { M.stop(); US.settings.set('understand.manifest', null); US.settings.set('understand.modelsDir', ''); } };
 }
-const done = () => { US.ai.setDelivery(false); US.ai.setMedia(false); US.ai.setProjectOffline(false); US.secrets.set('geminiKey', ''); US.secrets.set('anthropicKey', ''); US.ctx = CTX0; D.reset(); };
+const done = () => { US.settings.set('delivery.hearing', {}); US.ai.setDelivery(false); US.ai.setMedia(false); US.ai.setProjectOffline(false); US.secrets.set('geminiKey', ''); US.secrets.set('anthropicKey', ''); US.ctx = CTX0; D.reset(); };
 
 test('off until switched on: nothing listens, nothing is sent, no line carries a note – whoever asks', async () => {
   project();
@@ -355,7 +359,7 @@ test('Listen now and the background: on this computer it works in quiet slices; 
     const sent = [], keepMedia = US.ai.media;
     US.ai.media = async req => { sent.push(req); if (req.onUsage) req.onUsage({ usd: 0, paidUsd: 0.01 }); return answerFor(req); };
     R.restore();
-    const keepSound = D.routes.sound; D.routes.sound = async () => ({ data: new Float32Array(16000 * 80), sr: 16000, duration: 80, how: 'ffmpeg' });
+    const keepSound = D.routes.sound; D.routes.sound = async () => ({ data: TALK(), sr: 16000, duration: 80, how: 'ffmpeg' });
     try {
       assert.deepStrictEqual([D.plan().kind, D.plan().id, D.plan().label, D.plan().chunkSec], ['cloud', 'cloud:gemini-3.8-flash', 'Gemini 3.8 Flash', 120]);
       assert.deepStrictEqual([D.status().state, D.status().offers], ['cloud-waiting', ['now', 'overnight']]);
@@ -497,4 +501,123 @@ test('in the panel (jsdom): the card in Story › 1 Interviews is off until swit
   assert.ok(o.settings.claude && o.settings.honest && o.settings.estimate && o.settings.noDownload, JSON.stringify(o.settings));
   assert.deepStrictEqual(o.offline, { cloudRefused: true, where: 'local', deliveryOn: false });
   assert.deepStrictEqual(o.lines, { pill: '♪ 5/5', heard: true, pillOff: false }, 'a listened-to line shows its pill and corrected words in Story’s lists – and neither when switched off');
+});
+
+/* ---------- 1.3.42: does the model really listen? (Gemma 4 E2B scored a clip with no speech “5/5 clear, warm” from the transcript) ---------- */
+const CHECK_TEXT = 'We opened the bakery in nineteen sixty. And my mother never stopped working for a single day.';
+const burst = (secs, spans, level = 0.2) => { const sr = 16000, d = new Float32Array(sr * secs); for (let i = 0; i < d.length; i++) { const t = i / sr; d[i] = (spans.some(([a, b]) => t >= a && t < b) ? level : 0.0005) * Math.sin(i * 0.7) * (0.6 + 0.4 * Math.sin(i * 0.013)); } return d; };
+
+test('both routes are asked whether each line can be HEARD, and to give no score when it can’t; a line not heard never gets a score – not even 1/5', () => {
+  assert.ok(P.SCHEMA.properties.lines.items.required.includes('audible') && P.SCHEMA.properties.lines.items.properties.audible.enum.join() === 'yes,partly,no');
+  const sys = P.system(null);
+  assert.ok(/"audible": can you actually HEAR that line being spoken/.test(sys) && /do not assume a line is spoken because it is written/.test(sys) && /say "audible": "no" and give NO score/.test(sys) && /Never judge a line from its text/.test(sys));
+  const piece = { start: 0, end: 20, lines: [{ id: 'a', start: 1, end: 4, text: 'One.' }, { id: 'b', start: 5, end: 8, text: 'Two.' }, { id: 'c', start: 9, end: 12, text: 'Three.' }, { id: 'd', start: 13, end: 16, text: 'Four.' }] };
+  const t = P.tidy({ lines: [
+    { id: 'a', audible: 'no', score: 4, notes: ['clear', 'warm'], energy: 'medium', heard: [{ said: 'x y', transliteration: '', language: 'English', meaning: '', transcriptHad: 'q', kind: 'word', confidence: 'sure' }] },
+    { id: 'b', audible: 'yes', score: 1, notes: ['Inaudible'], energy: 'low', heard: [] },           // what Gemini answered on the clip with no speech
+    { id: 'c', audible: 'partly', score: 3, notes: ['under music'], energy: 'low', heard: [] },
+    { id: 'd', score: 4, notes: ['warm'], energy: 'medium', heard: [{ said: 'Four.', transliteration: 'Four.', language: 'English', meaning: 'the number', transcriptHad: 'four', kind: 'other', confidence: 'sure' }] }], missed: [] }, piece);
+  assert.deepStrictEqual([t.lines.a.score, t.lines.a.notes, t.lines.a.heard, t.lines.a.unheard], [null, [], [], 'model'], 'said to be inaudible: no score, no notes, no corrections');
+  assert.deepStrictEqual([t.lines.b.score, t.lines.b.unheard], [null, 'model'], '“inaudible” in the notes is not a 1/5');
+  assert.deepStrictEqual([t.lines.c.score, t.lines.c.partly, t.lines.c.unheard], [3, true, undefined]);
+  assert.deepStrictEqual([t.lines.d.score, t.lines.d.heard], [4, []], 'an older answer without the field counts as heard; the transcript’s own words given back are no correction');
+  assert.strictEqual(P.noteOf(t.lines.a), '', 'nothing about it goes to Story’s AI');
+  assert.deepStrictEqual([P.combine([t.lines.a, t.lines.c]).score, P.combine([t.lines.a, t.lines.b]).unheard], [3, 'model']);
+  assert.deepStrictEqual(US.proView.byDelivery([{ delivery: t.lines.a }, { delivery: t.lines.c }, { delivery: null }], 'unheard').length, 1);
+  assert.strictEqual(US.proView.SORT_KEYS.delivery({ delivery: t.lines.a }), null, 'and it sorts with the lines that have no score');
+});
+
+test('a model on this computer listens first, without the transcript: a piece where nobody speaks is never judged; a line whose words weren’t heard gets no score, and only a correction that was really heard is kept', async () => {
+  project('Listen first');
+  const Pl = LOCAL(), iv = { n: 1, name: 'Ruth.mp4' }, sr = 16000;
+  const piece = { start: 0, end: 12, lines: [{ id: 'r1', start: 1, end: 5, speaker: 'Ruth', text: 'We opened the bakery in nineteen sixty.' }, { id: 'r2', start: 6, end: 11, speaker: 'Ruth', text: 'And I said bizarre a sham we will manage.' }] };
+  // nobody speaks: one request (what is said?), no judging, every line “couldn't hear”
+  let R = fakeRoutes({ hear: () => ({ speech: false, text: '' }) });
+  try {
+    const none = await D.listenPiece(Pl, iv, piece, TALK().subarray(0, sr * 12), sr, {});
+    assert.deepStrictEqual([R.calls.hear.length, R.calls.listen.length, none.lines.r1.unheard, none.lines.r2.unheard, none.lines.r1.score, none.said], [1, 0, 'model', 'model', null, '']);
+    const req = R.calls.hear[0];
+    assert.ok(req.user.length === 2 && req.user[0] === 'The recording:' && req.user[1].media.kind === 'audio' && !/bakery/.test(JSON.stringify([req.system, req.user[0]])), 'the first request carries the sound and not one word of the transcript');
+    assert.deepStrictEqual([P.saidOf({ speech: true, text: 'The recording' }), P.saidOf({ speech: false, text: 'We opened the bakery' }), P.saidOf(null)], ['', '', ''], 'two stray words, or “no speech”, is nobody speaking');
+  } finally { R.restore(); }
+  // the first line is heard; where the second should be, other words (Hebrew) are heard – the model scores both anyway
+  R = fakeRoutes({ hear: () => ({ speech: true, text: `We opened the bakery in nineteen sixty and I said ${HEB} we will manage` }),
+    listen: req => ({ lines: [{ id: 'r1', audible: 'yes', score: 4, notes: ['warm'], energy: 'medium', heard: [] },
+      { id: 'r2', audible: 'yes', score: 5, notes: ['clear'], energy: 'high', heard: [{ said: HEB, transliteration: 'b’ezrat Hashem', language: 'Hebrew', meaning: 'with God’s help', transcriptHad: 'bizarre a sham', kind: 'religious', confidence: 'sure' }, { said: 'מזל טוב', transliteration: 'mazel tov', language: 'Hebrew', meaning: 'congratulations', transcriptHad: 'manage', kind: 'word', confidence: 'sure' }] }],
+      missed: [{ afterLine: 'r2', said: 'thank you very much', transliteration: '', language: 'English', meaning: '', confidence: 'sure' }] }) });
+  try {
+    const piece2 = { start: 0, end: 12, lines: [piece.lines[0], { id: 'r2', start: 6, end: 11, speaker: 'Ruth', text: 'And beside bizarre sham villa manager.' }] };
+    const t = await D.listenPiece(Pl, iv, piece2, TALK().subarray(0, sr * 12), sr, {});
+    assert.deepStrictEqual([t.lines.r1.score, t.lines.r1.unheard], [4, undefined]);
+    assert.deepStrictEqual([t.lines.r2.score, t.lines.r2.notes, t.lines.r2.unheard, t.lines.r2.heard.map(h => h.said)], [null, [], 'words', [HEB]], 'no score for words that weren’t heard; the correction that WAS heard is kept, the invented one dropped');
+    assert.deepStrictEqual(t.missed, [], '“missed” speech the model never wrote down is dropped too');
+    assert.ok(/What you wrote down a moment ago when you listened to this piece without the transcript: “We opened the bakery/.test(R.calls.listen[0].user[0]));
+    assert.strictEqual(P.noteOf(t.lines.r2), `[says “${HEB}” (b’ezrat Hashem, Hebrew: with God’s help)]`, 'the correction still reaches Story’s AI – without a score');
+    assert.deepStrictEqual([P.overlap('We opened the bakery', new Set(['we', 'opened', 'the', 'bakery'])), P.overlap('Oh.', new Set(['x'])), P.overlap('', new Set(['x']))], [1, 0, null]);
+  } finally { R.restore(); done(); }
+});
+
+test('a line where the recording is silent gets no score whatever the model says – on every route; a steady room or music bed is not “silent”', async () => {
+  const lines = [{ id: 'a', start: 1, end: 4 }, { id: 'b', start: 6, end: 9 }, { id: 'c', start: 11, end: 14 }];
+  assert.deepStrictEqual([...P.silentLines(burst(16, [[1, 4], [11, 14]]), 16000, lines)], ['b'], 'speech at 1–4 and 11–14, nothing at 6–9');
+  assert.deepStrictEqual([...P.silentLines(new Float32Array(16000 * 16), 16000, lines)], ['a', 'b', 'c'], 'a recording of nothing');
+  assert.deepStrictEqual([...P.silentLines(burst(16, [[0, 16]], 0.0005), 16000, lines)].length, 3, 'only a faint hiss: nothing to judge');
+  assert.deepStrictEqual([...P.silentLines(TALK().subarray(0, 16000 * 16), 16000, lines)], [], 'sound all the way through, no pauses');
+  // the cloud route: the model scores every line; one of them is silent
+  project('Silent gate');
+  US.secrets.set('geminiKey', 'g-test');
+  D.setOn(true); D.setWhere('cloud'); US.ai.setDelivery(true);
+  const keepMedia = US.ai.media, keepSound = D.routes.sound;
+  US.ai.media = async req => ({ lines: Array.from(req.user[0].matchAll(/^(\S+)\t[\d.]+–[\d.]+\t/gm)).map(m => ({ id: m[1], audible: 'yes', score: 4, notes: ['clear'], energy: 'medium', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [] })), missed: [] });
+  D.routes.sound = async iv => ({ data: iv.key === 'ruth' ? burst(80, [[1, 5], [12, 20], [40, 49], [70, 78]]) : TALK(), sr: 16000, duration: 80, how: 'ffmpeg' });
+  try {
+    await D.runAll(job, {});
+    const rec = D.peek(D.interviews()[0].path);
+    assert.deepStrictEqual(['r1', 'r2', 'r3', 'r4'].map(id => [rec.lines[id].score, rec.lines[id].unheard]), [[4, undefined], [null, 'silent'], [4, undefined], [4, undefined]]);
+    assert.deepStrictEqual([rec.judged, rec.unheard], [4, 1]);
+    assert.deepStrictEqual([D.note('r1'), D.note('r2')], [' [delivery 4/5 – clear]', '']);
+    const e = D.forLine('r2');
+    assert.ok(US.storyDelivery.short(e) === 'couldn’t hear' && /silent here/.test(US.storyDelivery.titleOf(e)) && /no delivery score/.test(US.storyDelivery.titleOf(e)), 'shown as “couldn’t hear”, never as a low score');
+  } finally { US.ai.media = keepMedia; D.routes.sound = keepSound; done(); }
+});
+
+test('the hearing check: a model that scores a silent clip from the transcript fails – its scores are never made, kept, shown or sent, and Listen now says why', async () => {
+  project('Hearing check');
+  const TL = tinyListener(), keepCalm = US.understand.calm;
+  US.understand.calm = () => ({ ok: true, why: '' });
+  // this “model” reads the transcript back: whatever the sound, it claims to hear the lines and scores them
+  let R = fakeRoutes({ hearing: 'real', hear: () => ({ speech: true, text: CHECK_TEXT + ' ' + EVERYTHING }),
+    listen: req => ({ lines: Array.from(req.user[0].matchAll(/^(\S+)\t[\d.]+–[\d.]+\t/gm)).map(m => ({ id: m[1], audible: 'yes', score: 5, notes: ['clear', 'warm'], energy: 'medium', cleanStart: true, cleanEnd: true, confidence: 'sure', heard: [] })), missed: [] }) });
+  try {
+    D.setOn(true);
+    assert.deepStrictEqual([D.plan().kind, D.hearing()], ['helper', {}], 'not checked yet');
+    await assert.rejects(() => D.runAll(job, {}), e => /doesn’t seem to listen – it judged a silent clip from the transcript/.test(e.title) && /another listening model/.test(e.action) && /Cloud/.test(e.action));
+    const h = D.hearing()['tiny-listen@1'];
+    assert.ok(h && h.ok === false && /a silent clip: 5\/5 clear, warm/.test(h.detail), JSON.stringify(h));
+    assert.strictEqual(R.calls.hear.length, 2, 'two short pieces: near-silence and a tone');
+    assert.ok(R.calls.hear.every(q => q.user[1].media.seconds === 8) && R.calls.listen.every(q => /^h1\t/m.test(q.user[0])), 'only the made-up lines were ever sent – no interview was listened to');
+    const kept = D.peek(D.interviews()[0].path);
+    assert.ok(!kept || !kept.done, 'nothing is kept as listened to');
+    assert.deepStrictEqual([D.plan().kind, D.plan().why, D.status().state, D.status().offers], ['none', 'deaf', 'deaf', ['settings', 'recheck']]);
+    assert.ok(/doesn’t seem to listen/.test(D.status().text) && /Tiny Listener gave a delivery score to made-up lines over a silent clip/.test(D.status().note) && /none are kept, shown or sent/.test(D.status().note), JSON.stringify(D.status()));
+    assert.strictEqual(await D.tick(), false, 'and the background doesn’t try');
+    const n = R.calls.hear.length;
+    await assert.rejects(() => D.runAll(job, {}), e => /doesn’t seem to listen/.test(e.title));
+    assert.strictEqual(R.calls.hear.length, n, 'the check is kept per model and version: not run again');
+    // scores an earlier version made with this model are not shown or sent either
+    const iv = D.interviews()[0];
+    US.cache.set('delivery', P.keyOf(iv.path), { v: D.VERSION, by: 'tiny-listen@1', label: 'Tiny Listener', where: 'local', langs: 'hebrew,yiddish', sig: P.sigOf(iv.lines), next: 1, total: 1, done: true, lines: { r1: { t: P.lineSig(iv.lines[0]), start: 1, end: 5, score: 5, notes: ['clear'], heard: [] } }, missed: [] });
+    D.reset();
+    assert.deepStrictEqual([D.active(), D.note('r1')], [false, '']);
+    R.restore();
+    // “Check again” (or another model): an honest one passes – on silence it hears nobody, so nothing is judged
+    R = fakeRoutes({ hearing: 'real', hear: () => ({ speech: false, text: '' }) });
+    D.forgetHearing();
+    assert.deepStrictEqual([D.plan().kind, D.hearing()], ['helper', {}]);
+    const ok = await D.ensureHearing(D.plan(), job);
+    assert.deepStrictEqual([ok.ok, ok.detail, R.calls.hear.length, R.calls.listen.length, D.hearing()['tiny-listen@1'].ok], [true, '', 2, 0, true]);
+    assert.deepStrictEqual([D.active(), D.note('r1')], [true, ' [delivery 5/5 – clear]'], 'a model that passes has its records used');
+    // the cloud has no such check (it would cost money): it relies on “audible”, the notes and the silence gate
+    assert.deepStrictEqual(await D.ensureHearing({ kind: 'cloud', id: 'cloud:x' }), { ok: true });
+  } finally { US.understand.calm = keepCalm; R.restore(); TL.undo(); done(); }
 });

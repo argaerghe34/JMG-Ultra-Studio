@@ -20,7 +20,7 @@ const release = await D.pause();
 
 const store = US.projectStore(US.ctx.project.path || US.ctx.project.name);
 const KEYS = ['delivery.on', 'delivery.where', 'delivery.localModel', 'delivery.cloudModel', 'delivery.langs', 'delivery.notTerms'];
-const keep = { store: Object.fromEntries(KEYS.map(k => [k, store.get(k)])), consent: US.ai.deliveryOn(), media: US.ai.mediaOn(), routes: Object.assign({}, D.routes), base: US.settings.get('story.binBase'), tool: US.tools.current, saved: null };
+const keep = { store: Object.fromEntries(KEYS.map(k => [k, store.get(k)])), consent: US.ai.deliveryOn(), media: US.ai.mediaOn(), routes: Object.assign({}, D.routes), hearing: US.settings.get('delivery.hearing'), base: US.settings.get('story.binBase'), tool: US.tools.current, saved: null };
 US.settings.set('story.binBase', BIN);
 const st = S.loadState();
 const savedState = JSON.parse(JSON.stringify({ themes: st.themes, wall: st.wall, glossary: st.glossary || [], scope: st.scope || { kind: 'all' }, proView: st.proView || null }));
@@ -77,7 +77,10 @@ try {
   const P0 = D.plan();
   log.push(`on this computer: ${P0.kind === 'helper' ? P0.label : 'no listening model (' + D.status().text + ')'}`);
   const heard = [];
+  D.routes.hearing = async () => ({ ok: true, at: Date.now(), label: 'Stand-in listener', detail: '' });   // the stand-in isn't a model to check
   D.routes.listen = async (plan, req) => {
+    // a model on this computer is first asked only what is said, without the transcript: the stand-in “hears” every line
+    if (req.schema === D._pure.HEAR_SCHEMA) return { speech: true, text: L.map(l => l.text).join(' ') + ' ' + HEB };
     const m = req.user[1].media, wav = Buffer.from(m.data, 'base64');
     if (!(wav.toString('ascii', 0, 4) === 'RIFF' && wav.readUInt32LE(24) === 16000 && wav.length > 16000 * 2)) throw new Error('not a piece of 16 kHz WAV sound');
     let peak = 0; for (let i = 44; i + 1 < wav.length; i += 200) peak = Math.max(peak, Math.abs(wav.readInt16LE(i)));
@@ -168,15 +171,41 @@ try {
     D.setWhere('local');
   }
 
-  // 9. a real listening model, when there is one on this computer: it really listens to the first piece (nothing leaves)
+  // 9. a real listening model, when there is one on this computer (nothing leaves). The test interview's soundtrack has
+  //    NO speech – synthetic sound at the phrase times – so the only honest outcome is: no delivery scores at all.
+  //    (1.3.41 let Gemma 4 E2B score it “5/5 clear, warm” from the transcript.)
   Object.assign(D.routes, keep.routes);
-  if (P0.kind === 'helper') {
-    D.forget(iv.path); D.reset();
-    let k = 0; const t1 = Date.now();
-    const rr = await D.analyse(iv, { job: US.jobs.testJob('story'), keepGoing: () => k++ < 1 });
-    const got = Object.values(rr.rec.lines);
-    T.assert(rr.did && rr.rec.next === 1, 'one piece was listened to for real: ' + JSON.stringify({ next: rr.rec.next, failed: rr.rec.failed }));
-    log.push(`REAL listening with ${P0.label}: one piece in ${((Date.now() - t1) / 1000).toFixed(1)} s – ${got.length ? got.map(e => `${e.score || '?'}/5 ${e.notes.join(', ')}${e.heard.length ? ' · heard ' + e.heard.map(D.heardText).join(', ') : ''}`).join(' | ') : 'its answer couldn’t be read (counted, not kept)'}`);
+  if (P0.kind === 'helper' || P0.why === 'deaf') {
+    D.forget(iv.path); D.forgetHearing(); D.reset();
+    const P1 = D.plan(), t1 = Date.now();
+    const check = await D.ensureHearing(P1, US.jobs.testJob('story'));
+    log.push(`REAL hearing check of ${P1.label}: ${check.ok ? 'passed – it scored neither a silent clip nor a tone' : 'FAILED – ' + check.detail} (${((Date.now() - t1) / 1000).toFixed(1)} s)`);
+    if (check.ok) {
+      let k = 0; const t2 = Date.now();
+      const rr = await D.analyse(iv, { job: US.jobs.testJob('story'), keepGoing: () => k++ < 1 });
+      const got = Object.entries(rr.rec.lines);
+      T.assert(rr.did && rr.rec.next === 1 && got.length >= 1, 'one piece was listened to for real: ' + JSON.stringify({ next: rr.rec.next, failed: rr.rec.failed, lines: got.length }));
+      T.assert(got.every(([, e]) => e.unheard && !e.score && !(e.notes || []).length), 'no speech in this clip, so no line may have a delivery score: ' + JSON.stringify(got.map(([x, e]) => [x, e.unheard || '', e.score, e.notes])));
+      T.assert(D.note(got[0][0]) === '', 'and nothing about those lines goes to Story’s AI');
+      log.push(`REAL listening with ${P1.label} to the clip with no speech: one piece in ${((Date.now() - t2) / 1000).toFixed(1)} s – ${got.map(([, e]) => 'couldn’t hear (' + e.unheard + ')').join(', ')}: no invented scores`);
+    } else {
+      let why = ''; try { await D.runAll(US.jobs.testJob('story'), {}); } catch (e) { why = e.title || e.message; }
+      T.assert(/doesn’t seem to listen/.test(why) && D.status().state === 'deaf' && !(D.peek(iv.path) || {}).done, 'a model that fails the check is refused, and nothing is kept: ' + why);
+    }
+    // one real listen to real (synthetic-voice) speech, made here with the Mac's own “say”: logged, not judged
+    if (check.ok && process.platform === 'darwin') {
+      const os = require('os'), cp = require('child_process'), dir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'us-say-'));
+      try {
+        cp.execFileSync('say', ['-o', dir + '/s.aiff', 'My name is Ruth, and I grew up in a small flat in Stamford Hill. Every Friday night the table was full.']);
+        cp.execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', dir + '/s.aiff', dir + '/s.wav']);
+        const a = await US.audio.readWav(dir + '/s.wav', { targetRate: 16000 }), secs = a.data.length / 16000;
+        const lines = [{ id: 'say1', start: 0.1, end: secs * 0.6, speaker: 'Ruth', text: 'My name is Ruth, and I grew up in a small flat in Stamford Hill.' }, { id: 'say2', start: secs * 0.6, end: secs - 0.1, speaker: 'Ruth', text: 'Every Friday night the table was full.' }, { id: 'say3', start: 0.1, end: 1, speaker: 'Ruth', text: 'We opened the bakery in nineteen sixty.' }];
+        const t3 = Date.now(), r3 = await D.listenPiece(D.plan(), { n: 1, name: 'say' }, { start: 0, end: secs, lines }, a.data, 16000, { job: US.jobs.testJob('story') });
+        T.assert(r3.lines.say3 && r3.lines.say3.unheard, 'a line that isn’t in the speech gets no score: ' + JSON.stringify(r3.lines.say3));
+        log.push(`REAL listening to ${secs.toFixed(1)} s of synthetic speech (${((Date.now() - t3) / 1000).toFixed(1)} s) – it wrote down “${r3.said}”; ${['say1', 'say2'].map(x => { const e = r3.lines[x]; return e ? (e.unheard ? 'couldn’t hear' : `${e.score || '?'}/5 ${e.notes.join(', ')}`) : 'no answer'; }).join(' | ')} (not a judgement of quality: a computer voice)`);
+      } catch (e) { log.push('the synthetic-speech listen could not be run here: ' + (e.title || e.message)); }
+      finally { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* temp */ } }
+    }
   } else log.push('no listening model on this computer, so real listening was not run (download Gemma 4 in Settings › Vision & listening models to test it)');
 
   // 10. switched off again: the notes are gone from everything Story sends
@@ -188,6 +217,7 @@ try {
   if (keep.saved) { try { D.forget(keep.saved.path); } catch (e) { /* nothing to take away */ } D.unforget(keep.saved); D.flush(); }
   for (const k of KEYS) store.set(k, keep.store[k]);
   US.ai.setDelivery(keep.consent); US.ai.setMedia(keep.media);
+  US.settings.set('delivery.hearing', keep.hearing || {});
   Object.assign(st, savedState); if (!savedState.proView) delete st.proView;
   try { await S.importFiles(US.jobs.testJob('story'), [T.media('transcripts', 'I001_interview.srt')]); } catch (e) { /* the next Story test re-imports it */ }
   S.reindex(); S.save();
