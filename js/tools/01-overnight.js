@@ -17,6 +17,7 @@
     { id: 'look', label: 'Describe the footage', hint: 'A few small stills of each clip are looked at and described in words, so Ask can find shots by what’s in them. Who looks is in Settings › AI › Footage – Claude or Gemini (stills leave this computer; switch it on there for this project) or a model on this computer. Each clip is done once. No Media Encoder: clips the panel can’t read wait for the Selects step’s copies.' },
     { id: 'understand', label: 'Look at and listen to all the footage', hint: 'What each clip shows over time (shots, reactions, gestures) and what can be heard (music, applause, laughter, wind, a raised voice), so Ask, Story and Selects know what’s in the footage. Who does it is in Settings › Vision & listening models: on this computer (nothing leaves) or, only if you chose it for this project, the cloud – within the AI limit below. Each clip is done once.' },
     { id: 'delivery', label: 'Listen to the delivery of the interviews', hint: 'Story · how each interview line is said (a score, a few words) and the words the transcript got wrong – Hebrew, Yiddish, names, sarcasm. Only for a project with Listen to delivery switched on (Story › 1 Interviews): on this computer, or – only if you chose Cloud for it there – Gemini, stopping before it goes over the AI limit below. Each interview is done once.' },
+    { id: 'englishListen', label: 'Translate by listening the interviews with no usable transcript', hint: 'Story · for interviews whose transcript isn’t in their language (Hebrew written down as nonsense) or has no words: the original words and their English made from the sound, with the listening model chosen in Settings › Listening models for Story – on this computer, or Gemini if you chose Cloud there, stopping before it goes over the AI limit below. AI transcription and translation: check before publishing.' },
     { id: 'recipe', label: 'Then run a recipe', hint: 'One of your recipes (Ask › Recipes) – edit steps are left for the morning, as they need checking' },
     { id: 'selects', label: 'Analyse all the footage for Selects', hint: resolve ? 'Resolve makes small copies of clips the panel can’t read; afterwards Selects grades any bin instantly' : 'Makes Media Encoder copies of clips the panel can’t read; afterwards Selects grades any bin instantly' }
   ];
@@ -66,6 +67,14 @@
       // the cloud stops before tonight's limit (counted at Google's paid rate); this computer costs nothing
       return US.delivery.runAll(job, { heavy: true, limitUsd: US.delivery.settings().where === 'cloud' ? +o.limit || 0 : null });
     },
+    async englishListen(job, o) {
+      const LI = US.storyListen;
+      if (!LI || !US.delivery) throw new US.UserError('NOTHING_FOUND', { title: 'Translating by listening isn’t available.' });
+      const keys = LI.waiting();
+      if (!keys.length) return { summary: 'No interview needs translating by listening' };
+      // the cloud's yes was given when Overnight prep started; it stops before tonight's limit (at Google's paid rate)
+      return LI.run(job, { keys, confirmed: true, limitUsd: US.delivery.settings().where === 'cloud' ? +o.limit || 0 : null });
+    },
     async recipe(job, o) {
       const r = US.recipes && US.recipes.list().find(x => x.id === o.recipe);
       if (!r) throw new US.UserError('NOTHING_FOUND', { title: 'No recipe chosen.', action: 'Choose one in Overnight prep on Home.' });
@@ -110,6 +119,7 @@
     if (o.steps.includes('understand') && US.understand && US.understand.route() === 'cloud' && US.understandUI && !(await US.understandUI.confirmCloud({ overnight: true }))) throw new US.UserError('CANCELLED');
     // cloud listening to delivery: the same – its own yes, with the estimate and tonight's limit
     if (o.steps.includes('delivery') && US.delivery && US.delivery.settings().on && US.delivery.settings().where === 'cloud' && US.storyDelivery && !(await US.storyDelivery.confirmCloud({ overnight: true, limit: +o.limit || 0 }))) throw new US.UserError('CANCELLED');
+    if (o.steps.includes('englishListen') && US.storyListen && US.delivery && US.delivery.settings().where === 'cloud' && US.storyListen.waiting().length && !(await US.storyListen.confirmCloud(US.storyListen.waiting().map(US.storyListen.target), { overnight: true, limit: +o.limit || 0 }))) throw new US.UserError('CANCELLED');
     if (o.useAI && US.ai && US.ai.available() && US.ai.provider() === 'claude') {
       // agreed now, while someone is there; nothing asks later
       const ok = await ui.confirm({ title: `Allow up to $${(+o.limit).toFixed(2)} of Claude tonight?`, text: 'Overnight prep won’t stop to ask. AI steps that would go over this limit are skipped and listed in the morning report. ' + (o.steps.includes('look') && US.footage && US.footage.looker().where === 'cloud' ? 'The text of transcript lines is sent and, for Describe the footage, a few small stills of each clip – no video or sound.' : 'Only the text of transcript lines is sent.'), ok: 'Allow and start' });

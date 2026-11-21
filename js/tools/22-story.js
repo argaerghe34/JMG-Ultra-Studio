@@ -2815,7 +2815,7 @@
           const linked = !!(t.path || t.itemId);
           return h('div.list-row',
             h('span.swatch', { style: { background: linked ? 'var(--ok)' : 'var(--warn)' }, title: linked ? 'Linked to a clip' : 'Not linked to a clip' }),
-            h('div.list-main', h('div.list-title', t.name), h('div.list-sub', `${t.source === 'premiere' ? 'Premiere transcript' : t.source === 'resolve' ? 'Transcribed by Resolve' : 'File: ' + US.basename(t.file)} · ${US.plural(t.lines.length, 'line')} · ${US.fmtDur(t.lines.length ? t.lines[t.lines.length - 1].end : 0)}${linked ? '' : ' · not linked to a clip'}`)),
+            h('div.list-main', h('div.list-title', t.name), h('div.list-sub', `${t.source === 'listened' ? 'Made by listening – AI' : t.source === 'premiere' ? 'Premiere transcript' : t.source === 'resolve' ? 'Transcribed by Resolve' : 'File: ' + US.basename(t.file)} · ${US.plural(t.lines.length, 'line')} · ${US.fmtDur(t.lines.length ? t.lines[t.lines.length - 1].end : 0)}${linked ? '' : ' · not linked to a clip'}`)),
             ui.button(linked ? 'Relink' : 'Link to clip', { small: true, kind: linked ? 'ghost' : 'secondary', onClick: () => linkDialog(t) }),
             h('button.icon-btn', { title: 'Remove this transcript from Story', onclick: async () => { if (await ui.confirm({ title: `Remove “${t.name}”?`, text: 'Its lines leave Find and Themes. Nothing in Premiere changes.', ok: 'Remove' })) { state.transcripts = state.transcripts.filter(x => x !== t); reindex(); pruneWall(); saveNow(); render(); } } }, US.icon('close', 14)));
         });

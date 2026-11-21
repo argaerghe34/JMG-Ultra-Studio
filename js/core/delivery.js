@@ -311,9 +311,11 @@
    * Who would listen right now: {on, where, kind: 'helper'|'cloud'|'none', id, label, why, langs, chunkSec, model}.
    * why (when kind is 'none'): 'off' | 'offline' | 'consent' | 'key' | 'model' | 'deaf' (the model failed its hearing check).
    */
-  function plan() {
-    const s = settings(), out = { on: s.on, where: s.where, kind: 'none', id: '', label: '', why: '', langs: s.langs, chunkSec: 30, model: null };
-    if (!s.on) { out.why = 'off'; return out; }
+  function plan({ force = false } = {}) {
+    // force: who would listen if asked now, whether or not Listen to delivery is switched on (Story › Translate by
+    // listening is its own explicit action – with the same models, the same where and the same cloud consent)
+    const s = settings(), out = { on: s.on || force, where: s.where, kind: 'none', id: '', label: '', why: '', langs: s.langs, chunkSec: 30, model: null };
+    if (!s.on && !force) { out.why = 'off'; return out; }
     if (s.where === 'cloud') {
       const A = US.ai;
       if (!A || A.projectOffline()) out.why = 'offline';
@@ -610,7 +612,7 @@
       save(iv, rec);
     }
     // not one piece could be read: that is the model, not the interview – nothing is kept as “done”
-    if (rec.next >= ps.length && ps.length && (rec.failed || 0) >= ps.length) { rec.next = 0; rec.failed = 0; save(iv, rec); throw lastBad || new US.UserError('AI_FAILED', { title: 'The listening model’s answers didn’t make sense.', action: 'Try again, or choose another model in Settings › Listen to delivery.' }); }
+    if (rec.next >= ps.length && ps.length && (rec.failed || 0) >= ps.length) { rec.next = 0; rec.failed = 0; save(iv, rec); throw lastBad || new US.UserError('AI_FAILED', { title: 'The listening model’s answers didn’t make sense.', action: 'Try again, or choose another model in Settings › Listening models for Story.' }); }
     if (rec.next >= ps.length) { rec.done = true; rec.judged = Object.values(rec.lines).filter(e => !e.unheard).length; rec.unheard = Object.values(rec.lines).filter(e => e.unheard).length; save(iv, rec); }
     return out;
   }
@@ -620,7 +622,7 @@
       offline: ['This project is set to “nothing leaves this computer”.', 'Listen to delivery on this computer instead (Story › 1 Interviews › Listen to delivery), or change the project’s setting in Settings › AI.'],
       consent: ['Listening to delivery in the cloud isn’t switched on for this project on this computer.', 'Story › 1 Interviews › Listen to delivery: choose “Cloud” (you’re shown the cost first) – or listen on this computer.'],
       key: ['Cloud listening needs a Gemini key.', 'Add one in Settings › AI (Claude can’t hear), or listen on this computer.'],
-      deaf: [`${DEAF}.`, 'So its scores would be made up, and nothing was kept. Choose another listening model in Settings › Listen to delivery, or choose Cloud there (Gemini hears properly).'],
+      deaf: [`${DEAF}.`, 'So its scores would be made up, and nothing was kept. Choose another listening model in Settings › Listening models for Story, or choose Cloud there (Gemini hears properly).'],
       model: ['There’s no listening model on this computer yet.', 'Download one in Settings › Vision & listening models (Gemma 4 listens), or choose Cloud in Story › 1 Interviews › Listen to delivery.']
     }[P.why] || ['Nothing can listen to delivery yet.', 'Story › 1 Interviews › Listen to delivery.'];
     return new US.UserError(P.why === 'key' ? 'AI_KEY' : 'NOTHING_FOUND', { title: T[0], action: T[1] });
