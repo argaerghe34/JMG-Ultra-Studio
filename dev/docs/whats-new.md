@@ -1,6 +1,6 @@
 ## What's new in 1.3.42
 
-Not tested in Premiere or Resolve (unit tests with stand-in models only). One thing was measured for real, on this Mac, with Gemma 4 E2B running on this computer – see "A hearing check" below. No cloud request was made.
+Tested in Premiere on the Mac with stand-in translators and listeners, plus real listening by Gemma 4 E2B on this computer (a computer voice, not real interviews). Not tested in Resolve or on Windows. No real translation has been made by Claude or Gemini, and no cloud listening request was sent for this version. The cloud cost estimate for Listen to delivery was raised to match one real request made on 21 Nov (1.3¢ at Google's paid rate for a 90-second interview).
 
 **Story › English translation – for interviews that aren't in English**
 - **Per interview, in Story › 1 Interviews › English translation.** Story works out each interview's language from its transcript (Hebrew, Yiddish, Arabic, Russian and others) and you can set it by hand. An interview in English is never offered a translation; one with phrases in another language is offered it for those lines only. **Translate all interviews not in English** does the rest in one go.

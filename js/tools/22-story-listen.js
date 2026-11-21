@@ -351,7 +351,7 @@
     US.bus.emit('english', {});
     const bits = [`${US.plural(out.done, 'interview')} translated by listening with ${P.label}`, `${US.plural(out.lines, 'line')} in English`];
     if (out.made) bits.push(`${US.plural(out.made, 'transcript')} made by listening`);
-    if (out.unheard) bits.push(`${US.plural(out.unheard, 'stretch')} couldn’t be heard – left empty`);
+    if (out.unheard) bits.push(`${US.plural(out.unheard, 'stretch', 'stretches')} couldn’t be heard – left empty`);
     if (out.stopped === 'limit') bits.push(`stopped at the limit of ${US.ai.fmtUSD(+limitUsd)} – the rest waits`);
     if (out.paidUsd > 0.004) bits.push(`about ${US.ai.fmtUSD(out.paidUsd)} at Google’s paid rate (nothing within the free allowance)`);
     return Object.assign(out, { summary: bits.join(' · ') + ' · ' + MARK });

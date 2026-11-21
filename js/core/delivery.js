@@ -260,7 +260,7 @@
 
   /* ---------- how long, how much ---------- */
   // used only until this computer has been measured (speed) – and for what a model writes back, which is never measured ahead
-  const ASSUME = { localX: [0.5, 3], cloudSecPerAsk: [4, 12], outPerLine: [35, 90], promptTokens: 900 };
+  const ASSUME = { localX: [0.5, 3], cloudSecPerAsk: [4, 12], outPerLine: [90, 240], promptTokens: 900 };   // outPerLine: one real request (Gemini 3.8 Flash, 21 Nov 2026) wrote about 200 tokens a line, thinking included
   /**
    * An honest estimate for some interviews. input: {seconds (of sound that would be sent), lines, chars (of their text)}.
    * -> {minutes, lines, local: {secs: [lo, hi], measured, x}, cloud: {model, label, usd: [lo, hi], secs, megabytes, date} | null}

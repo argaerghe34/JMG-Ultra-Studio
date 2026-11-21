@@ -75,14 +75,17 @@ try {
   await US.host.call('placeClips', { seqId: seq.id, cursor: 0, clips: [{ id: ruth.id, in: 33, out: 39 }] });   // “passed away” is already in the cut
   await T.open(seq.id);
   const boxes = () => $$('.pv-rows .pv-tick input', tool);
-  boxes()[0].click(); await W(50);
-  boxes()[1].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })); await W(100);
+  // Ruth's first two lines: other tests' interviews (with no clip to cut from) may be listed before hers
+  const mine = new Set(tr.lines.map(l => l.id)), i0 = rowIds().findIndex((x, i) => mine.has(x) && mine.has(rowIds()[i + 1]));
+  T.assert(i0 >= 0, 'two of Ruth’s lines are next to each other in the table');
+  boxes()[i0].click(); await W(50);
+  boxes()[i0 + 1].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })); await W(100);
   T.assert(/^2 ticked/.test($('.pv-bar-n', tool).textContent) && /Add 2 lines to a sequence/.test($('.pv-bar', tool).textContent), 'the bar: ' + $('.pv-bar', tool).textContent.slice(0, 60));
   const ticked = rowIds().filter((x, i) => boxes()[i].checked).map(x => S.lineOf(x));
-  await S.placeAtEnd(ticked);
+  let placed; try { placed = await S.placeAtEnd(ticked); } catch (e) { placed = 'ERR ' + (e.title || e.message) + ' / ' + (e.detail || ''); }
   const info = await US.host.call('sequenceInfo', { seqId: seq.id });
   const clips = info.video[0].clips;
-  T.assert(clips.length === 3, `the clip that was there and two lines after it: ${clips.length}`);
+  T.assert(clips.length === 3, `the clip that was there and two lines after it: ${clips.length} – ${JSON.stringify({ placed, ticked: ticked.map(l => l && [l.id, l.start, l.end, l.text.slice(0, 20)]) }).slice(0, 700)}`);
   T.near(clips[0].start, 0, info.frame * 1.5, 'what was there has not moved'); T.near(clips[0].end, 6, info.frame * 1.5, 'nor been cut');
   T.near(clips[1].start, 6, info.frame * 1.5, 'the first line starts at the old end');
   T.near(clips[1].in, ticked[0].start, info.frame * 1.5, 'cut to the line');

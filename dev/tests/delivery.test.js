@@ -376,8 +376,8 @@ test('Listen now and the background: on this computer it works in quiet slices; 
       const n0 = sent.length, lim = await D.runAll(job, { limitUsd: 0.0001 });
       assert.deepStrictEqual([lim.stopped, lim.done, sent.length - n0], ['limit', 0, 0]);
       assert.ok(/stopped at the limit/.test(lim.summary));
-      const some = await D.runAll(job, { limitUsd: 0.011 });
-      assert.deepStrictEqual([some.stopped, some.done, sent.length - n0], ['limit', 1, 1], 'the first fits, then the limit is reached');
+      const some = await D.runAll(job, { limitUsd: 0.015 });
+      assert.deepStrictEqual([some.stopped, some.done, sent.length - n0], ['limit', 1, 1], 'the first fits, then the limit is reached ' + JSON.stringify([some.stopped, some.done, sent.length - n0, some.paidUsd]));
     } finally { US.ai.media = keepMedia; D.routes.sound = keepSound; }
   } finally { US.understand.calm = keepCalm; R.restore(); TL.undo(); US.settings.set('delivery.bench', {}); done(); }
 });
