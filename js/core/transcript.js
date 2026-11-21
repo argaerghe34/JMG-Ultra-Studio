@@ -762,14 +762,28 @@
   /** One listing row: id<TAB>speaker<TAB>text. */
   function aiRow(l) { return `${l.id}\t${l.speaker || '-'}\t${String(l.text).replace(/\s+/g, ' ').slice(0, 400)}${deliveryNote(l)}`; }
   /** How the line is said and the words the transcript got wrong – only when Listen to delivery is on for the project and has heard it (js/core/delivery.js). */
-  function deliveryNote(l) { const D = US.delivery; if (!D || !l || !l.id) return ''; try { return D.note(l); } catch (e) { return ''; } }
+  function deliveryNote(l) {
+    if (!l || !l.id) return '';
+    let out = '';
+    // the English of a line in another language, when Story has translated it (js/tools/22-story-english.js)
+    const E = US.storyEnglish; if (E && E.note) { try { out += E.note(l); } catch (e) { /* no English */ } }
+    const D = US.delivery; if (D) { try { out += D.note(l); } catch (e) { /* no note */ } }
+    return out;
+  }
+  /** What the notes on some lines mean, said once to the AI – '' when the text carries none. */
+  function notesHint(text) {
+    const bits = [];
+    if (US.storyEnglish && US.storyEnglish.promptHint) bits.push(US.storyEnglish.promptHint(text));
+    if (US.delivery && US.delivery.promptHint) bits.push(US.delivery.promptHint(text));
+    return bits.filter(Boolean).join(' ');
+  }
   /** Lines in project order (the order of `all`), whatever order they were chosen in. */
   function inOrder(lines, all) { const at = new Map(all.map((l, i) => [l.id, i])); return lines.slice().sort((a, b) => (at.has(a.id) ? at.get(a.id) : 1e9) - (at.has(b.id) ? at.get(b.id) : 1e9)); }
   /** user content for US.ai: [cached listing, task]. cache: true = 5 minutes (the default: most listings are sent once or
       twice in a row), '1h' = an hour (listings often reused across a session, like the narrative pool). */
   function aiUser(listing, task, cache = true) {
     // lines that carry delivery notes: the task says once what they mean (nothing is added when there are none)
-    const hint = US.delivery && typeof task === 'string' ? US.delivery.promptHint(listing) : '';
+    const hint = typeof task === 'string' ? notesHint(listing) : '';
     return [{ text: listing, cache }, hint ? `${task}\n\n${hint}` : task];
   }
 
@@ -813,6 +827,6 @@
   US.transcript = {
     TICKS, premiereJSON, asks, parseTime, parseSRT, parseVTT, parseCSV, parseTimedText, parseJSONTranscript, parseText, parseFile,
     decodePremiereTranscript, readProjectTranscripts, fromSubtitles, wordsToSentences, toLines, quality, askedQuestion, isInterviewerLabel, search, parseQuery,
-    themesOffline, themesAI, AI_THEME_SCHEMA, aiRow, deliveryNote, inOrder, aiUser, matchClip, stem, tokens, STOP, levenshtein, SYNONYMS, indexLine, lineWords, wordTimes
+    themesOffline, themesAI, AI_THEME_SCHEMA, aiRow, deliveryNote, notesHint, inOrder, aiUser, matchClip, stem, tokens, STOP, levenshtein, SYNONYMS, indexLine, lineWords, wordTimes
   };
 })();

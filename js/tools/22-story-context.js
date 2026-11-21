@@ -68,7 +68,7 @@
    */
   function requests(transcripts, { task, maxTokens = 16000, effort = 'low', feature = '' }) {
     const ps = parts(transcripts);
-    return ps.map((part, k) => { const text = listing(part), hint = US.delivery ? US.delivery.promptHint(text) : ''; return { part, lines: part.flatMap(p => p.lines), req: {
+    return ps.map((part, k) => { const text = listing(part), hint = T().notesHint ? T().notesHint(text) : ''; return { part, lines: part.flatMap(p => p.lines), req: {
       // with delivery notes on the lines (Listen to delivery), the instruction says what they mean; without, it is byte-for-byte as before
       system: hint ? `${SYSTEM} ${hint}` : SYSTEM, user: [{ text, cache: '1h' }, task(k, ps.length)], schema: SCHEMA, maxTokens, effort, feature
     } }; });

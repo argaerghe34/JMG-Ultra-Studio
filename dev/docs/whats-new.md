@@ -1,3 +1,26 @@
+## What's new in 1.3.42
+
+Not tested in Premiere or Resolve (unit tests with stand-in models only). One thing was measured for real, on this Mac, with Gemma 4 E2B running on this computer – see "A hearing check" below. No cloud request was made.
+
+**Story › English translation – for interviews that aren't in English**
+- **Per interview, in Story › 1 Interviews › English translation.** Story works out each interview's language from its transcript (Hebrew, Yiddish, Arabic, Russian and others) and you can set it by hand. An interview in English is never offered a translation; one with phrases in another language is offered it for those lines only. **Translate all interviews not in English** does the rest in one go.
+- **Translating** uses the AI you already use for Story (Claude, Gemini or the model on this computer). Only transcript text is sent; names you keep out of AI stay out; a project set to "nothing leaves this computer" is only translated by a model on this computer. It goes line by line, reading the lines either side so sentences run on properly. Names stay names (with your Names and terms spellings), and a blessing or an idiom stays in the original with a short gloss – "b'ezrat Hashem [with God's help]". Every line keeps its own times. If Listen to delivery corrected words in a line, the translator is told what was really said.
+- It carries on where it stopped, is kept with the project, and only lines whose words changed are translated again.
+- **Full English transcript:** Word, text or CSV, with speakers and timecodes – optionally with the original beside the English (two columns in Word; Hebrew, Yiddish and Arabic set right-to-left).
+- **English subtitles for an interview:** an .srt or .vtt at the transcript's times, two lines of up to 42 characters, long lines split in step with their time.
+- **Add English subtitles to the open sequence:** every interview line heard in your cut – whole, trimmed by a clip's in and out, or used more than once – in English at the sequence's own times. The .srt is brought into the project and, in Premiere, put on the sequence as a caption track. In Resolve it is put in the Media Pool and you're told what to drag where. Nothing is burnt in.
+- **Show English under each line** (per project) for Story's lists and Pro View. The original stays the line you cut with; Find and Pro View's filter search the English too, and Story's AI reads the English beside lines that aren't in English, so themes and summaries come out in English.
+- **Ask and Producer** can translate an interview, save the English transcript and add English subtitles to the open sequence.
+- Everything it shows or writes is marked **AI translation – check before publishing**. It is a machine translation: have someone who speaks the language read it before it goes on screen.
+
+**Listen to delivery: a hearing check (a real bug, fixed)**
+- In 1.3.41 a model on this computer could **invent delivery scores**. On a test clip with no speech at all, Gemma 4 E2B answered "5/5 clear, warm" – it was judging the transcript's words, not the sound. (The sound was reaching it: asked only "what is said?", the same model wrote down a spoken sentence word for word and answered "nothing" for silence. Shown the transcript lines, it scored them whatever it heard – measured here on silence, a tone and speech.)
+- **A model on this computer now listens first, without the transcript.** It writes down what it hears; only then is it asked about the lines. A piece where nobody speaks is never judged, and a line whose words it didn't hear gets no score.
+- **"Couldn't hear" is not a low score.** On every route, a line the model says it couldn't hear – or where the recording is silent, measured here – has no delivery score, and nothing about it is sent to Story's AI. Pro View has a filter for these lines.
+- **A hearing check, once per model:** a few seconds of near-silence and of a plain tone with made-up lines. A model that scores them is refused – the card and Settings say "This model doesn't seem to listen – it judged a silent clip from the transcript", with what to do (another model, or Cloud) – and nothing it scored is kept, shown or sent.
+- Listening on this computer now makes two requests a piece, so it is slower than before. Records from 1.3.41 are made again.
+- **Still unproven:** whether a small local model's delivery scores mean anything on real speech. In the one measurement made here (a computer voice), Gemma 4 E2B gave "5/5 clear, warm" to every line it heard. The cloud model (Gemini) answered honestly on the clip with no speech in 1.3.41's test; it has no hearing check, because a check would cost money.
+
 ## What's new in 1.3.41
 
 Tested in Premiere on the Mac, including one real piece of listening with Gemma 4 E2B on this computer (on a test clip, not real interviews). Not tested in Resolve or on Windows, and no cloud request has been sent.

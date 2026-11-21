@@ -227,7 +227,7 @@
     return `${what} · ${US.fmtDur(r.l.start)}–${US.fmtDur(r.l.end)}`;
   }
   /** The words a row is filtered by. */
-  const hay = r => (r.l.text + ' ' + r.who + ' ' + r.themes.map(t => t.name).join(' ') + ' ' + (r.tag ? r.tag.name + ' ' + (r.tag.title || '') : '') + ' ' + (r.described || r.desc || '') + (r.delivery ? ' ' + (r.delivery.notes || []).join(' ') + ' ' + (r.delivery.heard || []).map(x => `${x.said} ${x.tr} ${x.lang} ${x.meaning}`).join(' ') : '')).toLowerCase();
+  const hay = r => (r.l.text + ' ' + r.who + ' ' + r.themes.map(t => t.name).join(' ') + ' ' + (r.tag ? r.tag.name + ' ' + (r.tag.title || '') : '') + ' ' + (r.described || r.desc || '') + (r.english ? ' ' + r.english : '') + (r.delivery ? ' ' + (r.delivery.notes || []).join(' ') + ' ' + (r.delivery.heard || []).map(x => `${x.said} ${x.tr} ${x.lang} ${x.meaning}`).join(' ') : '')).toLowerCase();
   const SORT_KEYS = {
     delivery: r => (r.delivery && r.delivery.score ? -r.delivery.score : null),   // best said first; lines not listened to stay last
     time: r => r.pos * 1e5 + r.l.start, who: r => r.who.toLowerCase(), len: r => r.l.end - r.l.start, star: r => (r.star ? 0 : 1), used: r => (r.used ? 0 : 1),
@@ -329,13 +329,15 @@
         const idx = P.themeIndex(S(), st, s);
         groupList = P.groups(S(), st, { s, idx });
         if (!itemOf(source)) { source = 'all'; sel.clear(); cursor = null; }
-        const u = usedNow(), dl = DL();
+        const u = usedNow(), dl = DL(), EN = US.storyEnglish && US.storyEnglish.has() ? US.storyEnglish : null;
         let rows = P.rowsFor(S(), st, source, { s, idx, asked: !!US.settings.get('story.qAsked', false) });
         for (const r of rows) {
           r.star = P.isStar(st, r.l.id || r.id, r.kind !== 'answer' && r.l.id && !r.noSpeech ? strong(r.l) : false);
           r.used = !!u && r.ids.some(id => u.has(id));
           const d = r.noSpeech ? described.get(descKey(r)) : null; if (d && d.text) r.described = d.text;
           r.delivery = dl && r.ids.length ? dl.forLines(r.ids) : null;
+          // the English of lines in another language (Story › 1 Interviews › English translation): found by the filter, shown with the line
+          r.english = EN && r.ids.length ? r.ids.map(x => EN.enOf(x)).filter(Boolean).join(' ') : '';
         }
         dBox.classList.toggle('hidden', !dl);
         if (dl) rows = P.byDelivery(rows, dFilter);
@@ -502,7 +504,7 @@
           used: () => h('span.pv-c.pv-c-used', r.used ? h('span.pv-used', { title: used ? `Already in “${used.name}”` : 'Already in the sequence' }, US.icon('ok', 12)) : null),
           who: () => h('span.pv-c.sl-who', US.keep(r.who)),
           time: () => h('span.pv-c.sl-tc', US.fmtDur(l.start)),
-          text: () => (r.noSpeech ? h('span.pv-c.sl-text.pv-desc', { title: 'Nothing is said here – this is what happens' }, US.keep(r.described || r.desc || '')) : h('span.pv-c.sl-text', dv && (dv.heard || []).length ? h('span.dlv-mark', { title: 'The transcript got words wrong here – heard: ' + dv.heard.map(US.delivery.heardText).join(' · ') }, '◆ ') : null, US.keep(l.text))),
+          text: () => (r.noSpeech ? h('span.pv-c.sl-text.pv-desc', { title: 'Nothing is said here – this is what happens' }, US.keep(r.described || r.desc || '')) : h('span.pv-c.sl-text', r.english && US.storyEnglish.showOn() ? { title: 'English (AI translation): ' + r.english } : null, dv && (dv.heard || []).length ? h('span.dlv-mark', { title: 'The transcript got words wrong here – heard: ' + dv.heard.map(US.delivery.heardText).join(' · ') }, '◆ ') : null, US.keep(l.text), r.english && US.storyEnglish.showOn() ? h('span.eng-inline', ' · ', US.keep(r.english)) : null)),
           delivery: () => h('span.pv-c.pv-c-delivery', dv ? { title: US.storyDelivery.titleOf(dv) } : null, dv ? (dv.unheard ? h('span.sl-dim', 'couldn’t hear') : [dv.score ? h('b.dlv-score', { style: { color: US.storyDelivery.scoreColor(dv.score) } }, dv.score + '/5 ') : null, US.keep((dv.notes || []).slice(0, 3).join(', '))]) : h('span.sl-dim', '–')),
           theme: () => h('span.pv-c.sl-tht', r.tag ? [h('span.sl-sw', { style: { background: hexOfLabel(r.tag.label) } }), h('span', { title: r.tag.title || '' }, US.keep(r.tag.name))]
             : th ? [h('span.sl-sw', { style: { background: hexOf(th) } }), US.keep(th.name + (r.themes.length > 1 ? ` +${r.themes.length - 1}` : ''))] : h('span.sl-dim', '–')),
@@ -660,6 +662,7 @@
         const how = placeHow();
         US.append(insp, [h('div.sl-h', r.kind === 'answer' ? 'Answer' : r.kind === 'moment' ? 'Moment' : 'Line'),
           r.noSpeech ? h('div.sl-quote.pv-desc', US.keep(r.described || r.desc || '')) : h('div.sl-quote', US.keep('“' + l.text + '”')),
+          !r.noSpeech && r.english ? h('div.eng-line.eng-insp', { title: US.storyEnglish.MARK }, h('span.eng-mark', 'EN'), ' ', US.keep(r.english), h('div.field-hint', US.storyEnglish.MARK)) : null,
           !r.noSpeech && r.delivery && US.storyDelivery ? US.storyDelivery.heardEl(l, r.delivery) : null,
           r.noSpeech ? h('div.field-hint', r.described ? 'Nothing is said here – this is what happens in the picture and sound.' : US.understand && US.understand.describe && r.path ? 'Nothing is said here. A description of what happens will show once this clip has been looked at.' : 'Nothing is said here – this is why Story picked it.') : null,
           h('dl.sl-kv',
@@ -706,6 +709,7 @@
       find.addEventListener('keydown', e => { if (e.key === 'Escape') { find.value = ''; query = ''; draw(); table.focus(); } else if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); table.focus(); } });
       US.bus.on('context', US.debounce(() => { if (US.tools.current === 'storylines') draw(); }, 400));
       US.bus.on('delivery', US.debounce(() => { if (US.tools.current === 'storylines') draw(); }, 600));
+      US.bus.on('english', US.debounce(() => { if (US.tools.current === 'storylines') draw(); }, 600));
       return { el: v.el, onShow(o) {
         openFrom(o);
         draw();

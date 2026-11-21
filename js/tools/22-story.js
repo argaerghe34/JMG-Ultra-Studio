@@ -169,6 +169,8 @@
     else if (target.themeId) { const th = state.themes.find(t => t.id === target.themeId); if (th) th.label = idx; }
   }
   function allLines() { return state.transcripts.flatMap(t => t.lines); }
+  /** Find's search: the lines' own words – and, for interviews translated into English, their English (22-story-english.js). */
+  function searchLines(q, lines, o) { const r = T.search(q, lines, o); return US.storyEnglish && US.storyEnglish.searchMore ? US.storyEnglish.searchMore(q, lines, r, o) : r; }
   function speakerName(s) { return (state.speakers[s] && state.speakers[s].name) || s || 'Unknown speaker'; }
   /** Who said a line, for a caption under it: the speaker's name, or the clip when the transcript has no speaker names. */
   function whoSaid(l) { const n = speakerName(l.speaker); if (n !== speakerName('')) return n; const t = clipOfLine.get(l.id); return t ? t.name : ''; }
@@ -2761,6 +2763,7 @@
         el.appendChild(scopeCard());
         if (US.storyIgnore) el.appendChild(US.storyIgnore.card({ render }));
         if (US.storyProof) el.appendChild(US.storyProof.card({ render }));
+        if (US.storyEnglish) el.appendChild(US.storyEnglish.card({ render }));
         if (US.storyDelivery && US.delivery) el.appendChild(US.storyDelivery.card({ render }));
         el.appendChild(glossaryCard());
         // the technical part: which clip each transcript belongs to, and speaker names
@@ -2934,7 +2937,7 @@
           moreResults = (e.more || []).map(r => ({ line: lineById.get(r.id), rel: r.rel, reasons: r.reasons || [] })).filter(r => r.line);
         } else {
           moreMode = false; lastQuery = (e && e.q) || ''; moreResults = [];
-          results = lastQuery.trim() ? T.search(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : [];
+          results = lastQuery.trim() ? searchLines(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : [];
         }
       }
       let findsOf = null;   // the Story the Find tab last opened from (another project, or a copy from another computer)
@@ -2991,7 +2994,7 @@
         if (moreMode) drawMore(list); else drawResults(list);
         el.appendChild(nextBar('search'));
         setTimeout(() => input.focus(), 30);
-        function run(q) { lastQuery = q; results = q.trim() ? T.search(q, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : []; rememberFind(); render(); }
+        function run(q) { lastQuery = q; results = q.trim() ? searchLines(q, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }) : []; rememberFind(); render(); }
       }
       /* ---------- Interview questions ---------- */
       /** “Claude Opus 5.5 reads 2,340 lines · about 40¢ · 2 requests · ~1 min” */
@@ -3200,7 +3203,7 @@
         return h('div.story-row.story-drag' + (checked ? '.on' : ''), { draggable: t && t.path ? 'true' : 'false', title: t && t.path ? `Drag onto the timeline – video and audio, cut to the line${(state.picked || []).length > 1 && (state.picked || []).includes(l.id) ? ' (with the other ticked lines)' : ''}` : '',
           ondragstart: e => dragLines(e, US.storyDrag.linesFor(l, state.picked || [], id => lineById.get(id)), { labelOf }), onclick: e => { if (box && e.target === textEl) { box.checked = !box.checked; onCheck(box.checked); e.currentTarget.classList.toggle('on', box.checked); } } },
           box, h('span.story-bar', { style: { background: speakerColor(l.speaker) } }),
-          h('div.story-main', textEl, US.storyDelivery ? US.storyDelivery.heardEl(l) : null, reasons && reasons.length ? h('div.story-why', 'Why: ' + reasons.join(' · ')) : null, h('div.story-meta', tag, `${[speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(l.start)} · ${(l.end - l.start).toFixed(1)} s`, q.score >= STRONG ? ui.pill('★ strong', 'var(--ok)') : null, hits.some(x => x.how === 'sounds like') ? ui.pill('sounds like', 'var(--info)') : null, hits.some(x => x.how === 'related') && !terms.length ? ui.pill('related', 'var(--text-2)') : null, US.storyDelivery ? US.storyDelivery.pill(l) : null)),
+          h('div.story-main', textEl, US.storyEnglish ? US.storyEnglish.lineEl(l) : null, US.storyDelivery ? US.storyDelivery.heardEl(l) : null, reasons && reasons.length ? h('div.story-why', 'Why: ' + reasons.join(' · ')) : null, h('div.story-meta', tag, `${[speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(l.start)} · ${(l.end - l.start).toFixed(1)} s`, q.score >= STRONG ? ui.pill('★ strong', 'var(--ok)') : null, hits.some(x => x.how === 'sounds like') ? ui.pill('sounds like', 'var(--info)') : null, hits.some(x => x.how === 'related') && !terms.length ? ui.pill('related', 'var(--text-2)') : null, US.storyDelivery ? US.storyDelivery.pill(l) : null)),
           playButton(l), t && t.path ? placeButtons(l, () => US.storyDrag.linesFor(l, state.picked || [], id => lineById.get(id)), labelOf) : null, extra,
           onRemove ? iconBtn('close', 'Take this line out of the theme', onRemove) : null);
       }
@@ -4186,7 +4189,7 @@
         else if (opts && opts.tab === 'search') momentsMode = questionsMode = false;
         if (opts && (opts.more || (opts.query != null && opts.tab === 'search'))) findsOf = state;   // what was asked for wins over the last search
         if (opts && opts.more) { moreMode = true; moreTopic = lastQuery = opts.more.topic; moreResults = opts.more.results; moreInfo = opts.more.info || ''; targetTheme = targetColumn = null; }
-        else if (opts && opts.query != null && opts.tab === 'search') { moreMode = false; lastQuery = opts.query; results = T.search(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }); }
+        else if (opts && opts.query != null && opts.tab === 'search') { moreMode = false; lastQuery = opts.query; results = searchLines(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }); }
         if (opts && (opts.more || (opts.query != null && opts.tab === 'search'))) rememberFind();
         show(tab);
       } };
@@ -4258,7 +4261,7 @@
     },
     run: async (p, job) => {
       await ready(); needLines();
-      const r = T.search(p.query, await linesInScope(job), { limit: 200 });
+      const r = searchLines(p.query, await linesInScope(job), { limit: 200 });
       openStory('search', { query: p.query });
       return { summary: r.length ? `${US.plural(r.length, 'line')} about “${p.query}” – best: “${r[0].line.text.slice(0, 60)}…”` : `Nothing found for “${p.query}”` };
     }
@@ -4621,7 +4624,7 @@
     askInterviews, askCut, askLeaveOut, askSpans, buildAsk, markAsk, removeAskMarkers, askThemes, askText, askCard: (...a) => askCard(...a), asks: () => (loadState(), state.asks || []),
     findAnswers, buildAnswers, answerSpans, scopeTranscripts: (...a) => scopeTranscripts(...a), contextInfo: () => contextInfo(), contextLine: () => contextLine(),
     /** for Pro View (22-story-lines.js): Find’s own search, placing and its options */
-    search: (q, o) => T.search(q, scopeLines(), Object.assign({ limit: 200 }, o)), placeAtEnd: (lines, o) => placeAtEnd(lines, o),
+    search: (q, o) => searchLines(q, scopeLines(), Object.assign({ limit: 200 }, o)), placeAtEnd: (lines, o) => placeAtEnd(lines, o),
     placeOpts: () => placeOpts(), placeOptionsSection: () => placeOptionsSection(), questionLabel, orderToggle: (...a) => orderToggle(...a),
     /** tests only: use a state object without a project */
     _useState(s) { session = null; clearTimeout(sharedTimer); sharedTimer = null; state = Object.assign(emptyState(), s); statePath = ''; reindex(); ensureColours(); return state; }

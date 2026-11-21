@@ -58,6 +58,7 @@ Your footage stays on your computer unless you choose otherwise, project by proj
 - AI gets text – your request and transcript lines – sent straight to the AI you choose.
 - Stills – a few small ones – only if you switch them on for a project in **Settings › AI (optional) › Footage – what the AI may see** (that part is only the permission; the model that looks is chosen in **Models on this computer**).
 - Sound or video goes to a cloud model only if you pick **Cloud** for that project in **Settings › Vision & listening models**. It's off until you pick it, and you see the cost first.
+- **English translation** (Story › 1 Interviews) sends only transcript text, to the AI you already use – like the rest of Story.
 - **Listen to delivery** (Story › 1 Interviews) is a separate choice: off until you switch it on for a project. On this computer nothing leaves; if you pick **Cloud** there, the sound of your interviews goes to Gemini only when you press **Listen now** (after the estimate) or in Overnight prep within its limit.
 - A project set to **nothing leaves this computer** sends nothing off this computer – not even text. Models on your own computer may always look and listen.
 - **Settings › What was sent to AI** shows the exact text of every request, and any stills or sound that went (with their size).

@@ -614,3 +614,12 @@ body.pv-dragging, body.pv-dragging * { cursor: grabbing !important; user-select:
 .dlv-lang { gap: 4px; }
 .pv-c-delivery { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .pv-dfilter.hidden { display: none; }
+
+/* ---------- Story › English translation (js/tools/22-story-english.js): the English under a line, the interviews' rows ---------- */
+.eng-line { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.eng-mark { font-size: 10px; font-weight: 600; color: var(--accent-hi); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; }
+.eng-inline { color: var(--text-3); }
+.eng-insp { margin: 4px 0 8px; font-size: 13px; }
+.eng-row .sel-right { flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.eng-lang select { max-width: 150px; }
+.eng-opts { gap: 12px; flex-wrap: wrap; }

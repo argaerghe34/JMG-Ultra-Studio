@@ -62,14 +62,14 @@
 
   /* ---------- Word (.docx) ---------- */
   const x = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
-  /** run: {text, bold, italic, color (hex without #), mono, size (half-points)} */
+  /** run: {text, bold, italic, color (hex without #), mono, size (half-points), rtl (Hebrew, Yiddish, Arabic: right-to-left)} */
   function run(r) {
-    const pr = [r.bold ? '<w:b/>' : '', r.italic ? '<w:i/>' : '', r.mono ? '<w:rFonts w:ascii="Menlo" w:hAnsi="Menlo" w:cs="Consolas"/>' : '', r.color ? `<w:color w:val="${r.color}"/>` : '', r.size ? `<w:sz w:val="${r.size}"/>` : ''].join('');
+    const pr = [r.rtl ? '<w:rtl/>' : '', r.bold ? '<w:b/>' : '', r.italic ? '<w:i/>' : '', r.mono ? '<w:rFonts w:ascii="Menlo" w:hAnsi="Menlo" w:cs="Consolas"/>' : '', r.color ? `<w:color w:val="${r.color}"/>` : '', r.size ? `<w:sz w:val="${r.size}"/>` : ''].join('');
     return `<w:r>${pr ? `<w:rPr>${pr}</w:rPr>` : ''}<w:t xml:space="preserve">${x(r.text)}</w:t></w:r>`;
   }
-  /** paragraph: {style, runs:[run…], spaceAfter (twips)} */
+  /** paragraph: {style, runs:[run…], spaceAfter (twips), rtl (a right-to-left paragraph: it starts at the right)} */
   function para(p) {
-    const pp = [p.style ? `<w:pStyle w:val="${p.style}"/>` : '', p.pageBefore ? '<w:pageBreakBefore/>' : '', p.spaceAfter != null ? `<w:spacing w:after="${p.spaceAfter}"/>` : ''].join('');
+    const pp = [p.style ? `<w:pStyle w:val="${p.style}"/>` : '', p.rtl ? '<w:bidi/>' : '', p.pageBefore ? '<w:pageBreakBefore/>' : '', p.spaceAfter != null ? `<w:spacing w:after="${p.spaceAfter}"/>` : ''].join('');
     return `<w:p>${pp ? `<w:pPr>${pp}</w:pPr>` : ''}${(p.runs || []).map(run).join('')}</w:p>`;
   }
   const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -81,12 +81,17 @@
 <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="80"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:sz w:val="28"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="40"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:color w:val="444444"/><w:sz w:val="22"/></w:rPr></w:style>
 </w:styles>`;
-  /** doc: {title, subtitle, blocks:[{heading} | {paragraph}]} -> .docx Buffer */
+  /** table: {widths:[twips…], rows:[[cell…]]} – a cell is a paragraph or a list of them. Plain grid lines. */
+  function table(t) {
+    const cell = (c, i) => `<w:tc><w:tcPr><w:tcW w:w="${t.widths[i] || 2400}" w:type="dxa"/></w:tcPr>${[].concat(c).map(para).join('') || para({ runs: [] })}</w:tc>`;
+    return `<w:tbl><w:tblPr><w:tblW w:w="${t.widths.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(k => `<w:${k} w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>`).join('')}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${t.widths.map(w => `<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>${t.rows.map(r => `<w:tr>${r.map(cell).join('')}</w:tr>`).join('')}</w:tbl>`;
+  }
+  /** doc: {title, subtitle, blocks:[{heading} | {paragraph} | {table}]} -> .docx Buffer */
   function docx(doc) {
     const body = [];
     if (doc.title) body.push(para({ style: 'Title', runs: [{ text: doc.title }] }));
     if (doc.subtitle) body.push(para({ style: 'Subtitle', runs: [{ text: doc.subtitle }] }));
-    for (const b of doc.blocks || []) body.push(b.heading ? para({ style: 'Heading1', runs: [{ text: b.heading }] }) : para(b.paragraph));
+    for (const b of doc.blocks || []) body.push(b.heading ? para({ style: 'Heading1', runs: [{ text: b.heading }] }) : b.table ? table(b.table) + para({ runs: [] }) : para(b.paragraph));
     const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body.join('')}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`;
     return zip([
@@ -245,5 +250,5 @@
     return docx({ title: g.title, subtitle: `${g.project ? g.project + ' · ' : ''}${g.date} · ${logSummary(g)}`, blocks });
   }
 
-  US.storyExport = { tc, srtTime, crc32, zip, docx, toText, toSRT, toCSV, toDocx, paperText, paperCSV, paperDocx, paperSummary, logText, logCSV, logDocx, logSummary, EXT: { docx: 'docx', txt: 'txt', srt: 'srt', csv: 'csv' } };
+  US.storyExport = { tc, srtTime, crc32, zip, docx, table, para, toText, toSRT, toCSV, toDocx, paperText, paperCSV, paperDocx, paperSummary, logText, logCSV, logDocx, logSummary, EXT: { docx: 'docx', txt: 'txt', srt: 'srt', csv: 'csv' } };
 })();
