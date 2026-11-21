@@ -545,7 +545,7 @@ test('Settings in jsdom with Qwen 3.5 in Ollama and Ultra Studio’s Gemma 4 E2B
   let o; try { o = JSON.parse(last); } catch (e) { throw new Error('models-ui.js gave no result:\n' + (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-1500)); }
   assert.deepStrictEqual(o.errors, []);
   // every picker that names a model names it once
-  assert.deepStrictEqual(o.selects.map(s => [s.section, s.job, s.qwen, s.gemma, s.llama]), [['ai', '', 1, 1, 1], ['understand', 'text', 1, 1, 1], ['understand', 'look', 1, 1, 1], ['understand', 'listen', 0, 1, 0]]);
+  assert.deepStrictEqual(o.selects.map(s => [s.section, s.job, s.qwen, s.gemma, s.llama]), [['ai', '', 1, 1, 1], ['understand', 'text', 1, 1, 1], ['understand', 'look', 1, 1, 1], ['understand', 'listen', 0, 1, 0], ['delivery', '', 0, 1, 0]]);   // the last: Story › Listen to delivery chooses its own listening model, per project
   assert.ok(o.selects.slice(0, 3).every(s => s.chosen === 'Qwen 3.5 (4B) – from Ollama'), 'the model in use is shown as chosen, with where it comes from');
   // one list, in one section: each model a single row (in 1.3.40 Qwen had a row and a dropdown entry in Footage, and another in Vision & listening models)
   assert.deepStrictEqual(o.rows.map(x => x.section), ['understand', 'understand', 'understand', 'understand']);

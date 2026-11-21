@@ -93,7 +93,9 @@
     { id: 'time', label: 'Time', w: 58, min: 36 },
     { id: 'text', label: 'Line', w: 0, min: 80 },
     { id: 'theme', label: 'Theme', w: 140, min: 40 },
-    { id: 'len', label: 'Length', w: 60, min: 36 }
+    { id: 'len', label: 'Length', w: 60, min: 36 },
+    // only while Listen to delivery is on for the project and has heard something (like “Used”, it has its own switch)
+    { id: 'delivery', label: 'Delivery', title: 'How the line is said – from Listen to delivery', w: 150, min: 40 }
   ];
   const colOf = id => COLS.find(c => c.id === id);
   /** Every column can be hidden but the Line itself (“Used” is shown by its own switch). */
@@ -119,7 +121,7 @@
   }
   function setWidth(lay, id, px) { const c = colOf(id); if (!c) return lay; lay.widths[id] = Math.max(c.min, Math.min(1600, Math.round(px))); return lay; }
   const widthOf = (lay, id) => lay.widths[id] || colOf(id).w;
-  const visible = (lay, { used = true } = {}) => lay.order.filter(id => (used || id !== 'used') && !(lay.hidden || []).includes(id));
+  const visible = (lay, { used = true, delivery = false } = {}) => lay.order.filter(id => (used || id !== 'used') && (delivery || id !== 'delivery') && !(lay.hidden || []).includes(id));
   /** grid-template-columns for a row: the tick box, then the columns in order. */
   function template(lay, o) { return [TICK_W + 'px'].concat(visible(lay, o).map(id => { const w = widthOf(lay, id); return w ? w + 'px' : `minmax(${FLEX_MIN}px, 1fr)`; }), [MENU_W + 'px']).join(' '); }
   function minWidth(lay, o) { const v = visible(lay, o); return PAD + TICK_W + MENU_W + v.reduce((n, id) => n + (widthOf(lay, id) || FLEX_MIN), 0) + GAP * (v.length + 1); }
@@ -225,15 +227,22 @@
     return `${what} · ${US.fmtDur(r.l.start)}–${US.fmtDur(r.l.end)}`;
   }
   /** The words a row is filtered by. */
-  const hay = r => (r.l.text + ' ' + r.who + ' ' + r.themes.map(t => t.name).join(' ') + ' ' + (r.tag ? r.tag.name + ' ' + (r.tag.title || '') : '') + ' ' + (r.described || r.desc || '')).toLowerCase();
+  const hay = r => (r.l.text + ' ' + r.who + ' ' + r.themes.map(t => t.name).join(' ') + ' ' + (r.tag ? r.tag.name + ' ' + (r.tag.title || '') : '') + ' ' + (r.described || r.desc || '') + (r.delivery ? ' ' + (r.delivery.notes || []).join(' ') + ' ' + (r.delivery.heard || []).map(x => `${x.said} ${x.tr} ${x.lang} ${x.meaning}`).join(' ') : '')).toLowerCase();
   const SORT_KEYS = {
+    delivery: r => (r.delivery && r.delivery.score ? -r.delivery.score : null),   // best said first; lines not listened to stay last
     time: r => r.pos * 1e5 + r.l.start, who: r => r.who.toLowerCase(), len: r => r.l.end - r.l.start, star: r => (r.star ? 0 : 1), used: r => (r.used ? 0 : 1),
     theme: r => { const n = r.tag ? r.tag.name : r.themes[0] ? r.themes[0].name : ''; return n ? n.toLowerCase() : null; }, text: r => (r.l.text || r.desc || '').toLowerCase()
   };
+  /** The Delivery filter: 'any', '4' (4 and up), '3' (3 and up), 'low' (2 or less), 'heard' (corrected words), 'none' (not listened to). */
+  const DELIVERY_FILTERS = [['any', 'Any delivery'], ['4', 'Said well (4–5)'], ['3', '3 and up'], ['low', 'Said badly (1–2)'], ['heard', 'With corrected words'], ['none', 'Not listened to']];
+  function byDelivery(rows, f) {
+    if (!f || f === 'any') return rows;
+    return rows.filter(r => { const e = r.delivery, s = e && e.score; return f === 'none' ? !e : f === 'heard' ? !!(e && (e.heard || []).length) : f === 'low' ? !!s && s <= 2 : !!s && s >= +f; });
+  }
   const kindOf = source => (/^(find|q|m):/.exec(String(source)) || [0, 'theme'])[1];
 
   US.proView = { data, remember, adopt, entryOf, setArchived, forget, searches, countOf, isStar, setStar, sortRows, range, COLS, layout, moveCol, setWidth, setHidden, canHide, template, minWidth, visible, windowOf, noSpeech,
-    themeIndex, groups, rowsFor, describeBasic, hay, SORT_KEYS, kindOf, ROW_H };
+    themeIndex, groups, rowsFor, describeBasic, hay, SORT_KEYS, kindOf, ROW_H, DELIVERY_FILTERS, byDelivery };
 
   /* ================= the tab ================= */
   US.tools.register({
@@ -249,6 +258,9 @@
       let lay = P.layout(get('cols', null)), listHidden = !!get('listHidden', false), folded = Object.assign({ archived: true }, get('folded', {}));
       let showUsed = !!get('used', false), hideUsed = !!get('hideUsed', false), used = null;   // used: {seqId, name, ids:Set} for the sequence last checked
       let drawn = { from: -1, to: -1 };
+      // Listen to delivery (js/core/delivery.js): the column, the filter and the corrected words show only while it is on and has heard something
+      const DL = () => (US.delivery && US.delivery.active() ? US.delivery : null);
+      let dFilter = 'any';
       const strongOf = new WeakMap();
       const strong = l => { if (!strongOf.has(l)) strongOf.set(l, !!S().isStrong(l)); return strongOf.get(l); };
       const mod = US.fsx && US.fsx.isWin ? 'Ctrl' : '⌘';
@@ -267,7 +279,9 @@
       const opts = h('div.pv-opts');
       const empty = h('div');
       const keys = h('div.sl-keys', 'Keys: ', h('span.kbd', 'J'), h('span.kbd', 'K'), ' move · ', h('span.kbd', 'space'), ' play · ', h('span.kbd', 'X'), ' tick · ', h('span.kbd', '↵'), ' at the playhead · ', h('span.kbd', '/'), ` filter · shift- or ${mod}-click ticks several · drag a column’s edge to resize it, its title to move it, right-click it to hide it`);
-      const tools = h('div.sl-tools', listBtn, find, picky.el || picky, summary);
+      const dSel = ui.select({ options: P.DELIVERY_FILTERS.map(([value, label]) => ({ value, label })), value: 'any', onChange: x => { dFilter = x; draw(); } });
+      const dBox = h('span.pv-dfilter.hidden', { title: 'Show lines by how they are said (Listen to delivery)' }, dSel.el || dSel);
+      const tools = h('div.sl-tools', listBtn, find, picky.el || picky, dBox, summary);
       v.body.append(tools, opts, bar, empty, body, keys);
       find.addEventListener('input', () => { query = find.value.trim().toLowerCase(); draw(); });
 
@@ -315,13 +329,16 @@
         const idx = P.themeIndex(S(), st, s);
         groupList = P.groups(S(), st, { s, idx });
         if (!itemOf(source)) { source = 'all'; sel.clear(); cursor = null; }
-        const u = usedNow();
+        const u = usedNow(), dl = DL();
         let rows = P.rowsFor(S(), st, source, { s, idx, asked: !!US.settings.get('story.qAsked', false) });
         for (const r of rows) {
           r.star = P.isStar(st, r.l.id || r.id, r.kind !== 'answer' && r.l.id && !r.noSpeech ? strong(r.l) : false);
           r.used = !!u && r.ids.some(id => u.has(id));
           const d = r.noSpeech ? described.get(descKey(r)) : null; if (d && d.text) r.described = d.text;
+          r.delivery = dl && r.ids.length ? dl.forLines(r.ids) : null;
         }
+        dBox.classList.toggle('hidden', !dl);
+        if (dl) rows = P.byDelivery(rows, dFilter);
         if (query) rows = rows.filter(r => P.hay(r).includes(query));
         if (hideUsed && u) rows = rows.filter(r => !r.used);
         shown = P.sortRows(rows, sort.key, sort.dir, P.SORT_KEYS);
@@ -396,8 +413,9 @@
       }
 
       /* ---------- the table: a header you can sort, resize and reorder; only the rows on screen are drawn ---------- */
-      const cols = () => P.visible(lay, { used: showUsed });
-      function applyCols() { sizer.style.setProperty('--pv-cols', P.template(lay, { used: showUsed })); sizer.style.minWidth = P.minWidth(lay, { used: showUsed }) + 'px'; }
+      const colOpts = () => ({ used: showUsed, delivery: !!DL() });
+      const cols = () => P.visible(lay, colOpts());
+      function applyCols() { sizer.style.setProperty('--pv-cols', P.template(lay, colOpts())); sizer.style.minWidth = P.minWidth(lay, colOpts()) + 'px'; }
       function drawHead() {
         applyCols();
         US.clear(headEl);
@@ -433,7 +451,7 @@
         menuEl = h('div.pv-colmenu', { role: 'menu', 'aria-label': 'Columns' },
           c0 && col !== 'text' ? h('button.pv-colhide', { role: 'menuitem', dataset: { hide: col }, onclick: () => { hide(col, true); closeMenu(); if (col === 'used') drawOpts(); draw(); } }, `Hide “${c0.title || c0.label}”`) : null,
           h('div.sl-h', 'Columns'),
-          lay.order.map(id => { const c = P.COLS.find(k => k.id === id), fixed = !P.canHide(id), on = id === 'used' ? showUsed : !lay.hidden.includes(id);
+          lay.order.filter(id => id !== 'delivery' || DL()).map(id => { const c = P.COLS.find(k => k.id === id), fixed = !P.canHide(id), on = id === 'used' ? showUsed : !lay.hidden.includes(id);
             return h('label.pv-colopt' + (fixed ? '.fixed' : ''), { title: fixed ? 'The line itself always shows' : id === 'used' ? 'Marks the lines already in the open sequence' : '' },
               h('input', { type: 'checkbox', checked: on, disabled: fixed, dataset: { colshow: id }, onchange: e => { hide(id, !e.target.checked); if (id === 'used') drawOpts(); again(); } }), h('span', c.title && c.id === 'star' ? 'Star' : c.label)); }),
           h('button.pv-colhide', { role: 'menuitem', dataset: { colreset: '1' }, onclick: () => { lay = P.layout(null); set('cols', null); closeMenu(); draw(); } }, 'Reset the columns'));
@@ -478,13 +496,14 @@
       }
 
       function rowEl(r, i) {
-        const l = r.l, th = r.themes[0], can = r.ids.length > 0;
+        const l = r.l, th = r.themes[0], can = r.ids.length > 0, dv = r.delivery;
         const cell = {
           star: () => h('button.pv-c.pv-c-star.sl-star' + (r.star ? '.on' : ''), { tabindex: -1, title: r.star ? 'Starred – click to take the star off' : 'Click to star this line', 'aria-label': r.star ? 'Starred' : 'Not starred', onclick: e => { e.stopPropagation(); star([r], !r.star); } }, r.star ? '★' : '☆'),
           used: () => h('span.pv-c.pv-c-used', r.used ? h('span.pv-used', { title: used ? `Already in “${used.name}”` : 'Already in the sequence' }, US.icon('ok', 12)) : null),
           who: () => h('span.pv-c.sl-who', US.keep(r.who)),
           time: () => h('span.pv-c.sl-tc', US.fmtDur(l.start)),
-          text: () => (r.noSpeech ? h('span.pv-c.sl-text.pv-desc', { title: 'Nothing is said here – this is what happens' }, US.keep(r.described || r.desc || '')) : h('span.pv-c.sl-text', US.keep(l.text))),
+          text: () => (r.noSpeech ? h('span.pv-c.sl-text.pv-desc', { title: 'Nothing is said here – this is what happens' }, US.keep(r.described || r.desc || '')) : h('span.pv-c.sl-text', dv && (dv.heard || []).length ? h('span.dlv-mark', { title: 'The transcript got words wrong here – heard: ' + dv.heard.map(US.delivery.heardText).join(' · ') }, '◆ ') : null, US.keep(l.text))),
+          delivery: () => h('span.pv-c.pv-c-delivery', dv ? { title: US.storyDelivery.titleOf(dv) } : null, dv ? [dv.score ? h('b.dlv-score', { style: { color: US.storyDelivery.scoreColor(dv.score) } }, dv.score + '/5 ') : null, US.keep((dv.notes || []).slice(0, 3).join(', '))] : h('span.sl-dim', '–')),
           theme: () => h('span.pv-c.sl-tht', r.tag ? [h('span.sl-sw', { style: { background: hexOfLabel(r.tag.label) } }), h('span', { title: r.tag.title || '' }, US.keep(r.tag.name))]
             : th ? [h('span.sl-sw', { style: { background: hexOf(th) } }), US.keep(th.name + (r.themes.length > 1 ? ` +${r.themes.length - 1}` : ''))] : h('span.sl-dim', '–')),
           len: () => h('span.pv-c.sl-len', (l.end - l.start).toFixed(1) + ' s')
@@ -641,6 +660,7 @@
         const how = placeHow();
         US.append(insp, [h('div.sl-h', r.kind === 'answer' ? 'Answer' : r.kind === 'moment' ? 'Moment' : 'Line'),
           r.noSpeech ? h('div.sl-quote.pv-desc', US.keep(r.described || r.desc || '')) : h('div.sl-quote', US.keep('“' + l.text + '”')),
+          !r.noSpeech && r.delivery && US.storyDelivery ? US.storyDelivery.heardEl(l, r.delivery) : null,
           r.noSpeech ? h('div.field-hint', r.described ? 'Nothing is said here – this is what happens in the picture and sound.' : US.understand && US.understand.describe && r.path ? 'Nothing is said here. A description of what happens will show once this clip has been looked at.' : 'Nothing is said here – this is why Story picked it.') : null,
           h('dl.sl-kv',
             r.kind === 'answer' ? [h('dt', 'Question'), h('dd', US.keep(`${r.tag.name} ${r.tag.title}`))] : null,
@@ -652,6 +672,7 @@
             h('dt', 'Time'), h('dd', `${US.fmtDur(l.start)} – ${US.fmtDur(l.end)} (${(l.end - l.start).toFixed(1)} s)`),
             h('dt', 'Themes'), h('dd', ths.length ? ths.map(th => h('span.sl-chip', h('span.sl-sw', { style: { background: hexOf(th) } }), US.keep(th.name))) : '–'),
             h('dt', 'Star'), h('dd', r.star ? (r.kind === 'line' && strong(l) ? '★ A strong, complete line' : '★ Starred by you') : r.kind === 'line' && strong(l) ? 'Star taken off by you' : 'No star'),
+            r.delivery ? [h('dt', 'Delivery'), h('dd', { title: 'From Listen to delivery – a first opinion; play the line to judge it yourself' }, US.keep([r.delivery.score ? `${r.delivery.score} out of 5` : '', (r.delivery.notes || []).join(', '), r.delivery.energy ? r.delivery.energy + ' energy' : '', r.delivery.in === false ? 'starts mid-word' : '', r.delivery.out === false ? 'ends cut off' : '', r.delivery.conf === 'unsure' ? 'the listener wasn’t sure' : ''].filter(Boolean).join(' · ') || '–'))] : DL() && r.ids.length ? [h('dt', 'Delivery'), h('dd', 'Not listened to yet')] : null,
             usedNow() ? [h('dt', 'Used'), h('dd', r.used ? ['In “', US.keep(used.name), '”'] : 'Not in the open sequence')] : null),
           can ? h('div.sl-acts',
             ui.button('Play', { kind: 'primary', small: true, icon: 'play', onClick: () => S().cueLine(l), title: 'Play it in the Source Monitor (space)' }),
@@ -684,6 +705,7 @@
       });
       find.addEventListener('keydown', e => { if (e.key === 'Escape') { find.value = ''; query = ''; draw(); table.focus(); } else if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); table.focus(); } });
       US.bus.on('context', US.debounce(() => { if (US.tools.current === 'storylines') draw(); }, 400));
+      US.bus.on('delivery', US.debounce(() => { if (US.tools.current === 'storylines') draw(); }, 600));
       return { el: v.el, onShow(o) {
         openFrom(o);
         draw();

@@ -1,3 +1,18 @@
+## What's new in 1.3.41
+
+Not tested in Premiere or Resolve, and not yet run with a real listening model (unit tests with stand-in models only).
+
+**Story › Listen to delivery**
+- Story can now **listen to your interviews**, not only read the transcript. Each line gets a delivery score from 1 to 5, a few words on how it sounds (confident, warm, hesitant, flat, laughing, stumbles, trails off), its energy, and whether it starts and ends cleanly enough to cut.
+- **Hebrew, Yiddish and other nuances.** Words the transcript got wrong, wrote as nonsense or left out are corrected: what was said in its own script, how to read it, the language and what it means – also names, places, religious terms, sarcasm, a joke, a quoted voice and singing. You choose the languages to listen for (Hebrew and Yiddish to start with; Arabic, Russian, French, Spanish and any other). The listener is told never to invent, and says when it isn't sure.
+- **Off until you switch it on**, per project: a card in **Story › 1 Interviews**, with **Listen now** and **Do it in Overnight prep**.
+- **This computer or Cloud – your choice, and which model.** On this computer: any listening model you have (Gemma 4), nothing leaves, and it works in quiet moments. Cloud: a Gemini model you pick (Claude can't hear). Each is shown with honest pros and cons, and the time and cost for this project's interviews. All of it is in **Settings › Listen to delivery**.
+- **The cloud is its own yes**, separate from "Cloud" in Vision & listening models, and it never runs behind your back: only when you press Listen now (after the estimate) or in Overnight prep, which stops before its limit. A project set to "nothing leaves this computer" sends nothing. Every request is listed in What was sent to AI.
+- **Story uses it.** Themes, Find, narratives from a brief, Ask your interviews and Producer are told, briefly, how each line is said, so they prefer the well-delivered take of the same thought and read the corrected words. Switch it off and nothing about delivery is sent.
+- **Pro View** has a Delivery column (sort by it, hide or resize it), a delivery filter, and corrected words marked with ◆. Story's lists show a small ♪ pill.
+- Words it heard are **offered** to Names and terms – you add them or not.
+- Honest note: small models on this computer are weaker at Hebrew and Yiddish than the cloud models, and none of this has been tested on real footage yet.
+
 ## What's new in 1.3.40.1
 
 Not tested in Premiere or Resolve (unit tests only).

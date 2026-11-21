@@ -185,18 +185,19 @@ test('shift-click ticks the range between two rows, either way round', () => {
 
 test('columns: order and widths are kept, made safe, moved and resized', () => {
   const def = P.layout(null);
-  assert.deepStrictEqual(def.order, ['star', 'used', 'who', 'time', 'text', 'theme', 'len']);
+  assert.deepStrictEqual(def.order, ['star', 'used', 'who', 'time', 'text', 'theme', 'len', 'delivery']);
   assert.deepStrictEqual(def.widths, {});
   const saved = P.layout({ order: ['len', 'who', 'nonsense', 'who', 'text'], widths: { who: 5, len: 90.4, text: 9999, nonsense: 50, time: 'x' } });
   assert.deepStrictEqual(saved.order.slice().sort(), def.order.slice().sort(), 'every column once, unknown ones dropped');
   assert.deepStrictEqual(saved.order.filter(c => ['len', 'who', 'text'].includes(c)), ['len', 'who', 'text'], 'the saved order is kept');
   assert.deepStrictEqual(saved.widths, { who: 40, len: 90, text: 1600 }, 'widths kept within sensible limits');
-  assert.deepStrictEqual(P.moveCol(def.order, 'len', 'who'), ['star', 'used', 'len', 'who', 'time', 'text', 'theme']);
-  assert.deepStrictEqual(P.moveCol(def.order, 'star', null), ['used', 'who', 'time', 'text', 'theme', 'len', 'star']);
+  assert.deepStrictEqual(P.moveCol(def.order, 'len', 'who'), ['star', 'used', 'len', 'who', 'time', 'text', 'theme', 'delivery']);
+  assert.deepStrictEqual(P.moveCol(def.order, 'star', null), ['used', 'who', 'time', 'text', 'theme', 'len', 'delivery', 'star']);
   assert.deepStrictEqual(P.moveCol(def.order, 'who', 'who'), def.order);
   assert.deepStrictEqual(P.moveCol(def.order, 'nope', 'who'), def.order);
   assert.strictEqual(P.template(def, { used: false }), '28px 30px 110px 58px minmax(160px, 1fr) 140px 60px 22px', 'the tick box, the columns, then room for the Columns button');
   assert.strictEqual(P.template(def, { used: true }).split(' ').length, 10, 'the Used column only when it is switched on');
+  assert.strictEqual(P.template(def, { used: false, delivery: true }), '28px 30px 110px 58px minmax(160px, 1fr) 140px 60px 150px 22px', 'the Delivery column only while Listen to delivery is on and has heard something');
   P.setWidth(def, 'who', 200.6); P.setWidth(def, 'text', 300); P.setWidth(def, 'star', 1);
   assert.strictEqual(P.template(def, { used: false }), '28px 24px 201px 58px 300px 140px 60px 22px');
   assert.ok(P.minWidth(def, { used: false }) > 800);

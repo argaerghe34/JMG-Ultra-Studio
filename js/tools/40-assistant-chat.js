@@ -842,6 +842,8 @@
       // seeing and hearing (js/core/understand.js): a short digest of what's in the project's footage, when known. Without
       // `sequence`: that would ask the editor which clips the sequence uses, outside the chat's turn with the editor
       if (US.understand && typeof US.understand.context === 'function') { try { const seen = await US.understand.context({ maxChars: 6000 }); if (seen) chat.context += '\n\n' + seen; } catch (e) { /* the chat works without it */ } }
+      // Listen to delivery (js/core/delivery.js): one line saying the interviews have been listened to, so “best-delivered” means something
+      if (US.delivery && typeof US.delivery.digestLine === 'function') { try { const d = US.delivery.digestLine(); if (d) chat.context += '\n\n' + d; } catch (e) { /* the chat works without it */ } }
     } else {
       chat.turns.push({ assistant: chat.last || '{}', user: (lone ? `${chat.pendingResult || ''}\n\n${now()}\nIt is now the time you set yourself. YOUR OWN FOLLOW-UP: “${text}”\nThe editor may not be at the computer. Carry on with the plan; a step that needs their say will wait for them. Finish with what you found or did.` : `${chat.pendingResult || ''}\n\n${now()}\nThe editor says: “${text}”\nSay what you understand by it and your plan, then carry on.`).trim() });
       chat.pendingResult = '';

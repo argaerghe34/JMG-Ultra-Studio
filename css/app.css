@@ -603,3 +603,14 @@ body.pv-dragging, body.pv-dragging * { cursor: grabbing !important; user-select:
 .und-con::before { content: "–"; color: var(--warn); }
 .sel-search { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .sel-seen { color: var(--text-2); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Story › Listen to delivery (js/tools/22-story-delivery.js): a line's pill, its corrected words, the Pro View column ---------- */
+.dlv-card .field-hint { margin-top: 4px; }
+.dlv-pill { cursor: help; }
+.dlv-mark { color: var(--accent-hi); }
+.dlv-heard { font-size: 12px; color: var(--text-2); margin-top: 2px; unicode-bidi: plaintext; }
+.dlv-tr { color: var(--text-2); font-weight: normal; }
+.dlv-langs { flex-wrap: wrap; gap: 4px 14px; }
+.dlv-lang { gap: 4px; }
+.pv-c-delivery { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.pv-dfilter.hidden { display: none; }

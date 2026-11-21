@@ -125,6 +125,13 @@
   /** May sound and stills of the open project's footage go to a cloud model? (Never for a project kept on this computer.) */
   const mediaOn = () => !projectOffline() && !!mediaProjects()[projectOf().key];
   function setMedia(on) { const m = Object.assign({}, mediaProjects()); if (on) m[projectOf().key] = projectOf().name; else delete m[projectOf().key]; US.settings.set('ai.mediaProjects', m); }
+  /* A second, separate choice (Story › Listen to delivery): the sound of this project's interviews, with their transcript
+     lines, to a cloud model that judges how each line is said. Its own yes per project, on this computer, asked with
+     the estimate; saying yes to one never switches the other on. Checked inside media() (purpose: 'delivery'). */
+  const deliveryProjects = () => US.settings.get('ai.deliveryProjects', {}) || {};
+  /** May the sound of the open project's interviews go to a cloud model for Listen to delivery? */
+  const deliveryOn = () => !projectOffline() && !!deliveryProjects()[projectOf().key];
+  function setDelivery(on) { const m = Object.assign({}, deliveryProjects()); if (on) m[projectOf().key] = projectOf().name; else delete m[projectOf().key]; US.settings.set('ai.deliveryProjects', m); }
 
   /** Rough cost before sending: ~3.6 characters per token for English; output allowance grows with effort (thinking). */
   function blocksText(x) { return Array.isArray(x) ? x.map(b => (typeof b === 'string' ? b : b.text || '')).join('\n') : (x && typeof x === 'object' ? x.text || '' : String(x || '')); }
@@ -302,7 +309,7 @@
    * Only when the editor asked for it (Settings › What was sent to AI); otherwise the cost question above applies.
    */
   const previewedJobs = new Set();
-  async function preview({ provider, name, feature, req, est, as }) {
+  async function preview({ provider, name, feature, req, est, as, purpose = '' }) {
     if (US.settings.get('ai.preview', 'cost') !== 'always' || !US.ui || !US.ui.modal) return false;
     const job = as || US.jobs.current, key = whoKey(as);
     if (unattended.has(key)) return false;   // overnight runs have a budget instead, and nobody to ask
@@ -311,7 +318,7 @@
     const cost = provider === 'gemini' ? 'no charge within Google’s free allowance' : `about ${fmtUSD(est.usd)}${est.cachedTokens ? ` (${est.cachedTokens.toLocaleString('en-GB')} tokens read from Claude’s cache)` : ''}`;
     const shown = parts.map(p => `===== ${p.role.toUpperCase()}${p.cached ? ' (cached)' : ''} =====\n${p.text.length > 120000 ? p.text.slice(0, 120000) + `\n…and ${(p.text.length - 120000).toLocaleString('en-GB')} more characters` : p.text}`).join('\n\n');
     const v = await US.ui.modal({ title: `Send this to ${name}?`, wide: true,
-      body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. ${mediaOf(req.user).length ? `This text, ${imagesOf(req.user).length} small still(s) and ${mediaOf(req.user).length} piece(s) of sound (${fmtBytes(mediaOf(req.user).reduce((n, b) => n + mediaBytes(b.media), 0))}) are sent – you chose “Cloud” for this project in Settings › Vision & listening models. Each is listed below, not shown.` : imagesOf(req.user).length ? `This text and ${imagesOf(req.user).length === 1 ? 'one small still' : imagesOf(req.user).length + ' small stills'} are sent (each still is listed below, not shown); no video or audio.` : 'Only this text is sent; no footage, frames or audio.'}`),
+      body: h('div', h('p', `${feature || 'This request'}: ${chars.toLocaleString('en-GB')} characters of text (about ${(est.inputTokens || Math.ceil(chars / 3.6)).toLocaleString('en-GB')} tokens) – ${cost}. ${mediaOf(req.user).length ? `This text, ${imagesOf(req.user).length} small still(s) and ${mediaOf(req.user).length} piece(s) of sound (${fmtBytes(mediaOf(req.user).reduce((n, b) => n + mediaBytes(b.media), 0))}) are sent – you chose “Cloud” for this project in ${purpose === 'delivery' ? 'Story › Listen to delivery' : 'Settings › Vision & listening models'}. Each is listed below, not shown.` : imagesOf(req.user).length ? `This text and ${imagesOf(req.user).length === 1 ? 'one small still' : imagesOf(req.user).length + ' small stills'} are sent (each still is listed below, not shown); no video or audio.` : 'Only this text is sent; no footage, frames or audio.'}`),
         h('textarea.input.mono.ai-preview', { readOnly: true, rows: 14 }, shown)),
       buttons: [{ label: 'Cancel', value: 'no', kind: 'ghost' }].concat(job ? [{ label: 'Send the rest of this job too', value: 'all' }] : []).concat([{ label: 'Send', value: 'one', kind: 'primary' }]) });
     if (v !== 'one' && v !== 'all') throw new US.UserError('CANCELLED', { title: 'AI request cancelled.', action: 'Nothing was sent.' });
@@ -654,9 +661,15 @@
    * refused for a project kept on this computer, refused until “Cloud” is chosen for the project, and written to
    * What was sent to AI with each piece's size. Gemini takes stills and sound; Claude takes stills only.
    */
-  async function media({ system, user, schema, maxTokens = 2000, feature = 'Seeing and hearing', as, use, onUsage }) {
+  async function media({ system, user, schema, maxTokens = 2000, feature = 'Seeing and hearing', as, use, onUsage, purpose = '' }) {
     if (projectOffline()) throw new US.UserError('AI_FAILED', { title: 'This project is set to “nothing leaves this computer”.', action: 'Its footage is only looked at and listened to on this computer (Settings › Vision & listening models).' });
-    if (!mediaOn()) throw new US.UserError('AI_FAILED', { title: 'Seeing and hearing in the cloud isn’t switched on for this project.', action: 'Settings › Vision & listening models: choose “Cloud” for this project (you’re shown the cost first) – or stay on this computer.' });
+    // each purpose has its own yes for the project: Listen to delivery's doesn't open seeing and hearing, nor the other way round
+    if (purpose === 'delivery') { if (!deliveryOn()) throw new US.UserError('AI_FAILED', { title: 'Listening to delivery in the cloud isn’t switched on for this project.', action: 'Story › 1 Interviews › Listen to delivery: choose “Cloud” for this project (you’re shown the cost first) – or listen on this computer.' }); }
+    else if (!mediaOn()) throw new US.UserError('AI_FAILED', { title: 'Seeing and hearing in the cloud isn’t switched on for this project.', action: 'Settings › Vision & listening models: choose “Cloud” for this project (you’re shown the cost first) – or stay on this computer.' });
+    // Listen to delivery sends transcript lines with the sound: names kept out of AI are placeholders in that text
+    // (the sound itself can't be changed), and come back in the answer
+    let restore = t => t;
+    if (purpose === 'delivery') { const red = redacted({ system, user }); system = red.system; user = red.user; restore = red.restore; }
     const M = mediaModel(use), sounds = mediaOf(user);
     if (M.provider === 'none') throw new US.UserError('AI_KEY', { title: 'There’s no Gemini or Claude key for cloud seeing and hearing.', action: 'Add a key in Settings › AI, or use the models on this computer.' });
     if (M.provider === 'claude') {
@@ -676,7 +689,7 @@
     const price = mediaPrice(M.model), secs = sounds.reduce((n, b) => n + (+b.media.seconds || 0), 0);
     const estIn = Math.ceil(blocksText(system).length / 3.6 + blocksText(user).length / 3.6) + imagesOf(user).length * MEDIA_PRICES.tokens.still[1] + Math.ceil(secs * MEDIA_PRICES.tokens.audioPerSec[1]);
     const est = { usd: 0, inputTokens: estIn, paidUsd: estIn * price.in / 1e6 };
-    await preview({ provider: 'gemini', name: M.label, feature, req: asked, est, as });
+    await preview({ provider: 'gemini', name: M.label, feature, req: asked, est, as, purpose });
     const logged = sentLog.begin({ provider: 'gemini', model: M.model, feature, req: asked, est, as });
     let r;
     try { r = await postJSON('generativelanguage.googleapis.com', `/v1beta/models/${encodeURIComponent(M.model)}:generateContent`, { 'x-goog-api-key': key }, body, 300000); }
@@ -692,7 +705,7 @@
     if (!cand) throw new US.UserError('AI_REFUSED', { detail: JSON.stringify(r.json.promptFeedback || r.json).slice(0, 500) });
     const text = ((cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
     if (!text) throw new US.UserError('AI_FAILED', { title: 'The AI sent back an empty answer.', action: 'Try again.', detail: `${used}: finishReason ${cand.finishReason}` });
-    return parseJSON(text);
+    return parseJSON(restore(text));
   }
   /** A model on this computer at its own address (Ultra Studio's helper): stills and sound, JSON back. Nothing leaves. */
   async function localAt({ url, model, system, user, schema, maxTokens = 1500, feature, as, onUsage, temperature }) {
@@ -710,7 +723,7 @@
 
   US.ai = {
     /** Seeing and hearing (Settings › Vision & listening models). */
-    media, mediaOn, setMedia, mediaModel, mediaPrice, MEDIA_PRICES, localAt, _media: { isMedia, mediaOf, mediaNote, mediaBytes, fmtBytes },
+    media, mediaOn, setMedia, deliveryOn, setDelivery, mediaModel, mediaPrice, MEDIA_PRICES, localAt, _media: { isMedia, mediaOf, mediaNote, mediaBytes, fmtBytes },
     CLAUDE_MODEL, MODELS, claudeModel, estimate, costOf, fmtUSD, warmUntil,
     /** The local record of what was sent (Settings › What was sent to AI). */
     sent: sentLog, setRedactions,

@@ -64,6 +64,8 @@ Register what the tool can do with `US.actions.register({ id:'silence.cut', tool
 - `<video>` decodes H.264/AAC MP4 (and H.264 MOV usually); **not** HEVC or ProRes. Seeking a 1080p H.264 file: 4–110 ms. `FaceDetector` exists only with `--enable-experimental-web-platform-features` (in our manifest) – feature-detect it.
 - `OfflineAudioContext.decodeAudioData` can't decode MP4/AAC here – use `US.audio.forItem()` (Premiere renders a 16 kHz mono WAV, ~0.4 s per minute of sound) or `US.audio.readWav()` for WAV files.
 - Cache per-media analysis with `US.cache.cached(kind, mediaPath, version, compute)`.
+- Footage and AI: text through `US.ai.json`/`text`; stills only with the project's stills switch; sound only through `US.ai.media`, which checks the project's choice itself – “Cloud” in Vision & listening models (`US.ai.mediaOn()`), or, for Story › Listen to delivery, its own separate consent (`US.ai.deliveryOn()`, sent with `purpose: 'delivery'`). A project set to “nothing leaves this computer” always refuses. Cloud listening never runs in the background.
+- `js/core/delivery.js` – `US.delivery`: how each interview line is said and the words the transcript got wrong, per media file (cache kind `delivery`, travelling copy “<project> – Delivery.json”). `US.delivery.note(line)` is the bracketed note `US.transcript.aiRow` and `US.storyContext.row` append – '' when off. Screens: `js/tools/22-story-delivery.js`.
 
 ## Testing
 - `dev/link-dev.sh` points Premiere at this folder and installs the dev helper (undo with `dev/unlink-dev.sh`). Restart Premiere after linking.

@@ -20,7 +20,7 @@
   (function () {
     const fs = require('fs'), path = require('path');
     const dir = US.host.extensionDir();
-    const engines = ['time', 'audio', 'encoder', 'dsp', 'vision', 'transcript', 'ai', 'understand-models', 'understand'].filter(n => fs.existsSync(path.join(dir, 'js', 'core', n + '.js'))).map(n => 'js/core/' + n + '.js');
+    const engines = ['time', 'audio', 'encoder', 'dsp', 'vision', 'transcript', 'ai', 'understand-models', 'understand', 'delivery'].filter(n => fs.existsSync(path.join(dir, 'js', 'core', n + '.js'))).map(n => 'js/core/' + n + '.js');
     const tools = fs.readdirSync(path.join(dir, 'js', 'tools')).filter(f => f.endsWith('.js') && f[0] !== '.').sort().map(f => 'js/tools/' + f);
     const files = engines.concat(tools);
     // each tool may bring its own stylesheet in css/tools/ (dot-files – e.g. macOS ._ metadata unzipped on Windows – are skipped)

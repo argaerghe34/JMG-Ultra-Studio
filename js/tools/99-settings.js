@@ -170,7 +170,7 @@
       const hasKey = !!(US.secrets.get('anthropicKey') || US.secrets.get('geminiKey'));
       const sec = (id, title, kids, opts) => h('div', { dataset: { section: id } }, ui.section(title, kids, Object.assign({ open: false }, opts)));
       const aiCard = ui.card(h('div.card-title', 'AI (optional)'),
-        h('div.muted', 'Only the Assistant’s free-form requests and Story’s automatic themes use AI. Text (your request, or transcript lines) is sent, straight to the provider you choose. Your footage stays on this computer unless you allow it for a project: a few small stills (Footage, below), or stills and sound to a cloud model (Vision & listening models). A project set to “nothing leaves this computer” sends nothing.'),
+        h('div.muted', 'Only the Assistant’s free-form requests and Story’s automatic themes use AI. Text (your request, or transcript lines) is sent, straight to the provider you choose. Your footage stays on this computer unless you allow it for a project: a few small stills (Footage, below), or stills and sound to a cloud model (Vision & listening models), or the sound of your interviews for Story’s Listen to delivery (its own choice, below). A project set to “nothing leaves this computer” sends nothing.'),
         provider, aiStatus,
         sec('ai-keys', 'API keys', [
           keyField('anthropicKey', 'Claude API key', 'From console.anthropic.com › API keys. Pay-as-you-go; typical requests cost a fraction of a penny.', 'claude'),

@@ -18,7 +18,7 @@ w.setInterval = () => 0;   // no polling
 const errors = [];
 const ctx = dom.getInternalVMContext();
 const run = f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
-for (const f of ['util', 'platform', 'store', 'host', 'jobs', 'ui', 'app', 'time', 'audio', 'encoder', 'dsp', 'vision', 'transcript', 'ai', 'understand-models', 'understand']) if (fs.existsSync(path.join(ROOT, 'js', 'core', f + '.js'))) run(`js/core/${f}.js`);
+for (const f of ['util', 'platform', 'store', 'host', 'jobs', 'ui', 'app', 'time', 'audio', 'encoder', 'dsp', 'vision', 'transcript', 'ai', 'understand-models', 'understand', 'delivery']) if (fs.existsSync(path.join(ROOT, 'js', 'core', f + '.js'))) run(`js/core/${f}.js`);
 for (const f of fs.readdirSync(path.join(ROOT, 'js', 'tools')).filter(x => x.endsWith('.js') && x[0] !== '.').sort()) {
   try { run('js/tools/' + f); } catch (e) { errors.push(`${f} failed to load: ${e.message}`); }
 }

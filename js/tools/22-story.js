@@ -2761,6 +2761,7 @@
         el.appendChild(scopeCard());
         if (US.storyIgnore) el.appendChild(US.storyIgnore.card({ render }));
         if (US.storyProof) el.appendChild(US.storyProof.card({ render }));
+        if (US.storyDelivery && US.delivery) el.appendChild(US.storyDelivery.card({ render }));
         el.appendChild(glossaryCard());
         // the technical part: which clip each transcript belongs to, and speaker names
         const unlinked = state.transcripts.filter(t => !(t.path || t.itemId));
@@ -3199,7 +3200,7 @@
         return h('div.story-row.story-drag' + (checked ? '.on' : ''), { draggable: t && t.path ? 'true' : 'false', title: t && t.path ? `Drag onto the timeline – video and audio, cut to the line${(state.picked || []).length > 1 && (state.picked || []).includes(l.id) ? ' (with the other ticked lines)' : ''}` : '',
           ondragstart: e => dragLines(e, US.storyDrag.linesFor(l, state.picked || [], id => lineById.get(id)), { labelOf }), onclick: e => { if (box && e.target === textEl) { box.checked = !box.checked; onCheck(box.checked); e.currentTarget.classList.toggle('on', box.checked); } } },
           box, h('span.story-bar', { style: { background: speakerColor(l.speaker) } }),
-          h('div.story-main', textEl, reasons && reasons.length ? h('div.story-why', 'Why: ' + reasons.join(' · ')) : null, h('div.story-meta', tag, `${[speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(l.start)} · ${(l.end - l.start).toFixed(1)} s`, q.score >= STRONG ? ui.pill('★ strong', 'var(--ok)') : null, hits.some(x => x.how === 'sounds like') ? ui.pill('sounds like', 'var(--info)') : null, hits.some(x => x.how === 'related') && !terms.length ? ui.pill('related', 'var(--text-2)') : null)),
+          h('div.story-main', textEl, US.storyDelivery ? US.storyDelivery.heardEl(l) : null, reasons && reasons.length ? h('div.story-why', 'Why: ' + reasons.join(' · ')) : null, h('div.story-meta', tag, `${[speakerName(l.speaker) !== speakerName('') ? speakerName(l.speaker) : '', t ? t.name : ''].filter(Boolean).join(' · ')} · ${US.fmtDur(l.start)} · ${(l.end - l.start).toFixed(1)} s`, q.score >= STRONG ? ui.pill('★ strong', 'var(--ok)') : null, hits.some(x => x.how === 'sounds like') ? ui.pill('sounds like', 'var(--info)') : null, hits.some(x => x.how === 'related') && !terms.length ? ui.pill('related', 'var(--text-2)') : null, US.storyDelivery ? US.storyDelivery.pill(l) : null)),
           playButton(l), t && t.path ? placeButtons(l, () => US.storyDrag.linesFor(l, state.picked || [], id => lineById.get(id)), labelOf) : null, extra,
           onRemove ? iconBtn('close', 'Take this line out of the theme', onRemove) : null);
       }

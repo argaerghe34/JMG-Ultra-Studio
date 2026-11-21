@@ -29,7 +29,7 @@
 
   const mmss = s => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   /** One row: id, speaker, start+seconds, text (the whole line). */
-  function row(l) { return `${l.id}\t${l.speaker || '-'}\t${mmss(l.start)}+${Math.max(1, Math.round(l.end - l.start))}\t${String(l.text).replace(/\s+/g, ' ').trim()}`; }
+  function row(l) { return `${l.id}\t${l.speaker || '-'}\t${mmss(l.start)}+${Math.max(1, Math.round(l.end - l.start))}\t${String(l.text).replace(/\s+/g, ' ').trim()}${T().deliveryNote ? T().deliveryNote(l) : ''}`; }
 
   // one request holds up to ~450,000 tokens of transcript (Claude reads up to a million); bigger projects are read in parts
   const LIMIT = { chars: 1600000, lines: 60000 }, OVERLAP = 25;
@@ -68,9 +68,10 @@
    */
   function requests(transcripts, { task, maxTokens = 16000, effort = 'low', feature = '' }) {
     const ps = parts(transcripts);
-    return ps.map((part, k) => ({ part, lines: part.flatMap(p => p.lines), req: {
-      system: SYSTEM, user: [{ text: listing(part), cache: '1h' }, task(k, ps.length)], schema: SCHEMA, maxTokens, effort, feature
-    } }));
+    return ps.map((part, k) => { const text = listing(part), hint = US.delivery ? US.delivery.promptHint(text) : ''; return { part, lines: part.flatMap(p => p.lines), req: {
+      // with delivery notes on the lines (Listen to delivery), the instruction says what they mean; without, it is byte-for-byte as before
+      system: hint ? `${SYSTEM} ${hint}` : SYSTEM, user: [{ text, cache: '1h' }, task(k, ps.length)], schema: SCHEMA, maxTokens, effort, feature
+    } }; });
   }
   const partNote = (k, n) => (n > 1 ? `\nThe interviews are long, so they come in parts: this is part ${k + 1} of ${n}.` : '');
 
