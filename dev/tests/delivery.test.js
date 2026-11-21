@@ -469,14 +469,14 @@ test('Pro View: a Delivery column only while there is something to show; sort by
 });
 
 test('where it shows: a Settings section, an Overnight prep step that is off unless ticked, a tour step in Story and in Settings, and the engine loaded by the panel', () => {
-  assert.ok(US.settingsSections.list().some(s => s.id === 'delivery' && s.title === 'Listen to delivery'));
+  assert.ok(US.settingsSections.list().some(s => s.id === 'delivery' && s.title === 'Listening models for Story'));
   const o = US.overnight.settings();
   assert.ok(!o.steps.includes('delivery'), 'not ticked until “Do it in Overnight prep”');
   const overnight = fs.readFileSync(path.join(ROOT, 'js', 'tools', '01-overnight.js'), 'utf8');
   assert.ok(/id: 'delivery', label: 'Listen to the delivery of the interviews'/.test(overnight) && /limitUsd/.test(overnight) && /confirmCloud\(\{ overnight: true/.test(overnight));
   assert.ok(/'understand', 'delivery'\]/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'index.html loads js/core/delivery.js');
   const tour = fs.readFileSync(path.join(ROOT, 'js', 'tools', '04-tour-steps.js'), 'utf8');
-  assert.strictEqual((tour.match(/target: 'text:Listen to delivery'/g) || []).length, 2);
+  assert.ok((tour.match(/target: 'text:Listen to delivery'/g) || []).length === 1 && /target: 'text:Listening models for Story'/.test(tour));
   assert.ok(US.actions.get('delivery.run') && US.actions.get('delivery.run').match('listen to the delivery of my interviews'));
   // the footage rule names this second choice
   const rule = fs.readFileSync(path.join(ROOT, 'CLAUDE.md'), 'utf8');
@@ -494,7 +494,7 @@ test('in the panel (jsdom): the card in Story › 1 Interviews is off until swit
   assert.deepStrictEqual(o.confirm.buttons.length, 2);
   assert.deepStrictEqual(o.afterNo, { where: 'local', deliveryOn: false, mediaOn: false });
   assert.deepStrictEqual(o.afterYes, { where: 'cloud', deliveryOn: true, mediaOn: false, state: 'cloud-waiting', offers: ['Listen now', 'Do it in Overnight prep'] }, 'yes is for delivery only – seeing and hearing stays off');
-  assert.deepStrictEqual(o.settings.inSettings, { title: 'Listen to delivery', closed: true });
+  assert.deepStrictEqual(o.settings.inSettings, { title: 'Listening models for Story', closed: true });
   assert.deepStrictEqual(o.settings.prosCons, { pros: 6, cons: 6 });
   assert.deepStrictEqual(o.settings.langs, ['hebrew:true', 'yiddish:true', 'arabic:false', 'russian:false', 'french:false', 'spanish:false']);
   assert.deepStrictEqual(o.settings.cloudModels, 3);

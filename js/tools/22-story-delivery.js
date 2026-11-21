@@ -159,7 +159,7 @@
           ? (P.kind === 'cloud' ? `Cloud is on for this project: ${P.label}. Sound is only sent when you press Listen now, or in Overnight prep within its limit.` : 'Cloud is chosen, but nothing is sent until you say yes on this computer.')
           : `Nothing leaves this computer${P.label ? `: ${P.label} listens, in the background when the computer is quiet` : ''}.`) : null,
         s.on ? chip({ after: render }) : null,
-        s.on ? h('div.row', h('span.field-hint.grow', `Listening for ${D().langNames(s.langs).join(', ') || 'no other language in particular'}. ${HONEST}`), ui.button('All the choices', { small: true, kind: 'ghost', title: 'Models, languages, time and cost: Settings › Listen to delivery', onClick: () => US.tools.open('settings', { section: 'delivery' }) })) : null,
+        s.on ? h('div.row', h('span.field-hint.grow', `Listening for ${D().langNames(s.langs).join(', ') || 'no other language in particular'}. ${HONEST}`), ui.button('All the choices', { small: true, kind: 'ghost', title: 'Models, languages, time and cost: Settings › Listening models for Story', onClick: () => US.tools.open('settings', { section: 'delivery' }) })) : null,
         s.on ? offersEl(() => { draw(); render(); }) : null
       ]);
     }
@@ -203,6 +203,7 @@
       const locals = D().localModels(), clouds = D().cloudModels(), hasKey = !!US.secrets.get('geminiKey');
       const langBox = L => h('label.row.dlv-lang', h('input', { type: 'checkbox', checked: !!s.langs[L.id], dataset: { lang: L.id }, onchange: e => { D().setLangs(Object.assign({}, D().settings().langs, { [L.id]: e.target.checked })); draw(); } }), ' ' + L.name);
       US.append(box, [
+        h('div.field-hint', 'Where Story listens to your interviews, and with which model. Two things use it: Listen to delivery (how each line is said – switched on below, per project) and English translation › By listening (the words and their English made from the sound, when you ask for it on an interview). The cloud is one choice for both, asked with the cost every time.'),
         h('div.und-block', h('div.und-head', 'This project', name ? h('span.right', US.keep(name)) : null),
           h('div.field-hint', 'Story normally works from the transcript alone. With this on, Ultra Studio also listens to each interview and notes, line by line, how it is said (a score from 1 to 5, a few words, whether it starts and ends cleanly) and the words the transcript got wrong – other languages, names, a joke, sarcasm. Story’s AI is then told, briefly, on each line.'),
           ui.toggle({ label: 'Listen to how the lines are said', hint: 'Off until you switch it on. Per project.', value: s.on, onChange: x => { D().setOn(x); draw(); } }),
@@ -234,7 +235,8 @@
   }
 
   US.storyDelivery = { card, pill, heardEl, short, titleOf, WHY_UNHEARD, scoreColor, chip, confirmCloud, listenNow, addToOvernight, numbers, estimateText, offers, addTerm, create, HONEST };
-  US.settingsSections.register({ id: 'delivery', title: 'Listen to delivery', order: 36, create });
+  // one place for the models that listen for Story: Listen to delivery, and Story › English translation › By listening
+  US.settingsSections.register({ id: 'delivery', title: 'Listening models for Story', order: 36, create });
 
   /* Ask, recipes and the offline parser: “listen to the delivery of my interviews” */
   US.actions.register({

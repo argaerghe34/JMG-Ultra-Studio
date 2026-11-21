@@ -157,7 +157,7 @@ try {
 
   // 7. Settings › Listen to delivery: every choice, with this project's estimate; nothing downloads from here
   const sec = US.settingsSections.list().find(s => s.id === 'delivery');
-  T.assert(sec && sec.title === 'Listen to delivery', 'registered as a Settings section');
+  T.assert(sec && sec.title === 'Listening models for Story', 'registered as a Settings section');
   const el = sec.create(), text = el.textContent;
   T.assert(/This computer/.test(text) && /Cloud/.test(text) && /Claude can’t hear/.test(text) && /weaker at Hebrew and Yiddish/.test(text) && /For this project: /.test(text) && $$('input[data-lang]', el).length === 6, 'both routes with pros, cons and the estimate, the models and the languages');
   T.assert(!$$('button', el).some(b => /^Download/.test(b.textContent.trim())), 'nothing is downloaded from this screen');

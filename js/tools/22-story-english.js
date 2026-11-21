@@ -258,6 +258,18 @@
     return e && e.s === sig(line) ? e.en : '';
   }
   const has = () => { try { return !!curProject() && index().size > 0; } catch (e) { return false; } };
+  /** The original words heard for a line, when its English was made by listening beside the editor's own transcript ('' otherwise). */
+  function origOf(l) { const line = l && typeof l === 'object' ? l : S() && S().lineOf ? S().lineOf(l) : null; if (!line) return ''; const e = index().get(line.id); return e && e.s === sig(line) && e.orig ? e.orig : ''; }
+  /**
+   * English made elsewhere (by listening: 22-story-listen.js) for an interview's lines. meta: {lang, by, source};
+   * map: {lineId: {en, orig?}} – kept like any translation, against each line's words as they are now.
+   */
+  function setEnglish(key, meta, lines, map) {
+    const D = load(), iv = D.interviews[key] || (D.interviews[key] = { lines: {} });
+    Object.assign(iv, meta, { at: Date.now() });
+    for (const l of lines) { const x = map[l.id]; if (!x || !x.en) continue; iv.lines[l.id] = Object.assign({ s: sig(l), en: x.en }, x.orig ? { orig: x.orig } : {}); }
+    save();
+  }
 
   /* ---------- the project's choices (kept with Story, so they travel) ---------- */
   function opts() { const st = S().state(); if (!st.english || typeof st.english !== 'object') st.english = {}; if (!st.english.langs) st.english.langs = {}; return st.english; }
@@ -273,7 +285,7 @@
     const o = opts(), L = languageOf(t.lines, { hint: t.language, set: o.langs[t.key] || '' });
     const need = t.lines.filter(l => needsEnglish(l, L.lang)), todo = need.filter(l => !enOf(l)), kept = load().interviews[t.key];
     return { key: t.key, name: t.name, n: S().state().transcripts.indexOf(t) + 1, lang: L.lang, set: !!o.langs[t.key], detected: L.detected, others: L.others, english: L.lang === 'English' && !need.length, mixed: L.lang === 'English' && need.length > 0,
-      need: need.length, done: need.length - todo.length, todo, rtl: L.rtl, by: kept ? kept.by : '' };
+      need: need.length, done: need.length - todo.length, todo, rtl: L.rtl, by: kept ? kept.by : '', source: kept ? kept.source || '' : '', listened: t.source === 'listened' };
   }
   const statuses = () => transcripts().map(statusOf);
   /** A line that is English already, in an interview where nothing about it needs translating. */
@@ -347,7 +359,7 @@
     const st = statusOf(t);
     return { title: `English transcript – ${t.name}`, subtitle: `${US.ctx.project ? US.ctx.project.name + ' · ' : ''}${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} · translated from ${st.lang}`,
       lang: st.lang, rtl: st.rtl, by: st.by, bilingual,
-      rows: t.lines.filter(l => detect(l.text).lang).map(l => { const need = needsEnglish(l, st.lang), en = need ? enOf(l) : l.text; return { tc: tcOf(l.start), tcOut: tcOf(l.end), speaker: l.speaker ? S().speakerName(l.speaker) : '', en, orig: l.text, translated: need }; }) };
+      rows: t.lines.filter(l => detect(l.text).lang).map(l => { const need = needsEnglish(l, st.lang), en = need ? enOf(l) : l.text; return { tc: tcOf(l.start), tcOut: tcOf(l.end), speaker: l.speaker ? S().speakerName(l.speaker) : '', en, orig: (need && origOf(l)) || l.text, translated: need }; }) };
   }
   /** Write an interview's full English transcript: docx | txt | csv, optionally with the original beside it. -> {file, summary} */
   async function exportTranscript(job, { key, format = 'docx', bilingual = false } = {}) {
@@ -428,7 +440,8 @@
   function lineEl(l, { always = false } = {}) {
     if (!always && !showOn()) return null;
     const en = enOf(l);
-    return en ? h('div.eng-line', { title: MARK }, h('span.eng-mark', 'EN'), ' ', US.keep(en)) : null;
+    const orig = en ? origOf(l) : '';   // what was heard there, when the English was made by listening beside the editor's own transcript
+    return en ? h('div.eng-line', { title: MARK }, h('span.eng-mark', 'EN'), ' ', US.keep(en), orig ? h('span.eng-orig', { title: 'What was heard here (by listening – AI)' }, ' · ', US.keep(orig)) : null) : null;
   }
 
   /* =================== Story › 1 Interviews: the card =================== */
@@ -440,20 +453,24 @@
     const run = (title, fn) => US.jobs.run({ title, tool: 'story' }, fn).then(x => { render(); return x; }).catch(e => { if (!(e instanceof US.UserError && e.code === 'CANCELLED')) ui.showError(e); render(); });
     const todoAll = foreign.reduce((n, s) => n + s.todo.length, 0), allPlan = todoAll ? describePlan(plan({})) : '';
     const langSel = s => ui.select({ options: [{ value: '', label: `Automatic – ${s.detected}` }].concat(LANGS.map(l => ({ value: l, label: l }))), value: s.set ? s.lang : '', onChange: x => { setLanguage(s.key, x); render(); } });
+    const LI = US.storyListen, listenFirst = s => { try { return !!LI.unusable(S().state().transcripts.find(t => t.key === s.key), s.lang); } catch (e) { return false; } };
     const row = s => h('div.list-row.eng-row', { dataset: { english: s.key } },
       h('span.swatch', { style: { background: s.english ? 'var(--text-3)' : s.need && s.done === s.need ? 'var(--ok)' : 'var(--warn)' }, title: s.english ? 'In English' : s.done === s.need ? 'Translated' : 'Not translated yet' }),
       h('div.list-main',
         h('div.list-title', US.keep(s.name), ui.pill(s.lang, s.english ? 'var(--text-3)' : 'var(--accent)'), s.others.filter(x => x.lang !== 'English').slice(0, 2).map(x => ui.pill(`some ${x.lang}`, 'var(--text-2)'))),
-        h('div.list-sub', s.english ? 'In English – nothing to translate.' : s.mixed ? `In English, with ${US.plural(s.need, 'line')} in another language · ${s.done} translated` : `${s.done} of ${US.plural(s.need, 'line')} translated${s.by ? ' by ' + s.by : ''}${s.done ? ' · ' + MARK : ''}`)),
+        h('div.list-sub', s.english ? 'In English – nothing to translate.' : s.mixed ? `In English, with ${US.plural(s.need, 'line')} in another language · ${s.done} translated` : `${s.listened ? 'Transcript made by listening – AI · ' : ''}${s.done} of ${US.plural(s.need, 'line')} translated${s.by ? ' by ' + s.by : ''}${s.done ? ' · ' + MARK : ''}`),
+        LI && LI.rowControls ? (LI.rowControls(s, { render }) || [])[0] : null),
       h('div.sel-right',
         h('span.eng-lang', { title: 'The interview’s language – set it by hand if Story has it wrong' }, langSel(s)),
-        s.english ? null : ui.button(s.todo.length ? (s.done ? `Translate the rest (${s.todo.length})` : 'Translate') : 'Translated', { small: true, kind: s.todo.length && !s.mixed ? 'primary' : 'ghost', disabled: !s.todo.length, title: s.todo.length ? describePlan(plan({ keys: [s.key] })) : 'Every line has its English', onClick: () => run(`Translating ${s.name}`, job => translate(job, { keys: [s.key] })) }),
+        s.english ? null : ui.button(s.todo.length ? (s.done ? `Translate the rest (${s.todo.length})` : 'Translate') : 'Translated', { small: true, kind: s.todo.length && !s.mixed && !(LI && LI.unusable && listenFirst(s)) ? 'primary' : 'ghost', disabled: !s.todo.length, title: s.todo.length ? describePlan(plan({ keys: [s.key] })) : 'Every line has its English', onClick: () => run(`Translating ${s.name}`, job => translate(job, { keys: [s.key] })) }),
+        LI && LI.rowControls ? (LI.rowControls(s, { render }) || [])[1] : null,
         s.done ? ui.button('English transcript', { small: true, title: 'The whole interview in English, with speakers and timecodes – in the format chosen below', onClick: () => run('Saving the English transcript', async job => savedToast(await exportTranscript(job, { key: s.key, format: fmt, bilingual: both }), 'English transcript')) }) : null,
         s.done ? ui.button('English subtitles', { small: true, title: `An .${sub} file at the interview’s own times – two lines of up to 42 characters`, onClick: () => run('Saving the English subtitles', async job => savedToast(await exportSubtitles(job, { key: s.key, format: sub }), 'English subtitles')) }) : null));
     const any = list.some(s => s.done), seq = US.ctx.sequence;
     const body = [
       h('div.field-hint', 'For interviews that aren’t in English: Story translates every line (the lines either side are read too, so sentences run on properly), keeps names as names, and keeps a blessing or an idiom in the original with a short gloss. The line’s own times never change – so the English can be a full transcript, subtitles for the interview, or subtitles on a sequence you have cut. Only transcript text is sent, to the AI you already use.'),
       list.length ? h('div.list.eng-list', list.map(row)) : h('div.field-hint', 'No interviews yet.'),
+      LI && LI.cardExtras ? LI.cardExtras({ render }) : null,
       foreign.length ? h('div.row', ui.button(todoAll ? `Translate all interviews not in English (${US.plural(todoAll, 'line')})` : 'All translated', { kind: todoAll ? 'primary' : 'ghost', small: true, disabled: !todoAll, title: allPlan, onClick: () => run('Translating the interviews into English', job => translate(job, {})) }),
         h('span.field-hint.grow', allPlan)) : null,
       !foreign.length && !mixed.length && list.length ? h('div.field-hint', 'All your interviews are in English, so there’s nothing to translate. If one isn’t, set its language on its row.') : null,
@@ -471,7 +488,8 @@
 
   US.storyEnglish = {
     VERSION, MARK, LANGS, HINT,
-    detect, languageOf, isRTL, statusOf, statuses, setLanguage, setShow, showOn, has, enOf, note, promptHint, searchMore, lineEl,
+    detect, languageOf, isRTL, statusOf, statuses, setLanguage, setShow, showOn, has, enOf, origOf, setEnglish, note,
+    _store: { load, save: () => save() }, promptHint, searchMore, lineEl,
     plan, describePlan, translate, exportTranscript, exportSubtitles, sequenceSubtitles, documentOf, card,
     /** Write the copy beside the project now (tests; before the project closes). */
     flush() { writeLocal(); writeShared(); },
@@ -489,10 +507,15 @@
   US.actions.register({
     id: 'story.translate', tool: 'story', title: 'Translate interviews into English', changes: false,
     describe: 'Translates the transcript lines of interviews that are not in English (Hebrew, Yiddish, Arabic, Russian…) into English, line by line, keeping every line’s id and times. Text only. Only lines without English yet are done. The result is an AI translation to check before publishing.',
-    params: { interview: { type: 'string', default: '', desc: 'Part of one interview’s name – empty for every interview that isn’t in English' } },
+    params: { interview: { type: 'string', default: '', desc: 'Part of one interview’s name – empty for every interview that isn’t in English' }, listen: { type: 'boolean', default: false, desc: 'true: by listening – the words and their English from the SOUND (for an interview whose transcript is unusable, e.g. Hebrew written down as nonsense). Uses the listening model; in the cloud the editor is asked first, with the cost.' } },
     examples: ['translate the interviews into English', 'translate the Hebrew interview'],
     match: t => (/\btranslat\w*\b/i.test(t) && /\b(interviews?|transcripts?|hebrew|yiddish|arabic|russian|english)\b/i.test(t) && !/\bsubtitles?\b/i.test(t) ? { _score: 2.6 } : null),
-    run: async (p, job) => translate(job, { keys: keysFor(p.interview) })
+    run: async (p, job) => {
+      if (!p.listen) return translate(job, { keys: keysFor(p.interview) });
+      const LI = US.storyListen, keys = keysFor(p.interview) || statuses().filter(s => !s.english && s.done < s.need).map(s => s.key);
+      if (!LI) throw new US.UserError('NOTHING_FOUND', { title: 'Translating by listening isn’t available in this copy.' });
+      return LI.run(job, { keys });   // the cloud's yes is asked there, with the estimate, every time
+    }
   });
   US.actions.register({
     id: 'story.englishTranscript', tool: 'story', title: 'Save the English transcript of an interview', changes: false,

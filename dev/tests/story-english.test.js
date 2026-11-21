@@ -387,8 +387,8 @@ test('in the panel (jsdom): with every interview in English the card is closed a
   let o; try { o = JSON.parse(last); } catch (e) { throw new Error('english-ui.js gave no result:\n' + (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-1500)); }
   assert.deepStrictEqual(o.errors, []);
   assert.deepStrictEqual(o.english, { there: true, closed: true, says: true, rows: 3, translate: [], toggle: false }, 'English interviews are never shown as needing a translation');
-  assert.deepStrictEqual([o.hebrew.open, o.hebrew.pill, o.hebrew.sub, o.hebrew.rowButtons, o.hebrew.all, o.hebrew.langs], [true, 'Hebrew', '0 of 2 lines translated', ['Translate'], 'Translate all interviews not in English (2 lines)', ['Automatic – Hebrew', 'English', 'Hebrew']]);
+  assert.deepStrictEqual([o.hebrew.open, o.hebrew.pill, o.hebrew.sub, o.hebrew.rowButtons, o.hebrew.all, o.hebrew.langs], [true, 'Hebrew', '0 of 2 lines translated', ['Translate', 'By listening'], 'Translate all interviews not in English (2 lines)', ['Automatic – Hebrew', 'English', 'Hebrew']]);
   assert.ok(/1 interview not in English/.test(o.hebrew.hint));
-  assert.deepStrictEqual(o.translated, { sub: '2 of 2 lines translated by Stand-in · AI translation – check before publishing', rowButtons: ['Translated', 'English transcript', 'English subtitles'], warn: true, show: true, sequence: true, formats: ['docx,txt,csv', 'srt,vtt'] });
+  assert.deepStrictEqual(o.translated, { sub: '2 of 2 lines translated by Stand-in · AI translation – check before publishing', rowButtons: ['Translated', 'By listening', 'English transcript', 'English subtitles'], warn: true, show: true, sequence: true, formats: ['docx,txt,csv', 'srt,vtt'] });
   assert.ok(o.lineOff === false && /^EN English of /.test(o.lineOn), '“Show English under each line”: off until switched on');
 });
