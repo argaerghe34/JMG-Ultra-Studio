@@ -188,6 +188,7 @@
   const toVTT = (cues, note = MARK) => `WEBVTT\n\nNOTE ${note}\n\n` + cues.map((c, i) => `${i + 1}\n${vttTime(c.start)} --> ${vttTime(c.end)}\n${c.text}\n`).join('\n');
 
   /* =================== the English transcript as a document =================== */
+  const rowRtl = r => !!detect(r.orig).rtl;
   /** d: {title, subtitle, lang, rtl, bilingual, rows: [{tc, speaker, en, orig, translated}]} */
   function docText(d) {
     const out = [d.title, d.subtitle, MARK.toUpperCase(), ''];
@@ -208,7 +209,7 @@
       const head = t => ({ runs: [{ text: t, bold: true, color: '444444' }] });
       blocks.push({ table: { widths: [1100, 4270, 4270], rows: [[head('Time'), head(`Original (${d.lang})`), head('English')]].concat(d.rows.map(r => [
         { runs: [{ text: r.tc, mono: true, color: '808080', size: 18 }] },
-        { rtl: d.rtl && r.translated, runs: who(r).map(x => Object.assign({ rtl: d.rtl && r.translated }, x)).concat([{ text: r.orig, rtl: d.rtl && r.translated }]) },
+        { rtl: rowRtl(r), runs: who(r).map(x => Object.assign({ rtl: rowRtl(r) }, x)).concat([{ text: r.orig, rtl: rowRtl(r) }]) },   // by the line's own letters: an English line in a Hebrew interview reads left to right
         { runs: who(r).concat([{ text: r.en || '[not translated]', color: r.en ? undefined : '9A3B2E' }]) }])) } });
     } else for (const r of d.rows) blocks.push({ paragraph: { runs: [tc(r)].concat(who(r), [{ text: r.en || '[not translated]', color: r.en ? undefined : '9A3B2E' }]) } });
     return EX().docx({ title: d.title, subtitle: d.subtitle, blocks });

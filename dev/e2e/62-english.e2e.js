@@ -28,10 +28,10 @@ const savedState = JSON.parse(JSON.stringify({ themes: st.themes, wall: st.wall,
 st.scope = { kind: 'all' }; st.english = null;
 const HEB = 'בעזרת השם';
 const LINES = [
-  { start: 0.6, end: 5.3, speaker: 'Ruth', text: 'שמי רות ואני גדלתי בדירה קטנה בסטמפורד היל', en: 'My name is Ruth, and I grew up in a small flat in Stamford Hill.' },
-  { start: 5.8, end: 10, speaker: 'Ruth', text: 'סליחה, אפשר להתחיל שוב? איבדתי את החוט', en: 'Sorry, can I start again? I lost my thread.' },
+  { start: 0.6, end: 5.3, speaker: 'Ruth', text: 'שמי רות ואני גדלתי בדירה קטנה בסטמפורד היל.', en: 'My name is Ruth, and I grew up in a small flat in Stamford Hill.' },
+  { start: 5.8, end: 10, speaker: 'Ruth', text: 'סליחה, אפשר להתחיל שוב? איבדתי את החוט.', en: 'Sorry, can I start again? I lost my thread.' },
   { start: 12.5, end: 19.1, speaker: 'Ruth', text: 'כל יום שישי השולחן היה מלא, ' + HEB, en: 'Every Friday night the table was full, b’ezrat Hashem [with God’s help].' },
-  { start: 21.5, end: 26, speaker: 'Ruth', text: 'אבא שלי תמיד אמר שבית חם רק כמו הדלת הפתוחה שלו', en: 'My father always said a home is only as warm as its open door.' },
+  { start: 21.5, end: 26, speaker: 'Ruth', text: 'אבא שלי תמיד אמר שבית חם רק כמו הדלת הפתוחה שלו.', en: 'My father always said a home is only as warm as its open door.' },
   { start: 33, end: 39, speaker: 'Ruth', text: 'Okay, and then we moved to London.', en: 'Okay, and then we moved to London.' }];
 const log = [], sent = [], made = [];
 try {
@@ -99,7 +99,7 @@ try {
   T.assert(/\d\d:\d\d:\d\d[:;]\d\d/.test(x1), 'with timecodes');
   const both = await E.exportTranscript(job, { key: tr.key, format: 'docx', bilingual: true }); made.push(both.file);
   const x2 = xmlOf(both.file);
-  T.assert(x2.includes('<w:tbl>') && x2.includes(HEB) && x2.includes(enFor(friday)) && (x2.match(/<w:bidi\/>/g) || []).length === 4 && x2.includes('<w:rtl/>'), 'with the original beside it: two columns, the four Hebrew lines right-to-left (the English one isn’t)');
+  T.assert(x2.includes('<w:tbl>') && x2.includes(HEB) && x2.includes(enFor(friday)) && (x2.match(/<w:bidi\/>/g) || []).length === 4 && x2.includes('<w:rtl/>'), 'with the original beside it: two columns, the four Hebrew lines right-to-left (the English one isn’t) – ' + JSON.stringify({ tbl: x2.includes('<w:tbl>'), heb: x2.includes(HEB), en: x2.includes(enFor(friday)), bidi: (x2.match(/<w:bidi\/>/g) || []).length, rtl: x2.includes('<w:rtl/>') }));
   const txt = await E.exportTranscript(job, { key: tr.key, format: 'txt' }); made.push(txt.file);
   T.assert(/AI TRANSLATION – CHECK BEFORE PUBLISHING/.test(fs.readFileSync(txt.file, 'utf8')) && fs.readFileSync(txt.file, 'utf8').includes('Ruth: ' + enFor(name)), 'and as text');
   log.push(doc.summary);
