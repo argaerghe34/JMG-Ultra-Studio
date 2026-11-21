@@ -1,6 +1,6 @@
 ## What's new in 1.3.41
 
-Not tested in Premiere or Resolve, and not yet run with a real listening model (unit tests with stand-in models only).
+Tested in Premiere on the Mac, including one real piece of listening with Gemma 4 E2B on this computer (on a test clip, not real interviews). Not tested in Resolve or on Windows, and no cloud request has been sent.
 
 **Story › Listen to delivery**
 - Story can now **listen to your interviews**, not only read the transcript. Each line gets a delivery score from 1 to 5, a few words on how it sounds (confident, warm, hesitant, flat, laughing, stumbles, trails off), its energy, and whether it starts and ends cleanly enough to cut.
@@ -11,7 +11,7 @@ Not tested in Premiere or Resolve, and not yet run with a real listening model (
 - **Story uses it.** Themes, Find, narratives from a brief, Ask your interviews and Producer are told, briefly, how each line is said, so they prefer the well-delivered take of the same thought and read the corrected words. Switch it off and nothing about delivery is sent.
 - **Pro View** has a Delivery column (sort by it, hide or resize it), a delivery filter, and corrected words marked with ◆. Story's lists show a small ♪ pill.
 - Words it heard are **offered** to Names and terms – you add them or not.
-- Honest note: small models on this computer are weaker at Hebrew and Yiddish than the cloud models, and none of this has been tested on real footage yet.
+- Honest note: small models on this computer are weaker at Hebrew and Yiddish than the cloud models, and none of this has been tried on real interviews yet.
 
 ## What's new in 1.3.40.1
 

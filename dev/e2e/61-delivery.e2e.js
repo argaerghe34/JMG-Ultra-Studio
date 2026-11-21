@@ -127,6 +127,7 @@ try {
   const tool = $('.sl.pv') || document;
   T.assert($('.pv-th.pv-c-delivery', tool), 'the Delivery column shows: ' + $$('.pv-th', tool).map(x => x.dataset.col).join());
   const rowOf = lid => $(`.pv-row[data-id="${lid}"]`, tool);
+  { const s0 = $('.pv-dfilter select', tool); if (s0 && s0.value !== 'any') { s0.value = 'any'; s0.dispatchEvent(new Event('change')); await W(200); } }   // a run that stopped early leaves its filter on
   $('.pv-th.pv-c-delivery .pv-thb', tool).click(); await W(300);   // best said first: the lines listened to come to the top
   T.assert(rowOf(friday) && /5\/5/.test($('.pv-c-delivery', rowOf(friday)).textContent) && /warm/.test($('.pv-c-delivery', rowOf(friday)).textContent) && $('.dlv-mark', rowOf(friday)), 'the row shows its score, how it sounds and the ◆ marker');
   const order = $$('.pv-row', tool).map(x => x.dataset.id).filter(x => L.some(l => l.id === x));
@@ -134,7 +135,7 @@ try {
   const sel = $('.pv-dfilter select', tool);
   T.assert(sel && !$('.pv-dfilter', tool).classList.contains('hidden'), 'the delivery filter is offered');
   sel.value = 'heard'; sel.dispatchEvent(new Event('change')); await W(300);
-  const onlyHeard = $$('.pv-row', tool).map(x => x.dataset.id);
+  const onlyHeard = $$('.pv-row', tool).map(x => x.dataset.id).filter(Boolean);   // the heading row has no id
   T.assert(onlyHeard.length === 1 && onlyHeard[0] === friday, '“With corrected words” leaves the one line: ' + onlyHeard.join());
   rowOf(friday).click(); await W(200);
   T.assert($('.sl-insp .dlv-heard', tool) && $('.sl-insp', tool).textContent.includes(HEB) && /5 out of 5/.test($('.sl-insp', tool).textContent), 'the picked line shows its delivery and the words heard');

@@ -140,7 +140,8 @@ try {
   $('.pv-listbtn', tool).click(); await W(50);
   $(`[data-archive="${e.id}"]`, tool).click(); await W(150);
   T.assert($('.pv-gh[data-group="archived"]', tool) && P.searches(st, { archived: true }).length === 1, 'archived');
-  $('.pv-gh[data-group="archived"]', tool).click(); await W(50); $(`[data-restore="${e.id}"]`, tool).click(); await W(150);
+  if (!$(`[data-restore="${e.id}"]`, tool)) { $('.pv-gh[data-group="archived"]', tool).click(); await W(50); }   // the group stays open from an earlier run in the same panel
+  $(`[data-restore="${e.id}"]`, tool).click(); await W(150);
   T.assert(P.searches(st).some(x => x.id === e.id) && !$('.pv-gh[data-group="archived"]', tool), 'and back');
   return { rows: before, used: usedIds.size, order: order.join() };
 } finally {
