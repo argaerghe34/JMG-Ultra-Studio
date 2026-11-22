@@ -109,13 +109,13 @@ test('a clip with no transcript, on this computer: Story gets a transcript made 
     // stopped after the first piece: what was heard is kept
     let k = 0;
     const part = await LI.listen(job, iv, { lang: 'Hebrew', plan: LOCAL(), keepGoing: () => k++ < 1 });
-    assert.deepStrictEqual([part.more, part.rec.next, part.rec.total, part.rec.done, R.calls.hear.length, R.calls.tr.length], [true, 1, 2, false, 4, 1]);
+    assert.deepStrictEqual([part.more, part.rec.next, part.rec.total, part.rec.done, R.calls.hear.length, R.calls.tr.length], [true, 4, 5, false, 4, 1]);
     assert.ok(R.calls.hear.every(q => q.user.length === 2 && q.user[1].media.seconds <= 8.01) && /most likely speaking Hebrew/.test(R.calls.hear[0].system), 'one span of sound at a time, and nothing else');
     assert.ok(R.calls.tr[0].user.endsWith(`1\t${HEB[0]}\n2\t${HEB[1]}\n3\t${HEB[2]}\n4\t${HEB[3]}`), 'then the words it wrote down, as text');
     assert.strictEqual(S.state().transcripts.length, 0, 'nothing goes into Story until the interview is done');
     // again: from the second piece – the first isn't heard again
     const rest = await LI.listen(job, LI.target(pr.media), { lang: 'Hebrew', plan: LOCAL() });
-    assert.deepStrictEqual([rest.rec.done, rest.rec.next, R.calls.hear.length, R.calls.tr.length, R.calls.sound], [true, 2, 5, 1, 2], 'the last span has nobody speaking: nothing to translate');
+    assert.deepStrictEqual([rest.rec.done, rest.rec.next, R.calls.hear.length, R.calls.tr.length, R.calls.sound], [true, 5, 5, 1, 2], 'the last span has nobody speaking: nothing to translate');
     const rec = LI.peek(pr.media);
     assert.deepStrictEqual(rec.spans.map(s => [s.n, s.text, s.en, s.unheard]), [[1, HEB[0], ENG[0], undefined], [2, HEB[1], ENG[1], undefined], [3, HEB[2], ENG[2], undefined], [4, HEB[3], ENG[3], undefined], [5, '', '', 'model']]);
     assert.ok(rec.spans.every((s, i) => s.start === rec.grid[i].start && s.end === rec.grid[i].end) && near(rec.spans[0].start, 1) && near(rec.spans[3].end, 26), 'the times are the spans’ own');
@@ -285,5 +285,31 @@ test('what a model makes up when it hears no words is taken out: its own prompt 
     const r = await LI.listen(job, LI.target(pr.media), { lang: 'Hebrew', plan: LOCAL() });
     assert.deepStrictEqual(r.rec.spans.map(s => [s.n, s.text, s.unheard]), [[1, HEB[0], undefined], [2, '', 'made-up'], [3, '', 'made-up'], [4, '', 'made-up'], [5, '', 'made-up']]);
     assert.deepStrictEqual([LI.apply(LI.target(pr.media), r.rec).lines, S.state().transcripts[0].lines.map(l => l.text)], [1, [HEB[0]]]);
+  } finally { R.restore(); done(); }
+});
+
+test('only the part in the cut: the stretches a sequence uses (between In and Out) are worked out from its clips, only the spans in them are listened to – the sound between them never sent – and a wider choice later only listens to what is new', async () => {
+  // the stretches of each interview's recording a sequence uses
+  const TL = US.storyTimeline, tOf = c => (c.path === 'a.mp4' ? { key: 'A' } : c.path === 'b.mp4' ? { key: 'B' } : null);
+  const clips = [{ start: 0, end: 5, in: 10, out: 15, speed: 1, path: 'a.mp4' }, { start: 5, end: 8, in: 15.2, out: 18.2, speed: 1, path: 'a.mp4' }, { start: 8, end: 12, in: 40, out: 44, speed: 1, path: 'a.mp4' }, { start: 12, end: 14, in: 0, out: 4, speed: 2, path: 'b.mp4' }, { start: 14, end: 20, in: 0, out: 6, speed: 1, path: 'c.mp4' }, { start: 20, end: 22, in: 9, out: 7, speed: -1, path: 'a.mp4' }];
+  assert.deepStrictEqual(TL.sourceRanges(clips, tOf), { A: [[10, 18.2], [40, 44]], B: [[0, 4]] }, 'neighbours merged; speed counted; reversed clips and clips with no transcript left out');
+  assert.deepStrictEqual(TL.sourceRanges(clips, tOf, [3, 9]), { A: [[13, 18.2], [40, 41]] }, 'only between In and Out');
+  assert.deepStrictEqual(P.within([{ n: 1, start: 1, end: 4 }, { n: 2, start: 5, end: 8 }, { n: 3, start: 20, end: 26 }], [[6, 7], [25, 30]]).map(s => s.n), [2, 3], 'a span that touches the part counts');
+  assert.strictEqual(P.rangeSecs([[0, 4], [10, 12.5]]), 6.5);
+  assert.deepStrictEqual(P.pieces([{ n: 2, start: 5, end: 8 }, { n: 4, start: 20, end: 26 }], { chunk: 30, gap: 3 }).map(p => p.spans.map(s => s.n)), [[2], [4]], 'two parts far apart: two pieces – the sound between them is never sent');
+  // listening to part of an interview
+  const pr = project();
+  const R = routes();
+  try {
+    const iv = LI.target(pr.media);
+    const part = await LI.listen(job, iv, { lang: 'Hebrew', plan: LOCAL(), ranges: [[5.5, 7]] });
+    assert.deepStrictEqual([part.complete, part.want, part.of, part.rec.done, R.calls.hear.length], [true, 1, 5, false, 1], 'only the one span in the part is heard');
+    assert.ok(near(R.calls.hear[0].user[1].media.seconds, 3.2, 0.25), 'and only its sound was asked about');
+    assert.deepStrictEqual(LI.peek(pr.media).spans.map(s => s.n), [2]);
+    const wider = await LI.listen(job, LI.target(pr.media), { lang: 'Hebrew', plan: LOCAL(), ranges: [[0, 9]] });
+    assert.deepStrictEqual([wider.complete, wider.want, R.calls.hear.length], [true, 2, 2], 'a wider part: only the new span is heard');
+    const all = await LI.listen(job, LI.target(pr.media), { lang: 'Hebrew', plan: LOCAL() });
+    assert.deepStrictEqual([all.rec.done, R.calls.hear.length], [true, 5], 'then the whole: only the three not heard yet');
+    assert.deepStrictEqual(LI.peek(pr.media).spans.map(s => s.n), [1, 2, 3, 4, 5]);
   } finally { R.restore(); done(); }
 });

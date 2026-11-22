@@ -534,7 +534,9 @@
     const heard = tl.result.entries.filter(e => !range || (e.end > range[0] && e.start < range[1]));
     const ids = Array.from(new Set(heard.map(e => e.lineId)));
     if (!ids.length) throw new US.UserError('NOTHING_FOUND', { title: `No transcribed interview lines in “${tl.info.name}”${range ? ' between its In and Out points' : ''}.`, action: 'Check the sequence uses your transcribed interview clips, or choose another one.' });
-    state.scope = Object.assign(s, { seqName: tl.info.name, ids, range, at: Date.now() });
+    // the stretches of each interview's recording the cut uses (within In and Out): listening sends only those
+    const parts = TL().sourceRanges(tl.collected.clips, transcriptLookup(), range);
+    state.scope = Object.assign(s, { seqName: tl.info.name, ids, range, parts, at: Date.now() });
     linesStamp++; saveNow();
     return scopeLines();
   }
@@ -2682,7 +2684,7 @@
         help: h('div', h('p', 'Story works from transcripts, in five steps. You can go back to any step at any time.'), h('ol',
           h('li', h('b', 'Interviews. '), (RES ? 'Press “Read transcripts from Resolve” and tick your interviews – clips, multicam clips or a synced timeline; transcripts Resolve already has are read as they are, the rest transcribed (free in Resolve Studio, on this computer)' : 'Let Premiere transcribe your interviews (select clips › right-click › Transcribe – free, on this computer), then press “Read Premiere’s transcripts”') + ' – or import transcript files. Then choose what to work on: every interview, some of them, or the lines in a sequence such as your selects (only between its In and Out points if you like).'),
           h('li', h('b', 'Themes. '), 'Type the themes you want (optional) and press Find themes: Story finds yours and its own in one pass. How picky sets how many lines each theme keeps. Each theme has a colour its clips get in the timeline.'),
-          h('li', h('b', 'Find. '), 'Search for specific lines (by word, related words and mis-heard words), Find more on a topic you haven’t covered, and Moments – bloopers, funny bits, off-camera voices and poignant moments.'),
+          h('li', h('b', 'Find. '), 'Search for specific lines (by word, related words and mis-heard words), Find more on a topic you haven’t covered, Moments – bloopers, funny bits, off-camera voices and poignant moments – and Best lines, the most impactful lines for a simple highlight video.'),
           h('li', h('b', 'Build. '), 'A sequence from your themes, a narrative from a one-sentence brief (and a promo from it), bins by theme, and highlights on a string-out – your clips are never changed.'),
           h('li', h('b', 'Share. '), 'An interview log, a paper edit and the transcript of any sequence – as Word, a spreadsheet, text or subtitles.')))
       });
@@ -2889,6 +2891,7 @@
       let lastQuery = '', strongOnly = US.settings.get('story.strong', false), results = [], targetTheme = null, targetColumn = null;
       let moreMode = false, moreResults = [], moreTopic = '', moreInfo = '';
       let questionsMode = false, qAsked = US.settings.get('story.qAsked', false);
+      let bestMode = false;   // 3 Find › Best lines (22-story-best.js)
       let momentsMode = false, momentType = 'all', momentsAI = US.settings.get('story.momentsAI', true), momSeq = '';
       let momColours = US.settings.get('story.momentColours', true), momLabels = US.settings.get('story.momentLabels', true);
       let moreAI = US.settings.get('story.moreAI', true), notInCut = false, cutSeq = '';
@@ -2896,7 +2899,7 @@
       /** Open Find more (from Search, a theme or a board column) and run it. */
       function startFindMore({ topic = '', theme = null, column = null } = {}) {
         targetTheme = theme ? theme.id : null; targetColumn = column ? column.id : null;
-        lastQuery = topic; moreMode = true; momentsMode = questionsMode = false; moreResults = []; moreInfo = '';
+        lastQuery = topic; moreMode = true; momentsMode = questionsMode = bestMode = false; moreResults = []; moreInfo = '';
         show('search');
         if (topic) runFindMore(topic);
       }
@@ -2931,7 +2934,7 @@
         state.finds = f; save();
       }
       function openFind(e) {
-        momentsMode = questionsMode = false;
+        momentsMode = questionsMode = bestMode = false;
         if (e && e.mode === 'more') {
           moreMode = true; moreTopic = lastQuery = e.q; moreInfo = e.info || '';
           moreResults = (e.more || []).map(r => ({ line: lineById.get(r.id), rel: r.rel, reasons: r.reasons || [] })).filter(r => r.line);
@@ -2963,12 +2966,14 @@
         el.appendChild(scopeChip());
         const tgt = targetTheme && state.themes.find(t => t.id === targetTheme), tcol = targetColumn && state.wall.columns.find(c => c.id === targetColumn);
         if (tgt || tcol) el.appendChild(h('div.note.story-target', h('span.story-swatch.static', { style: { background: labelHex(tgt ? tgt.label : columnLabel(tcol)) } }), h('span.grow', `Adding lines to “${(tgt || tcol).name}” – tick lines, then press “Add to ${(tgt || tcol).name}”.`), ui.button('Done', { small: true, kind: 'ghost', onClick: () => { targetTheme = null; targetColumn = null; render(); } })));
-        const input = ui.input({ value: lastQuery, placeholder: 'e.g. volunteering, "open door", lonely…', onEnter: q => { moreMode = momentsMode = questionsMode = false; run(q); } });
+        const input = ui.input({ value: lastQuery, placeholder: 'e.g. volunteering, "open door", lonely…', onEnter: q => { moreMode = momentsMode = questionsMode = bestMode = false; run(q); } });
         el.appendChild(h('div.row.story-find-row', h('div.grow', input),
-          ui.button('Search', { kind: moreMode || momentsMode || questionsMode ? 'secondary' : 'primary', icon: 'target', onClick: () => { moreMode = momentsMode = questionsMode = false; run(input.value); } }),
-          ui.button('Find more', { kind: moreMode && !momentsMode && !questionsMode ? 'primary' : 'secondary', icon: 'spark', title: 'Anything that touches on this topic and isn’t selected yet', onClick: () => { moreMode = true; momentsMode = questionsMode = false; lastQuery = input.value; runFindMore(input.value); } }),
-          ui.button('Moments', { kind: momentsMode ? 'primary' : 'secondary', icon: 'star', title: 'Bloopers, funny bits, off-camera voices and poignant moments', onClick: () => { momentsMode = true; questionsMode = false; render(); } }),
-          ui.button('Questions', { kind: questionsMode ? 'primary' : 'secondary', icon: 'note', title: 'Type your interview questions – find every full answer to each, labelled by question', onClick: () => { questionsMode = true; momentsMode = false; render(); } })));
+          ui.button('Search', { kind: moreMode || momentsMode || questionsMode || bestMode ? 'secondary' : 'primary', icon: 'target', onClick: () => { moreMode = momentsMode = questionsMode = bestMode = false; run(input.value); } }),
+          ui.button('Find more', { kind: moreMode && !momentsMode && !questionsMode && !bestMode ? 'primary' : 'secondary', icon: 'spark', title: 'Anything that touches on this topic and isn’t selected yet', onClick: () => { moreMode = true; momentsMode = questionsMode = bestMode = false; lastQuery = input.value; runFindMore(input.value); } }),
+          ui.button('Moments', { kind: momentsMode && !bestMode ? 'primary' : 'secondary', icon: 'star', title: 'Bloopers, funny bits, off-camera voices and poignant moments', onClick: () => { momentsMode = true; questionsMode = bestMode = false; render(); } }),
+          ui.button('Questions', { kind: questionsMode ? 'primary' : 'secondary', icon: 'note', title: 'Type your interview questions – find every full answer to each, labelled by question', onClick: () => { questionsMode = true; momentsMode = bestMode = false; render(); } }),
+          ui.button('Best lines', { kind: bestMode ? 'primary' : 'secondary', icon: 'star', title: 'The most impactful lines – for a simple highlight video, no themes needed', onClick: () => { bestMode = true; momentsMode = questionsMode = moreMode = false; render(); } })));
+        if (bestMode) { el.appendChild(bestView()); el.appendChild(pickedBar()); el.appendChild(placeOptionsSection()); el.appendChild(nextBar('search')); return; }
         if (questionsMode) { el.appendChild(questionsView()); el.appendChild(placeOptionsSection()); el.appendChild(nextBar('search')); return; }
         if (momentsMode) { el.appendChild(momentsView()); el.appendChild(pickedBar()); el.appendChild(placeOptionsSection()); el.appendChild(nextBar('search')); return; }
         const earlier = recentFinds(input);
@@ -3073,6 +3078,42 @@
         const which = p.every ? `all ${p.found.toLocaleString('en-GB')} candidates` : `the best ${p.checked.toLocaleString('en-GB')} of ${p.found.toLocaleString('en-GB')} candidates`;
         return h('div.field-hint.story-moments-cost', `${p.name} checks ${which} (How picky: ${lv ? MOMENT_PICKY[lv][0] : 'custom'}) – ${cost}. ${p.every ? 'Balanced checks the best 240, Only the best 120.' : 'Every possible moment checks them all.'}`);
       }
+      /* ---------- Best lines: the most impactful lines, for a simple highlight video (22-story-best.js) ---------- */
+      function bestView() {
+        const B = US.storyBest, aiOn = US.ai && US.ai.available(), saved = state.best;
+        const o = Object.assign({ count: 20, maxLen: 30, per: 0, useAI: true }, US.settings.get('story.best', {}));
+        const setO = (k, x) => { o[k] = x; US.settings.set('story.best', o); };
+        const lines = scopeLines(), costEl = h('div.field-hint.story-moments-cost');
+        const upd = () => { if (aiOn && o.useAI) costEl.textContent = B.costLine(lines, o); };
+        const box = h('div', h('div.card', { dataset: { section: 'best' } },
+          h('div.card-title', 'Best lines', saved ? h('span.right', saved.label) : null),
+          h('div.muted', 'The most impactful, quotable lines – for a simple highlight video of an event, when you don’t need themes. Tick the ones you want, then build them.'),
+          B.usesBox(lines, { render }),
+          h('div.grid2',
+            ui.field('How many', ui.segmented({ options: [10, 20, 40].map(n => ({ value: n, label: String(n) })), value: o.count, onChange: x => { setO('count', x); upd(); } })),
+            ui.field('Longest line', ui.segmented({ options: [[15, '15 s'], [30, '30 s'], [60, '1 min']].map(([x, l]) => ({ value: x, label: l })), value: o.maxLen, onChange: x => { setO('maxLen', x); upd(); } }))),
+          ui.toggle({ label: 'Mix the speakers', hint: 'At most 3 lines from any one interview.', value: o.per === 3, onChange: x => setO('per', x ? 3 : 0) }),
+          aiOn ? ui.toggle({ label: `Let ${US.ai.label()} choose`, hint: 'It reads the strongest candidates as text and picks what would stand on its own in a highlight video.', value: o.useAI, onChange: x => { setO('useAI', x); render(); } })
+            : noAINote('Best lines scores each line on its own: a clear, complete soundbite, how much feeling it carries, and – when it has been listened to – how it is said. With AI, it also judges which lines would work best in a highlight video.'),
+          aiOn && o.useAI ? costEl : null,
+          ui.actionButton(saved ? 'Find the best lines again' : 'Find the best lines', () => US.jobs.run({ title: 'Finding the best lines', tool: 'story' }, async job => {
+            const r = await B.find(job, { useAI: !!(aiOn && o.useAI), count: o.count, maxLen: o.maxLen, per: o.per });
+            state.best = r; saveNow();
+            return r;
+          }).then(() => render()), { icon: 'star' })));
+        upd();
+        if (!saved) return box;
+        const rows = saved.list.filter(x => lineById.has(x.lineId)), p = picked();
+        box.appendChild(h('div.story-moments-bar', h('div.row', h('span.field-hint.grow', saved.summary), selectAllToggle(rows.map(x => x.lineId)))));
+        const lst = h('div.story-results.story-best');
+        if (!rows.length) lst.appendChild(ui.empty({ icon: 'star', title: 'None of those lines is here any more', text: 'The transcripts have changed – find the best lines again.' }));
+        rows.forEach((x, i) => {
+          const l = lineById.get(x.lineId);
+          lst.appendChild(lineRow(l, { reasons: x.reasons, checked: p.has(l.id), onCheck: on => togglePick(l.id, on), tag: ui.pill(`#${i + 1}`, i < 3 ? '#3ecf8e' : 'var(--text-2)') }));
+        });
+        box.appendChild(lst);
+        return box;
+      }
       function momentsView() {
         const aiOn = US.ai && US.ai.available(), M = MO(), saved = state.moments;
         const box = h('div', h('div.card', { dataset: { section: 'moments' } },
@@ -3173,7 +3214,7 @@
           !tgt && !tcol ? ui.button('New theme from these', { small: true, onClick: async () => { const nm = await ui.promptText({ title: 'New theme', label: 'Name', value: US.cap((moreMode && moreTopic) || lastQuery || 'New theme') }); if (!nm) return; const th = newThemeFrom(nm.trim(), ids); done(ids.length, th.name); } }) : null,
           BOARD ? ui.button('Add to board', { small: true, onClick: () => { addToWall(ids, 'Picked lines'); ui.toast({ type: 'ok', title: `${US.plural(n, 'line')} added to the board`, action: { label: 'Open board', fn: () => show('wall') } }); } }) : null,
           ui.button('Add to a new sequence…', { small: true, kind: tgt || tcol ? 'secondary' : 'primary', icon: 'film', title: 'A new sequence of the ticked lines – you name it', onClick: async () => {
-            const nameIn = ui.input({ value: `Story – ${US.cap((questionsMode ? '' : moreMode ? moreTopic : momentsMode ? 'moments' : lastQuery) || 'picked lines')}` });
+            const nameIn = ui.input({ value: `Story – ${US.cap((questionsMode ? '' : bestMode ? 'best lines' : moreMode ? moreTopic : momentsMode ? 'moments' : lastQuery) || 'picked lines')}` });
             const ok = await ui.modal({ title: `New sequence of ${US.plural(n, 'line')}`, body: h('div', ui.field('Name', nameIn), orderToggle(), h('div.field-hint', 'Off: in the order you ticked them.')), buttons: [{ label: 'Cancel', value: false, kind: 'ghost' }, { label: 'Build it', value: true, kind: 'primary' }] });
             if (ok && nameIn.value.trim()) US.actions.run('story.build', { source: 'picked', name: nameIn.value.trim() });
           } }),
@@ -4184,9 +4225,10 @@
       return { el: v.el, onShow(opts) {
         if (opts && opts.tab) tab = opts.tab;
         if (opts && opts.section) pendingSection = opts.section;
-        if (opts && (opts.section === 'moments' || opts.moments)) { momentsMode = true; moreMode = questionsMode = false; if (opts.type) momentType = opts.type; }
-        else if (opts && opts.questions) { questionsMode = true; momentsMode = moreMode = false; }
-        else if (opts && opts.tab === 'search') momentsMode = questionsMode = false;
+        if (opts && (opts.section === 'best' || opts.best)) { bestMode = true; momentsMode = moreMode = questionsMode = false; }
+        else if (opts && (opts.section === 'moments' || opts.moments)) { momentsMode = true; moreMode = questionsMode = bestMode = false; if (opts.type) momentType = opts.type; }
+        else if (opts && opts.questions) { questionsMode = true; momentsMode = moreMode = bestMode = false; }
+        else if (opts && opts.tab === 'search') momentsMode = questionsMode = bestMode = false;
         if (opts && (opts.more || (opts.query != null && opts.tab === 'search'))) findsOf = state;   // what was asked for wins over the last search
         if (opts && opts.more) { moreMode = true; moreTopic = lastQuery = opts.more.topic; moreResults = opts.more.results; moreInfo = opts.more.info || ''; targetTheme = targetColumn = null; }
         else if (opts && opts.query != null && opts.tab === 'search') { moreMode = false; lastQuery = opts.query; results = searchLines(lastQuery, scopeLines(), { limit: 200, minQuality: strongOnly ? 0.6 : 0 }); }
@@ -4444,6 +4486,26 @@
     }
   });
   US.actions.register({
+    id: 'story.best', tool: 'story', title: 'Find the best lines for a highlight video', changes: false,
+    describe: 'Finds the most impactful, quotable lines in the interviews – for a simple highlight video of an event, no themes needed. Judged on the words, and on how each line is said only when Listen to delivery is on and has heard it (the result says which).',
+    params: { count: { type: 'number', default: 20, desc: 'How many lines' }, useAI: { type: 'boolean', default: false, desc: 'Let the AI choose from the strongest candidates (only the text is sent)' } },
+    examples: ['find the best lines', 'the most impactful soundbites', 'best quotes for a highlight video', 'strongest lines from the event'],
+    match(t) {
+      if (!/\b(best|strongest|most impactful|top|punchiest|most powerful)\b/i.test(t) || !/\b(lines?|soundbites?|sound bites?|quotes?|bites?)\b/i.test(t)) return null;
+      if (/\b(about|on|where|when|mentioning)\b/i.test(t)) return null;   // a search on a topic
+      const n = t.match(/\b(\d{1,2})\b/);
+      return { count: n ? Math.max(5, Math.min(60, +n[1])) : 20, useAI: !!(US.ai && US.ai.available() && (US.settings.get('story.best', {}).useAI !== false)), _score: 2.6 };
+    },
+    run: async (p, job) => {
+      await ready(); needLines();
+      const o = Object.assign({ maxLen: 30, per: 0 }, US.settings.get('story.best', {}));
+      const r = await US.storyBest.find(job, { useAI: !!p.useAI, count: +p.count || 20, maxLen: o.maxLen, per: o.per });
+      state.best = r; saveNow();
+      openStory('search', { section: 'best', best: true });
+      return r;
+    }
+  });
+  US.actions.register({
     id: 'story.interviewLog', tool: 'story', title: 'Write the interview log', changes: false,
     describe: 'Saves a document with a section per interview: who speaks and for how long, the themes it feeds, its strongest lines and moments with source timecodes – optionally a short AI summary of each interview and the full transcripts.',
     params: { summaries: { type: 'boolean', default: false, desc: 'Add a short AI summary of each interview' }, full: { type: 'boolean', default: false, desc: 'Include every interview’s full transcript' }, format: { type: 'enum', options: ['docx', 'csv', 'txt'], default: 'docx', desc: 'File type: docx (Word), csv (spreadsheet) or txt' } },
@@ -4599,7 +4661,7 @@
   });
 
   // for Home, tests and the Assistant
-  const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' }, script: { tab: 'build', section: 'script' } };
+  const SECTIONS = { transcripts: { tab: 'transcripts' }, scope: { tab: 'transcripts', section: 'scope' }, find: { tab: 'search' }, search: { tab: 'search' }, themes: { tab: 'themes' }, board: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, wall: BOARD ? { tab: 'wall' } : { tab: 'build', section: 'build' }, share: { tab: 'timeline' }, build: { tab: 'build', section: 'build' }, narrative: { tab: 'build', section: 'narrative' }, highlights: { tab: 'build', section: 'highlights' }, timeline: { tab: 'timeline' }, export: { tab: 'timeline' }, moments: { tab: 'search', section: 'moments' }, best: { tab: 'search', section: 'best' }, script: { tab: 'build', section: 'script' } };
   US.story = {
     sequenceRange, setMulticamScope,
     /** for other tabs (Word cloud): play a line, who said it, which interview, and the lines to work on */
@@ -4614,7 +4676,9 @@
     buildSequence, sortIntoBins, readPremiereTranscripts, transcribeResolve, chooseResolveClips, readResolveTranscripts, sameRecordings, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
-    themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,
+    themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), refreshScope: job => refreshScope(job),
+    /** The stretches of an interview's recording the chosen sequence uses ([[from, to]…] in source seconds; [] = not in it), or null when Story isn't working on a sequence. */
+    scopeParts: key => { const s = scopeOf(); return s.kind === 'sequence' ? ((s.parts || {})[key] || []) : null; }, scopeLabel: () => scopeLabel(), setScope, inOutOf, addCustomTheme, addLinesToTheme, removeLineFromTheme, wallGroups, LABEL_TO_MARKER, THEME_PALETTE,
     timelineTranscript, exportTimeline, exportBoard, interviewLog, summarise, openFile, summaryPlan, summarySig, namesFor, nameSpeakersAI, speakerRequests, tlParagraphs, refreshCustomTheme: (...a) => refreshCustomTheme(...a),
     PICKY_LEVELS, pickyFor, passLevel, pickLines, effectiveLines, describePicky, relevanceOf, findMore, selectedIds, newThemeFrom, usedInSequence,
     selectionMap, highlightStringOut, removeHighlights, guessStringOut, narrativeAlternates: (...a) => narrativeAlternates(...a),

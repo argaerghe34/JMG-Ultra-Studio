@@ -71,6 +71,31 @@
   }
 
   /**
+   * The stretches of each interview's own recording that a sequence uses – only between its In and Out when range is
+   * given – in seconds of the source, neighbours closer than `join` merged: {transcriptKey: [[from, to], …]}.
+   * Used so that listening (Story › English translation › By listening) sends only the part of an interview in the cut.
+   */
+  function sourceRanges(clips, transcriptFor, range = null, { join = 0.5 } = {}) {
+    const out = {};
+    for (const c of clips) {
+      if (c.speed < 0) continue;
+      const t = transcriptFor(c); if (!t) continue;
+      const sp = Math.abs(c.speed || 1) || 1, a0 = Math.min(c.in, c.out);
+      let s = c.start, e = c.end;
+      if (range) { s = Math.max(s, range[0]); e = Math.min(e, range[1]); }
+      if (e - s < 0.05) continue;
+      (out[t.key] || (out[t.key] = [])).push([a0 + (s - c.start) * sp, a0 + (e - c.start) * sp]);
+    }
+    const r2 = x => Math.round(x * 100) / 100;
+    for (const k of Object.keys(out)) {
+      const m = [];
+      for (const r of out[k].sort((a, b) => a[0] - b[0])) { const l = m[m.length - 1]; if (l && r[0] <= l[1] + join) l[1] = Math.max(l[1], r[1]); else m.push(r.slice()); }
+      out[k] = m.map(r => [r2(r[0]), r2(r[1])]);
+    }
+    return out;
+  }
+
+  /**
    * The whole timeline. transcriptFor(clip) -> transcript {key, name, lines} or null.
    * Returns {entries (time order, each with clipKey/speakerKey/clip), missing:[clip], speakers:[{key, label, clipName, talk, sample, first}]}
    */
@@ -219,5 +244,5 @@
     }).sort((a, b) => a.start - b.start);
   }
 
-  US.storyTimeline = { collectClips, mapLines, build, displayNames, people, paragraphs, interviewNumbers, labeller, withInterviewMarks, markText, GENERIC, highlightSections, coverage, firstWords };
+  US.storyTimeline = { collectClips, sourceRanges, mapLines, build, displayNames, people, paragraphs, interviewNumbers, labeller, withInterviewMarks, markText, GENERIC, highlightSections, coverage, firstWords };
 })();

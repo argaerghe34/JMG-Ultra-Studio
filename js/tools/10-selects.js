@@ -50,6 +50,8 @@
   function rescore() {
     if (!state.clips.length) { state.result = null; return; }
     state.result = V().score(state.clips, Object.assign(effective(), { forced: state.forced }));
+    // the vision model's view of each select's usability, when it has looked (10-selects-look.js – on this computer only)
+    if (US.selectsLook) { try { state.result = US.selectsLook.adjustResult(state.result); } catch (e) { console.error(e); } }
   }
 
   /* ---------- what's in a select and how it sounds (US.understand, when a clip has been looked at / listened to) ---------- */
@@ -229,7 +231,9 @@
     const made = [];
     const cats = o.byType && o.byType.groups && o.byType.groups.length ? V().categories(chosen, o.byType.groups, { heroFirst }) : [];
     const stages = [];
-    if (o.subclips || o.sequence || o.perTier) stages.push('subclips');
+    // subclips only when asked for: the sequences take each select straight from its clip (Premiere stays responsive –
+    // making a subclip per select first was slow, and left a bin nobody asked for)
+    if (o.subclips) stages.push('subclips');
     if (o.sequence) stages.push('sequence');
     if (o.perTier) stages.push('perTier');
     if (cats.length) stages.push('cats');
@@ -257,6 +261,7 @@
       }
       return ids;
     }
+    /** A sequence of selects: each one laid straight from its clip (in to out, in its grade's colour) – or, when subclips were made, the subclip whole. */
     async function buildSequence(name, list, ids, binPath) {
       const seq = await US.host.call('newSequence', { name, binPath, likeId: list[0].clipId });
       let cursor = 0; const marks = [];
@@ -264,7 +269,8 @@
         job.check();
         const chunk = list.slice(i, i + 10);
         job.set({ who: 'premiere' }).progress(i / list.length, `${name}: placing ${i + 1}–${i + chunk.length} of ${list.length}`);
-        const r = await US.host.call('selectsPlaceWhole', { seqId: seq.id, ids: chunk.map(s => ids.get(s.key)), cursor });
+        const r = ids && chunk.every(s => ids.get(s.key)) ? await US.host.call('selectsPlaceWhole', { seqId: seq.id, ids: chunk.map(s => ids.get(s.key)), cursor })
+          : await US.host.call('storyPlace', { seqId: seq.id, cursor, method: 'relabel', clips: chunk.map(s => ({ id: s.clipId, in: s.start, out: s.end, label: labelFor(s, TIER[tierOf(s)].label), name: nameFor(s, rankOf.get(s.key)) })) });
         cursor = r.cursor;
         chunk.forEach((s, k) => { const p = r.placed[k]; if (p) marks.push({ start: p.start, name: markName(s), comment: `${s.clipName} ${US.fmtDur(s.start, true)}–${US.fmtDur(s.end, true)} · ${s.reasons.join(' · ')}`, color: markColor(s) }); });
       }
@@ -307,7 +313,7 @@
       for (const c of cats) {
         job.range((stepN - 1 + done / total) / stages.length, (stepN - 1 + (done + c.selects.length) / total) / stages.length);
         const ids = await subclipsFor(c.selects, `${base}/${c.groupName}/${c.name}`, c.label, c.name);
-        if (o.byType.sequences) { await buildSequence(`Selects – ${c.name} – ${run}`, c.selects, ids, `${base}/Sequences`); nSeq++; }
+        if (o.byType.sequences) { await buildSequence(`Selects – ${c.name} – ${run}`, c.selects, null, `${base}/Sequences`); nSeq++; }
         done += c.selects.length;
       }
       made.push(`${US.plural(cats.length, 'bin')} by type${nSeq ? ` with ${US.plural(nSeq, 'sequence')}` : ''}`);
@@ -467,7 +473,7 @@
   US.tools.register({
     id: 'selects', name: 'Selects', short: 'Selects', icon: 'selects', group: 'selects', order: 10,
     blurb: 'Grades any footage BEST / GOOD / OK; sorts it by shot, move and more.',
-    hostFns: ['selectsPlaceWhole', 'selectsSequenceUses', 'selectsAttachProxy', 'createSubclips', 'newSequence', 'addClipMarkers', 'removeClipMarkers', 'addSequenceMarkers', 'removeSequenceMarkers', 'setLabels', 'showInSource', 'storyCue', 'setPlayhead', 'itemsInfo', 'encoderPresets'],
+    hostFns: ['selectsPlaceWhole', 'storyPlace', 'selectsSequenceUses', 'selectsAttachProxy', 'createSubclips', 'newSequence', 'addClipMarkers', 'removeClipMarkers', 'addSequenceMarkers', 'removeSequenceMarkers', 'setLabels', 'showInSource', 'storyCue', 'setPlayhead', 'itemsInfo', 'encoderPresets'],
     create() {
       const help = h('div',
         h('p', h('b', 'What it looks at. '), 'Selects plays each clip quickly on this computer (nothing is uploaded) and looks at about three frames a second. For each frame it measures:'),
@@ -480,9 +486,10 @@
         h('p', h('b', 'How the score works. '), 'Every frame gets a score from 0 to 100. Each check is a multiplier, so one bad thing (say, blur) is enough to pull a moment down. The footage type decides which checks matter: strobes are fine at a concert but not in an interview; travel B-roll wants movement, an interview wants a steady face. Stretches that stay above the “OK” line become selects (split if longer than “Longest select”); a select’s score is mostly its average, pulled down a little by its weakest moments.'),
         h('p', h('b', 'Grades. '), 'BEST, GOOD and OK come from the score lines in Fine-tune. Reveal shots (pull-backs, crane moves, lights coming up) are graded at least GOOD even though they start dark. The top few selects are your “best”: with “Mark the best” they get their own colour (magenta), a ★, and go first.'),
         h('p', h('b', 'What’s in the shot, and how it sounds. '), 'When the footage has been looked at and listened to (Settings › Vision & listening models – on this computer, or the cloud if you chose it for the project), each select also says what it shows and what can be heard, shots without faces get a shot size from what the vision model saw, wind and noise on the sound are flagged, and you can search the selects in plain words (“the market”, “people laughing”). Without it, Selects works from the picture alone, as it always has.'),
+        h('p', h('b', 'Check usability with a vision model. '), 'Under the selects: a vision model on this computer (Settings › Vision & listening models) looks at two or three frames of each select and judges it as B-roll – sharp or soft, exposure, shake, framing, something in the way. It can leave out what it calls unusable and move a “maybe” down a grade (both can be switched off). Nothing leaves this computer.'),
         h('p', h('b', 'What’s remembered. '), 'The measurements for each clip are saved on this computer, so analysing the same clips again is instant, and changing the footage type, “How picky” or any slider re-grades in a fraction of a second without looking at the video again.'),
         h('p', h('b', 'Clips the panel can’t read. '), 'The panel can read H.264 MP4 files. It uses a clip’s proxy if it has one. For formats it can’t read (10-bit 4:2:2 from Lumix and other cameras, iPhone HEVC, ProRes, RAW) it asks Media Encoder for a small 1280×720 “analysis copy”, kept in JMG Ultra Studio’s own folder. These copies are only for looking at, and are not added to your project unless you tick “attach as proxies”. Times always match the original clip.'),
-        h('p', h('b', 'What changes in your project. '), 'Nothing, until you press “Make it”. Then everything new goes in a JMG Ultra Studio › Selects bin; your clips and sequences stay as they are (markers and colour labels only if you tick them, and “Remove Selects markers” takes the markers off again).'));
+        h('p', h('b', 'What changes in your project. '), 'Nothing, until you press “Make it”. Then everything new goes in a JMG Ultra Studio › Selects bin (a selects sequence takes each select straight from its clip – subclips only if you tick them); your clips and sequences stay as they are (markers and colour labels only if you tick them, and “Remove Selects markers” takes the markers off again).'));
       const v = ui.toolView({ icon: 'selects', title: 'Selects', blurb: 'Finds the usable moments in any footage and grades them. Nothing changes in your project until you choose an output.', help });
 
       /* source */
@@ -567,7 +574,8 @@
         ['laughter', 'With laughter', s => { const k = known(s); return !!k && k.sounds.includes('laughter'); }], ['applause', 'With applause or cheering', s => { const k = known(s); return !!k && (k.sounds.includes('applause') || k.sounds.includes('cheering')); }], ['music', 'With music', s => { const k = known(s); return !!k && (k.sounds.includes('music') || k.sounds.includes('singing')); }],
         ['cleansound', 'Clean sound', s => { const k = known(s); return !!k && k.quality === 'clean' && !k.bad.length; }], ['badsound', 'Wind or noise on the sound', s => { const k = known(s); return !!k && (k.bad.length > 0 || k.quality === 'noisy'); }],
         ['static', 'Static', s => s.move === 'static'], ['pan', 'Pans', s => s.move === 'pan'], ['tilt', 'Tilts', s => s.move === 'tilt'], ['push-in', 'Push-ins', s => s.move === 'push-in'], ['pull-out', 'Pull-outs', s => s.move === 'pull-out'], ['handheld', 'Handheld', s => s.move === 'handheld'],
-        ['issues', 'With warnings', s => s.issues.length > 0]
+        ['issues', 'With warnings', s => s.issues.length > 0],
+        ['lookyes', 'Usable to the vision model', s => !!s.look && s.look.usable === 'yes'], ['lookmaybe', 'Maybe to the vision model', s => !!s.look && s.look.usable === 'maybe']
       ];
 
       function chart(sel) {
@@ -607,6 +615,7 @@
           if (s.flags.forced) pills.push(ui.pill('Kept by you'));
           for (const iss of s.issues || []) pills.push(ui.pill(iss, '#f2b84b'));
         }
+        if (s.look && US.selectsLook) pills.push(...US.selectsLook.pills(s.look));
         // what the footage understanding knows about this moment (nothing when the clip hasn't been looked at)
         const k = known(s);
         if (k) {
@@ -673,6 +682,8 @@
         card.appendChild(rows.length ? list : ui.empty({ icon: 'info', title: 'Nothing here', text: query ? `Nothing seen or heard matches “${query}” here. Clips that haven’t been looked at yet can’t be found this way.` : filter === 'rejected' ? 'Every moment made the cut.' : 'Try looser settings or another filter.' }));
         if (rows.length > limit) card.appendChild(ui.button(`Show ${Math.min(200, rows.length - limit)} more`, { small: true, kind: 'ghost', onClick: () => { limit += 200; render(); } }));
         results.appendChild(card);
+        const look = US.selectsLook ? US.selectsLook.card({ render: () => { rescore(); changed(); } }) : null;
+        if (look) results.appendChild(look);
         results.appendChild(outputCard(r));
       }
 

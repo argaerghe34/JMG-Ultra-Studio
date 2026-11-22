@@ -623,3 +623,10 @@ body.pv-dragging, body.pv-dragging * { cursor: grabbing !important; user-select:
 .eng-row .sel-right { flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .eng-lang select { max-width: 150px; }
 .eng-opts { gap: 12px; flex-wrap: wrap; }
+/* Story › 3 Find › Best lines: what it judges */
+.best-uses { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); display: flex; flex-direction: column; gap: 6px; }
+.best-uses-title { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+.best-use { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4; }
+.best-tick { flex: 0 0 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; background: var(--surface-3); color: var(--text-2); }
+.best-tick.on { background: #3ecf8e; color: #0b1a12; }
+.best-uses[data-listening="yes"] { box-shadow: inset 3px 0 0 #3ecf8e; }

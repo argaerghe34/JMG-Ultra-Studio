@@ -1,3 +1,29 @@
+## What's new in 1.3.43
+
+Tested in Premiere on the Mac: the new and changed parts only (unit tests for everything, and e2e tests of Selects' sequence and usability check, listening to part of an interview, and Best lines). The usability check ran for real with Gemma 4 E2B on this computer, on the test clips. Listening was tested with a stand-in listener (no model, nothing sent). Not tested in Resolve or on Windows. No AI request was sent for Best lines.
+
+**Translate by listening respects your In and Out points**
+- Until now, **Translate by listening** sent the whole interview even when Story was working on one sequence. Now, while Story works on a sequence (1 Interviews › What to work on), only the stretches of each interview that the sequence uses are listened to – between its In and Out points if you chose that. The sequence is read again first, and the sound in between is never sent. A phrase that crosses the In or Out point is listened to whole.
+- The cost estimate and the yes for the cloud say it is only that part, and the result says how many stretches were listened to ("5 of 15"). What was heard is kept, so choosing a wider part later only listens to what's new. An interview not used in the sequence is left out, and the result says so.
+- **Only the part in "…"** under English translation is on by default; untick it to listen to whole interviews. Measured here: an interview of 15 stretches, with a cut using two parts of it between In and Out, sent 5 stretches (27 seconds of sound instead of a minute).
+
+**Selects: the selects sequence no longer makes subclips**
+- **Make it › A selects sequence** used to make a subclip of every select first and then place the subclips. That was slow and made Premiere slow to respond. Now each select is laid straight from its clip, in its grade's colour (the clip's own colour label is put back afterwards). Measured here: 3 selects in 1.2 seconds, about 0.4 s each.
+- Subclips are made only when you tick **A bin of subclips by grade**, or for **Sort into bins by type** (the bins hold subclips). The sequences per category no longer use them.
+
+**Selects › Check usability with a vision model (on this computer)**
+- A new card under the selects. A vision model on this computer – the one chosen in Settings › Vision & listening models – looks at two or three frames of each select and judges it **as B-roll**: sharp or soft, exposure, shake, framing, something in the way, the camera still adjusting, anything happening. It doesn't label what's in the shot.
+- Each select it looked at shows **Usable**, **Maybe** or **Unusable** with a score out of 5 and the flaws it saw. **Leave out what it calls unusable** moves those to *Left out* with why; **Let its view move the grade** moves a *Maybe* down a grade. Both are on and can be switched off. Press Keep on a left-out select to bring it back.
+- **Best 30**, **Best 100** or **All**, with the time it will take shown first. What it said is remembered per clip, so changing a slider doesn't lose it.
+- **Only on this computer:** never the cloud, whatever the project's footage setting. Nothing is downloaded from here: with no vision model installed, the card says where to get one.
+- **Measured here with Gemma 4 E2B, on the synthetic test clips:** about 2 seconds a select. It ranked a sharp shot (4/5, "sharp, well-exposed") above a blurry one (2/5) and a dark one (1/5, "too dark"). It also called two clips the measurements grade as good "a little soft" (3/5). Treat it as a second opinion; it has not been tried on real footage.
+
+**Story › 3 Find › Best lines**
+- For a simple highlight video of an event, when you don't need themes. **Find the best lines** picks the most impactful, quotable lines. Choose **How many** (10, 20 or 40), **Longest line** (15 s, 30 s or 1 min) and **Mix the speakers** (at most 3 from one interview). Interviewer lines and questions are left out.
+- Without AI it scores each line on its own: a clear, complete soundbite, how much feeling it carries, and a good length. With AI it reads the strongest candidates as text and picks what would stand on its own; the cost shows first.
+- **It always says what it judges.** A box above says *the words* (the transcripts) and, separately, *how each line is said*. That second part counts only when Listen to delivery is on for the project and has listened to the lines; the box names the model, where it runs and how many of the lines it has heard. When delivery is off, or nothing has been listened to yet, it says only the words are judged and how to switch listening on. **Use how lines are said** switches delivery off for Best lines; then nothing about delivery is used or sent. The result repeats it: "judged on the words and how 2 of them are said (listened to)" or "judged on the words only – no listening".
+- Tick the lines and build them like any other lines. In Ask: "find the best lines".
+
 ## What's new in 1.3.42
 
 Tested in Premiere on the Mac with stand-in translators and listeners, plus real listening by Gemma 4 E2B on this computer (a computer voice, not real interviews). Not tested in Resolve or on Windows. No real translation has been made by Claude or Gemini, and no cloud listening request was sent for this version. The cloud cost estimate for Listen to delivery was raised to match one real request made on 21 Nov (1.3¢ at Google's paid rate for a 90-second interview).
