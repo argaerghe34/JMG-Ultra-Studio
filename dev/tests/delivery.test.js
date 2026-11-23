@@ -474,7 +474,7 @@ test('where it shows: a Settings section, an Overnight prep step that is off unl
   assert.ok(!o.steps.includes('delivery'), 'not ticked until “Do it in Overnight prep”');
   const overnight = fs.readFileSync(path.join(ROOT, 'js', 'tools', '01-overnight.js'), 'utf8');
   assert.ok(/id: 'delivery', label: 'Listen to the delivery of the interviews'/.test(overnight) && /limitUsd/.test(overnight) && /confirmCloud\(\{ overnight: true/.test(overnight));
-  assert.ok(/'understand', 'delivery'\]/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'index.html loads js/core/delivery.js');
+  assert.ok(/'understand', 'delivery'[,\]]/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'index.html loads js/core/delivery.js');
   const tour = fs.readFileSync(path.join(ROOT, 'js', 'tools', '04-tour-steps.js'), 'utf8');
   assert.ok((tour.match(/target: 'text:Listen to delivery'/g) || []).length === 1 && /target: 'text:Listening models for Story'/.test(tour));
   assert.ok(US.actions.get('delivery.run') && US.actions.get('delivery.run').match('listen to the delivery of my interviews'));
