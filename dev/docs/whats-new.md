@@ -1,3 +1,12 @@
+## What's new in 1.3.43.1
+
+**Not tested in Premiere or Resolve yet** (released untested at your request, 23 Nov 2026, while Premiere was in use). The test is listed in `dev/PENDING-TESTS.md` and will run at the next chance, on whichever computer.
+
+**Story: lines built from a sequence keep both picture and sound**
+- When Story works on a sequence (1 Interviews › What to work on), each line is built with everything in that sequence. Some lines could come out with picture but no sound, or sound but no picture, with a one-frame gap after some of them. It happened when a line started or ended between frames: Premiere puts picture on whole frames but sound to the sample, and the check that tidies up after each layer took away a half that was wanted.
+- Lines are now laid on whole frames, and the check allows for picture and sound being up to half a frame apart. The same rounding to frames is in the Resolve version, so lines follow on with no frame over or missing.
+- Unit tests pass. The new end-to-end test (`dev/e2e/66-story-layers-frames.e2e.js`) has not run yet.
+
 ## What's new in 1.3.43
 
 Tested in Premiere on the Mac: the new and changed parts only (unit tests for everything, and e2e tests of Selects' sequence and usability check, listening to part of an interview, and Best lines). The usability check ran for real with Gemma 4 E2B on this computer, on the test clips. Listening was tested with a stand-in listener (no model, nothing sent). Not tested in Resolve or on Windows. No AI request was sent for Best lines.
