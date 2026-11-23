@@ -76,8 +76,12 @@ try {
   await T.open(seq.id);
   const boxes = () => $$('.pv-rows .pv-tick input', tool);
   // Ruth's first two lines: other tests' interviews (with no clip to cut from) may be listed before hers
-  const mine = new Set(tr.lines.map(l => l.id)), i0 = rowIds().findIndex((x, i) => mine.has(x) && mine.has(rowIds()[i + 1]));
-  T.assert(i0 >= 0, 'two of Ruth’s lines are next to each other in the table');
+  const mine = new Set(tr.lines.map(l => l.id)), pair = () => rowIds().findIndex((x, i) => mine.has(x) && mine.has(rowIds()[i + 1]));
+  // only the rows in view are drawn, and other tests' transcripts can come before hers: a table tall enough for all
+  const tbl = $('.pv-table', tool); tbl.style.flex = 'none'; tbl.style.height = '4000px'; tbl.style.maxHeight = 'none';
+  tbl.dispatchEvent(new Event('scroll')); window.dispatchEvent(new Event('resize')); await W(200);
+  const i0 = pair();
+  T.assert(i0 >= 0, 'two of Ruth’s lines are next to each other in the table: ' + rowIds().map(x => (mine.has(x) ? 'R' : '.') + (S.lineOf(x) ? S.lineOf(x).start : '?')).join(' ') + ' | sort ' + JSON.stringify(US.settings.get('proview.sort')));
   boxes()[i0].click(); await W(50);
   boxes()[i0 + 1].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })); await W(100);
   T.assert(/^2 ticked/.test($('.pv-bar-n', tool).textContent) && /Add 2 lines to a sequence/.test($('.pv-bar', tool).textContent), 'the bar: ' + $('.pv-bar', tool).textContent.slice(0, 60));
@@ -119,6 +123,7 @@ try {
   T.assert(order.indexOf('len') === order.indexOf('who') - 1, 'Length moved before Who: ' + order.join());
   const kept = US.settings.get('proview.cols');
   T.assert(kept && kept.widths.who === Math.round(whoW + 40) && kept.order.indexOf('len') < kept.order.indexOf('who'), 'kept on this computer: ' + JSON.stringify(kept));
+  { const tb = $('.pv-table', tool); tb.style.flex = tb.style.height = tb.style.maxHeight = ''; await W(100); }   // back to its own size
   if (US.settings.get('proview.listHidden')) { $('.pv-listbtn', tool).click(); await W(100); }
   // hide a column from the Columns menu, another by right-clicking its title; Reset brings them back
   const colsNow = () => $$('.pv-th', tool).map(x => x.dataset.col);
@@ -138,7 +143,8 @@ try {
   T.assert(['star', 'who', 'time', 'text', 'theme', 'len'].every(c => colsNow().includes(c)) && !$('.pv-colmenu', tool), 'Reset the columns: ' + colsNow().join());
   const tw2 = $('.pv-table', tool).getBoundingClientRect().width;
   $('.pv-listbtn', tool).click(); await W(100);
-  T.assert($('.pv-table', tool).getBoundingClientRect().width > tw2 && US.settings.get('proview.listHidden') === true, 'the list hidden: the table is wider');
+  // (a narrow panel puts the list above the table: then hiding it leaves the width as it was)
+  T.assert(($('.pv-table', tool).getBoundingClientRect().width > tw2 || innerWidth < 600) && US.settings.get('proview.listHidden') === true, 'the list hidden: the table is wider (panel ' + innerWidth + ' px)');
   // archive the search, and get it back
   $('.pv-listbtn', tool).click(); await W(50);
   $(`[data-archive="${e.id}"]`, tool).click(); await W(150);
