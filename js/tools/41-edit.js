@@ -605,6 +605,9 @@
       const rippled = removes.some(s => s.params && s.params.ripple);
       order = order.filter(s => s.op !== 'remove').concat([Object.assign({}, removes[0], { params: Object.assign({}, removes[0].params, { ripple: rippled }), targets: removes.flatMap(s => clipTargets(m, s, cutAt)), merged: removes })]);
     }
+    // a second opinion from the Premiere MCP, when the editor has it (js/tools/40-assistant-mcp.js): the timeline before
+    let mcpPre = null;
+    if (US.mcpCheck) { job.set({ who: 'premiere', msg: 'The Premiere MCP reads the timeline first' }); mcpPre = await US.mcpCheck.before(seqId, order.map(s => Object.assign({}, s, { targets: s.merged ? s.targets : clipTargets(m, s, cutAt) }))).catch(() => null); }
     for (let i = 0; i < order.length; i++) {
       job.check();
       const s = order[i], targets = s.merged ? s.targets : clipTargets(m, s, cutAt);
@@ -622,9 +625,12 @@
       else results.push(Object.assign({ step: s }, r));
     }
     await US.host.call('openSequence', { seqId }).catch(() => {});
+    let mcp = null;
+    if (mcpPre) { job.set({ who: 'premiere', msg: 'The Premiere MCP checks the result' }); mcp = await US.mcpCheck.after(mcpPre).catch(() => null); }
     const done = US.sum(results.map(r => r.done || 0)), skipped = US.sum(results.map(r => (r.skipped || []).length));
     US.log(skipped ? 'warn' : 'ok', `Ask › Edit${copyName ? ` in “${copyName}”` : ''}: ${done} changes`, results.map(r => `${describe(r.step)}: ${r.unsupported ? r.why : `${r.done} done${r.skipped && r.skipped.length ? `, ${r.skipped.length} skipped (${[...new Set(r.skipped.map(x => x.why))].slice(0, 3).join('; ')})` : ''}`}`).join('\n'), 'assistant');
-    return { summary: `${US.plural(done, 'change')}${copyName ? ` in the copy “${copyName}”` : ''}${skipped ? ` · ${skipped} skipped` : ''}`, results, seqId, copy: !!copy, copyName };
+    const flagged = mcp ? mcp.problems.length + mcp.unexpected.length : 0;
+    return { summary: `${US.plural(done, 'change')}${copyName ? ` in the copy “${copyName}”` : ''}${skipped ? ` · ${skipped} skipped` : ''}${mcp ? (flagged ? ` · the Premiere MCP flagged ${US.plural(flagged, 'thing')}` : ' · checked by the Premiere MCP') : ''}`, results, seqId, copy: !!copy, copyName, mcp };
   }
 
   /** Put project edits back (labels, names, bins, and the clip markers it added). */
@@ -656,7 +662,8 @@
         after = `\nThe sequence now (${m2.clips.length} clips, ${fmtT(m2.seq.duration)}):\n` + outline(m2).split('\n').slice(0, 400).join('\n');
       } catch (e) { after = ''; }
     }
-    conv.pendingResult = `RESULT of your plan${outcome.copyName ? ` (run on the copy “${outcome.copyName}”)` : ''}:\n${lines.join('\n')}${after}`;
+    const mcp = outcome.mcp && outcome.mcp.text ? `\nA second check, by the Premiere Pro MCP:\n${outcome.mcp.text}` : '';
+    conv.pendingResult = `RESULT of your plan${outcome.copyName ? ` (run on the copy “${outcome.copyName}”)` : ''}:\n${lines.join('\n')}${mcp}${after}`;
     return plan(job, { request: 'Check the result against what I asked. If it’s all done, set done: true and say so briefly. If something is missing or a step failed, plan only the steps still needed (they will run on the same sequence).', scope: conv.scope, conv });
   }
 

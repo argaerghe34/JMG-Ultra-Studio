@@ -1,3 +1,48 @@
+## What's new in 1.3.44
+
+Tested in Premiere on the Mac, 23 Nov 2026, with the Premiere Pro MCP 1.31.0 installed (both its halves). All unit tests and the related end-to-end tests pass. Not tested on Windows; nothing changes in Resolve. One part couldn't be tried: reading an actual Premiere transcript through the MCP, because no clip in the test project has one (see below).
+
+These four features need the **Premiere Pro MCP** (npm `premiere-pro-mcp`, set up for Claude Code or in Settings). Without it, Ultra Studio works exactly as before.
+
+**Settings › Premiere MCP**
+- A new section under AI shows whether the MCP is found, whether its UXP plugin and CEP panel answer, and how many of its tools can run here. A **Test** button checks again.
+- **Use the Premiere MCP** switches it off and on.
+- **What it may do** has two choices:
+  - **Look only:** Ultra Studio's copy of the MCP can read but not change anything. Ask also refuses tools that can do both, like markers.
+  - **Look and edit:** every change still shows on Ask's approval card first.
+- One switch each for the two features below.
+- Measured here: with both halves connected, **408 of the MCP's 411 tools can run**. With the UXP plugin alone it was 109.
+
+**The MCP's CEP panel**
+- **Install the CEP panel…** runs the MCP's own installer, after you say yes. It adds a panel to Premiere and needs a Premiere restart.
+- On this Mac the panel was already installed but Ultra Studio couldn't use it. The panel reads commands from one shared folder, and Ultra Studio's copy of the MCP had its own folder.
+  - When the CEP panel is installed, Ultra Studio now uses the shared folder, first waiting for any command Claude Code's copy has in progress.
+- A half of the MCP now counts as connected when Premiere answers it, even with no sequence open. Before, both halves showed as off until a sequence was open.
+
+**Ask › Edit gets a second opinion from the MCP**
+- After Ask runs its edits on the copy, the MCP compares the timeline before and after. It reports exactly what changed: clips added, removed, moved or trimmed.
+- It looks for **new** problems the edit made: flash frames, gaps, overlaps, black at the start, picture without sound.
+- **Effects, transitions, volume and names** shouldn't move any clip. With the CEP panel, the MCP checks that tick for tick.
+- **Deletes and cuts:** with the CEP panel, the MCP is asked to predict their result first. Its prediction doesn't cover linked picture and sound yet, which is every interview clip, so for those it says so and the comparison is used instead.
+- Ask's own check reads all of this, so it can fix what the MCP finds. The result line says "checked by the Premiere MCP", or how many things it flagged.
+- Everything here only reads. It adds about half a second per edit.
+- Measured here:
+  - A cross dissolve: "no clip moved", verified exactly.
+  - A ripple delete: "2 removed, 2 moved", no new problem.
+  - A delete that left black at the start: flagged, with the timecode.
+
+**Story reads Premiere's own transcripts through the MCP**
+- **Read Premiere's transcripts** now asks Premiere for them live through the MCP, with Premiere's speaker names, **without saving your project first**.
+- Without the MCP, or if it finds none, Story saves the project and reads the transcripts from the file, as before.
+- **Clips imported more than once:** Story asks by name, so one copy answers for each name, and the result says how many were checked that way. If a transcript is missing, switch off **Story reads Premiere's transcripts through it** in Settings › Premiere MCP and read again.
+- Measured here: the test project's audio and video clips were all asked about in 5 seconds, and the project wasn't saved.
+- **Not tested here:** no clip in the test project has a Premiere transcript. The MCP's own import gives up on projects of more than 512 items, and the test project has more. With the screen locked, a small new project couldn't be made either.
+  - Reading the MCP's answer is unit-tested.
+  - The real read is listed in `dev/PENDING-TESTS.md`: transcribe one clip in Premiere's Text panel, then run test 68.
+
+**Also fixed**
+- Ultra Studio misread the MCP's structured answers, which wrap the data one level deeper than its text answers. Snapshots for the checks failed quietly because of this.
+
 ## What's new in 1.3.43.1
 
 **Not tested in Premiere or Resolve yet** (released untested at your request, 23 Nov 2026, while Premiere was in use). The test is listed in `dev/PENDING-TESTS.md` and will run at the next chance, on whichever computer.

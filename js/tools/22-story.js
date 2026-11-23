@@ -2376,9 +2376,77 @@
     return box;
   }
 
+  /**
+   * Premiere's own transcripts, read live through the Premiere Pro MCP (when the editor has it, with its UXP plugin
+   * connected): no saving of the project, and the speaker names Premiere has come too. The MCP is asked by clip name
+   * (audio and video only); a name imported more than once that comes back without a transcript is "unsure" (another
+   * copy may have one). -> {found: [{name, path, itemId, language, segments}], unsure: [names]}, or null when the MCP can't
+   * be used here – then the project file is read as before.
+   */
+  async function premiereTranscriptsViaMcp(job) {
+    const M = US.mcp;
+    if (!M || !M.configured || !M.configured() || US.settings.get('mcp.storyTranscripts', true) === false) return null;
+    let r; try { r = await M.reachable(); } catch (e) { US.log('warn', 'Story: the Premiere MCP didn’t start, so the project file is read instead', String(e.message || e), 'story'); return null; }
+    if (!r.live.uxp) return null;
+    const MEDIA = /\.(mp4|mov|mxf|m4v|avi|mts|m2ts|mkv|webm|r3d|braw|crm|wav|aiff?|mp3|m4a|aac|flac|bwf)$/i;
+    const clips = (await projectClips()).filter(c => !c.sub && MEDIA.test(c.path || c.name)), count = new Map();
+    for (const c of clips) count.set(c.name, (count.get(c.name) || 0) + 1);
+    const seen = new Set(), list = clips.filter(c => !seen.has(c.name) && seen.add(c.name));
+    const out = [], failed = [], unsure = [];
+    for (let i = 0; i < list.length; i++) {
+      job.check();
+      const c = list[i];
+      job.set({ who: 'premiere', msg: 'Asking Premiere for its transcripts' }).progress(i / list.length, `${i + 1} of ${list.length}: ${c.name}`);
+      try {
+        const has = await M.callJSON('has_transcript_uxp', { project_item_name: c.name });
+        if (!has.ok || !mcpHasTranscript(has.data)) { if (count.get(c.name) > 1) unsure.push(c.name); continue; }
+        const got = await M.callJSON('get_clip_transcript_uxp', { project_item_name: c.name });
+        const doc = got.ok && mcpTranscriptDoc(got.data);
+        const segments = doc ? T.premiereJSON(doc) : null;
+        if (segments && segments.length) out.push({ name: c.name, path: c.path, itemId: c.id, language: doc.language || '', segments });
+        else failed.push(c.name);
+      } catch (e) { failed.push(c.name); }
+    }
+    if (failed.length) US.log('warn', `Story: Premiere’s transcript of ${US.plural(failed.length, 'clip')} couldn’t be read through the MCP`, failed.slice(0, 20).join('\n'), 'story');
+    return { found: out, unsure };
+  }
+  /** has_transcript_uxp's answer -> true / false (its own field, wherever it is in the answer). */
+  function mcpHasTranscript(d) {
+    let found = null;
+    (function walk(o, depth) { if (!o || typeof o !== 'object' || depth > 5 || found != null) return; for (const [k, v] of Object.entries(o)) { if (typeof v === 'boolean' && /^has_?transcript$/i.test(k)) { found = v; return; } } for (const v of Object.values(o)) walk(v, depth + 1); })(d, 0);
+    return !!found;
+  }
+  /** get_clip_transcript_uxp's answer -> Premiere's transcript JSON {language, segments, speakers} (an object, or text inside it). */
+  function mcpTranscriptDoc(d) {
+    let doc = null;
+    (function walk(o, depth) {
+      if (doc || o == null || depth > 6) return;
+      if (typeof o === 'string') { if (/"segments"/.test(o)) { try { walk(JSON.parse(o), depth + 1); } catch (e) { /* not JSON */ } } return; }
+      if (typeof o !== 'object') return;
+      if (Array.isArray(o.segments) && o.segments.length && o.segments.every(g => g && Array.isArray(g.words))) { doc = o; return; }
+      for (const v of Object.values(o)) walk(v, depth + 1);
+    })(d, 0);
+    return doc;
+  }
+
   async function readPremiereTranscripts(job, opts = {}) {
     if (RES) return readResolveTranscripts(job, opts);
     await ready(); loadState();
+    // first through the Premiere MCP, live – the project isn't saved for it
+    const live = await premiereTranscriptsViaMcp(job), viaMcp = live ? live.found : [];
+    if (viaMcp.length) {
+      job.set({ msg: 'Linking transcripts to clips' });
+      readCount.again = readCount.changed = 0;
+      for (const f of viaMcp) addTranscript({ name: f.name, path: f.path, source: 'premiere', language: f.language, segments: f.segments });
+      await resolveItems(state.transcripts);
+      reindex(); saveNow();
+      const n = viaMcp.reduce((k, f) => k + f.segments.length, 0);
+      // a clip imported more than once was asked for by name, so one copy answered: say so, with the way round it
+      const twice = live.unsure.length ? ` · ${US.plural(live.unsure.length, 'clip')} imported more than once ${live.unsure.length === 1 ? 'was' : 'were'} checked on one copy – if a transcript is missing, switch off Settings › Premiere MCP › “Story reads Premiere’s transcripts through it” and read again` : '';
+      if (live.unsure.length) US.log('info', 'Story: clips imported more than once, checked on one copy through the Premiere MCP', live.unsure.slice(0, 40).join('\n'), 'story');
+      return { summary: `${US.plural(viaMcp.length, 'transcript')} read from Premiere through the MCP, without saving the project (${US.plural(n, 'sentence')})${readNote()}${twice}`, via: 'mcp', count: viaMcp.length };
+    }
+    // the project file: when the MCP isn't there or found nothing
     job.set({ who: 'premiere', msg: 'Saving your project so Premiere writes its transcripts to disk' });
     const pf = await US.host.call('storyProjectFile', { save: true });
     job.set({ who: 'computer', msg: 'Reading transcripts from the project file' });
@@ -4673,7 +4741,7 @@
     loadState: () => loadState(), state: () => state, addTranscript: (...a) => { const t = addTranscript(...a); reindex(); saveNow(); return t; },
     /** what the copy that travels is named after: the .prproj in Premiere; in Resolve, a name in the media's folder */
     sharedProjectPath: () => (RES ? (resRef && resRef.shared) || '' : (US.ctx.project && US.ctx.project.path) || ''),
-    buildSequence, sortIntoBins, readPremiereTranscripts, transcribeResolve, chooseResolveClips, readResolveTranscripts, sameRecordings, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
+    buildSequence, sortIntoBins, readPremiereTranscripts, premiereTranscriptsViaMcp, mcpHasTranscript, mcpTranscriptDoc, transcribeResolve, chooseResolveClips, readResolveTranscripts, sameRecordings, importFiles, syncStatus: () => (session ? session.status() : RES && resRef && statePath === resRef.local && state && resRef.reason ? { where: 'local', reason: resRef.reason } : null), flushShared: () => flushShared(), fillWallFromThemes: n => fillWallFromThemes(n), resolveItems, reindex: () => reindex(), save: saveNow,
     // pure pieces (unit-tested)
     nextColour, ensureColours: () => ensureColours(), setColour, columnLabel, moveColumn, moveCard, moveCardToColumn, strongestFirst, isStrong, planBuild, sectionsFrom, lookOptions,
     themeMatches, themeMatchesAI, findAllThemes, ownThemeNames: () => ownThemeNames(), splitThemes, scopeOf: () => scopeOf(), scopeLines: () => scopeLines(), refreshScope: job => refreshScope(job),

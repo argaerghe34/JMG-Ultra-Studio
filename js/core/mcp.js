@@ -77,6 +77,12 @@
     if (!needsHost) return true;
     return (b.includes('uxp') && !!live.uxp) || (b.includes('cep') && !!live.cep);
   }
+  /** Does a bridge answer? From verify_premiere_connection: its connector answered (an open sequence isn't needed). */
+  function bridgeLive(d) {
+    if (!d) return false;
+    const c = (d.components || []).find(x => x && x.id === 'premiere_connector');
+    return c ? c.state === 'ready' : d.overall === 'ready';
+  }
   /** The server set up for Claude Code (~/.claude.json), if any: {command, args, env} */
   function fromClaudeConfig(id = 'premiere-pro', file = path.join(os.homedir(), '.claude.json')) {
     try {
@@ -84,6 +90,25 @@
       const all = [j.mcpServers || {}].concat(Object.values(j.projects || {}).map(p => p.mcpServers || {}));
       for (const m of all) if (m[id] && m[id].command) return { command: m[id].command, args: m[id].args || [], env: m[id].env || {}, from: 'Claude Code' };
     } catch (e) { /* none */ }
+    return null;
+  }
+
+  /** Where the MCP's CEP panel lives when it's installed (per user), and the folder it reads commands from. */
+  function cepDir(home = os.homedir(), win = process.platform === 'win32') {
+    return win ? path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Adobe', 'CEP', 'extensions', 'MCPBridgeCEP')
+      : path.join(home, 'Library', 'Application Support', 'Adobe', 'CEP', 'extensions', 'MCPBridgeCEP');
+  }
+  const cepInstalled = (dir = cepDir()) => { try { return fs.existsSync(path.join(dir, 'CSXS', 'manifest.xml')); } catch (e) { return false; } };
+  const sharedFolder = () => path.join(os.tmpdir(), 'premiere-mcp-bridge');
+  /** Commands another copy (Claude Code's) has in the shared folder right now – a starting server would clear them. */
+  function inFlight(dir = sharedFolder(), now = Date.now(), maxAgeMs = 120000) {
+    try { return fs.readdirSync(dir).filter(f => /^(cmd|busy)_/.test(f) && now - fs.statSync(path.join(dir, f)).mtimeMs < maxAgeMs).length; } catch (e) { return 0; }
+  }
+  /** The MCP package's own folder, from how it's started (node …/premiere-pro-mcp/dist/index.js). */
+  function packageDir(cfg) {
+    const js = ((cfg && cfg.args) || []).find(a => /index\.js$/.test(String(a)));
+    if (js) return path.dirname(path.dirname(js));
+    if (cfg && /premiere-pro-mcp$/.test(String(cfg.command))) { try { return path.dirname(path.dirname(fs.realpathSync(cfg.command))); } catch (e) { return null; } }
     return null;
   }
 
@@ -95,7 +120,10 @@
     delete env.ELEVENLABS_API_KEY;
     // Premiere answers one script at a time: while Ultra Studio's own commands run, the server's 30 s wait is too short
     if (!env.PREMIERE_TIMEOUT_MS) env.PREMIERE_TIMEOUT_MS = '90000';   // never an upload of the editor's sound
-    // its own command folder: a starting server clears the folder's queue, which would drop Claude Code's work in flight
+    // the CEP half reads its commands from one folder (the same one Claude Code's copy uses), so with the CEP panel
+    // installed Ultra Studio uses that folder too (cfg.tempDir, after waiting for work in flight – see ready()); without
+    // it, its own folder: a starting server clears the folder's queue, which would drop Claude Code's work in flight
+    if (cfg.tempDir) env.PREMIERE_TEMP_DIR = cfg.tempDir;
     if (!env.PREMIERE_TEMP_DIR) { const d = path.join(os.tmpdir(), 'jmg-ultra-studio-mcp'); try { fs.mkdirSync(d, { recursive: true, mode: 0o700 }); } catch (e) { /* there */ } env.PREMIERE_TEMP_DIR = d; }
     // Premiere's panel has its own Node; the server needs the editor's (cfg.command is a full path to it)
     const child = cp.spawn(cfg.command, cfg.args || [], { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
@@ -156,7 +184,7 @@
     for (const b of ['uxp', 'cep']) {
       const raw = await c.call('verify_premiere_connection', { backend: b }, 20000).catch(() => null);
       let d = null; try { d = raw && (raw.structuredContent || JSON.parse(raw.content[0].text)); d = d && (d.data || d); } catch (e) { d = null; }
-      live[b] = !!(d && d.overall === 'ready');
+      live[b] = bridgeLive(d);
     }
     reach = { at: Date.now(), live, backends };
     return reach;
@@ -166,18 +194,53 @@
     if (own && own.command) return Object.assign({ from: 'Settings' }, own);
     return fromClaudeConfig(id);
   }
+  /** The editor's choices (Settings › Premiere MCP): on/off, and how much it may do – 'look' or 'edit'. */
+  const setting = (k, d) => (US && US.settings ? US.settings.get('mcp.' + k, d) : d);
+  const enabled = () => setting('enabled', true) !== false;
+  const level = () => (setting('level', 'edit') === 'look' ? 'look' : 'edit');
   async function ready(id = 'premiere-pro') {
     if (conn && !conn.closed) return conn;
     if (starting) return starting;
     starting = (async () => {
-      const c = connect(config(id), { version: US && US.version ? US.version : 'dev', onLog: line => { if (US && US.log) US.log('mcp', line.slice(0, 300)); } });
+      if (!enabled()) throw new Error('The Premiere MCP is switched off in Settings.');
+      const cfg = Object.assign({}, config(id), { authority: level() === 'look' ? 'inspect' : AUTHORITY });
+      if (cepInstalled()) {
+        cfg.tempDir = sharedFolder();
+        // Claude Code's copy may be in the middle of a command: wait for it (up to 30 s) before starting
+        for (let i = 0; i < 30 && inFlight(cfg.tempDir); i++) await new Promise(z => setTimeout(z, 1000));
+      }
+      const c = connect(cfg, { version: US && US.version ? US.version : 'dev', onLog: line => { if (US && US.log) US.log('mcp', line.slice(0, 300)); } });
       try { await c.init(); await c.tools(); conn = c; return c; } catch (e) { c.close(); throw e; }
     })().finally(() => { starting = null; });
     return starting;
   }
+  /**
+   * Install the MCP's CEP panel – its own installer (premiere-pro-mcp --install-cep): a link in Premiere's per-user
+   * extensions folder to the panel in the MCP's package. Premiere needs restarting before it shows. -> {ok, text}
+   */
+  function installCep(cfg = config()) {
+    const dir = packageDir(cfg), index = dir && path.join(dir, 'dist', 'index.js');
+    if (!index || !fs.existsSync(index)) return Promise.resolve({ ok: false, text: 'The MCP’s installer wasn’t found next to the server Ultra Studio starts.' });
+    return new Promise(resolve => cp.execFile(cfg.command, [index, '--install-cep'], { timeout: 120000, windowsHide: true, env: Object.assign({}, process.env, cfg.env || {}) }, (err, out, errOut) => {
+      const text = String(out || '') + String(errOut || '');
+      resolve({ ok: !err && cepInstalled(), text: text.trim().slice(-1500) || (err ? err.message : '') });
+    }));
+  }
+  /** Everything Settings shows: {configured, from, enabled, level, cep:{installed}, live, tools, usable, error} */
+  async function status({ force = false } = {}) {
+    const cfg = config(), out = { configured: !!cfg, from: cfg ? cfg.from : '', enabled: enabled(), level: level(), cep: { installed: cepInstalled(), dir: cepDir() }, live: {}, tools: 0, usable: 0 };
+    if (!cfg || !out.enabled) return out;
+    try {
+      const r = await reachable(force), ts = await (await ready()).tools();
+      out.live = r.live; out.tools = ts.length; out.usable = ts.filter(t => !NEVER.test(t.name) && canRun(r.backends.get(t.name), r.live)).length;
+      out.version = conn && conn.info && conn.info.serverInfo ? conn.info.serverInfo.version : '';
+    } catch (e) { out.error = String(e.message || e); }
+    return out;
+  }
   const api = {
     frames, readsOnly, NEVER, AUTHORITY, rank, argsLine, asText, fromClaudeConfig, connect, config,
-    configured: id => !!config(id),
+    bridgeLive, cepDir, cepInstalled, sharedFolder, inFlight, packageDir, installCep, status, enabled, level,
+    configured: id => enabled() && !!config(id),
     ready, reachable, canRun,
     /** Tools that can run here now (not NEVER, and their bridge answers). */
     async usable() { const r = await reachable(), ts = await (await ready()).tools(); return ts.filter(t => !NEVER.test(t.name) && canRun(r.backends.get(t.name), r.live)); },
@@ -191,6 +254,18 @@
       const t = (await c.tools()).find(x => x.name === name);
       if (r.isError && /timed out|UXP_NOT_CONNECTED|HANDOFF_IN_PROGRESS/i.test(r.text) && t && readsOnly(t)) { await new Promise(z => setTimeout(z, 1500)); r = asText(await c.call(name, args, timeoutMs)); r.retried = true; }
       r.ms = Date.now() - t0; return r;
+    },
+    /** For Ultra Studio's own code (not the AI): a tool's whole answer as data -> {ok, data, text, isError}. */
+    async callJSON(name, args = {}, { timeoutMs = 60000 } = {}) {
+      if (NEVER.test(name)) throw new Error(`Ultra Studio doesn’t run “${name}”.`);
+      const r = await (await ready()).call(name, args, timeoutMs);
+      let data = r && r.structuredContent, text = '';
+      for (const c of (r && r.content) || []) if (c.type === 'text') text += c.text;
+      let failed = false;
+      // the server wraps its structured answer as {ok, tool, data}; the text holds the same data unwrapped
+      if (data && typeof data === 'object' && 'tool' in data && 'data' in data) { failed = data.ok === false; data = data.data; }
+      if (!data) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+      return { ok: !(r && r.isError) && !failed && !(data && data.ok === false), data, text, isError: !!(r && r.isError) };
     },
     stop() { if (conn) conn.close(); conn = null; reach = null; }
   };

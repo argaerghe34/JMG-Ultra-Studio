@@ -14,6 +14,18 @@ Also done today:
   - All 16 Story tests pass.
   - The release page is ticked. Windows and Resolve are still listed in `dev/PENDING-TESTS.md`.
 
+**Update, later on 23 Nov: quick wins 1–4 are built and released in 1.3.44** (see `dev/docs/whats-new.md`).
+- Settings › Premiere MCP:
+  - Shows what's found and connected, with a Test button.
+  - Switches it on and off, and offers *look only* or *look and edit*.
+  - Has an **Install the CEP panel…** button.
+- **The CEP half was already installed on this Mac.** Ultra Studio couldn't see it because its copy used its own command folder. It now shares the panel's folder, so **408 of 411 tools** can run, not 109.
+- **Ask › Edit is checked by the MCP:**
+  - It compares the timeline before and after the edit, and looks for new flash frames, gaps or black.
+  - With the CEP panel, it checks exactly that effects and transitions moved no clip.
+  - `predict_timeline_edit` refuses linked picture and sound, which is every interview clip. For those, the comparison is used instead.
+- **Story reads Premiere's transcripts live**, without saving the project. Reading an actual Premiere transcript is still to be tested (`dev/PENDING-TESTS.md`).
+
 ---
 
 ## 1. What the Premiere Pro MCP is

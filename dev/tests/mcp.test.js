@@ -55,3 +55,34 @@ test('a tool runs only when its bridge answers (the MCP has a UXP plugin and a C
   assert.ok(M.canRun(['uxp'], { uxp: true, cep: false }) && !M.canRun(['cep', 'extendscript'], { uxp: true, cep: false }));
   assert.ok(M.canRun(['cep', 'extendscript', 'qe'], { cep: true }) && M.canRun([], { uxp: false, cep: false }) && M.canRun(['local'], {}));
 });
+
+test('a bridge is live when its connector answers, even with no sequence open', () => {
+  const comp = (id, state) => ({ id, state });
+  assert.ok(M.bridgeLive({ overall: 'needs_attention', components: [comp('premiere_connector', 'ready'), comp('active_sequence', 'needs_attention')] }));
+  assert.ok(!M.bridgeLive({ overall: 'needs_attention', components: [comp('premiere_connector', 'needs_attention')] }));
+  assert.ok(M.bridgeLive({ overall: 'ready' }) && !M.bridgeLive(null));
+});
+
+test('the CEP panel: where it is installed, the folder it reads, commands in flight, and the MCP package', () => {
+  const fs = require('fs'), os = require('os');
+  assert.ok(/Library\/Application Support\/Adobe\/CEP\/extensions\/MCPBridgeCEP$/.test(M.cepDir('/Users/x', false)));
+  assert.ok(/Adobe[\\/]CEP[\\/]extensions[\\/]MCPBridgeCEP$/.test(M.cepDir('C:\\Users\\x', true)));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cep-'));
+  assert.ok(!M.cepInstalled(d));
+  fs.mkdirSync(path.join(d, 'CSXS')); fs.writeFileSync(path.join(d, 'CSXS', 'manifest.xml'), '<x/>');
+  assert.ok(M.cepInstalled(d));
+  const q = fs.mkdtempSync(path.join(os.tmpdir(), 'q-'));
+  fs.writeFileSync(path.join(q, 'cmd_1.json'), '{}'); fs.writeFileSync(path.join(q, 'bridge-heartbeat.json'), '{}');
+  assert.strictEqual(M.inFlight(q), 1);
+  assert.strictEqual(M.inFlight(q, Date.now() + 10 * 60e3), 0, 'an old command left behind doesn’t count');
+  assert.strictEqual(M.packageDir({ command: '/opt/homebrew/bin/node', args: ['/opt/homebrew/lib/node_modules/premiere-pro-mcp/dist/index.js'] }), '/opt/homebrew/lib/node_modules/premiere-pro-mcp');
+  assert.strictEqual(M.packageDir({ command: 'npx', args: ['-y', 'x'] }), null);
+});
+
+test('look only: Ultra Studio’s copy is started with inspect authority', async () => {
+  const c = M.connect(Object.assign({}, FAKE, { authority: 'inspect' }));
+  await c.init();
+  const r = await c.call('get_thing', { id: 'a' });
+  assert.ok(/caps=inspect eleven=none/.test(r.content[0].text), r.content[0].text);
+  c.close();
+});
