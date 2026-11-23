@@ -255,12 +255,19 @@
         for (t = 0; t < seq.audioTracks.numTracks; t++) s.a.push(trackIds(seq.audioTracks[t]));
         return s;
     }
+    // How close a laid clip must be to where it is wanted. Premiere puts picture on whole frames but sound to the
+    // sample, so a cut between frames left picture and sound up to a frame apart: a tolerance under a frame then took
+    // a wanted half away as "unwanted" (lines built with picture but no sound, or sound but no picture – fixed 23 Nov 2026).
+    // Ranges are now snapped to frames, and this allows just over half a frame.
+    var NEAR = 0.025;
+    function frameOf(seq) { var f = 0; try { f = Number(seq.timebase) / 254016000000; } catch (e) { } return f > 0.001 && f < 1 ? f : 0.04; }
+    function snapTo(x, f) { return Math.round(x / f) * f; }
     /** Is this timeline clip one of the wanted layers, exactly (same clip, track, place and length)? */
     function wanted(c, isVideo, t, want) {
         var id = null; try { id = c.projectItem.nodeId; } catch (e) { return false; }
         for (var i = 0; i < want.length; i++) {
             var w = want[i];
-            if (w.video === isVideo && w.index === t && w.item.nodeId === id && Math.abs(c.start.seconds - w.at) < 0.02 && Math.abs(c.end.seconds - (w.at + (w.to - w.from) / (w.speed || 1))) < 0.03) return true;
+            if (w.video === isVideo && w.index === t && w.item.nodeId === id && Math.abs(c.start.seconds - w.at) < NEAR && Math.abs(c.end.seconds - (w.at + (w.to - w.from) / (w.speed || 1))) < NEAR) return true;
         }
         return false;
     }
@@ -294,7 +301,7 @@
         var track = p.video ? seq.videoTracks[p.index] : seq.audioTracks[p.index], len = (p.to - p.from) / (p.speed || 1);
         for (var k = 0; k < track.clips.numItems; k++) {
             var c = track.clips[k];
-            if (Math.abs(c.start.seconds - p.at) > 0.02 || Math.abs(c.end.seconds - (p.at + len)) > 0.03) continue;
+            if (Math.abs(c.start.seconds - p.at) > NEAR || Math.abs(c.end.seconds - (p.at + len)) > NEAR) continue;
             try { if (c.projectItem && c.projectItem.nodeId === p.item.nodeId) return true; } catch (e) { }
         }
         return false;
@@ -334,10 +341,15 @@
             return { cursor: cursor, placed: placed, how: 'multicam', layers: a.ranges.length, missing: missing };
         }
         U.ensureTracks(seq, src.videoTracks.numTracks, src.audioTracks.numTracks);
+        // on whole frames: the ranges in the source sequence and the place in the new one
+        var fs = frameOf(src), ft = frameOf(seq);
+        NEAR = Math.max(0.02, ft * 0.6);
+        cursor = snapTo(cursor, ft);
         // every layer of every range: picture first, then sound (sound-only files lay nothing else)
         var want = [], perRange = [];
         for (i = 0; i < a.ranges.length; i++) {
-            var s0 = a.ranges[i].start, s1 = a.ranges[i].end, mine = [];
+            var s0 = snapTo(Math.max(0, a.ranges[i].start), fs), s1 = snapTo(a.ranges[i].end, fs), mine = [];
+            if (s1 <= s0) { placed.push(null); perRange.push([]); continue; }
             var kinds = [{ tracks: src.videoTracks, video: true }, { tracks: src.audioTracks, video: false }];
             for (q = 0; q < kinds.length; q++) {
                 var coll = kinds[q].tracks;

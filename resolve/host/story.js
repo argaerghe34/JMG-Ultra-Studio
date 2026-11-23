@@ -548,10 +548,12 @@ module.exports = (R, fns) => {
      */
     storyPlaceFromSequence(a) {
       const tl = R.needSeq(a.seqId), src = R.needSeq(a.srcSeqId);
-      let cursor = R.num(a.cursor) || 0, layers = 0;
+      // on whole frames (as in Premiere): each line starts where the last one ended, with no frame over or missing
+      const sf = R.fps(src) || 25, tf = R.fps(tl) || 25, snap = (x, f) => Math.round(x * f) / f;
+      let cursor = snap(R.num(a.cursor) || 0, tf), layers = 0;
       const placed = [], missing = [];
       for (const r of a.ranges || []) {
-        const s0 = R.num(r.start), s1 = R.num(r.end);
+        const s0 = R.num(r.start) == null ? null : snap(Math.max(0, R.num(r.start)), sf), s1 = R.num(r.end) == null ? null : snap(R.num(r.end), sf);
         if (s0 == null || s1 == null || s1 <= s0) { placed.push(null); continue; }
         const got = placeTimelineRange(tl, src, s0, s1, cursor, missing);
         layers += got.length;
